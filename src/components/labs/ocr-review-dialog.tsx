@@ -10,9 +10,9 @@
  * row editor.
  */
 import { DocumentReadingConsentPrompt } from "@/components/ai/document-reading-consent-prompt";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { Loader2, ScanLine, Upload } from "lucide-react";
+import { AlertCircle, Loader2, ScanLine, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { toastWrittenOutcome } from "@/components/outcome/outcome-toast";
@@ -24,11 +24,11 @@ import { useTranslations } from "@/lib/i18n/context";
 
 import { OcrRowEditor } from "./ocr-row-editor";
 import { seedReviewRows, type OcrReviewRow } from "./ocr-review-types";
+import { collectRowErrors, planSave } from "./ocr-review-validation";
 import {
   useOcrCommit,
   useOcrExtract,
   useOcrTextExtract,
-  type OcrCommitRowInput,
 } from "./use-ocr-extract";
 
 type Stage = "pick" | "review";
@@ -51,35 +51,6 @@ export function handleFilePickerChange(
   // Reset so re-picking the same file fires `change` again.
   input.value = "";
   if (file) onFilePicked(file);
-}
-
-/** Map a confirmed review row to the commit payload, or null when invalid. */
-function toCommitRow(row: OcrReviewRow): OcrCommitRowInput | null {
-  const analyte = row.analyte.trim();
-  if (!analyte || !row.takenAt) return null;
-  // A calendar day → an ISO instant at noon UTC, avoiding a TZ day-shift.
-  const takenAt = new Date(`${row.takenAt}T12:00:00.000Z`);
-  if (Number.isNaN(takenAt.getTime())) return null;
-
-  const isQualitative = row.valueText !== null && row.valueText !== undefined;
-  if (isQualitative) {
-    const valueText = (row.valueText ?? "").trim();
-    if (!valueText) return null;
-    return { analyte, valueText, takenAt: takenAt.toISOString() };
-  }
-
-  if (row.value === null || !Number.isFinite(row.value)) return null;
-  const unit = (row.unit ?? "").trim();
-  if (!unit) return null;
-  return {
-    analyte,
-    value: row.value,
-    unit,
-    takenAt: takenAt.toISOString(),
-    ...(row.referenceLow !== null ? { referenceLow: row.referenceLow } : {}),
-    ...(row.referenceHigh !== null ? { referenceHigh: row.referenceHigh } : {}),
-    ...(row.referenceText ? { referenceText: row.referenceText } : {}),
-  };
 }
 
 /**
@@ -163,6 +134,12 @@ export function OcrReviewDialog({
    * else: the panel commits with it unset exactly as before.
    */
   const [visitId, setVisitId] = useState<string | null>(null);
+  // Errors stay hidden until a save is attempted: a row is not "wrong" just
+  // because the person has not filled it in yet. Once shown they follow the
+  // edits, so fixing a field clears its mark at once.
+  const [showErrors, setShowErrors] = useState(false);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const reviewListRef = useRef<HTMLDivElement>(null);
 
   // Text mode OCR's the image in the browser then POSTs the text; vision mode
   // uploads the image. Both resolve with the same proposed-rows DTO.
@@ -191,8 +168,22 @@ export function OcrReviewDialog({
     return dates.length > 0 ? `${dates[0]}T12:00:00.000Z` : null;
   }, [rows]);
 
+  /** Blocking fields per confirmed row; rows that are writable are absent. */
+  const rowErrors = useMemo(() => collectRowErrors(rows), [rows]);
+
+  // Move focus to the first marked field once the marks have rendered.
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    const first = reviewListRef.current?.querySelector<HTMLElement>(
+      '[aria-invalid="true"]',
+    );
+    first?.focus();
+    first?.scrollIntoView({ block: "center" });
+  }, [focusRequest]);
+
   function reset() {
     setStage("pick");
+    setShowErrors(false);
     setRows([]);
     setPickedFile(null);
     setVisitId(null);
@@ -223,14 +214,17 @@ export function OcrReviewDialog({
   }
 
   function onSave() {
-    const payload = rows
-      .filter((r) => r.confirmed)
-      .map(toCommitRow)
-      .filter((r): r is OcrCommitRowInput => r !== null);
-    if (payload.length === 0) {
+    const plan = planSave(rows);
+    if (plan.kind === "nothing-selected") {
       toast.error(t("labs.ocr.nothingToSave"));
       return;
     }
+    if (plan.kind === "blocked") {
+      setShowErrors(true);
+      setFocusRequest((n) => n + 1);
+      return;
+    }
+    const { payload } = plan;
     commit.mutate(
       { rows: payload, file: pickedFile, encounterId: visitId },
       {
@@ -354,10 +348,20 @@ export function OcrReviewDialog({
           </label>
         </div>
       ) : (
-        <div className="space-y-3 py-2">
+        <div ref={reviewListRef} className="space-y-3 py-2">
           <p className="text-muted-foreground text-sm">
             {t("labs.ocr.foundCount", { count: rows.length })}
           </p>
+
+          {showErrors && rowErrors.size > 0 ? (
+            <p
+              role="alert"
+              className="text-destructive flex items-start gap-2 text-sm"
+            >
+              <AlertCircle aria-hidden className="mt-0.5 size-4 shrink-0" />
+              {t("labs.ocr.validationSummary", { count: rowErrors.size })}
+            </p>
+          ) : null}
 
           {/* Anchored on the draw date the scan read, so the offer is about
               the panel rather than about today. */}
@@ -372,6 +376,7 @@ export function OcrReviewDialog({
             <OcrRowEditor
               key={row.key}
               row={row}
+              errors={showErrors ? rowErrors.get(row.key) : undefined}
               onChange={(next) =>
                 setRows((prev) =>
                   prev.map((r) => (r.key === next.key ? next : r)),

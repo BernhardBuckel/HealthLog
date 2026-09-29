@@ -23,6 +23,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
+import { FieldError } from "@/components/forms/field-error";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DateField } from "@/components/ui/date-field";
@@ -31,19 +32,43 @@ import { Label } from "@/components/ui/label";
 import { useTranslations } from "@/lib/i18n/context";
 
 import type { OcrReviewRow } from "./ocr-review-types";
+import type { OcrRowErrors } from "./ocr-review-validation";
 
 /** Below this per-field confidence the field is flagged for a second look. */
 const CONFIDENCE_THRESHOLD = 0.6;
 
+/** The visible marker that a field must be filled before the row can save. */
+function RequiredMark() {
+  return (
+    <span aria-hidden className="text-destructive">
+      {" *"}
+    </span>
+  );
+}
+
 export function OcrRowEditor({
   row,
   onChange,
+  errors,
 }: {
   row: OcrReviewRow;
   onChange: (next: OcrReviewRow) => void;
+  /** The blocking fields of this row, once a save has been attempted. */
+  errors?: OcrRowErrors;
 }) {
   const { t } = useTranslations();
   const fieldId = useId();
+  const invalidProps = (field: keyof OcrRowErrors) =>
+    errors?.[field]
+      ? {
+          "aria-invalid": true as const,
+          "aria-describedby": `${fieldId}-${field}-error`,
+        }
+      : {};
+  const fieldError = (field: keyof OcrRowErrors, messageKey: string) =>
+    errors?.[field] ? (
+      <FieldError id={`${fieldId}-${field}-error`} message={t(messageKey)} />
+    ) : null;
 
   const isQualitative = row.valueText !== null && row.valueText !== undefined;
   const lowValueConfidence =
@@ -98,8 +123,10 @@ export function OcrRowEditor({
             value={row.analyte}
             onChange={(e) => onChange({ ...row, analyte: e.target.value })}
             aria-label={t("labs.ocr.analyteLabel")}
+            {...invalidProps("analyte")}
             className="font-medium"
           />
+          {fieldError("analyte", "labs.ocr.errorAnalyte")}
           <div className="flex flex-wrap items-center gap-1.5">
             {row.biomarkerMatch === "existing" ? (
               <Badge variant="outline" className="text-muted-foreground">
@@ -133,18 +160,22 @@ export function OcrRowEditor({
           <div className="col-span-2 space-y-1 sm:col-span-3">
             <Label htmlFor={`${fieldId}-vt`} className="text-xs">
               {t("labs.ocr.resultLabel")}
+              <RequiredMark />
             </Label>
             <Input
               id={`${fieldId}-vt`}
               value={row.valueText ?? ""}
               onChange={(e) => onChange({ ...row, valueText: e.target.value })}
+              {...invalidProps("valueText")}
             />
+            {fieldError("valueText", "labs.ocr.errorResult")}
           </div>
         ) : (
           <>
             <div className="space-y-1">
               <Label htmlFor={`${fieldId}-val`} className="text-xs">
                 {t("labs.ocr.valueLabel")}
+                <RequiredMark />
               </Label>
               <Input
                 id={`${fieldId}-val`}
@@ -161,29 +192,40 @@ export function OcrRowEditor({
                         : null,
                   });
                 }}
+                {...invalidProps("value")}
               />
+              {fieldError("value", "labs.ocr.errorValue")}
             </div>
             <div className="space-y-1">
               <Label htmlFor={`${fieldId}-unit`} className="text-xs">
                 {t("labs.ocr.unitLabel")}
+                <RequiredMark />
               </Label>
               <Input
                 id={`${fieldId}-unit`}
                 value={row.unit ?? ""}
                 onChange={(e) => onChange({ ...row, unit: e.target.value })}
+                {...invalidProps("unit")}
               />
+              {fieldError("unit", "labs.ocr.errorUnit")}
             </div>
           </>
         )}
         <div className="space-y-1">
           <Label htmlFor={`${fieldId}-date`} className="text-xs">
             {t("labs.ocr.dateLabel")}
+            <RequiredMark />
           </Label>
           <DateField
             id={`${fieldId}-date`}
             value={row.takenAt ?? ""}
             onChange={(value) => onChange({ ...row, takenAt: value || null })}
+            {...invalidProps("date")}
+            // The bordered wrapper is the visible control; the input inside
+            // it only carries the aria state.
+            className={errors?.date ? "border-destructive" : undefined}
           />
+          {fieldError("date", "labs.ocr.errorDate")}
         </div>
       </div>
 
