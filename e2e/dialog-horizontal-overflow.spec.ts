@@ -1,6 +1,7 @@
 import { expect, test } from "./setup/test";
 
 import { STORAGE_STATE_PATH } from "./setup/global-setup";
+import { aiBlockAvailable, serveAiBlock } from "./setup/ai-capabilities";
 
 /**
  * An add / edit dialog must not pan sideways, and nothing you have to operate
@@ -289,4 +290,200 @@ test.describe("add/edit dialogs do not scroll sideways", () => {
       /outside the dialog's visible box/,
     );
   });
+});
+
+/**
+ * The lab-scan review stage is a list of readings to compare and correct, so
+ * it takes the room a large screen offers while phones keep the bottom sheet.
+ * Measured at the widths that matter: a phone, a tablet, the shared 1280 px
+ * frame, full HD and an ultrawide.
+ *
+ * The rows lay themselves out from the width of the dialog (a container
+ * query), so the assertion is about the RESULT: where the reading and its
+ * fields sit relative to each other, not which class produced it.
+ */
+const REVIEW_VIEWPORTS = [
+  {
+    label: "phone 390",
+    width: 390,
+    height: 844,
+    wide: false,
+    threeAcross: false,
+  },
+  // Below the window `sm` breakpoint (640 px) yet with a dialog body well past
+  // the container `@md` breakpoint (448 px): the fields have room for three
+  // columns even though the window is "small". This is the width that tells
+  // "follows the dialog" from "follows the window".
+  {
+    label: "small tablet 560",
+    width: 560,
+    height: 900,
+    wide: false,
+    threeAcross: true,
+  },
+  {
+    label: "tablet 768",
+    width: 768,
+    height: 1024,
+    wide: false,
+    threeAcross: true,
+  },
+  {
+    label: "desktop 1280",
+    width: 1280,
+    height: 800,
+    wide: true,
+    threeAcross: true,
+  },
+  {
+    label: "full HD 1920",
+    width: 1920,
+    height: 1080,
+    wide: true,
+    threeAcross: true,
+  },
+  {
+    label: "ultrawide 3440",
+    width: 3440,
+    height: 1440,
+    wide: true,
+    threeAcross: true,
+  },
+];
+
+const REVIEW_ROWS = ["LDL", "HDL", "Glucose", "Creatinine", "ALT", "CRP"].map(
+  (analyte, index) => ({
+    analyte,
+    value: 1 + index,
+    valueText: null,
+    unit: "mmol/L",
+    referenceLow: 0,
+    referenceHigh: 5,
+    referenceText: "0 - 5",
+    takenAt: index === 0 ? null : "2026-06-10",
+    confidence: { analyte: 0.9, value: 0.9, unit: 0.9, range: 0.9 },
+    biomarkerMatch: "existing",
+    duplicateOf: null,
+  }),
+);
+
+// One pixel: enough to be a valid image for the picker, and never decoded.
+const PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test.describe("lab-scan review dialog uses the width it is given", () => {
+  test.use({ storageState: STORAGE_STATE_PATH });
+
+  for (const vp of REVIEW_VIEWPORTS) {
+    test(`review stage @${vp.label}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await serveAiBlock(page, aiBlockAvailable());
+      await page.route("**/api/labs/ocr/capability", (route) =>
+        route.fulfill({
+          json: {
+            data: {
+              available: true,
+              mode: "vision",
+              reason: null,
+              pdfSupported: true,
+            },
+            error: null,
+          },
+        }),
+      );
+      await page.route("**/api/labs/ocr/extract", (route) =>
+        route.fulfill({
+          json: {
+            data: {
+              reportDate: null,
+              providerType: "stub",
+              rows: REVIEW_ROWS,
+            },
+            error: null,
+          },
+        }),
+      );
+
+      await page.goto("/labs", { waitUntil: "domcontentloaded" });
+      await page.getByRole("button", { name: /^add$/i }).first().click();
+      await page.getByRole("menuitem", { name: /scan/i }).click();
+
+      const surface = page.locator(SURFACE).first();
+      await expect(surface).toBeVisible();
+
+      // The picking stage is a single control and stays narrow.
+      const pickWidth = (await surface.boundingBox())!.width;
+      if (!vp.wide) expect(pickWidth).toBeLessThanOrEqual(vp.width);
+      else expect(pickWidth).toBeLessThan(500);
+
+      await page.locator('input[type="file"]').first().setInputFiles({
+        name: "report.png",
+        mimeType: "image/png",
+        buffer: PIXEL_PNG,
+      });
+      const rows = surface.locator("input[id$='-val']");
+      await expect(rows.first()).toBeVisible();
+      await expect(rows).toHaveCount(REVIEW_ROWS.length);
+
+      const label = `scan review @${vp.label}`;
+      await expectNoSidewaysScroll(page, label);
+      await expectControlsInsideBox(page, label);
+
+      const box = (await surface.boundingBox())!;
+      const analyte = (await surface
+        .getByLabel("Test name")
+        .first()
+        .boundingBox())!;
+      const value = (await rows.first().boundingBox())!;
+      const unit = (await surface
+        .locator("input[id$='-unit']")
+        .first()
+        .boundingBox())!;
+      const date = (await surface
+        .locator('[data-slot="date-field"]')
+        .first()
+        .boundingBox())!;
+
+      // Value, unit and date share a line when the fields have room for three
+      // columns, and the date wraps under them when they do not.
+      if (vp.threeAcross) {
+        expect(
+          Math.abs(unit.y - value.y),
+          `${label}: unit beside value`,
+        ).toBeLessThan(8);
+        expect(
+          Math.abs(date.y - value.y),
+          `${label}: date beside value`,
+        ).toBeLessThan(8);
+      } else {
+        expect(
+          Math.abs(unit.y - value.y),
+          `${label}: unit beside value`,
+        ).toBeLessThan(8);
+        expect(date.y, `${label}: date wraps`).toBeGreaterThan(
+          value.y + value.height - 1,
+        );
+      }
+
+      if (vp.wide) {
+        // Room to compare: clearly wider than the old 448 px column, and never
+        // past the readable cap (72rem = 1152 px).
+        expect(box.width, `${label}: dialog width`).toBeGreaterThan(700);
+        expect(box.width, `${label}: dialog width`).toBeLessThanOrEqual(1153);
+        // The reading and its fields share a line: the value sits to the right
+        // of the analyte, not underneath it.
+        expect(value.x, `${label}: value beside analyte`).toBeGreaterThan(
+          analyte.x + analyte.width - 1,
+        );
+        expect(Math.abs(value.y - analyte.y)).toBeLessThan(80);
+      } else {
+        // Narrow: stacked exactly as before.
+        expect(value.y, `${label}: value under analyte`).toBeGreaterThan(
+          analyte.y + analyte.height - 1,
+        );
+      }
+    });
+  }
 });

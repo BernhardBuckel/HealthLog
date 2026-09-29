@@ -82,3 +82,36 @@ describe("<OcrRowEditor> required-field marking", () => {
     expect(render({ date: true }, "de")).toContain("Bitte ein Datum angeben.");
   });
 });
+
+describe("<OcrRowEditor> layout", () => {
+  it("lays out from the width of its container, not the window", () => {
+    const html = render(undefined);
+    expect(html).toContain('class="@container"');
+    // Two columns only once the container is wide; stacked below that.
+    expect(html).toContain("@3xl:grid-cols-");
+  });
+
+  it("sizes the field grid from its own container, never from the window", () => {
+    const numeric = render(undefined);
+    expect(numeric).toContain("@md:grid-cols-3");
+    expect(numeric).not.toMatch(/(?<![@\w-])sm:grid-cols/);
+
+    // A qualitative result spans the grid's columns; the span has to follow
+    // the same query as the columns, or it would open a column of its own.
+    const qualitative = render(undefined, "en", {
+      ...baseRow,
+      value: null,
+      valueText: "negative",
+      unit: null,
+    });
+    expect(qualitative).toContain("@md:col-span-3");
+    expect(qualitative).not.toMatch(/(?<![@\w-])sm:col-span/);
+  });
+
+  it("keeps every field of the row, however the columns fall", () => {
+    const html = render(undefined);
+    for (const id of ["-val", "-unit", "-date", "-lo", "-hi", "-refText"]) {
+      expect(html, `field ${id}`).toContain(`${id}"`);
+    }
+  });
+});
