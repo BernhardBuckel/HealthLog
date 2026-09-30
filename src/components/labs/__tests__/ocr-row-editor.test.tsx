@@ -45,7 +45,7 @@ describe("<OcrRowEditor> required-field marking", () => {
     const html = render({ date: true });
     const invalid = html.match(/<input[^>]*aria-invalid="true"[^>]*>/g) ?? [];
     expect(invalid).toHaveLength(1);
-    const describedBy = invalid[0].match(/aria-describedby="([^"]+)"/)?.[1];
+    const describedBy = invalid[0]?.match(/aria-describedby="([^"]+)"/)?.[1];
     expect(describedBy).toBeTruthy();
     expect(html).toContain(`id="${describedBy}"`);
     expect(html).toContain("Add the sample date.");
