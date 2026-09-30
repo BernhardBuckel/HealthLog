@@ -114,6 +114,7 @@ const COOKIE_PROOF_ROUTES = [
   "app/api/auth/reproof/route.ts",
   "app/api/tokens/documents/route.ts",
   "app/api/tokens/measurements/route.ts",
+  "app/api/tokens/workouts/route.ts",
 ].sort();
 
 describe("the recent-proof gate", () => {

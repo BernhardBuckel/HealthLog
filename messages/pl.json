@@ -6175,6 +6175,13 @@
       "scopeNote": "Może wyłącznie dodawać nowe pomiary do Twojej dokumentacji — nie odczyta danych, niczego nie zmieni ani nie usunie i nie utworzy kolejnego tokenu. Pomiary są oznaczane jako pochodzące z urządzenia zewnętrznego, dzięki czemu później je rozpoznasz, i nadal możesz je poprawić.",
       "createFailed": "Nie udało się utworzyć tokenu. Spróbuj ponownie."
     },
+    "workoutsToken": {
+      "title": "Tokeny treningów",
+      "description": "Utwórz token, aby mostek zegarka lub skrypt synchronizacji mogły dodawać Twoje treningi.",
+      "detail": "Token pokazujemy tylko raz.",
+      "scopeNote": "Może wyłącznie dodawać nowe treningi do Twojej dokumentacji. Nie odczyta danych, niczego nie zmieni ani nie usunie i nie utworzy kolejnego tokenu. Dodane przez niego treningi są oznaczane jako pochodzące z urządzenia zewnętrznego, a jeśli telefon zapisał tę samą sesję, widzisz zapis z telefonu.",
+      "createFailed": "Nie udało się utworzyć tokenu. Spróbuj ponownie."
+    },
     "documentsToken": {
       "title": "Tokeny dokumentów",
       "description": "Utwórz token, aby Paperless-ngx, Papra lub skrypt importu mogły dodawać dokumenty do Twojego archiwum.",
@@ -7294,6 +7301,7 @@
         "previewTitle": "Zawartość kopii",
         "previewLoading": "Odczytywanie zawartości…",
         "previewUnavailable": "Nie udało się odczytać zawartości — przywracanie jest nadal możliwe.",
+        "previewStillReading": "Ta kopia powstała we wcześniejszej wersji, więc jej zawartość jest odczytywana w całości, co przy dużych danych chwilę trwa. Otwórz to okno ponownie za kilka minut, aby ją zobaczyć. Przywracanie od tego nie zależy.",
         "previewEmpty": "Plik nie zawiera rekordów.",
         "previewOther": "Inne rekordy",
         "previewMeasurements": "Pomiary",

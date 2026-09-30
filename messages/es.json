@@ -6175,6 +6175,13 @@
       "scopeNote": "Solo puede añadir mediciones nuevas a tu propio historial: no puede leer tus datos, ni modificar o borrar nada, ni crear otro token. Las mediciones se marcan como procedentes de un dispositivo externo, así las distingues más tarde, y puedes corregirlas igualmente.",
       "createFailed": "No se pudo crear el token. Inténtalo de nuevo."
     },
+    "workoutsToken": {
+      "title": "Tokens de entrenamientos",
+      "description": "Crea un token para que un puente de tu reloj o un script de sincronización añadan tus entrenamientos.",
+      "detail": "El token se muestra una sola vez.",
+      "scopeNote": "Solo puede añadir entrenamientos nuevos a tu propio historial. No puede leer tus datos, ni modificar o borrar nada, ni crear otro token. Los entrenamientos que añade se marcan como procedentes de un dispositivo externo, y si tu teléfono registró la misma sesión, ves la copia del teléfono.",
+      "createFailed": "No se pudo crear el token. Inténtalo de nuevo."
+    },
     "documentsToken": {
       "title": "Tokens de documentos",
       "description": "Crea un token para que Paperless-ngx, Papra o el script de importación añadan documentos a tu archivo.",
@@ -7294,6 +7301,7 @@
         "previewTitle": "Contenido de la copia",
         "previewLoading": "Leyendo el contenido…",
         "previewUnavailable": "No se pudo leer el contenido — restaurar sigue siendo posible.",
+        "previewStillReading": "Esta copia se hizo con una versión anterior, así que su contenido se está leyendo completo, y con un historial grande eso lleva un rato. Vuelve a abrir este diálogo en unos minutos para verlo. Restaurar no depende de ello.",
         "previewEmpty": "El archivo no contiene registros.",
         "previewOther": "Otros registros",
         "previewMeasurements": "Mediciones",

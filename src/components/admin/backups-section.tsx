@@ -91,6 +91,39 @@ import {
  * blast radius is bigger (re-creates rows, not just deletes).
  */
 /**
+ * How long the restore dialog waits for the contents of a copy. A copy's
+ * counts are kept with it and come back at once; this only runs out on a copy
+ * from an earlier version that the server is still reading whole, and stays
+ * under the minute a reverse proxy commonly allows a request.
+ */
+const PREVIEW_TIMEOUT_MS = 55_000;
+
+/**
+ * What the restore dialog says when the contents did not come back: the key
+ * the copy needs and this server lacks, a copy from an earlier version still
+ * being read when the dialog stopped waiting, or anything else.
+ */
+export function restorePreviewFailure(
+  error: unknown,
+): "keyMissing" | "stillReading" | "unavailable" {
+  if (
+    error instanceof ApiError &&
+    error.meta?.errorCode === "backup.key.missing"
+  ) {
+    return "keyMissing";
+  }
+  // `AbortSignal.timeout` rejects the fetch with a DOMException of this name.
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "TimeoutError"
+  ) {
+    return "stillReading";
+  }
+  return "unavailable";
+}
+
+/**
  * v1.37.20 — the sections a restore preview names, in render order. Each
  * entry sums one or more `BackupSummary` counters under one human label;
  * every counter NOT named here still reaches the operator through the
@@ -151,18 +184,25 @@ function RestoreRowDialog({
   const [withInstanceSettings, setWithInstanceSettings] = useState(false);
 
   // v1.37.20 — restore preview: fetch what the file contains the moment the
-  // dialog opens, so the typed confirmation is an informed one. Derived from
-  // the same decrypt + schema path the restore itself runs. A failed preview
-  // never blocks the restore — it states its own absence instead.
+  // dialog opens, so the typed confirmation is an informed one. A failed
+  // preview never blocks the restore — it states its own absence instead.
+  //
+  // Never retried. The server answers from counts kept with the copy, at
+  // once; only a copy from an earlier version is read whole, and that read
+  // goes on (and is kept) after this request gives up. A retry would only
+  // start the same read a second time (#1031).
   const preview = useQuery({
     queryKey: queryKeys.adminBackupSummary(row.id),
     queryFn: () =>
       apiGet<{ summary: Record<string, unknown> }>(
         `/api/admin/backups/${row.id}/summary`,
+        { signal: AbortSignal.timeout(PREVIEW_TIMEOUT_MS) },
       ),
     enabled: open,
     staleTime: 60_000,
+    retry: false,
   });
+  const previewFailure = restorePreviewFailure(preview.error);
   const numericSummary: Record<string, number> = {};
   if (preview.data?.summary) {
     for (const [key, value] of Object.entries(preview.data.summary)) {
@@ -239,16 +279,20 @@ function RestoreRowDialog({
             </p>
           )}
           {preview.isError &&
-            (preview.error instanceof ApiError &&
-            preview.error.meta?.errorCode === "backup.key.missing" ? (
+            (previewFailure === "keyMissing" &&
+            preview.error instanceof ApiError ? (
               // The one preview failure the restore would repeat: say which
               // key, so the operator can put it back before trying.
               <p role="alert" className="text-destructive">
                 {t("admin.section.backups.previewKeyMissing", {
-                  keys: Array.isArray(preview.error.meta.keyIds)
+                  keys: Array.isArray(preview.error.meta?.keyIds)
                     ? preview.error.meta.keyIds.map(String).join(", ")
                     : "",
                 })}
+              </p>
+            ) : previewFailure === "stillReading" ? (
+              <p className="text-muted-foreground">
+                {t("admin.section.backups.previewStillReading")}
               </p>
             ) : (
               <p className="text-muted-foreground">
