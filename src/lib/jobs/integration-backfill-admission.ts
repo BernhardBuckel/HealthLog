@@ -49,6 +49,27 @@ const RETRY_OPTIONS = {
   retryBackoff: true,
 } as const;
 
+/**
+ * The admission job's expiry: sixteen hours, so a legitimately long import
+ * is never declared dead underneath itself.
+ *
+ * Without it every admission job took pg-boss's default of fifteen minutes.
+ * A full-history import of a per-minute heart-rate stream is thousands of
+ * pages (a page is 1 000 readings, about seventeen hours of a watch's
+ * history, so five years is some 2 600 pages), and at a few seconds a page on
+ * a slow link that is hours. Past the expiry pg-boss fails the job and retries
+ * it while the handler keeps running (`integration-backfill-lock.ts`), and the
+ * import that could not finish in fifteen minutes started over beside itself.
+ *
+ * The runs that honour the job's budget (`jobBudget`, three quarters of this)
+ * stop on their own at twelve hours, which is still some 8 000 pages at five
+ * seconds each, and are retried or re-offered at the next boot. The expiry is
+ * also what ends a run that hangs: the lane is freed for the next import, and
+ * the import lock keeps a retry from starting beside the stuck run. pg-boss
+ * refuses an expiry of 24 hours or more.
+ */
+export const INTEGRATION_BACKFILL_EXPIRE_SECONDS = 16 * 60 * 60;
+
 export function bootStaggerSecondsFor(kind: IntegrationBackfillKind): number {
   return (
     (INTEGRATION_BACKFILL_BOOT_ORDER.indexOf(kind) + 1) *
@@ -83,9 +104,25 @@ export async function enqueueIntegrationBackfillAdmission(
   boss: BossSender,
   payload: IntegrationBackfillAdmissionPayload,
 ): Promise<string | null> {
-  return boss.send(INTEGRATION_BACKFILL_ADMISSION_QUEUE, payload, {
+  return boss.send(
+    INTEGRATION_BACKFILL_ADMISSION_QUEUE,
+    payload,
+    integrationBackfillAdmissionSendOptions(payload),
+  );
+}
+
+/**
+ * The send options of one admission job. The options ride on the send, not on
+ * `createQueue`, whose `ON CONFLICT DO NOTHING` leaves an existing queue's
+ * defaults as they were.
+ */
+export function integrationBackfillAdmissionSendOptions(
+  payload: IntegrationBackfillAdmissionPayload,
+): SendOptions {
+  return {
     ...RETRY_OPTIONS,
+    expireInSeconds: INTEGRATION_BACKFILL_EXPIRE_SECONDS,
     singletonKey: integrationBackfillAdmissionSingletonKey(payload),
     group: INTEGRATION_BACKFILL_ADMISSION_GROUP,
-  });
+  };
 }

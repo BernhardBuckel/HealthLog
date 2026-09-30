@@ -43,6 +43,9 @@ export type JobFacts = Readonly<Record<string, JobFact>>;
  */
 export const JOB_FACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "access_tokens_deleted",
+  // An admission delivery that found its import still running from an
+  // earlier delivery of the same job and did nothing.
+  "already_running",
   "appointment_addresses_cleared",
   "assessments_warmed",
   "auto_resolved",
