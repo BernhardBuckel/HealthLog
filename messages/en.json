@@ -533,7 +533,10 @@
       "saveError": "Could not save medication intake.",
       "emptyTitle": "No medications yet",
       "emptyDescription": "Create a medication with a schedule first, then come back here to log the intake.",
-      "emptyCta": "Add medication"
+      "emptyCta": "Add medication",
+      "noneActionableTitle": "Nothing to take today",
+      "noneActionableDescription": "Your medications are paused, kept as a record, or their course has not started or has already ended. A past dose can still be added from a medication's history.",
+      "noneActionableCta": "Open medications"
     },
     "quickEntryDiscard": {
       "title": "Discard this entry?",

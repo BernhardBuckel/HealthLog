@@ -71,6 +71,7 @@ function makeMed(
     name: `Med ${id}`,
     dose: "5 mg",
     active: true,
+    intakeActionable: true,
     schedules: [],
     lastTakenAt: null,
     todayEventCount: 0,
@@ -314,6 +315,48 @@ describe("<MedicationIntakeQuickAdd> — SSR contract", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // #1040 — the picker offers what the server calls actionable, nothing
+  // it re-derives. An ended course is still `active` (nobody paused it),
+  // which is exactly the case the old `active && trackIntake` filter let
+  // through.
+  it("does not offer an ended course, even though it is still active (#1040)", () => {
+    mockUseQuery.mockReturnValue({
+      data: [
+        makeMed("ended", {
+          name: "Alpha",
+          active: true,
+          intakeActionable: false,
+        }),
+        makeMed("current", { name: "Zulu" }),
+      ],
+      isLoading: false,
+    });
+    const html = renderSSR(<MedicationIntakeQuickAdd />);
+    // Alphabetical fallback would land on "Alpha" if it were offered.
+    expect(html).toMatch(
+      /data-slot="select-value"[^>]*>[\s\S]*?Zulu[\s\S]*?<\/span>/,
+    );
+    expect(html).not.toContain("Alpha");
+  });
+
+  it("shows the empty state when no medication is actionable today (#1040)", () => {
+    mockUseQuery.mockReturnValue({
+      data: [
+        makeMed("ended", { name: "Alpha", intakeActionable: false }),
+        makeMed("upcoming", { name: "Beta", intakeActionable: false }),
+      ],
+      isLoading: false,
+    });
+    const html = renderSSR(<MedicationIntakeQuickAdd />);
+    expect(html).toContain('data-testid="medication-intake-quick-add-empty"');
+    expect(html).not.toContain(
+      'data-testid="medication-intake-quick-add-form"',
+    );
+    // The user has medications, so "no medications yet" would be untrue.
+    expect(html).toContain("Nothing to take today");
+    expect(html).not.toContain("No medications yet");
   });
 
   it("does not leak raw i18n keys in either locale", () => {
