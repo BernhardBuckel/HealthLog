@@ -533,7 +533,10 @@
       "saveError": "No se ha podido guardar la toma.",
       "emptyTitle": "Aún no hay medicamentos",
       "emptyDescription": "Crea primero un medicamento con horario, después vuelve aquí para registrar la toma.",
-      "emptyCta": "Añadir medicamento"
+      "emptyCta": "Añadir medicamento",
+      "noneActionableTitle": "Nada que tomar hoy",
+      "noneActionableDescription": "Tus medicamentos están en pausa, se guardan solo como registro, o su tratamiento aún no ha empezado o ya ha terminado. Puedes seguir añadiendo una toma pasada desde el historial del medicamento.",
+      "noneActionableCta": "Abrir medicamentos"
     },
     "quickEntryDiscard": {
       "title": "¿Descartar esta entrada?",

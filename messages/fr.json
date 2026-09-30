@@ -533,7 +533,10 @@
       "saveError": "Impossible d’enregistrer la prise.",
       "emptyTitle": "Aucun médicament pour l’instant",
       "emptyDescription": "Crée d’abord un médicament avec un horaire, puis reviens ici pour saisir la prise.",
-      "emptyCta": "Ajouter un médicament"
+      "emptyCta": "Ajouter un médicament",
+      "noneActionableTitle": "Rien à prendre aujourd’hui",
+      "noneActionableDescription": "Tes médicaments sont en pause, conservés comme simple fiche, ou leur traitement n’a pas encore commencé ou est déjà terminé. Tu peux toujours ajouter une prise passée depuis l’historique du médicament.",
+      "noneActionableCta": "Ouvrir les médicaments"
     },
     "quickEntryDiscard": {
       "title": "Abandonner cette saisie ?",

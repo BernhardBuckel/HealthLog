@@ -52,17 +52,20 @@ const DENSE_SERIES_RAW_WINDOW_DAYS = 90;
 const DENSE_SERIES_KINDS: ReadonlySet<string> = new Set(["glucose", "pulse"]);
 
 /**
- * #1023 — inside the raw window, a pulse series with more rows than this is
- * bucketed per local hour in SQL instead of sent raw.
+ * #1023 — inside the raw window, a pulse or glucose series with more rows
+ * than this is bucketed per local hour in SQL instead of sent raw.
  *
  * A watch that records heart rate once a minute puts 43 000 rows in the
  * default 30-day window and 130 000 in 90 days: a 15 MB response the client
  * could not draw at that resolution anyway, built from as many objects on the
- * server. Hourly buckets carry the hour's mean with its low/high band, the
- * shape an hourly-bucket import already has, and cap the answer at 24 points
- * a day. The cap sits far above what sparse sources produce (a cuff, hourly
- * buckets over 90 days, a watch sampling every five minutes over 30 days), so
- * those series stay raw and unchanged.
+ * server. A CGM reading every five minutes puts 26 000 glucose rows in 90
+ * days, the same problem at a smaller scale. Hourly buckets carry the hour's
+ * mean (pulse also its low/high band, the shape an hourly-bucket import
+ * already has) and cap the answer at 24 points a day; the statistics stay
+ * computed over every raw reading. The cap sits far above what sparse sources
+ * produce (a cuff, fingerstick glucose, hourly buckets over 90 days, a watch
+ * sampling every five minutes over 30 days), so those series stay raw and
+ * unchanged.
  */
 const DENSE_SERIES_RAW_ROW_CAP = 10_000;
 
@@ -368,18 +371,18 @@ export const GET = apiHandler(async (request: NextRequest) => {
     });
   } else if (
     (DENSE_SERIES_KINDS.has(kind) && days > DENSE_SERIES_RAW_WINDOW_DAYS) ||
-    (kind === "pulse" &&
+    (DENSE_SERIES_KINDS.has(kind) &&
       (await prisma.measurement.count({
         where: {
           userId: user.id,
-          type: "PULSE",
+          type: KIND_TO_TYPE[kind],
           measuredAt: { gte: since },
           deletedAt: null,
         },
       })) > DENSE_SERIES_RAW_ROW_CAP)
   ) {
-    // Day buckets past the raw window; hour buckets for a pulse stream too
-    // dense to send raw inside it.
+    // Day buckets past the raw window; hour buckets for a pulse or CGM
+    // stream too dense to send raw inside it.
     const grain = days > DENSE_SERIES_RAW_WINDOW_DAYS ? "day" : "hour";
     // v1.28.25 — long-window read of a sample-dense kind (CGM glucose,
     // per-sample / hourly pulse). Day-bucket in SQL instead of walking

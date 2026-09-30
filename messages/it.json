@@ -533,7 +533,10 @@
       "saveError": "Impossibile salvare l’assunzione.",
       "emptyTitle": "Ancora nessun farmaco",
       "emptyDescription": "Crea prima un farmaco con un orario, poi torna qui per registrarne l’assunzione.",
-      "emptyCta": "Aggiungi farmaco"
+      "emptyCta": "Aggiungi farmaco",
+      "noneActionableTitle": "Niente da prendere oggi",
+      "noneActionableDescription": "I tuoi farmaci sono in pausa, conservati solo come scheda, oppure la terapia non è ancora iniziata o è già terminata. Puoi comunque aggiungere un’assunzione passata dalla cronologia del farmaco.",
+      "noneActionableCta": "Apri i farmaci"
     },
     "quickEntryDiscard": {
       "title": "Scartare questa voce?",

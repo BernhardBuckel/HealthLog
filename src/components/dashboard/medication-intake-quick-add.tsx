@@ -81,8 +81,13 @@ interface Schedule extends ScheduleWindowInput {
 export interface MedicationOption extends DefaultMedicationOption {
   dose: string;
   schedules: Schedule[];
-  /** v1.39.1 (#1033) — false: kept as a record, not offered for a dose. */
-  trackIntake?: boolean;
+  /**
+   * The server's answer to "does this medication offer a dose today"
+   * (active, intake tracked, course includes today; see
+   * `src/lib/medications/intake-actionable.ts`). The list read always
+   * carries it, so the picker renders from it and re-derives nothing.
+   */
+  intakeActionable: boolean;
 }
 
 interface MedicationIntakeQuickAddProps {
@@ -141,9 +146,10 @@ export function MedicationIntakeQuickAdd({
   const medications = useMemo(
     () =>
       Array.isArray(medicationsRaw)
-        ? // v1.39.1 (#1033) — a medication with intake tracking off is
-          // kept as a record; the dose capture does not offer it.
-          medicationsRaw.filter((m) => m.active && m.trackIntake !== false)
+        ? // #1040 — offer exactly what the cards, the table and "take
+          // all" offer: a paused, record-only, not-yet-started or ended
+          // course is not a dose to capture now.
+          medicationsRaw.filter((m) => m.intakeActionable === true)
         : [],
     [medicationsRaw],
   );
@@ -314,6 +320,10 @@ export function MedicationIntakeQuickAdd({
   // anlegen</Link>` so the footer-slot promise holds across both
   // branches.
   if (!medicationsLoading && medications.length === 0) {
+    // Medications exist, none offers a dose today: say that, rather than
+    // "no medications yet", which would be untrue.
+    const noneActionable =
+      Array.isArray(medicationsRaw) && medicationsRaw.length > 0;
     const emptyFooter = (
       <div className="flex w-full items-center justify-end gap-2">
         {onCancel && (
@@ -328,7 +338,9 @@ export function MedicationIntakeQuickAdd({
         )}
         <Button asChild className="min-h-11 sm:min-h-9">
           <Link href="/medications">
-            {t("dashboard.medicationIntakeQuickAdd.emptyCta")}
+            {noneActionable
+              ? t("dashboard.medicationIntakeQuickAdd.noneActionableCta")
+              : t("dashboard.medicationIntakeQuickAdd.emptyCta")}
           </Link>
         </Button>
       </div>
@@ -344,10 +356,16 @@ export function MedicationIntakeQuickAdd({
           <Pill className="text-muted-foreground h-6 w-6" aria-hidden="true" />
           <div className="space-y-1">
             <p className="text-sm font-medium">
-              {t("dashboard.medicationIntakeQuickAdd.emptyTitle")}
+              {noneActionable
+                ? t("dashboard.medicationIntakeQuickAdd.noneActionableTitle")
+                : t("dashboard.medicationIntakeQuickAdd.emptyTitle")}
             </p>
             <p className="text-muted-foreground text-xs">
-              {t("dashboard.medicationIntakeQuickAdd.emptyDescription")}
+              {noneActionable
+                ? t(
+                    "dashboard.medicationIntakeQuickAdd.noneActionableDescription",
+                  )
+                : t("dashboard.medicationIntakeQuickAdd.emptyDescription")}
             </p>
           </div>
         </div>

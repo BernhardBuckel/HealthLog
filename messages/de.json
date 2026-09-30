@@ -533,7 +533,10 @@
       "saveError": "Einnahme konnte nicht gespeichert werden.",
       "emptyTitle": "Noch keine Medikamente angelegt",
       "emptyDescription": "Lege zuerst ein Medikament mit Zeitfenster an, damit du die Einnahme protokollieren kannst.",
-      "emptyCta": "Medikament hinzufügen"
+      "emptyCta": "Medikament hinzufügen",
+      "noneActionableTitle": "Heute ist nichts einzunehmen",
+      "noneActionableDescription": "Deine Medikamente sind pausiert, sind nur dokumentiert, oder ihr Einnahmezeitraum hat noch nicht begonnen oder ist schon vorbei. Eine vergangene Einnahme kannst du weiterhin im Verlauf des Medikaments nachtragen.",
+      "noneActionableCta": "Zu den Medikamenten"
     },
     "quickEntryDiscard": {
       "title": "Eintrag verwerfen?",

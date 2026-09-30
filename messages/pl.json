@@ -533,7 +533,10 @@
       "saveError": "Nie udało się zapisać przyjęcia.",
       "emptyTitle": "Brak leków",
       "emptyDescription": "Najpierw dodaj lek z harmonogramem, a potem wróć tutaj, aby zarejestrować jego przyjęcie.",
-      "emptyCta": "Dodaj lek"
+      "emptyCta": "Dodaj lek",
+      "noneActionableTitle": "Dziś nic do przyjęcia",
+      "noneActionableDescription": "Twoje leki są wstrzymane, zapisane tylko jako wpis albo ich kuracja jeszcze się nie zaczęła lub już się skończyła. Przeszłą dawkę nadal możesz dodać w historii leku.",
+      "noneActionableCta": "Otwórz leki"
     },
     "quickEntryDiscard": {
       "title": "Odrzucić ten wpis?",

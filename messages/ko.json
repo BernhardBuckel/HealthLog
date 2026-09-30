@@ -533,7 +533,10 @@
       "saveError": "복용 기록을 저장하지 못했어요.",
       "emptyTitle": "등록된 약이 없어요",
       "emptyDescription": "먼저 일정이 있는 약을 만든 뒤, 여기로 돌아와 복용을 기록하세요.",
-      "emptyCta": "약 추가"
+      "emptyCta": "약 추가",
+      "noneActionableTitle": "오늘 복용할 약이 없어요",
+      "noneActionableDescription": "약이 일시 중지되었거나 기록용으로만 보관 중이거나, 복용 기간이 아직 시작되지 않았거나 이미 끝났어요. 지난 복용은 약의 기록에서 계속 추가할 수 있어요.",
+      "noneActionableCta": "약 목록 열기"
     },
     "quickEntryDiscard": {
       "title": "이 기록을 버릴까요?",
