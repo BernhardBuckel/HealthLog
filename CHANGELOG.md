@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.39.6] — 2026-10-01
+
+A critical security fix for the web framework, a workout token for devices
+and bridges, a lab scan that no longer drops incomplete readings, and a
+restore preview that appears at once. A full-history import can no longer
+run beside its own retry, and the nightly clean-up steps around a restore.
+
+### Security
+
+- **Next.js 16.3.6.** Fixes a critical advisory against 16.2.0 to 16.3.5.
+  The floors of fast-uri (3.1.8), ip-address (10.7.1) and dompurify
+  (3.4.16) are raised for newer advisories; development-only copies of
+  @grpc/grpc-js, brace-expansion and undici 7 too.
+
+### Added
+
+- **Workout token.** Settings → API → Workout tokens mints a token with the
+  `workouts:write` scope (`POST /api/tokens/workouts`, recent confirmation
+  required, at most ten live tokens). It reaches `POST /api/workouts/batch`
+  only; workouts written with it carry the source `EXTERNAL`, and a body
+  that names a source is refused with 422. (#1054)
+
+### Fixed
+
+- **Lab scan review.** Saving is all or nothing over the selected readings;
+  incomplete ones are marked with a summary and focus on the first, instead
+  of being left out silently. (#1055)
+- **Restore preview.** The counts a backup holds are stored with it
+  (migration 0364) and the preview answers from them; older backups are
+  read once and then stored. The query no longer retries, and only a real
+  schema failure is reported as one. (#1031)
+- **Dashboard quick-add** follows the server's `intakeActionable` and no
+  longer offers an ended course. (#1040)
+- **Dense glucose inside 90 days** is bucketed per local hour for the series
+  when the window holds more than 10 000 readings; statistics cover every
+  reading. The doctor report keeps glucose raw inside 90 days.
+- **Full-history import lane.** Admission jobs expire after 16 hours instead
+  of pg-boss's default 15 minutes, each run holds an advisory lock on its
+  kind and account so a retry cannot run beside it, and the Google Health
+  import stops at its job budget as incomplete. (#1023)
+- **Tombstone purge** deletes per account under the restore lock and leaves
+  an account being restored for the next night. (#1031)
+
 ## [1.39.5] — 2026-09-28
 
 A server with a per-minute heart-rate history stays inside its memory: the
@@ -21,7 +64,7 @@ right after a start.
   counted the import as unfinished and started over on every retry and
   start. It may now run to 10 000 pages. (#1023)
 - **Dense pulse inside 90 days.** A pulse window with more than 10 000
-  readings is bucketed per local hour for charts (mean with low and high,
+  readings is bucketed per local hour in the series route (the iPhone app's charts and API clients) (mean with low and high,
   `hour:` ids), read per day for the doctor report, and the resting-pulse
   estimate on the insights page is computed per day in the database.
   Sparse pulse data stays raw. (#1023)
