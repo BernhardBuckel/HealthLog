@@ -71,6 +71,9 @@ export const JOB_FACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "days_skipped",
   "days_skipped_no_tombstones",
   "days_stored",
+  // Tombstone purge: accounts left for the next run because a restore of
+  // the account was running.
+  "deferred_accounts",
   "deleted",
   "dense_days_consolidated",
   "dense_rows_soft_deleted",

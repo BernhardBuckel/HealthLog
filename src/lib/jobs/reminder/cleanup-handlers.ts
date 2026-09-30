@@ -254,6 +254,13 @@ export async function handleMeasurementTombstoneCleanup(
         // outside, which is how a purge that never finished stayed invisible.
         const drained = measurements.drained && mood.drained && intakes.drained;
         evt.addMeta("tombstone_cleanup_drained", drained);
+        // Accounts under restore are left alone and purged the next night.
+        const deferredAccounts = Math.max(
+          measurements.deferredAccounts,
+          mood.deferredAccounts,
+          intakes.deferredAccounts,
+        );
+        evt.addMeta("tombstone_cleanup_deferred_accounts", deferredAccounts);
         if (!drained) {
           evt.addWarning(
             "tombstone-cleanup stopped at the batch cap; a backlog remains for the next run",
@@ -264,6 +271,7 @@ export async function handleMeasurementTombstoneCleanup(
           mood_pruned: mood.deleted,
           intakes_pruned: intakes.deleted,
           drained,
+          deferred_accounts: deferredAccounts,
         });
       } catch (err) {
         // Rethrow. A retention purge that fails silently every night looks

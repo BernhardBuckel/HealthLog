@@ -21,19 +21,43 @@ import { TOMBSTONE_RETENTION_DAYS } from "@/lib/auth/native-client";
 
 const DAY_MS = 86_400_000;
 
+/**
+ * A client whose interactive transaction hands the callback a client with the
+ * same delegates, and whose restore-lock probe answers `held`.
+ */
+function mockClient(
+  measurement: { findMany: unknown; deleteMany: unknown },
+  held: (userId: string) => boolean = () => true,
+) {
+  const lockCalls: string[] = [];
+  const tx = {
+    measurement,
+    $queryRaw: vi.fn(async (_strings: TemplateStringsArray, key: string) => {
+      const userId = key.replace(/^backup-restore:/, "");
+      lockCalls.push(userId);
+      return [{ held: held(userId) }];
+    }),
+  };
+  const prisma = {
+    measurement,
+    $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
+  } as unknown as Parameters<typeof cleanupExpiredMeasurementTombstones>[0];
+  return { prisma, lockCalls };
+}
+
 describe("cleanupExpiredMeasurementTombstones", () => {
   it("prunes only tombstones older than the retention horizon", async () => {
     const now = new Date("2026-06-01T00:00:00.000Z");
-    const findMany = vi
-      .fn()
-      .mockResolvedValueOnce([{ id: "a" }, { id: "b" }, { id: "c" }]);
+    const findMany = vi.fn().mockResolvedValueOnce([
+      { id: "a", userId: "u1" },
+      { id: "b", userId: "u1" },
+      { id: "c", userId: "u1" },
+    ]);
     const deleteMany = vi.fn().mockResolvedValue({ count: 3 });
-    const prisma = {
-      measurement: { findMany, deleteMany },
-    } as unknown as Parameters<typeof cleanupExpiredMeasurementTombstones>[0];
+    const { prisma } = mockClient({ findMany, deleteMany });
 
     const outcome = await cleanupExpiredMeasurementTombstones(prisma, now);
-    expect(outcome).toEqual({ deleted: 3, drained: true });
+    expect(outcome).toEqual({ deleted: 3, drained: true, deferredAccounts: 0 });
 
     expect(findMany).toHaveBeenCalledTimes(1);
     const where = findMany.mock.calls[0][0].where as {
@@ -61,12 +85,11 @@ describe("cleanupExpiredMeasurementTombstones", () => {
     // to stop at the cap rather than loop forever.
     const fullBatch = Array.from({ length: PURGE_BATCH_SIZE }, (_, i) => ({
       id: `row-${i}`,
+      userId: "u1",
     }));
     const findMany = vi.fn().mockResolvedValue(fullBatch);
     const deleteMany = vi.fn().mockResolvedValue({ count: PURGE_BATCH_SIZE });
-    const prisma = {
-      measurement: { findMany, deleteMany },
-    } as unknown as Parameters<typeof cleanupExpiredMeasurementTombstones>[0];
+    const { prisma } = mockClient({ findMany, deleteMany });
 
     const outcome = await cleanupExpiredMeasurementTombstones(prisma, now);
 
@@ -78,6 +101,57 @@ describe("cleanupExpiredMeasurementTombstones", () => {
     for (const call of findMany.mock.calls) {
       expect(call[0].take).toBe(PURGE_BATCH_SIZE);
     }
+  });
+});
+
+describe("cleanupExpiredMeasurementTombstones — accounts under restore", () => {
+  it("deletes one statement per account per batch, each under the account's restore lock", async () => {
+    const findMany = vi.fn().mockResolvedValueOnce([
+      { id: "a1", userId: "a" },
+      { id: "b1", userId: "b" },
+      { id: "a2", userId: "a" },
+    ]);
+    const deleteMany = vi.fn(async ({ where }) => ({
+      count: (where.id.in as string[]).length,
+    }));
+    const { prisma, lockCalls } = mockClient({ findMany, deleteMany });
+
+    const outcome = await cleanupExpiredMeasurementTombstones(prisma);
+
+    expect(outcome).toEqual({ deleted: 3, drained: true, deferredAccounts: 0 });
+    expect(lockCalls).toEqual(["a", "b"]);
+    expect(deleteMany.mock.calls.map((call) => call[0].where)).toEqual([
+      { id: { in: ["a1", "a2"] } },
+      { id: { in: ["b1"] } },
+    ]);
+  });
+
+  it("leaves an account under restore and keeps it out of the rest of the run", async () => {
+    const full = (userId: string) =>
+      Array.from({ length: PURGE_BATCH_SIZE }, (_, i) => ({
+        id: `${userId}-${i}`,
+        userId,
+      }));
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce(full("restoring"))
+      .mockResolvedValueOnce([{ id: "other-1", userId: "other" }]);
+    const deleteMany = vi.fn(async ({ where }) => ({
+      count: (where.id.in as string[]).length,
+    }));
+    const { prisma } = mockClient(
+      { findMany, deleteMany },
+      (userId) => userId !== "restoring",
+    );
+
+    const outcome = await cleanupExpiredMeasurementTombstones(prisma);
+
+    expect(outcome).toEqual({ deleted: 1, drained: true, deferredAccounts: 1 });
+    expect(findMany.mock.calls[0][0].where).not.toHaveProperty("userId");
+    expect(findMany.mock.calls[1][0].where.userId).toEqual({
+      notIn: ["restoring"],
+    });
+    expect(deleteMany).toHaveBeenCalledTimes(1);
   });
 });
 
