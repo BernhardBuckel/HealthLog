@@ -64,7 +64,7 @@ right after a start.
   counted the import as unfinished and started over on every retry and
   start. It may now run to 10 000 pages. (#1023)
 - **Dense pulse inside 90 days.** A pulse window with more than 10 000
-  readings is bucketed per local hour for charts (mean with low and high,
+  readings is bucketed per local hour in the series route (the iPhone app's charts and API clients) (mean with low and high,
   `hour:` ids), read per day for the doctor report, and the resting-pulse
   estimate on the insights page is computed per day in the database.
   Sparse pulse data stays raw. (#1023)
