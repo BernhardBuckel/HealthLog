@@ -7298,6 +7298,7 @@
         "previewTitle": "Contenu de la sauvegarde",
         "previewLoading": "Lecture du contenu…",
         "previewUnavailable": "Le contenu n'a pas pu être lu — la restauration reste possible.",
+        "previewStillReading": "Cette sauvegarde a été créée par une version antérieure, son contenu est donc lu en entier, ce qui prend un moment pour un gros dossier. Rouvrez cette fenêtre dans quelques minutes pour le voir. La restauration n'en dépend pas.",
         "previewEmpty": "Le fichier ne contient aucun enregistrement.",
         "previewOther": "Autres enregistrements",
         "previewMeasurements": "Mesures",

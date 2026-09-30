@@ -7298,6 +7298,7 @@
         "previewTitle": "What this backup contains",
         "previewLoading": "Reading contents…",
         "previewUnavailable": "Contents could not be read — restoring is still possible.",
+        "previewStillReading": "This backup was made by an earlier version, so its contents are being read in full, which takes a while for a large record. Open this dialog again in a few minutes to see them. Restoring does not depend on it.",
         "previewEmpty": "The file contains no records.",
         "previewOther": "Other records",
         "previewMeasurements": "Measurements",
