@@ -23,7 +23,7 @@
  * this module exists to remove. A model create is planned once for its shape
  * and keeps nothing.
  */
-import type { PrismaClient } from "@/generated/prisma/client";
+import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 
 import { isStreamCiphertext, openStreamDecryptor } from "@/lib/crypto";
 import {
@@ -35,6 +35,14 @@ import {
   type PackBackupOptions,
 } from "@/lib/export/backup-blob";
 import { createBackupKeyIdTextScanner } from "@/lib/export/backup-key-ids";
+import {
+  buildBackupPreview,
+  createBackupPreviewScanner,
+  SINGLE_VALUE_IDENTITY_HEAD,
+  singleValueIdentity,
+  storedCopyIdentity,
+  type BackupPreview,
+} from "@/lib/export/backup-preview";
 import {
   BackupIntegrityError,
   newChunkStreamId,
@@ -118,6 +126,9 @@ export async function storeBackupBlob(
       // what is inside them, so this is what tells an operator how long a
       // retired key is still needed (`GET /api/admin/encryption/status`).
       const keyScanner = createBackupKeyIdTextScanner();
+      // And what the restore preview shows, from the same pass, so the
+      // preview never has to read the copy back (`backup-preview.ts`).
+      const previewScanner = createBackupPreviewScanner();
       const { chunks, bytes } = await packBackupChunks(
         async (sealed, seq) => {
           await tx.dataBackupChunk.create({
@@ -129,10 +140,12 @@ export async function storeBackupBlob(
         (write) =>
           producer(async (chunk) => {
             keyScanner.feed(chunk);
+            await previewScanner.feed(chunk);
             await write(chunk);
           }),
         options,
       );
+      const scanned = await previewScanner.finish();
 
       // Again at the end: a restore may have been queued while this ran. The
       // window left is the few milliseconds to the commit, and a restore
@@ -147,6 +160,18 @@ export async function storeBackupBlob(
           chunkStreamId: streamId,
           innerKeyIds: keyScanner.keyIds(),
           innerKeyIdsRecorded: true,
+          // Prisma's JSON null clears a preview left by the previous copy.
+          preview: scanned
+            ? (buildBackupPreview(
+                storedCopyIdentity({
+                  data: null,
+                  chunkCount: chunks,
+                  chunkStreamId: streamId,
+                })!,
+                scanned.summary,
+                scanned.keys,
+              ) as unknown as Prisma.InputJsonValue)
+            : Prisma.DbNull,
           createdAt: new Date(),
         },
       });
@@ -154,6 +179,17 @@ export async function storeBackupBlob(
     },
     { timeout: STORE_TRANSACTION_TIMEOUT_MS, maxWait: 60_000 },
   );
+}
+
+/** A single value's stored preview, when it describes that value. */
+function previewOfSingleValue(
+  stored: unknown,
+  len: number,
+  head: string,
+): BackupPreview | null {
+  if (!stored || typeof stored !== "object") return null;
+  const preview = stored as BackupPreview;
+  return preview.copy === singleValueIdentity(len, head) ? preview : null;
 }
 
 /**
@@ -208,10 +244,16 @@ export async function convertSingleValueBackup(
         `SET LOCAL idle_in_transaction_session_timeout = '${STORE_IDLE_TIMEOUT}'`,
       );
       const [row] = await tx.$queryRaw<
-        Array<{ head: string; len: number; stream_id: string | null }>
+        Array<{
+          head: string;
+          len: number;
+          stream_id: string | null;
+          preview: unknown;
+        }>
       >`
-        SELECT left(data, 128) AS head, length(data)::int AS len,
-               chunk_stream_id AS stream_id
+        SELECT left(data, ${SINGLE_VALUE_IDENTITY_HEAD}::int) AS head,
+               length(data)::int AS len,
+               chunk_stream_id AS stream_id, preview
         FROM data_backups
         WHERE id = ${id} AND data IS NOT NULL
         FOR UPDATE
@@ -272,9 +314,28 @@ export async function convertSingleValueBackup(
         // limit on writing a new one.
         { maxBytes: Number.MAX_SAFE_INTEGER },
       );
+      // The content is the same copy in another form, so a preview of it
+      // still holds; it is moved over to the new form's name.
+      const preview = previewOfSingleValue(row.preview, row.len, row.head);
       await tx.dataBackup.update({
         where: { id },
-        data: { data: null, chunkCount: chunks, chunkStreamId: streamId },
+        data: {
+          data: null,
+          chunkCount: chunks,
+          chunkStreamId: streamId,
+          ...(preview
+            ? {
+                preview: {
+                  ...preview,
+                  copy: storedCopyIdentity({
+                    data: null,
+                    chunkCount: chunks,
+                    chunkStreamId: streamId,
+                  })!,
+                } as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
+        },
       });
       return "converted";
     },

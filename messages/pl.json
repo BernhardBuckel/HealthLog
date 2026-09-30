@@ -7291,6 +7291,7 @@
         "previewTitle": "Zawartość kopii",
         "previewLoading": "Odczytywanie zawartości…",
         "previewUnavailable": "Nie udało się odczytać zawartości — przywracanie jest nadal możliwe.",
+        "previewStillReading": "Ta kopia powstała we wcześniejszej wersji, więc jej zawartość jest odczytywana w całości, co przy dużych danych chwilę trwa. Otwórz to okno ponownie za kilka minut, aby ją zobaczyć. Przywracanie od tego nie zależy.",
         "previewEmpty": "Plik nie zawiera rekordów.",
         "previewOther": "Inne rekordy",
         "previewMeasurements": "Pomiary",

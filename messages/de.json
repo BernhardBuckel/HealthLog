@@ -7291,6 +7291,7 @@
         "previewTitle": "Inhalt der Sicherung",
         "previewLoading": "Inhalt wird gelesen…",
         "previewUnavailable": "Inhalt konnte nicht gelesen werden — die Wiederherstellung bleibt möglich.",
+        "previewStillReading": "Diese Sicherung stammt aus einer früheren Version, deshalb wird ihr Inhalt vollständig gelesen. Bei einem großen Datenbestand dauert das eine Weile. Öffne diesen Dialog in ein paar Minuten noch einmal, dann steht er hier. Die Wiederherstellung hängt nicht davon ab.",
         "previewEmpty": "Die Datei enthält keine Datensätze.",
         "previewOther": "Weitere Datensätze",
         "previewMeasurements": "Messwerte",

@@ -7291,6 +7291,7 @@
         "previewTitle": "Contenuto del backup",
         "previewLoading": "Lettura del contenuto…",
         "previewUnavailable": "Impossibile leggere il contenuto — il ripristino resta possibile.",
+        "previewStillReading": "Questo backup è stato creato da una versione precedente, quindi il suo contenuto viene letto per intero, e con un archivio grande ci vuole un po'. Riapri questa finestra tra qualche minuto per vederlo. Il ripristino non dipende da questo.",
         "previewEmpty": "Il file non contiene record.",
         "previewOther": "Altri record",
         "previewMeasurements": "Misurazioni",

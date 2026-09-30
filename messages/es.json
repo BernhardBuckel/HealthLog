@@ -7291,6 +7291,7 @@
         "previewTitle": "Contenido de la copia",
         "previewLoading": "Leyendo el contenido…",
         "previewUnavailable": "No se pudo leer el contenido — restaurar sigue siendo posible.",
+        "previewStillReading": "Esta copia se hizo con una versión anterior, así que su contenido se está leyendo completo, y con un historial grande eso lleva un rato. Vuelve a abrir este diálogo en unos minutos para verlo. Restaurar no depende de ello.",
         "previewEmpty": "El archivo no contiene registros.",
         "previewOther": "Otros registros",
         "previewMeasurements": "Mediciones",
