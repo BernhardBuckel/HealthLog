@@ -6,6 +6,7 @@ import {
   INTEGRATION_BACKFILL_ADMISSION_GROUP,
   INTEGRATION_BACKFILL_ADMISSION_QUEUE,
   INTEGRATION_BACKFILL_BOOT_ORDER,
+  INTEGRATION_BACKFILL_EXPIRE_SECONDS,
   INTEGRATION_BACKFILL_GLOBAL_CONCURRENCY,
   INTEGRATION_BACKFILL_STAGGER_SECONDS,
   bootStaggerSecondsFor,
@@ -109,10 +110,18 @@ describe("shared full-history backfill admission", () => {
       expect.objectContaining({
         singletonKey: "sleep-timeline-backfill|WHOOP|u1",
         group: INTEGRATION_BACKFILL_ADMISSION_GROUP,
+        expireInSeconds: INTEGRATION_BACKFILL_EXPIRE_SECONDS,
       }),
     );
     expect(first).toBe("job-1");
     expect(duplicate).toBeNull();
+  });
+
+  it("gives the admission job an expiry sized for a long import, under pg-boss's 24-hour ceiling", () => {
+    // pg-boss's default is 900 s; a full-history heart-rate import runs for
+    // hours, and past the expiry pg-boss retries the job beside the run.
+    expect(INTEGRATION_BACKFILL_EXPIRE_SECONDS).toBe(16 * 60 * 60);
+    expect(INTEGRATION_BACKFILL_EXPIRE_SECONDS).toBeLessThan(24 * 60 * 60);
   });
 
   it("keeps source enqueue singleton keys while applying stagger only to boot discovery", () => {

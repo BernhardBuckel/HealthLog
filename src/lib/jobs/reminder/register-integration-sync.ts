@@ -17,56 +17,48 @@ import { PgBoss } from "pg-boss";
 import {
   WHOOP_BACKFILL_QUEUE,
   WHOOP_BACKFILL_CONCURRENCY,
-  runWhoopBackfillForUser,
   enqueueBootTimeWhoopBackfill,
   type WhoopBackfillPayload,
 } from "@/lib/jobs/whoop-backfill";
 import {
   FITBIT_BACKFILL_QUEUE,
   FITBIT_BACKFILL_CONCURRENCY,
-  runFitbitBackfillForUser,
   enqueueBootTimeFitbitBackfill,
   type FitbitBackfillPayload,
 } from "@/lib/jobs/fitbit-backfill";
 import {
   GOOGLE_HEALTH_BACKFILL_QUEUE,
   GOOGLE_HEALTH_BACKFILL_CONCURRENCY,
-  runGoogleHealthBackfillForUser,
   enqueueBootTimeGoogleHealthBackfill,
   type GoogleHealthBackfillPayload,
 } from "@/lib/jobs/google-health-backfill";
 import {
   GOOGLE_HEALTH_SLEEP_REPAIR_QUEUE,
   GOOGLE_HEALTH_SLEEP_REPAIR_CONCURRENCY,
-  runGoogleHealthSleepRepairForUser,
   enqueueBootTimeGoogleHealthSleepRepair,
   type GoogleHealthSleepRepairPayload,
 } from "@/lib/jobs/google-health-sleep-repair";
 import {
   FITBIT_SLEEP_REPAIR_QUEUE,
   FITBIT_SLEEP_REPAIR_CONCURRENCY,
-  runFitbitSleepRepairForUser,
   enqueueBootTimeFitbitSleepRepair,
   type FitbitSleepRepairPayload,
 } from "@/lib/jobs/fitbit-sleep-repair";
 import {
   STRAVA_BACKFILL_QUEUE,
   STRAVA_BACKFILL_CONCURRENCY,
-  runStravaBackfillForUser,
   enqueueBootTimeStravaBackfill,
   type StravaBackfillPayload,
 } from "@/lib/jobs/strava-backfill";
 import {
   SLEEP_TIMELINE_BACKFILL_QUEUE,
   SLEEP_TIMELINE_BACKFILL_CONCURRENCY,
-  runSleepTimelineBackfillForUser,
   enqueueBootTimeSleepTimelineBackfill,
   type SleepTimelineBackfillPayload,
 } from "@/lib/jobs/sleep-timeline-backfill";
 import {
   LAB_BIOMARKER_BACKFILL_QUEUE,
   LAB_BIOMARKER_BACKFILL_CONCURRENCY,
-  runLabBiomarkerBackfillForUser,
   enqueueBootTimeLabBiomarkerBackfill,
   type LabBiomarkerBackfillPayload,
 } from "@/lib/jobs/lab-biomarker-backfill";
@@ -77,6 +69,7 @@ import {
   enqueueIntegrationBackfillAdmission,
   type IntegrationBackfillAdmissionPayload,
 } from "@/lib/jobs/integration-backfill-admission";
+import { drainIntegrationBackfillAdmission } from "@/lib/jobs/integration-backfill-drain";
 import { workerLog } from "./shared";
 import { jobDone } from "@/lib/jobs/job-outcome";
 import {
@@ -482,117 +475,7 @@ export async function registerIntegrationSyncQueues(
       localConcurrency: INTEGRATION_BACKFILL_GLOBAL_CONCURRENCY,
       groupConcurrency: INTEGRATION_BACKFILL_GLOBAL_CONCURRENCY,
     },
-    async (jobs) => {
-      // The drain has no per-job error isolation: a runner that throws fails
-      // the job and the admission retry policy applies. So reaching the end
-      // means every admitted job did its work, and the counts each runner
-      // already returns are what the pass reports.
-      let importedTotal = 0;
-      let removedTotal = 0;
-      let deletedTotal = 0;
-      let markersTotal = 0;
-      let linkedTotal = 0;
-      for (const job of jobs) {
-        const { kind, data } = job.data;
-        const { userId } = data;
-        switch (kind) {
-          case "whoop-backfill": {
-            const { imported } = await runWhoopBackfillForUser(userId);
-            importedTotal += imported;
-            workerLog(
-              "info",
-              `[whoop-backfill] user=${userId} imported=${imported}`,
-            );
-            break;
-          }
-          case "fitbit-backfill": {
-            const { imported } = await runFitbitBackfillForUser(userId);
-            importedTotal += imported;
-            workerLog(
-              "info",
-              `[fitbit-backfill] user=${userId} imported=${imported}`,
-            );
-            break;
-          }
-          case "google-health-backfill": {
-            const { imported } = await runGoogleHealthBackfillForUser(userId);
-            importedTotal += imported;
-            workerLog(
-              "info",
-              `[google-health-backfill] user=${userId} imported=${imported}`,
-            );
-            break;
-          }
-          case "google-health-sleep-repair": {
-            const { imported } =
-              await runGoogleHealthSleepRepairForUser(userId);
-            importedTotal += imported;
-            workerLog(
-              "info",
-              `[google-health-sleep-repair] user=${userId} imported=${imported}`,
-            );
-            break;
-          }
-          case "fitbit-sleep-repair": {
-            const { imported, removed } =
-              await runFitbitSleepRepairForUser(userId);
-            importedTotal += imported;
-            removedTotal += removed;
-            workerLog(
-              "info",
-              `[fitbit-sleep-repair] user=${userId} imported=${imported} removed=${removed}`,
-            );
-            break;
-          }
-          case "sleep-timeline-backfill": {
-            if (!data.provider) {
-              throw new Error(
-                "sleep-timeline backfill admission requires a provider",
-              );
-            }
-            const { deleted, imported } = await runSleepTimelineBackfillForUser(
-              userId,
-              data.provider,
-            );
-            deletedTotal += deleted;
-            importedTotal += imported;
-            workerLog(
-              "info",
-              `[sleep-timeline-backfill] user=${userId} provider=${data.provider} deleted=${deleted} imported=${imported}`,
-            );
-            break;
-          }
-          case "lab-biomarker-backfill": {
-            const { markers, linked } =
-              await runLabBiomarkerBackfillForUser(userId);
-            markersTotal += markers;
-            linkedTotal += linked;
-            workerLog(
-              "info",
-              `[lab-biomarker-backfill] user=${userId} markers=${markers} linked=${linked}`,
-            );
-            break;
-          }
-          case "strava-backfill": {
-            const { imported } = await runStravaBackfillForUser(userId);
-            importedTotal += imported;
-            workerLog(
-              "info",
-              `[strava-backfill] user=${userId} imported=${imported}`,
-            );
-            break;
-          }
-        }
-      }
-      return jobDone({
-        jobs: jobs.length,
-        imported: importedTotal,
-        removed: removedTotal,
-        deleted: deletedTotal,
-        markers: markersTotal,
-        linked: linkedTotal,
-      });
-    },
+    drainIntegrationBackfillAdmission,
   );
 
   await createAndWork<WithingsSyncPayload>(

@@ -62,15 +62,16 @@ import {
 } from "../cleanup-handlers";
 
 const DRAINED = { deleted: 1, drained: true };
+const TOMBSTONES_DRAINED = { ...DRAINED, deferredAccounts: 0 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   for (const key of Object.keys(h.meta)) delete h.meta[key];
   h.warnings.length = 0;
   h.cleanupOldAuditLogs.mockResolvedValue(DRAINED);
-  h.cleanupExpiredMeasurementTombstones.mockResolvedValue(DRAINED);
-  h.cleanupExpiredMoodTombstones.mockResolvedValue(DRAINED);
-  h.cleanupExpiredIntakeTombstones.mockResolvedValue(DRAINED);
+  h.cleanupExpiredMeasurementTombstones.mockResolvedValue(TOMBSTONES_DRAINED);
+  h.cleanupExpiredMoodTombstones.mockResolvedValue(TOMBSTONES_DRAINED);
+  h.cleanupExpiredIntakeTombstones.mockResolvedValue(TOMBSTONES_DRAINED);
 });
 
 describe("audit-log cleanup handler", () => {
@@ -115,11 +116,22 @@ describe("tombstone cleanup handler", () => {
     h.cleanupExpiredMoodTombstones.mockResolvedValue({
       deleted: 200_000,
       drained: false,
+      deferredAccounts: 0,
     });
     await handleMeasurementTombstoneCleanup([]);
     expect(h.meta.tombstone_cleanup_drained).toBe(false);
     expect(h.meta.mood_tombstone_cleanup_pruned).toBe(200_000);
     expect(h.warnings.join(" ")).toContain("backlog remains");
+  });
+
+  it("reports the accounts it left because a restore was running", async () => {
+    h.cleanupExpiredMeasurementTombstones.mockResolvedValue({
+      ...TOMBSTONES_DRAINED,
+      deferredAccounts: 2,
+    });
+    const outcome = await handleMeasurementTombstoneCleanup([]);
+    expect(h.meta.tombstone_cleanup_deferred_accounts).toBe(2);
+    expect(outcome).toMatchObject({ did: { deferred_accounts: 2 } });
   });
 
   it("stays quiet when all three legs drained", async () => {

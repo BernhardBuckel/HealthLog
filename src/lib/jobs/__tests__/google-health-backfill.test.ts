@@ -27,6 +27,12 @@ vi.mock("@/lib/logging/context", () => ({
   getEvent: () => null,
 }));
 
+const { safeFetchMock } = vi.hoisted(() => ({ safeFetchMock: vi.fn() }));
+vi.mock("@/lib/safe-fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/safe-fetch")>();
+  return { ...actual, safeFetch: safeFetchMock };
+});
+
 vi.mock("@/lib/integrations/status", () => ({
   isReauthRequired: isReauthRequiredMock,
 }));
@@ -39,6 +45,11 @@ vi.mock("@/lib/google-health/sync", () => ({
 }));
 
 import { runGoogleHealthBackfillForUser } from "../google-health-backfill";
+import {
+  GOOGLE_HEALTH_DATA_TYPES,
+  forEachDataPointPage,
+  runWithGoogleHealthClientOutcome,
+} from "@/lib/google-health/client";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -81,6 +92,37 @@ describe("runGoogleHealthBackfillForUser — verdict-gated marker", () => {
       imported: 0,
     });
     expect(syncUserGoogleHealthMock).not.toHaveBeenCalled();
+    expect(prismaMock.googleHealthConnection.update).not.toHaveBeenCalled();
+  });
+
+  it("stops the walk when its budget runs out and throws without stamping", async () => {
+    // An endless heart-rate stream: every page names a next one.
+    safeFetchMock.mockImplementation(async () => ({
+      status: 200,
+      ok: true,
+      json: async () => ({ dataPoints: [{}], nextPageToken: "more" }),
+    }));
+    // The real walk under the sync mock, reporting what the real sync reports
+    // for a truncated resource.
+    syncUserGoogleHealthMock.mockImplementation(async () => {
+      const { outcome } = await runWithGoogleHealthClientOutcome(() =>
+        forEachDataPointPage(
+          GOOGLE_HEALTH_DATA_TYPES.heartRate,
+          "token",
+          "fetchHeartRate",
+          { maxPages: 10_000 },
+          () => {},
+        ),
+      );
+      return { imported: outcome.fetched, failed: outcome.truncated };
+    });
+    let asked = 0;
+    const shouldStop = () => ++asked > 3;
+
+    await expect(
+      runGoogleHealthBackfillForUser("u1", shouldStop),
+    ).rejects.toThrow(/incomplete/);
+    expect(safeFetchMock).toHaveBeenCalledTimes(3);
     expect(prismaMock.googleHealthConnection.update).not.toHaveBeenCalled();
   });
 });
