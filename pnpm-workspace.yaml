@@ -11,7 +11,8 @@ overrides:
   # GHSA-55q2-fjhq-7xh7: a crafted document gets past the sanitiser and its
   # markup survives into the output. The copy here is jspdf's optional HTML
   # renderer, which the doctor-report PDF path reaches.
-  "dompurify@<3.4.13": "^3.4.13"
+  # A later advisory against 3.4.13 to 3.4.15 raised the floor to 3.4.16.
+  "dompurify@<3.4.16": "^3.4.16"
   # CVE-2026-69153. Next declares an exact `postcss@8.4.31`, so nothing except
   # this bound moves it. The build has run on the 8.5 line since the first
   # bump; the fix landed in 8.5.23.
@@ -33,7 +34,9 @@ overrides:
   # forgery through percent-encoded schemes, skipped IDN canonicalisation and
   # malformed authorities. It arrives under ajv, including the connector SDK's
   # copy, so it sits on a path this app exposes.
-  "fast-uri@<3.1.6": "^3.1.6"
+  # Authority injection through an unvalidated port in serialize, and a
+  # follow-up fixed in 3.1.8, raised the floor from 3.1.6.
+  "fast-uri@<3.1.8": "^3.1.8"
   "flatted@<3.4.2": "^3.4.2"
   # GHSA-3f6p-5ww8-9rcr: auth-plugin downgrade leaking plaintext credentials.
   # Reached only through prisma's MySQL driver, which this app never opens;
@@ -47,7 +50,8 @@ overrides:
   # 10.0.0.1 rather than being rejected. That is the exact alt-notation class
   # `isPublicUrl` exists to catch, and this copy arrives under the MCP SDK's
   # rate limiter where nothing of ours screens it.
-  "ip-address@<10.3.1": "^10.3.1"
+  # Later advisories up to 10.7.0 raised the floor from 10.3.1 to 10.7.1.
+  "ip-address@<10.7.1": "^10.7.1"
   "sharp@<0.35.0": "^0.35.3"
   # A crafted PDF could run arbitrary JavaScript through the renderer. Our own
   # copy is pinned past it in `devDependencies`, but a second copy arrives
