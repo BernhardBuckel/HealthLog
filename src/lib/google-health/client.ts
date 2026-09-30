@@ -121,6 +121,28 @@ export async function runWithGoogleHealthClientOutcome<T>(
   return { result, outcome };
 }
 
+/**
+ * A stop condition for the walks below, set by a caller that runs under a
+ * time limit (the full-history backfill, which runs under its pg-boss job's
+ * budget and abort signal). A walk asks it before each request and, when it
+ * says stop, ends there and reports itself truncated, the same outcome as
+ * reaching the page ceiling: the resource is incomplete, the cycle is not
+ * stamped, and the reason shown is that only part of the history was
+ * processed. Outside such a scope the walks never stop early.
+ */
+const stopStorage = new AsyncLocalStorage<() => boolean>();
+
+function stopRequested(): boolean {
+  return stopStorage.getStore()?.() === true;
+}
+
+export async function runWithGoogleHealthStop<T>(
+  shouldStop: () => boolean,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return stopStorage.run(shouldStop, fn);
+}
+
 export const GOOGLE_HEALTH_API_BASE = "https://health.googleapis.com/v4";
 const GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -769,8 +791,13 @@ export async function forEachDataPointPage(
     let fetched = 0;
     let pageToken: string | null | undefined;
     let pageCount = 0;
+    let stopped = false;
 
     do {
+      if (stopRequested()) {
+        stopped = true;
+        break;
+      }
       const params = new URLSearchParams({ pageSize: String(pageSize) });
       if (query.start) {
         const { field, bound } = incrementalFilter(
@@ -830,7 +857,7 @@ export async function forEachDataPointPage(
       await onPage(page);
     } while (pageToken && pageCount < maxPages);
 
-    notePagination(pageCount, fetched, Boolean(pageToken));
+    notePagination(pageCount, fetched, stopped || Boolean(pageToken));
   };
 
   // The fallback only exists for filtered daily-summary reads — every other
@@ -1055,6 +1082,10 @@ export async function fetchDailyRollUp(
     let totalPages = 0;
     let truncated = false;
     for (const chunk of chunkCivilRange(startCivil, endCivil, maxDays)) {
+      if (stopRequested()) {
+        truncated = true;
+        break;
+      }
       let pageToken: string | null | undefined;
       let pageCount = 0;
       do {

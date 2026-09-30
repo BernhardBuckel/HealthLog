@@ -33,6 +33,7 @@ import { oidcNativeTokenSchema } from "@/lib/validations/oidc-native";
 import {
   createDocumentTokenSchema,
   createMeasurementTokenSchema,
+  createWorkoutTokenSchema,
 } from "@/lib/validations/tokens";
 import { nativeHandoffTokenSchema } from "@/lib/validations/native-handoff";
 import {
@@ -489,6 +490,28 @@ const createMeasurementTokenResponse = z
       "The one response that carries a usable measurement-ingest Bearer value.",
   });
 
+const createWorkoutTokenRequest = createWorkoutTokenSchema.meta({
+  id: "CreateWorkoutTokenRequest",
+  description:
+    "Mint a workout-ingest Bearer. No `scope` field: the endpoint mints one shape. `name` is what the token is listed under; name it after the bridge it is pasted into. `expiresInDays` defaults to 365.",
+});
+
+const createWorkoutTokenResponse = z
+  .object({
+    token: z
+      .string()
+      .describe(
+        "The raw `hlk_` Bearer, RETURNED EXACTLY ONCE. It is stored only as an HMAC-SHA256 hash and cannot be retrieved later. Treat it as a secret.",
+      ),
+    name: z.string(),
+    expiresAt: z.iso.datetime({ offset: true }),
+  })
+  .meta({
+    id: "CreateWorkoutTokenResponse",
+    description:
+      "The one response that carries a usable workout-ingest Bearer value.",
+  });
+
 const createDocumentTokenRequest = createDocumentTokenSchema.meta({
   id: "CreateDocumentTokenRequest",
   description:
@@ -881,7 +904,7 @@ export const authPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Auth"],
       summary: "Re-prove a credential on a browser session (cookie only)",
       description:
-        "Stamps the calling browser session as recently re-proved, so for the next five minutes it may run the actions that ask for a fresh proof: GET /api/export/full-backup, POST /api/export/encrypted, POST /api/share-links, POST /api/mcp/tokens, POST /api/tokens/measurements, POST /api/tokens/documents, and the admin backup download, upload and restore, the admin data wipe and the admin password reset. Those answer 401 `auth.reproof.required` with `meta.methods` (the proofs this account can give) when the session signed in or re-proved more than five minutes ago.\n\n" +
+        "Stamps the calling browser session as recently re-proved, so for the next five minutes it may run the actions that ask for a fresh proof: GET /api/export/full-backup, POST /api/export/encrypted, POST /api/share-links, POST /api/mcp/tokens, POST /api/tokens/measurements, POST /api/tokens/workouts, POST /api/tokens/documents, and the admin backup download, upload and restore, the admin data wipe and the admin password reset. Those answer 401 `auth.reproof.required` with `meta.methods` (the proofs this account can give) when the session signed in or re-proved more than five minutes ago.\n\n" +
         'The body takes the same shapes as POST /api/auth/step-up. On an account with a second factor only `totp`, `webauthn` (a security key) or `passkey` are accepted, because a password has never stood in for the second factor; on one without, `password` or `passkey`. A method the account cannot use here is refused with 422 `auth.reproof.too_weak` and `meta.methods`, before any guess is spent. A second-factor or passkey proof also refreshes the session\'s second-factor stamp, exactly as signing in again would. Assertions begin at POST /api/auth/passkey/register-options with `{ method: "passkey" | "webauthn" }`.\n\n' +
         "Proofs draw on the account's shared re-proof budget (five per fifteen minutes, 429 once spent). A proof that does not verify is 401 `auth.reproof.failed` and is audited. Bearer callers use POST /api/auth/step-up instead.",
       requestBody: {
@@ -1687,7 +1710,7 @@ export const authPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       summary: "List the caller's API tokens",
       description:
         "Every `ApiToken` row belonging to the caller, newest first, revoked ones included — presence in this list is not validity, `revoked` is. The hash is never returned and there is no path that re-reveals a token's plaintext.\n\n" +
-        "Three things the name understates. The list is not limited to tokens a person minted from the settings surface: a native login mints a wildcard access token as an `ApiToken` row, so a signed-in phone shows up here too. There is no GENERIC mint any more — the POST at this exact path issued `[\"medication:ingest\"]` and was removed, because that scope reached no ingest route while the pre-fail-closed default let it reach everything else. The credentials that work are minted where they are scoped: the per-medication API-endpoint toggle, `POST /api/mcp/tokens` for a connector, the sibling `POST /api/tokens/measurements` for third-party measurement ingest, and `POST /api/tokens/documents` for document upload from another system. And unlike the revoke, this read is NOT gated on the operator's instance-wide API switch: that switch governs the surfaces a token is for, not a token's ability to authenticate, so tokens stay live while it is off and their owner has to be able to see them.",
+        "Three things the name understates. The list is not limited to tokens a person minted from the settings surface: a native login mints a wildcard access token as an `ApiToken` row, so a signed-in phone shows up here too. There is no GENERIC mint any more — the POST at this exact path issued `[\"medication:ingest\"]` and was removed, because that scope reached no ingest route while the pre-fail-closed default let it reach everything else. The credentials that work are minted where they are scoped: the per-medication API-endpoint toggle, `POST /api/mcp/tokens` for a connector, the sibling `POST /api/tokens/measurements` for third-party measurement ingest, `POST /api/tokens/workouts` for workout ingest from a bridge, and `POST /api/tokens/documents` for document upload from another system. And unlike the revoke, this read is NOT gated on the operator's instance-wide API switch: that switch governs the surfaces a token is for, not a token's ability to authenticate, so tokens stay live while it is off and their owner has to be able to see them.",
       responses: {
         "200": {
           description: "The caller's tokens, newest first.",
@@ -1766,6 +1789,70 @@ export const authPaths: NonNullable<ZodOpenApiObject["paths"]> = {
         "409": {
           description:
             "The account already holds 10 live measurement tokens (`meta.errorCode` = `tokens.measurements.ceiling_reached`). Nothing was minted. Distinct from the 429 above: that one is a rate and clears by waiting, this one is a conflict with the account's current state and clears by revoking a token at `DELETE /api/tokens/{id}`. Only LIVE tokens count — revoked and expired rows do not occupy a slot — and only those carrying `measurements:write`, so the wildcard tokens a sign-in mints never consume the budget.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+      },
+    },
+  },
+  "/api/tokens/workouts": {
+    post: {
+      tags: ["Auth"],
+      summary: "Mint a workout-ingest token",
+      description:
+        "Mints a Bearer scoped to exactly `workouts:write` and audits the mint. THE RESPONSE CARRIES THE RAW TOKEN, once; it is stored as an HMAC and no path re-reveals it.\n\n" +
+        "**What it can do.** `POST /api/workouts/batch`, on its owner's own record, and nothing else. It is the door a workout bridge pushes through: a watch vendor's sync relayed by a small service, or a script replaying an exported history. Workouts it writes carry `source: EXTERNAL`, resolved from the credential rather than taken from the body, and a batch in which any entry names a source is refused 422 (`workout.batch.source_not_permitted`) rather than relabelled. `EXTERNAL` is on no default source ladder, so when the phone also recorded the same session the phone's copy is the one the workout list shows.\n\n" +
+        "**What it cannot do.** List or read a workout, reach the measurement or document ingest routes, act on a shared record, or mint another token. It is a separate scope from `measurements:write` on purpose: a token already handed to a scale does not start accepting workouts, and a `measurements:write` token is refused 403 on the workout batch. Every other route names no scope and refuses it 403.\n\n" +
+        "Minting requires a COOKIE SESSION with a fresh proof, as for the measurement mint, for the reason it gives: a day-lived native access token must not be able to leave behind a year-lived credential. Gated by the operator's instance-wide API switch. Body capped at 16 KiB; 10 mints per user per minute, and at most 10 live workout tokens held at once. Tokens appear in `GET /api/tokens` and are revoked at `DELETE /api/tokens/{id}`.",
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": { schema: createWorkoutTokenRequest },
+        },
+      },
+      responses: {
+        "201": {
+          description:
+            "Token minted. The `token` field is the only copy of the secret.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                createWorkoutTokenResponse,
+                "CreateWorkoutTokenEnvelope",
+              ),
+            },
+          },
+        },
+        "400": {
+          description: "Body is not parseable JSON.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "403": {
+          description:
+            "The operator has switched the API off instance-wide. Nothing was minted. A Bearer caller is refused 401 before the switch is read.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "413": {
+          description: "Body exceeds 16 KiB.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "415": {
+          description: "Content-Type is not `application/json`.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        ...stdResponses,
+        "422": {
+          description:
+            "Validation failed. The envelope carries every offending issue.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "429": {
+          description:
+            "More than 10 mints from this account in a minute. Nothing was minted.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "409": {
+          description:
+            "The account already holds 10 live workout tokens (`meta.errorCode` = `tokens.workouts.ceiling_reached`). Nothing was minted. Revoke one at `DELETE /api/tokens/{id}`; only live tokens carrying `workouts:write` count.",
           content: { "application/json": { schema: errorEnvelope } },
         },
       },

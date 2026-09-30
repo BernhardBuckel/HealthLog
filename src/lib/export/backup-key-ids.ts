@@ -185,6 +185,43 @@ export class BackupKeyIdCollector {
   entries(): ReadonlyMap<string, KeyUse> {
     return this.uses;
   }
+
+  /**
+   * What was collected, as plain data, for a copy's stored preview
+   * (`backup-preview.ts`): enough to hold it against this host's keys again
+   * later without reading the copy.
+   */
+  toStored(): StoredKeyUse[] {
+    return [...this.uses.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([keyId, use]) => ({
+        keyId,
+        count: use.count,
+        sections: [...use.sections].sort(),
+        sample: use.sample ? { ...use.sample } : null,
+      }));
+  }
+
+  /** The collector {@link toStored} was taken from. */
+  static fromStored(stored: readonly StoredKeyUse[]): BackupKeyIdCollector {
+    const collector = new BackupKeyIdCollector();
+    for (const entry of stored) {
+      collector.uses.set(entry.keyId, {
+        count: entry.count,
+        sections: new Set(entry.sections),
+        sample: entry.sample ? { ...entry.sample } : null,
+      });
+    }
+    return collector;
+  }
+}
+
+/** One key id a copy needs, as {@link BackupKeyIdCollector.toStored} keeps it. */
+export interface StoredKeyUse {
+  keyId: string;
+  count: number;
+  sections: string[];
+  sample: { value: string; form: InnerCiphertextForm } | null;
 }
 
 export interface BackupKeyAssessment {

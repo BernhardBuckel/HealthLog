@@ -533,7 +533,10 @@
       "saveError": "Impossible d’enregistrer la prise.",
       "emptyTitle": "Aucun médicament pour l’instant",
       "emptyDescription": "Crée d’abord un médicament avec un horaire, puis reviens ici pour saisir la prise.",
-      "emptyCta": "Ajouter un médicament"
+      "emptyCta": "Ajouter un médicament",
+      "noneActionableTitle": "Rien à prendre aujourd’hui",
+      "noneActionableDescription": "Tes médicaments sont en pause, conservés comme simple fiche, ou leur traitement n’a pas encore commencé ou est déjà terminé. Tu peux toujours ajouter une prise passée depuis l’historique du médicament.",
+      "noneActionableCta": "Ouvrir les médicaments"
     },
     "quickEntryDiscard": {
       "title": "Abandonner cette saisie ?",
@@ -6172,6 +6175,13 @@
       "scopeNote": "Il peut uniquement ajouter de nouvelles mesures à votre propre dossier : il ne peut pas lire vos données, ni modifier ou supprimer quoi que ce soit, ni créer un autre jeton. Les mesures sont signalées comme provenant d'un appareil externe, ce qui vous permet de les reconnaître plus tard, et vous pouvez toujours les corriger.",
       "createFailed": "Le jeton n'a pas pu être créé. Veuillez réessayer."
     },
+    "workoutsToken": {
+      "title": "Jetons d'entraînements",
+      "description": "Créez un jeton pour qu'une passerelle de montre ou un script de synchronisation ajoutent vos entraînements.",
+      "detail": "Le jeton n'est affiché qu'une fois.",
+      "scopeNote": "Il peut uniquement ajouter de nouveaux entraînements à votre propre dossier. Il ne peut pas lire vos données, ni modifier ou supprimer quoi que ce soit, ni créer un autre jeton. Les entraînements qu'il ajoute sont signalés comme provenant d'un appareil externe, et si votre téléphone a enregistré la même séance, c'est la copie du téléphone que vous voyez.",
+      "createFailed": "Le jeton n'a pas pu être créé. Veuillez réessayer."
+    },
     "documentsToken": {
       "title": "Jetons de documents",
       "description": "Créez un jeton pour que Paperless-ngx, Papra ou le script d'import ajoutent des documents à votre coffre.",
@@ -7291,6 +7301,7 @@
         "previewTitle": "Contenu de la sauvegarde",
         "previewLoading": "Lecture du contenu…",
         "previewUnavailable": "Le contenu n'a pas pu être lu — la restauration reste possible.",
+        "previewStillReading": "Cette sauvegarde a été créée par une version antérieure, son contenu est donc lu en entier, ce qui prend un moment pour un gros dossier. Rouvrez cette fenêtre dans quelques minutes pour le voir. La restauration n'en dépend pas.",
         "previewEmpty": "Le fichier ne contient aucun enregistrement.",
         "previewOther": "Autres enregistrements",
         "previewMeasurements": "Mesures",

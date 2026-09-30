@@ -71,6 +71,8 @@ describe.each([
   ["components/settings/share-link-create-form.tsx", "/api/share-links"],
   ["components/settings/mcp-section.tsx", "/api/mcp/tokens"],
   ["components/settings/api-section.tsx", "/api/tokens/measurements"],
+  ["components/settings/api-section.tsx", "/api/tokens/documents"],
+  ["components/settings/api-section.tsx", "/api/tokens/workouts"],
   ["components/admin/backups-section.tsx", "/download"],
   ["components/admin/backups-section.tsx", "/restore"],
   ["components/admin/backups-section.tsx", "/api/admin/backups/upload"],

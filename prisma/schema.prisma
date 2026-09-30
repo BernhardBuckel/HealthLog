@@ -5032,6 +5032,18 @@ model DataBackup {
   /// Whether `innerKeyIds` was recorded; false on every copy written before
   /// v1.39.3. Consumer: the same status read (`backups.unrecorded`).
   innerKeyIdsRecorded Boolean  @default(false) @map("inner_key_ids_recorded")
+  /// What the restore preview shows for this copy, worked out while the copy
+  /// was written (`src/lib/export/backup-preview.ts`): the section counts, the
+  /// schema version, and the inner key ids with the sections they sit in and
+  /// one sample value each, so the key verdict is taken again against this
+  /// server's keys every time it is read. It names the copy it describes and
+  /// is ignored once the copy changes. Plain JSON on purpose: counts and dates
+  /// only, and the samples are ciphertext already, which a key rotation must
+  /// not re-seal because they stand for what is inside the copy. NULL for a
+  /// copy written before this column existed, until its first preview has
+  /// read it whole.
+  /// Consumer: `GET /api/admin/backups/{id}/summary`.
+  preview             Json?
   createdAt           DateTime @default(now()) @map("created_at")
 
   user   User              @relation(fields: [userId], references: [id], onDelete: Cascade)

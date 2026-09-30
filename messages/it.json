@@ -533,7 +533,10 @@
       "saveError": "Impossibile salvare l’assunzione.",
       "emptyTitle": "Ancora nessun farmaco",
       "emptyDescription": "Crea prima un farmaco con un orario, poi torna qui per registrarne l’assunzione.",
-      "emptyCta": "Aggiungi farmaco"
+      "emptyCta": "Aggiungi farmaco",
+      "noneActionableTitle": "Niente da prendere oggi",
+      "noneActionableDescription": "I tuoi farmaci sono in pausa, conservati solo come scheda, oppure la terapia non è ancora iniziata o è già terminata. Puoi comunque aggiungere un’assunzione passata dalla cronologia del farmaco.",
+      "noneActionableCta": "Apri i farmaci"
     },
     "quickEntryDiscard": {
       "title": "Scartare questa voce?",
@@ -6172,6 +6175,13 @@
       "scopeNote": "Può soltanto aggiungere nuove misurazioni alla tua cartella: non può leggere i tuoi dati, modificare o eliminare nulla, né creare un altro token. Le misurazioni vengono contrassegnate come provenienti da un dispositivo esterno, così le riconosci in seguito, e puoi comunque correggerle.",
       "createFailed": "Non è stato possibile creare il token. Riprova."
     },
+    "workoutsToken": {
+      "title": "Token per allenamenti",
+      "description": "Crea un token perché un ponte dell'orologio o uno script di sincronizzazione aggiungano i tuoi allenamenti.",
+      "detail": "Il token viene mostrato una sola volta.",
+      "scopeNote": "Può soltanto aggiungere nuovi allenamenti alla tua cartella. Non può leggere i tuoi dati, modificare o eliminare nulla, né creare un altro token. Gli allenamenti che aggiunge vengono contrassegnati come provenienti da un dispositivo esterno e, se il telefono ha registrato la stessa sessione, vedi la copia del telefono.",
+      "createFailed": "Non è stato possibile creare il token. Riprova."
+    },
     "documentsToken": {
       "title": "Token per documenti",
       "description": "Crea un token perché Paperless-ngx, Papra o lo script di importazione aggiungano documenti al tuo archivio.",
@@ -7291,6 +7301,7 @@
         "previewTitle": "Contenuto del backup",
         "previewLoading": "Lettura del contenuto…",
         "previewUnavailable": "Impossibile leggere il contenuto — il ripristino resta possibile.",
+        "previewStillReading": "Questo backup è stato creato da una versione precedente, quindi il suo contenuto viene letto per intero, e con un archivio grande ci vuole un po'. Riapri questa finestra tra qualche minuto per vederlo. Il ripristino non dipende da questo.",
         "previewEmpty": "Il file non contiene record.",
         "previewOther": "Altri record",
         "previewMeasurements": "Misurazioni",

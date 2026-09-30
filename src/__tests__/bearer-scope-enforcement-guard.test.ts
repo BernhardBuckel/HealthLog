@@ -152,6 +152,9 @@ describe("T3 — the mint sites are frozen", () => {
     // Document upload from another system (#1038). Same shape as the
     // measurement mint: a literal, one scope, one route that accepts it.
     "app/api/tokens/documents/route.ts": "[DOCUMENTS_WRITE_SCOPE]",
+    // Workout ingest from a bridge (#1054). Same shape again: a literal, one
+    // scope, one route that accepts it.
+    "app/api/tokens/workouts/route.ts": "[WORKOUTS_WRITE_SCOPE]",
     // MCP, audience-bound to `/mcp`. `health:write` requires explicit consent.
     "app/api/mcp/tokens/route.ts": "SCOPE_HEALTH_READ / SCOPE_HEALTH_WRITE",
     "app/api/mcp/oauth/token/route.ts":
@@ -179,6 +182,7 @@ describe("T3 — the mint sites are frozen", () => {
       "app/api/medications/[id]/api-endpoint/route.ts",
       "app/api/tokens/measurements/route.ts",
       "app/api/tokens/documents/route.ts",
+      "app/api/tokens/workouts/route.ts",
       "app/api/mcp/tokens/route.ts",
       "app/api/mcp/oauth/token/route.ts",
     ];
@@ -234,6 +238,7 @@ describe("T4 — declared scopes are exported constants, never string literals",
       "DOCUMENTS_WRITE_SCOPE",
       "FHIR_READ_SCOPE",
       "MEASUREMENTS_WRITE_SCOPE",
+      "WORKOUTS_WRITE_SCOPE",
     ];
     const used = new Set<string>();
     for (const rel of sourceFiles()) {
@@ -281,6 +286,27 @@ describe("T4b — `documents:write` opens exactly two doors", () => {
         (m) => m[1],
       ),
     ).toEqual(["GET"]);
+  });
+});
+
+describe("T4c — `workouts:write` opens exactly one door", () => {
+  it("only the workout batch declares the scope, and only on its POST", () => {
+    // The set of files naming the scope IS its reach. The batch ingest and
+    // nothing else: not the workout list or detail, which would hand a
+    // bridge the history it has no business reading back.
+    const declaring = filesMatching(
+      /requireAuth\(\s*WORKOUTS_WRITE_SCOPE\s*\)|requireRecordAuth\([^)]*\bscope:\s*WORKOUTS_WRITE_SCOPE\b/,
+    );
+    expect(declaring).toEqual(["app/api/workouts/batch/route.ts"]);
+    const batch = read("app/api/workouts/batch/route.ts");
+    expect(
+      batch.match(/requireAuth\(\s*WORKOUTS_WRITE_SCOPE\s*\)/g),
+    ).toHaveLength(1);
+    expect(
+      [...batch.matchAll(/export const (GET|POST|PUT|PATCH|DELETE)\b/g)].map(
+        (m) => m[1],
+      ),
+    ).toEqual(["POST"]);
   });
 });
 

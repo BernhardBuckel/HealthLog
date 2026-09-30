@@ -83,6 +83,15 @@ overrides:
   # patched line is the same minor, so nothing downstream moves.
   "esbuild@>=0.27.3 <0.28.1": "^0.28.1"
 
+  # Development-only copies (test containers, build tooling) that the
+  # dependency alerts flag: gRPC under the test containers, brace-expansion on
+  # three major lines, and undici 7 next to the app's own undici 8.
+  "@grpc/grpc-js@>=1.14.0 <1.14.5": "^1.14.5"
+  "brace-expansion@<1.1.21": "^1.1.21"
+  "brace-expansion@>=2.0.0 <2.1.7": "^2.1.7"
+  "brace-expansion@>=4.0.0 <5.0.12": "^5.0.12"
+  "undici@>=7.0.0 <7.29.1": "^7.29.1"
+
 allowBuilds:
   "@prisma/engines": true
   prisma: true

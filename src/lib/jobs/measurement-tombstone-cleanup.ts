@@ -18,14 +18,119 @@
  * (`NATIVE_REFRESH_TOKEN_DAYS` + margin) so it moves automatically if the
  * refresh-token lifetime changes — the two never drift.
  */
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { TOMBSTONE_RETENTION_DAYS } from "@/lib/auth/native-client";
-import { purgeInBatches, type PurgeOutcome } from "@/lib/jobs/purge-batch";
+import {
+  AccountRestoreInProgressError,
+  holdAccountAgainstRestore,
+} from "@/lib/export/restore-lock";
+import {
+  PURGE_BATCH_SIZE,
+  PURGE_MAX_BATCHES,
+  type PurgeOutcome,
+} from "@/lib/jobs/purge-batch";
 
 const DAY_MS = 86_400_000;
 
 function tombstoneCutoff(now: Date): Date {
   return new Date(now.getTime() - TOMBSTONE_RETENTION_DAYS * DAY_MS);
+}
+
+/** A purge run, plus the accounts it left for the next run. */
+export interface TombstonePurgeOutcome extends PurgeOutcome {
+  /**
+   * Accounts whose tombstones were left in place because a restore of the
+   * account was running. The next night purges them.
+   */
+  deferredAccounts: number;
+}
+
+type TombstoneRow = { id: string; userId: string };
+
+interface TombstonePurgeOptions {
+  prisma: PrismaClient;
+  /** Up to `take` expired tombstones, none of them owned by `skipUserIds`. */
+  findRows: (take: number, skipUserIds: string[]) => Promise<TombstoneRow[]>;
+  /** Remove exactly those ids inside `tx`; returns the rows removed. */
+  deleteIds: (tx: Prisma.TransactionClient, ids: string[]) => Promise<number>;
+  batchSize?: number;
+  maxBatches?: number;
+}
+
+/**
+ * Walk the expired tombstones in bounded batches, deleting each batch one
+ * account at a time under the account's restore lock.
+ *
+ * A restore clears every row of the account, tombstones included, in one
+ * long transaction. The purge used to delete a batch spanning accounts in one
+ * statement, so on an account under restore it waited on the restore's row
+ * locks, for as long as the restore ran and well past `statement_timeout`,
+ * or, holding some of the account's rows while the restore held others,
+ * deadlocked with it. So each account's share of a batch is deleted in a
+ * transaction that first takes the restore lock in shared mode, the way the
+ * consolidation passes do (`restore-lock.ts`). An account under restore is
+ * refused at once, dropped from the rest of the run, and purged the next
+ * night, when its tombstones are whatever the restore left.
+ *
+ * Still one delete statement per account per batch, never one per row.
+ */
+async function purgeTombstonesByAccount({
+  prisma,
+  findRows,
+  deleteIds,
+  batchSize = PURGE_BATCH_SIZE,
+  maxBatches = PURGE_MAX_BATCHES,
+}: TombstonePurgeOptions): Promise<TombstonePurgeOutcome> {
+  let deleted = 0;
+  const deferred = new Set<string>();
+  const outcome = (drained: boolean): TombstonePurgeOutcome => ({
+    deleted,
+    drained,
+    deferredAccounts: deferred.size,
+  });
+
+  for (let batch = 0; batch < maxBatches; batch++) {
+    const rows = await findRows(batchSize, [...deferred]);
+    if (rows.length === 0) return outcome(true);
+
+    const byAccount = new Map<string, string[]>();
+    for (const row of rows) {
+      const ids = byAccount.get(row.userId);
+      if (ids) ids.push(row.id);
+      else byAccount.set(row.userId, [row.id]);
+    }
+    for (const [userId, ids] of byAccount) {
+      try {
+        deleted += await prisma.$transaction(
+          async (tx) => {
+            await holdAccountAgainstRestore(tx, userId);
+            return deleteIds(tx, ids);
+          },
+          // A full batch of one account is one statement over thousands of
+          // rows; the interactive default of five seconds is too tight for
+          // it on a slow disk. The connection's statement_timeout bounds it.
+          { timeout: 60_000 },
+        );
+      } catch (err) {
+        if (!(err instanceof AccountRestoreInProgressError)) throw err;
+        deferred.add(userId);
+      }
+    }
+
+    // A short batch means the predicate is exhausted, the deferred accounts
+    // aside; asking again would cost a round-trip to learn nothing.
+    if (rows.length < batchSize) return outcome(true);
+  }
+
+  return outcome(false);
+}
+
+/** The retention predicate, minus the accounts a run has deferred. */
+function expiredTombstones(cutoff: Date, skipUserIds: string[]) {
+  return {
+    deletedAt: { not: null, lt: cutoff },
+    ...(skipUserIds.length > 0 ? { userId: { notIn: skipUserIds } } : {}),
+  };
 }
 
 /**
@@ -44,20 +149,18 @@ function tombstoneCutoff(now: Date): Date {
 export async function cleanupExpiredMeasurementTombstones(
   prisma: PrismaClient,
   now: Date = new Date(),
-): Promise<PurgeOutcome> {
+): Promise<TombstonePurgeOutcome> {
   const cutoff = tombstoneCutoff(now);
-  return purgeInBatches({
-    findIds: async (take) =>
-      (
-        await prisma.measurement.findMany({
-          where: { deletedAt: { not: null, lt: cutoff } },
-          select: { id: true },
-          take,
-        })
-      ).map((row) => row.id),
-    deleteIds: async (ids) =>
-      (await prisma.measurement.deleteMany({ where: { id: { in: ids } } }))
-        .count,
+  return purgeTombstonesByAccount({
+    prisma,
+    findRows: (take, skipUserIds) =>
+      prisma.measurement.findMany({
+        where: expiredTombstones(cutoff, skipUserIds),
+        select: { id: true, userId: true },
+        take,
+      }),
+    deleteIds: async (tx, ids) =>
+      (await tx.measurement.deleteMany({ where: { id: { in: ids } } })).count,
   });
 }
 
@@ -65,19 +168,18 @@ export async function cleanupExpiredMeasurementTombstones(
 export async function cleanupExpiredMoodTombstones(
   prisma: PrismaClient,
   now: Date = new Date(),
-): Promise<PurgeOutcome> {
+): Promise<TombstonePurgeOutcome> {
   const cutoff = tombstoneCutoff(now);
-  return purgeInBatches({
-    findIds: async (take) =>
-      (
-        await prisma.moodEntry.findMany({
-          where: { deletedAt: { not: null, lt: cutoff } },
-          select: { id: true },
-          take,
-        })
-      ).map((row) => row.id),
-    deleteIds: async (ids) =>
-      (await prisma.moodEntry.deleteMany({ where: { id: { in: ids } } })).count,
+  return purgeTombstonesByAccount({
+    prisma,
+    findRows: (take, skipUserIds) =>
+      prisma.moodEntry.findMany({
+        where: expiredTombstones(cutoff, skipUserIds),
+        select: { id: true, userId: true },
+        take,
+      }),
+    deleteIds: async (tx, ids) =>
+      (await tx.moodEntry.deleteMany({ where: { id: { in: ids } } })).count,
   });
 }
 
@@ -88,20 +190,19 @@ export async function cleanupExpiredMoodTombstones(
 export async function cleanupExpiredIntakeTombstones(
   prisma: PrismaClient,
   now: Date = new Date(),
-): Promise<PurgeOutcome> {
+): Promise<TombstonePurgeOutcome> {
   const cutoff = tombstoneCutoff(now);
-  return purgeInBatches({
-    findIds: async (take) =>
+  return purgeTombstonesByAccount({
+    prisma,
+    findRows: (take, skipUserIds) =>
+      prisma.medicationIntakeEvent.findMany({
+        where: expiredTombstones(cutoff, skipUserIds),
+        select: { id: true, userId: true },
+        take,
+      }),
+    deleteIds: async (tx, ids) =>
       (
-        await prisma.medicationIntakeEvent.findMany({
-          where: { deletedAt: { not: null, lt: cutoff } },
-          select: { id: true },
-          take,
-        })
-      ).map((row) => row.id),
-    deleteIds: async (ids) =>
-      (
-        await prisma.medicationIntakeEvent.deleteMany({
+        await tx.medicationIntakeEvent.deleteMany({
           where: { id: { in: ids } },
         })
       ).count,

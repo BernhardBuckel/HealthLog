@@ -1,7 +1,7 @@
 /**
  * `POST /api/workouts/batch` — typed workout ingest with nested route.
  *
- * Consumers (v1.5):
+ * Consumers:
  *   1. The native iOS app draining its HealthKit observer queue —
  *      maps `HKWorkout` + `HKWorkoutRoute` samples into the request
  *      shape locked by `createBatchWorkoutSchema` in
@@ -15,12 +15,18 @@
  *      (MANUAL / APPLE_HEALTH), so this server path must write its
  *      `WITHINGS`-sourced rows directly via `prisma.workout.upsert`
  *      (as the WHOOP / Fitbit syncs already do), not through this route.
+ *   3. A third-party bridge holding a narrow `workouts:write` token
+ *      (#1054) — a watch vendor's sync relayed by a small service. Its
+ *      rows are attributed `EXTERNAL`, resolved from the credential; see
+ *      the source guard in the handler.
  *
  * Cross-cutting concerns mirror `/api/measurements/batch` so the iOS
  * sync engine can re-use the same retry / cursor plumbing:
- *   - `requireAuth()` — cookie + Bearer (narrow-scope-token safe per
- *     v1.4.25 W10 fix-C: when the route declares no scope, any
- *     authenticated token passes).
+ *   - `requireAuth` naming `WORKOUTS_WRITE_SCOPE` — a cookie session, a
+ *     wildcard (`["*"]`) token, or a narrow `workouts:write` token. Every
+ *     other narrow token is refused 403: under the fail-closed default a
+ *     route admits exactly the scope it names, so a `measurements:write`
+ *     credential does not reach this route.
  *   - `withIdempotency` — `Idempotency-Key` header replays the cached
  *     response on retry (24h window).
  *   - `checkRateLimit("workouts:batch:${user.id}", 60, 60s)` — same
@@ -59,7 +65,7 @@
 import { NextRequest } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { apiHandler, requireAuth } from "@/lib/api-handler";
+import { apiHandler, isScopedCredential, requireAuth } from "@/lib/api-handler";
 import { annotate } from "@/lib/logging/context";
 import { auditLog } from "@/lib/auth/audit";
 import {
@@ -85,6 +91,8 @@ import {
   type UnstableExternalIdShape,
 } from "@/lib/validations/external-id";
 import { dedupeWorkoutBatch } from "@/lib/workouts/canonical-rows";
+import { WORKOUTS_WRITE_SCOPE } from "@/lib/workouts/scopes";
+import { EXTERNAL_SOURCE } from "@/lib/measurements/external-source";
 import { encryptRouteGeometry } from "@/lib/workouts/route-geometry-cipher";
 import { Prisma, type MeasurementSource } from "@/generated/prisma/client";
 
@@ -169,7 +177,17 @@ async function emitWorkoutArrivals(
 export const POST = apiHandler(withIdempotency<[NextRequest]>(postBatch));
 
 async function postBatch(request: NextRequest): Promise<Response> {
-  const { user } = await requireAuth();
+  // Declares the workout-ingest scope, so a narrow `workouts:write` token
+  // reaches this route alongside cookie sessions and the wildcard tokens a
+  // native login mints. The only route that names it. `requireAuth` refuses
+  // any acting-account carrier for every credential shape, so the scoped token
+  // is confined to its owner's own record without an arm of its own here.
+  const auth = await requireAuth(WORKOUTS_WRITE_SCOPE);
+  const { user } = auth;
+
+  // A scoped credential is a bridge, not the native client: the source of
+  // its rows is resolved from the credential below rather than from the body.
+  const scoped = isScopedCredential(auth);
 
   // v1.4.43 W9 — resolve the per-user source-priority blob once at
   // the start of the handler so the write-time canonical-row picker
@@ -268,6 +286,27 @@ async function postBatch(request: NextRequest): Promise<Response> {
     });
   }
 
+  // A scoped credential may attribute nothing: its rows are `EXTERNAL`,
+  // resolved from the credential. Refused loudly rather than relabelled, the
+  // measurement batch's rule and for its reasons. `APPLE_HEALTH` is half the
+  // `(userId, source, externalId)` dedup key the phone writes into and ranks
+  // first in the cross-source picker, so a bridge naming it would land in the
+  // phone's namespace and could shadow the phone's own copy of a session;
+  // `MANUAL` would make a bridged workout indistinguishable from one entered
+  // by hand. Checked on the raw body because the schema defaults an absent
+  // `source` to `MANUAL`, which would make "named" and "omitted" look alike.
+  if (scoped && namesAnySource(rawBody)) {
+    annotate({
+      action: { name: "workout.batch.ingest" },
+      meta: { outcome: "source_not_permitted" },
+    });
+    return apiError(
+      "This credential resolves the source itself; omit the field",
+      422,
+      { errorCode: "workout.batch.source_not_permitted" },
+    );
+  }
+
   const { workouts } = parsed.data;
   const refusedSampleIndices = new Set(parsed.refusedSampleIndices);
 
@@ -359,7 +398,11 @@ async function postBatch(request: NextRequest): Promise<Response> {
       stepCount: w.stepCount ?? null,
       elevationM: w.elevationM ?? null,
       pauseDurationSec: w.pauseDurationSec ?? null,
-      source: w.source,
+      // `EXTERNAL` under a scoped credential, and nothing else: the guard
+      // above refused any body that named a source, so nothing asserted is
+      // discarded here. It also moves the dedup key into its own namespace,
+      // so a bridge's ids can never collide with the phone's.
+      source: scoped ? EXTERNAL_SOURCE : w.source,
       externalId: w.externalId ?? null,
       externalSourceVersion: w.externalSourceVersion ?? null,
       metadata: w.metadata
@@ -373,7 +416,10 @@ async function postBatch(request: NextRequest): Promise<Response> {
         route,
         samples,
         dedupKey: w.externalId
-          ? { source: w.source, externalId: w.externalId }
+          ? {
+              source: scoped ? EXTERNAL_SOURCE : w.source,
+              externalId: w.externalId,
+            }
           : null,
       },
     ];
@@ -718,4 +764,17 @@ async function postBatch(request: NextRequest): Promise<Response> {
     skipped,
     entries: results,
   });
+}
+
+/** Whether any entry of a raw batch body names a `source` at all. */
+function namesAnySource(rawBody: unknown): boolean {
+  if (typeof rawBody !== "object" || rawBody === null) return false;
+  const workouts = (rawBody as { workouts?: unknown }).workouts;
+  if (!Array.isArray(workouts)) return false;
+  return workouts.some(
+    (w) =>
+      typeof w === "object" &&
+      w !== null &&
+      (w as { source?: unknown }).source !== undefined,
+  );
 }

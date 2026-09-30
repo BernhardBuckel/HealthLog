@@ -631,6 +631,85 @@ describe("GET /api/measurements/series — dense-kind day-bucketing (v1.28.25)",
     expect(bucketSql.slice(1)).toContain("hour");
   });
 
+  it("hour-buckets a CGM glucose window too dense to send raw, in the user's unit", async () => {
+    vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      glucoseUnit: "mmol/L",
+    } as never);
+    // A sensor reading every five minutes for 90 days.
+    vi.mocked(prisma.measurement.count).mockResolvedValue(25_920 as never);
+    vi.mocked(prisma.$queryRaw)
+      .mockResolvedValueOnce([
+        {
+          bucket_start: new Date("2026-06-01T08:00:00Z"),
+          mean: 100,
+          min_value: 90,
+          max_value: 112,
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        { n: 25_920, mean: 118.004, min: 48, max: 260, sd: 36.004 },
+      ] as never);
+
+    const res = await GET(req("kind=glucose&days=90"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        unit: string;
+        points: Array<Record<string, unknown>>;
+        stats: {
+          count: number;
+          mean: number;
+          min: number;
+          max: number;
+          stdDev: number;
+        };
+      };
+    };
+    expect(prisma.measurement.findMany).not.toHaveBeenCalled();
+    expect(vi.mocked(prisma.measurement.count).mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        where: expect.objectContaining({ type: "BLOOD_GLUCOSE" }),
+      }),
+    );
+    expect(body.data.unit).toBe("mmol/L");
+    // Converted once at serialization; no band on a glucose point.
+    expect(body.data.points).toEqual([
+      {
+        id: "hour:2026-06-01T08:00:00.000Z",
+        at: "2026-06-01T08:00:00.000Z",
+        value: 5.5,
+        secondary: null,
+      },
+    ]);
+    // Stats describe every reading (mg/dL aggregate, converted once).
+    expect(body.data.stats).toEqual({
+      count: 25_920,
+      mean: 6.5,
+      min: 2.7,
+      max: 14.4,
+      stdDev: 2,
+    });
+    const bucketSql = vi.mocked(prisma.$queryRaw).mock.calls[0] as unknown[];
+    expect(bucketSql.slice(1)).toContain("hour");
+  });
+
+  it("keeps fingerstick glucose at or under the row cap raw", async () => {
+    vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
+    vi.mocked(prisma.measurement.count).mockResolvedValue(360 as never);
+    vi.mocked(prisma.measurement.findMany).mockResolvedValue([
+      { id: "g1", value: 104, measuredAt: new Date("2026-06-01T07:12:00Z") },
+    ] as never);
+    const res = await GET(req("kind=glucose&days=90"));
+    const body = (await res.json()) as {
+      data: { points: Array<Record<string, unknown>> };
+    };
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(body.data.points).toEqual([
+      { id: "g1", at: "2026-06-01T07:12:00.000Z", value: 104, secondary: null },
+    ]);
+  });
+
   it("keeps a pulse window at or under the row cap raw", async () => {
     vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
     vi.mocked(prisma.measurement.count).mockResolvedValue(10_000 as never);

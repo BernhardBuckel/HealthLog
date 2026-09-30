@@ -18,6 +18,7 @@ import { integrationBackfillSourceOptions } from "@/lib/jobs/integration-backfil
 import { isReauthRequired } from "@/lib/integrations/status";
 import { GOOGLE_HEALTH_INTEGRATION_KEY } from "@/lib/google-health/sync-core";
 import { syncUserGoogleHealth } from "@/lib/google-health/sync";
+import { runWithGoogleHealthStop } from "@/lib/google-health/client";
 
 export const GOOGLE_HEALTH_BACKFILL_QUEUE = "google-health-backfill";
 
@@ -47,9 +48,17 @@ export interface GoogleHealthBackfillPayload {
  * just burn the retry budget on the same no-op: return WITHOUT stamping — the
  * boot discovery re-enqueues the account on the next boot, and the stamp lands
  * once the user reconnects and a clean walk completes.
+ *
+ * `shouldStop` is the admission job's budget (`jobBudget`). A per-minute
+ * heart-rate history runs to thousands of pages, and the walk asks it before
+ * every page: once it says stop, the walk ends where it is, the cycle reports
+ * itself truncated, and this throws like any other incomplete run, without
+ * the stamp. The rows already written stay; the retry or the next boot walks
+ * again and the key-stable upserts overwrite them.
  */
 export async function runGoogleHealthBackfillForUser(
   userId: string,
+  shouldStop: () => boolean = () => false,
 ): Promise<{ imported: number }> {
   if (await isReauthRequired(userId, GOOGLE_HEALTH_INTEGRATION_KEY)) {
     annotate({
@@ -61,9 +70,9 @@ export async function runGoogleHealthBackfillForUser(
     return { imported: 0 };
   }
 
-  const { imported, failed } = await syncUserGoogleHealth(userId, {
-    fullSync: true,
-  });
+  const { imported, failed } = await runWithGoogleHealthStop(shouldStop, () =>
+    syncUserGoogleHealth(userId, { fullSync: true }),
+  );
 
   if (failed) {
     // Surface through the pg-boss retry path (retryLimit 3, backoff). If the

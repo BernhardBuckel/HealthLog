@@ -142,6 +142,71 @@ async function* openedChunks(
 }
 
 /**
+ * Refuse a chunked copy whose row does not list as many pieces as are stored:
+ * one missing, or one this code never wrote. A count, without reading a
+ * piece; `openStoredBackup` goes on to authenticate every piece.
+ */
+async function checkStoredBackupPieceCount(
+  prisma: ChunkReader,
+  id: string,
+  streamId: string,
+  count: number,
+): Promise<void> {
+  if (count < 1) {
+    throw new BackupIntegrityError("The stored copy lists no pieces.");
+  }
+  // Pieces beyond the count would be ignored by the reads, but they are not
+  // something this code ever writes, so their presence is refused too.
+  const stored = await prisma.dataBackupChunk.count({
+    where: { backupId: id },
+  });
+  if (stored !== count) {
+    const now = await prisma.dataBackup.findUnique({
+      where: { id },
+      select: { chunkStreamId: true },
+    });
+    if (now?.chunkStreamId !== streamId) throw new BackupReplacedError();
+    throw new BackupIntegrityError(
+      `The stored copy lists ${count} pieces but ${stored} are stored.`,
+    );
+  }
+}
+
+/**
+ * The checks on a stored copy that need no piece read: both forms, a count
+ * without a stream id or the reverse, no content, and the pieces a chunked
+ * copy lists against those stored. Throws what `openStoredBackup` would
+ * throw for the same row. For a reader that answers from what was kept about
+ * the copy (the restore preview) and must still not describe a copy the
+ * restore would refuse on sight.
+ */
+export async function checkStoredBackupShape(
+  prisma: ChunkReader,
+  backup: StoredBackupRef,
+): Promise<void> {
+  if (backup.data != null && backup.chunkStreamId != null) {
+    throw new BackupFormsConflictError();
+  }
+  if ((backup.chunkStreamId == null) !== (backup.chunkCount == null)) {
+    throw new BackupIntegrityError(
+      "The stored copy lists pieces without saying how many, or the reverse.",
+    );
+  }
+  if (backup.chunkStreamId == null || backup.chunkCount == null) {
+    if (backup.data == null) {
+      throw new BackupIntegrityError("The stored copy has no content.");
+    }
+    return;
+  }
+  await checkStoredBackupPieceCount(
+    prisma,
+    backup.id,
+    backup.chunkStreamId,
+    backup.chunkCount,
+  );
+}
+
+/**
  * Open a stored copy as a source of its JSON bytes, openable as many times as
  * the caller needs. Rejects when the copy cannot be read whole: a key that is
  * no longer configured, or a copy whose pieces do not add up (see the module
@@ -166,24 +231,7 @@ export async function openStoredBackup(
     return openBackupBlob(backup.data);
   }
   const { id, chunkStreamId: streamId, chunkCount: count } = backup;
-  if (count < 1) {
-    throw new BackupIntegrityError("The stored copy lists no pieces.");
-  }
-  // Pieces beyond the count would be ignored by the reads below, but they are
-  // not something this code ever writes, so their presence is refused too.
-  const stored = await prisma.dataBackupChunk.count({
-    where: { backupId: id },
-  });
-  if (stored !== count) {
-    const now = await prisma.dataBackup.findUnique({
-      where: { id },
-      select: { chunkStreamId: true },
-    });
-    if (now?.chunkStreamId !== streamId) throw new BackupReplacedError();
-    throw new BackupIntegrityError(
-      `The stored copy lists ${count} pieces but ${stored} are stored.`,
-    );
-  }
+  await checkStoredBackupPieceCount(prisma, id, streamId, count);
   // The whole copy, checked once before anyone reads a byte of it.
   for await (const piece of openedChunks(prisma, id, streamId, count)) {
     void piece;
