@@ -951,3 +951,173 @@ describe("B8 — the measurement-ingest scope reaches its two routes and no othe
     expect(row.userId).toBe(ownerId);
   });
 });
+
+describe("B9 — the workout-ingest scope reaches the workout batch and nothing else", () => {
+  function postWorkouts(entries: Array<Record<string, unknown>>): NextRequest {
+    return new NextRequest("https://health.example/api/workouts/batch", {
+      method: "POST",
+      headers: {
+        authorization: headerJar.get("authorization")!,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ workouts: entries }),
+    } as never);
+  }
+
+  function bridgedRun(
+    externalId: string,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      sportType: "running",
+      startedAt: "2026-09-20T06:30:00.000Z",
+      endedAt: "2026-09-20T07:15:00.000Z",
+      externalId,
+      ...extra,
+    };
+  }
+
+  it("admits the scope on POST /api/workouts/batch, attributed EXTERNAL", async () => {
+    await armToken(["workouts:write"], "wwrite1");
+    const { POST } = await import("@/app/api/workouts/batch/route");
+    const res = await POST(postWorkouts([bridgedRun("bridge-run-1")]));
+
+    expect(res.status).toBe(200);
+    const row = await getPrismaClient().workout.findFirstOrThrow({
+      where: { userId: USER_ID, externalId: "bridge-run-1" },
+    });
+    // The body names no source; the schema would default it to MANUAL, and
+    // the route resolves EXTERNAL from the credential instead.
+    expect(row.source).toBe("EXTERNAL");
+  });
+
+  it("re-posting the same bridged workout is a duplicate, not a second row", async () => {
+    // The dedup probe has to look in the EXTERNAL namespace the insert wrote
+    // to. Probing under the body's defaulted MANUAL would miss the stored row
+    // and the unique index would be the only thing standing in the way.
+    await armToken(["workouts:write"], "wwrite1b");
+    const { POST } = await import("@/app/api/workouts/batch/route");
+    await POST(postWorkouts([bridgedRun("bridge-run-2")]));
+    const again = await POST(postWorkouts([bridgedRun("bridge-run-2")]));
+
+    expect(again.status).toBe(200);
+    expect((await again.json()).data.entries[0].status).toBe("duplicate");
+    expect(await getPrismaClient().workout.count()).toBe(1);
+  });
+
+  it.each(["APPLE_HEALTH", "MANUAL"])(
+    "refuses a batch in which an entry names %s",
+    async (source) => {
+      await armToken(["workouts:write"], `wwrite2-${source}`);
+      const { POST } = await import("@/app/api/workouts/batch/route");
+      const res = await POST(
+        postWorkouts([
+          bridgedRun("bridge-run-3"),
+          bridgedRun("bridge-run-4", { source }),
+        ]),
+      );
+
+      expect(res.status).toBe(422);
+      expect((await res.json()).meta?.errorCode).toBe(
+        "workout.batch.source_not_permitted",
+      );
+      expect(await getPrismaClient().workout.count()).toBe(0);
+    },
+  );
+
+  it("a measurements:write token is refused on the workout batch", async () => {
+    // Separate scopes on purpose: a token handed to a scale does not start
+    // accepting workouts.
+    await armToken(["measurements:write"], "wwrite3");
+    const { POST } = await import("@/app/api/workouts/batch/route");
+    const res = await POST(postWorkouts([bridgedRun("bridge-run-5")]));
+
+    expect(res.status).toBe(403);
+    expect(await getPrismaClient().workout.count()).toBe(0);
+  });
+
+  it("and a workouts:write token is refused on the measurement batch", async () => {
+    await armToken(["workouts:write"], "wwrite4");
+    const { POST } = await import("@/app/api/measurements/batch/route");
+    const res = await POST(
+      new NextRequest("https://health.example/api/measurements/batch", {
+        method: "POST",
+        headers: {
+          authorization: headerJar.get("authorization")!,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          entries: [
+            {
+              hkIdentifier: "HKQuantityTypeIdentifierBodyMass",
+              value: 70,
+              unit: "kg",
+              startDate: new Date().toISOString(),
+              endDate: new Date().toISOString(),
+              externalId: "uuid-workouts-write-1",
+            },
+          ],
+        }),
+      } as never),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await getPrismaClient().measurement.count()).toBe(0);
+  });
+
+  it("is refused on the workout read legs", async () => {
+    await armToken(["workouts:write"], "wwrite5");
+    const { GET } = await import("@/app/api/workouts/route");
+    expect((await GET(req("/api/workouts"))).status).toBe(403);
+    await expect
+      .poll(() => lastBearerFailureReason(), { timeout: 5_000, interval: 100 })
+      .toBe("undeclared_scope");
+  });
+
+  it("cannot mint another token", async () => {
+    await armToken(["workouts:write"], "wwrite6");
+    const { POST } = await import("@/app/api/tokens/workouts/route");
+    const res = await POST(
+      new NextRequest("https://health.example/api/tokens/workouts", {
+        method: "POST",
+        headers: {
+          authorization: headerJar.get("authorization")!,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ name: "second" }),
+      } as never),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("the mint issues exactly this scope, and the token it issues writes", async () => {
+    // Mint on a cookie session with a fresh proof, then use the raw token the
+    // response carries: the round trip a bridge operator makes.
+    await useCookieSession();
+    const { POST: mint } = await import("@/app/api/tokens/workouts/route");
+    const minted = await mint(
+      new NextRequest("https://health.example/api/tokens/workouts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "watch bridge" }),
+      } as never),
+    );
+    expect(minted.status).toBe(201);
+    const raw = (await minted.json()).data.token as string;
+
+    const row = await getPrismaClient().apiToken.findFirstOrThrow({
+      where: { name: "watch bridge" },
+    });
+    expect(row.permissions).toEqual(["workouts:write"]);
+
+    cookieJar.clear();
+    headerJar.set("authorization", `Bearer ${raw}`);
+    const { POST } = await import("@/app/api/workouts/batch/route");
+    const res = await POST(postWorkouts([bridgedRun("bridge-run-6")]));
+    expect(res.status).toBe(200);
+    const written = await getPrismaClient().workout.findFirstOrThrow({
+      where: { externalId: "bridge-run-6" },
+    });
+    expect(written.source).toBe("EXTERNAL");
+  });
+});

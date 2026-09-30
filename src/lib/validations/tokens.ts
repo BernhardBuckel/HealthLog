@@ -34,3 +34,13 @@ export const createDocumentTokenSchema = z.object({
   name: z.string().min(1, "Name required").max(100),
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
+
+/**
+ * Body of `POST /api/tokens/workouts` — mint a Bearer that can push workouts
+ * and nothing else (#1054). The same shape as the other two mints and for the
+ * same reasons: no scope field, a bounded lifetime.
+ */
+export const createWorkoutTokenSchema = z.object({
+  name: z.string().min(1, "Name required").max(100),
+  expiresInDays: z.number().int().min(1).max(365).optional(),
+});

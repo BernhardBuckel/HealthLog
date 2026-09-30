@@ -6172,6 +6172,13 @@
       "scopeNote": "Può soltanto aggiungere nuove misurazioni alla tua cartella: non può leggere i tuoi dati, modificare o eliminare nulla, né creare un altro token. Le misurazioni vengono contrassegnate come provenienti da un dispositivo esterno, così le riconosci in seguito, e puoi comunque correggerle.",
       "createFailed": "Non è stato possibile creare il token. Riprova."
     },
+    "workoutsToken": {
+      "title": "Token per allenamenti",
+      "description": "Crea un token perché un ponte dell'orologio o uno script di sincronizzazione aggiungano i tuoi allenamenti.",
+      "detail": "Il token viene mostrato una sola volta.",
+      "scopeNote": "Può soltanto aggiungere nuovi allenamenti alla tua cartella. Non può leggere i tuoi dati, modificare o eliminare nulla, né creare un altro token. Gli allenamenti che aggiunge vengono contrassegnati come provenienti da un dispositivo esterno e, se il telefono ha registrato la stessa sessione, vedi la copia del telefono.",
+      "createFailed": "Non è stato possibile creare il token. Riprova."
+    },
     "documentsToken": {
       "title": "Token per documenti",
       "description": "Crea un token perché Paperless-ngx, Papra o lo script di importazione aggiungano documenti al tuo archivio.",

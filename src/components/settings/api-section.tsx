@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   Check,
   ChevronDown,
   Copy,
@@ -62,6 +63,7 @@ export function ApiSection() {
     <div className="space-y-6">
       <ApiEndpointsCard />
       <MeasurementTokensCard />
+      <WorkoutTokensCard />
       <DocumentTokensCard />
       <ApiTokensCard />
     </div>
@@ -90,6 +92,29 @@ function MeasurementTokensCard() {
         detail: t("settings.measurementsToken.detail"),
         scopeNote: t("settings.measurementsToken.scopeNote"),
         createFailed: t("settings.measurementsToken.createFailed"),
+      }}
+    />
+  );
+}
+
+/**
+ * Mint a token a workout bridge pushes through (#1054): a watch vendor's sync
+ * relayed by a small service, or a script replaying an export. Same card,
+ * same no-list reasoning as the measurement one above.
+ */
+function WorkoutTokensCard() {
+  const { t } = useTranslations();
+  return (
+    <IngestTokenCard
+      endpoint="/api/tokens/workouts"
+      icon={Activity}
+      slot="settings-workouts-token-created"
+      copy={{
+        title: t("settings.workoutsToken.title"),
+        description: t("settings.workoutsToken.description"),
+        detail: t("settings.workoutsToken.detail"),
+        scopeNote: t("settings.workoutsToken.scopeNote"),
+        createFailed: t("settings.workoutsToken.createFailed"),
       }}
     />
   );
@@ -125,7 +150,10 @@ function IngestTokenCard({
   slot,
   copy,
 }: {
-  endpoint: "/api/tokens/measurements" | "/api/tokens/documents";
+  endpoint:
+    | "/api/tokens/measurements"
+    | "/api/tokens/workouts"
+    | "/api/tokens/documents";
   icon: LucideIcon;
   slot: string;
   copy: {
@@ -295,6 +323,12 @@ function ApiEndpointsCard() {
       path: "/api/measurements/batch",
       auth: "Authorization: Bearer hlk_...",
       example: `{ "entries": [ { "hkIdentifier": "...", "value": 1, ... } ] }`,
+    },
+    {
+      method: "POST",
+      path: "/api/workouts/batch",
+      auth: "Authorization: Bearer hlk_...",
+      example: `{ "workouts": [ { "sportType": "running", "startedAt": "...", "endedAt": "...", "externalId": "..." } ] }`,
     },
     {
       method: "POST",

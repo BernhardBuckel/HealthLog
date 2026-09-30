@@ -445,3 +445,34 @@ describe("pickCanonicalWorkout — Strava brick-workout regression", () => {
     expect(sports).toEqual(["cycling", "running"]);
   });
 });
+
+/**
+ * #1054 — workouts a `workouts:write` bridge pushes in carry `EXTERNAL`, which
+ * is on no default ladder. Pinned because the settings copy promises what
+ * follows from that: a bridged session the phone also recorded shows once, as
+ * the phone's copy, and a bridged session nothing else recorded still shows.
+ */
+describe("pickCanonicalWorkout — the unranked EXTERNAL source", () => {
+  it("is on no default ladder", () => {
+    expect(DEFAULT_WORKOUT_SOURCE_PRIORITY).not.toContain("EXTERNAL");
+  });
+
+  it("yields to the phone's copy of the same session", () => {
+    const result = pickCanonicalWorkout([
+      row("bridge-1", "EXTERNAL", "2026-09-20T06:30:00.000Z"),
+      row("apple-1", "APPLE_HEALTH", "2026-09-20T06:31:00.000Z"),
+    ]);
+    expect(result.canonical.map((w) => w.id)).toEqual(["apple-1"]);
+  });
+
+  it("survives when nothing else recorded the session", () => {
+    const result = pickCanonicalWorkout([
+      row("bridge-1", "EXTERNAL", "2026-09-20T06:30:00.000Z"),
+      row("apple-1", "APPLE_HEALTH", "2026-09-20T09:00:00.000Z"),
+    ]);
+    expect(result.canonical.map((w) => w.id).sort()).toEqual([
+      "apple-1",
+      "bridge-1",
+    ]);
+  });
+});
