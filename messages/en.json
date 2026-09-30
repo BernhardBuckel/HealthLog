@@ -6172,6 +6172,13 @@
       "scopeNote": "It can only add new readings to your own record — it cannot read your data, change or delete anything, or create another token. Readings are marked as coming from an external device, so you can tell them apart later, and you can still correct them yourself.",
       "createFailed": "The token could not be created. Please try again."
     },
+    "workoutsToken": {
+      "title": "Workout tokens",
+      "description": "Mint a token so a watch bridge or a sync script can add your workouts.",
+      "detail": "The token is shown once.",
+      "scopeNote": "It can only add new workouts to your own record. It cannot read your data, change or delete anything, or create another token. Workouts it adds are marked as coming from an external device, and when your phone recorded the same session, you see the phone's copy.",
+      "createFailed": "The token could not be created. Please try again."
+    },
     "documentsToken": {
       "title": "Document tokens",
       "description": "Mint a token so Paperless-ngx, Papra or the import script can add documents to your vault.",

@@ -319,7 +319,8 @@ export const workoutPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Measurements"],
       summary: "Typed workout batch ingest (v1.4.25 W16b)",
       description:
-        'Server-side ingest endpoint for HKWorkout records (iOS) and Withings activity rows (server-to-server). Up to 100 workouts per call; nested route geometry (GeoJSON LineString) is capped at 20 000 points and stored in a 1:1 `WorkoutRoute` row keyed by `workoutId`. Idempotent via the `Idempotency-Key` header (replay window 24h). Per-entry status (`inserted | duplicate | enriched | skipped`) lets the iOS sync cursor checkpoint accurately. An entry matching a stored workout is first-write-wins for the workout row; when it carries a `samples` array and the stored workout has no heart-rate series, the series is attached and the entry reports `enriched` (repeatable: a workout that already has a series is a no-op). An entry whose `samples` array fails validation is refused on its own with `reason: "invalid_samples"` — the rest of the batch still lands. The request body ceiling is 5 MB enforced at the HTTP layer — clients above the ceiling receive a 413 with `workout.batch.payload_too_large`.',
+        'Server-side ingest endpoint for HKWorkout records (iOS) and Withings activity rows (server-to-server). Up to 100 workouts per call; nested route geometry (GeoJSON LineString) is capped at 20 000 points and stored in a 1:1 `WorkoutRoute` row keyed by `workoutId`. Idempotent via the `Idempotency-Key` header (replay window 24h). Per-entry status (`inserted | duplicate | enriched | skipped`) lets the iOS sync cursor checkpoint accurately. An entry matching a stored workout is first-write-wins for the workout row; when it carries a `samples` array and the stored workout has no heart-rate series, the series is attached and the entry reports `enriched` (repeatable: a workout that already has a series is a no-op). An entry whose `samples` array fails validation is refused on its own with `reason: "invalid_samples"` — the rest of the batch still lands. The request body ceiling is 5 MB enforced at the HTTP layer — clients above the ceiling receive a 413 with `workout.batch.payload_too_large`.\n\n' +
+        "**Narrow token.** Also reachable with a `workouts:write` Bearer (minted at `POST /api/tokens/workouts`), the supported way to push workouts from a bridge that is not the phone. This route is the scope's only one. Such a credential writes only on its owner's own record; its workouts are attributed `EXTERNAL`, resolved from the credential, and it may not name a source itself, so a batch in which any entry carries one, `MANUAL` and `APPLE_HEALTH` alike, is refused 422 (`workout.batch.source_not_permitted`) and nothing is written. `EXTERNAL` gives those writes their own `(userId, source, externalId)` namespace, so a bridge's ids can never collide with the phone's. Every other narrow token, `measurements:write` included, is refused 403.",
       requestBody: {
         required: true,
         content: { "application/json": { schema: createBatchWorkoutSchema } },
@@ -347,6 +348,13 @@ export const workoutPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           content: { "application/json": { schema: errorEnvelope } },
         },
         ...stdResponses,
+        // After the spread: `stdResponses` carries a generic 422 that would
+        // otherwise overwrite this wording.
+        "422": {
+          description:
+            "A narrow `workouts:write` credential sent a batch in which an entry names a source, any source (`workout.batch.source_not_permitted`). Nothing was written; resending the batch unchanged is refused the same way. Omit `source` and the server attributes the rows `EXTERNAL`.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
       },
     },
   },

@@ -66,7 +66,13 @@ before treating a warning as a regression.
       `health:write`), audience-bound to `/mcp` and refused on REST writes;
     - `POST /api/tokens/measurements` mints `measurements:write`, accepted by
       `POST /api/measurements` and `POST /api/measurements/batch` only, on the
-      holder's own record only.
+      holder's own record only;
+    - `POST /api/tokens/workouts` mints `workouts:write`, accepted by
+      `POST /api/workouts/batch` only, on the holder's own record only; the
+      workouts it writes carry `source: EXTERNAL`;
+    - `POST /api/tokens/documents` mints `documents:write`, accepted by
+      `POST /api/documents/inbound` and `GET /api/documents/inbound/source`
+      only.
 
     `POST /api/tokens` is **not** among them — that generic mint was removed in
     v1.30.17. The path still lists (`GET`) and revokes (`DELETE /api/tokens/{id}`)

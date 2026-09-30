@@ -339,6 +339,7 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
     tokens: [
       "tokens.documents.ceiling_reached",
       "tokens.measurements.ceiling_reached",
+      "tokens.workouts.ceiling_reached",
     ],
     vaccination: [
       "vaccination.booster-invalid",
@@ -354,6 +355,7 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
     workout: [
       "workout.batch.invalid",
       "workout.batch.payload_too_large",
+      "workout.batch.source_not_permitted",
       "workout.batch.too_large",
     ],
     "(unprefixed)": [
