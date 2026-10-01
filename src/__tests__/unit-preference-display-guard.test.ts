@@ -226,10 +226,19 @@ describe("unit-preference display guard", () => {
  * fails. A listed file that drops a line fails too, so the budget follows
  * the code down instead of leaving headroom for the next literal.
  *
+ * The text the AI and the Coach write is swept the same way: the prompt and
+ * snapshot builders (`lib/ai/`), the jobs that write stored text
+ * (`lib/jobs/`), the target and daily-digest producers. A prompt that
+ * states a threshold or a band in kilograms, °C or mg/dL hands a reader on
+ * pounds, °F or mmol/L two units for one quantity, and the model mixes
+ * them. Prose units ("5 metres", "kg/week") are matched as well, because a
+ * prompt is prose.
+ *
  * The limit, stated: this is a line scanner. A unit spelled through a
  * variable named after it, or a literal split across lines, passes. The
  * message bundles are not swept either (the fever and cycle-glucose labels
- * lived there).
+ * lived there). The producer check below covers what a scanner cannot: a
+ * text producer that prints a canonical number with no unit at all.
  */
 const WIDE_SWEEP_ROOTS = [
   "components/",
@@ -237,6 +246,10 @@ const WIDE_SWEEP_ROOTS = [
   "lib/insights/",
   "lib/doctor-report",
   "lib/export",
+  "lib/ai/",
+  "lib/jobs/",
+  "lib/targets/",
+  "lib/daily/",
 ];
 
 const UNIT_LITERAL_PATTERNS: readonly RegExp[] = [
@@ -252,6 +265,10 @@ const UNIT_LITERAL_PATTERNS: readonly RegExp[] = [
   /\s(?:kg|km|°C)(?=["'`<])/,
   // A per-kilometre pace.
   /\/km\b/,
+  // A rate per kilogram written into prose: "kg/week" (BMI's kg/m² excepted).
+  /\bkg\/(?!m²)/,
+  // A unit spelled out after a number or an interpolation: "5 metres".
+  /(?:\d|\})\s?(?:metres?|kilograms?)\b/,
 ];
 
 /**
@@ -346,22 +363,48 @@ const UNIT_LITERAL_ALLOWLIST: Record<
     lines: 2,
     reason: "prose naming both glucose units the app offers",
   },
-  // ── Still canonical; the prompt-unit pass for these is open (#1067) ──
-  "lib/insights/comprehensive-generate.ts": {
+  // ── The AI and Coach producers ──
+  "lib/ai/insight-interpretation.ts": {
     lines: 1,
-    reason: "comprehensive prompt still states weight in kg",
+    reason:
+      "canonical band registry; interpretation-block prints the band in the reader's unit",
   },
-  "lib/insights/signals-of-day.ts": {
-    lines: 1,
-    reason: "briefing signal still states weight in kg",
+  "lib/ai/prompts/shared-contracts.ts": {
+    lines: 3,
+    reason:
+      "the acute red-flag floors, stated in both units on purpose so the rule fires on what the person writes",
   },
-  "lib/insights/weight-status.ts": {
-    lines: 1,
-    reason: "weight status snapshot still states kg",
+  "lib/ai/coach/snapshot-blocks/glucose-block.ts": {
+    lines: 4,
+    reason:
+      "branches on the resolved glucose unit; a mg/dL reader's block stays byte-identical",
   },
-  "lib/insights/glp1-plateau.ts": {
+  "lib/ai/coach/results/chart-spec.ts": {
     lines: 2,
-    reason: "GLP-1 plateau prompt context still states kg",
+    reason:
+      "bin widths keyed to a column unit, applied only when the table is in that unit",
+  },
+  "lib/ai/coach/coach-prose-grounding.ts": {
+    lines: 1,
+    reason:
+      "the reply checker's list of unit tokens it recognises in model prose",
+  },
+  "lib/ai/coach/eval/golden-cases.ts": {
+    lines: 3,
+    reason: "evaluation fixtures: scripted replies and ideal answers",
+  },
+  "lib/ai/coach/eval/red-team.ts": {
+    lines: 2,
+    reason: "adversarial evaluation inputs, written as a person would type",
+  },
+  "lib/targets/target-unit-display.ts": {
+    lines: 4,
+    reason: "the target adapter itself: picks the glucose branch",
+  },
+  "lib/targets/vitals-builder.ts": {
+    lines: 1,
+    reason:
+      "canonical targets DTO; every client converts through the target adapter",
   },
 };
 
@@ -372,7 +415,7 @@ function unitLiteralLines(): Map<string, string[]> {
       !rel.includes("__tests__") &&
       !/\.test\.tsx?$/.test(rel),
   );
-  if (files.length < 1200) {
+  if (files.length < 1700) {
     throw new Error(
       `unit sweep narrowed to ${files.length} files; a sweep this small is a broken filter`,
     );
@@ -422,5 +465,53 @@ describe("unit-preference display guard — the wide sweep", () => {
       }
     }
     expect(stale).toEqual([]);
+  });
+});
+
+/**
+ * The producers of text a model reads or writes from. A line scanner sees a
+ * unit literal; it cannot see a canonical number printed with no unit at
+ * all, which is how the Coach's weight block and the briefing's glucose
+ * signal reached readers on pounds and mmol/L. So each producer that carries
+ * a mass, length, temperature, speed, distance or glucose figure into a
+ * prompt, a snapshot or a stored sentence is named here and must call one of
+ * the resolvers that state a figure in the reader's units. Dropping the call
+ * (or the file) fails.
+ */
+const READER_UNIT_PRODUCERS = [
+  "lib/ai/coach/reference-grounding.ts",
+  "lib/ai/coach/snapshot-blocks/core-metrics-block.ts",
+  "lib/ai/coach/snapshot-blocks/value-series-blocks.ts",
+  "lib/ai/coach/snapshot-blocks/workouts-block.ts",
+  "lib/ai/coach/cycle-snapshot.ts",
+  "lib/ai/coach/results/metric-table-tool.ts",
+  "lib/ai/prompts/weight.ts",
+  "lib/insights/features-units.ts",
+  "lib/insights/comprehensive-generate.ts",
+  "app/api/insights/generate/route.ts",
+  "lib/insights/weight-status.ts",
+  "lib/insights/metric-status.ts",
+  "lib/insights/narrative/period-narrative.ts",
+  "lib/insights/glp1-plateau.ts",
+  "lib/jobs/reaction-line.ts",
+  "lib/targets/weight-trend.ts",
+];
+
+const READER_UNIT_RESOLVER =
+  /\b(?:getReadingTransform|getQuantityTransform|getDisplayTransform|featuresInReaderUnits|weightFeatureInReaderUnits)\(/;
+
+describe("unit-preference display guard — AI and Coach producers", () => {
+  it("names enough producers to be a check (a list that shrinks proves nothing)", () => {
+    expect(READER_UNIT_PRODUCERS.length).toBeGreaterThanOrEqual(16);
+  });
+
+  it("every producer states its figures through a reader-unit resolver", () => {
+    const offenders = READER_UNIT_PRODUCERS.filter(
+      (rel) =>
+        !READER_UNIT_RESOLVER.test(
+          stripComments(readFileSync(join(SRC, rel), "utf8")),
+        ),
+    );
+    expect(offenders).toEqual([]);
   });
 });
