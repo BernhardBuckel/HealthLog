@@ -7343,6 +7343,7 @@
         "restoreSkippedEcgReference": "ECG strip provenance",
         "restoreSkippedMedicationTarget": "Medication target analyte",
         "restoreSkippedScheduleRevisionLink": "Schedule era succession",
+        "restoreSkippedAccountSetting": "Account setting",
         "restoreMissingTitle": "Restore refused — the file is incomplete",
         "restoreMissingDescription": "The file's own manifest says it carries the section below, and it does not. Nothing was changed: a restore replaces a whole class of records, so putting back a section that is not in the file would have emptied it.",
         "restoreMissingRemedy": "Use a disaster-recovery snapshot, or export the account again and upload the new file. A section the manifest declares as omitted is a different thing and restores normally.",

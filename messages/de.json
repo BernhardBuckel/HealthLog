@@ -7343,6 +7343,7 @@
         "restoreSkippedEcgReference": "Herkunft eines EKG-Streifens",
         "restoreSkippedMedicationTarget": "Zielwert-Analyt einer Medikation",
         "restoreSkippedScheduleRevisionLink": "Abfolge der Schema-Zeiträume",
+        "restoreSkippedAccountSetting": "Kontoeinstellung",
         "restoreMissingTitle": "Wiederherstellung abgelehnt — die Datei ist unvollständig",
         "restoreMissingDescription": "Das Manifest der Datei sagt, sie enthalte den folgenden Abschnitt, und sie enthält ihn nicht. Es wurde nichts geändert: Eine Wiederherstellung ersetzt eine ganze Datenklasse, ein fehlender Abschnitt hätte sie also geleert.",
         "restoreMissingRemedy": "Nimm eine Notfall-Sicherung oder exportiere das Konto erneut und lade die neue Datei hoch. Ein Abschnitt, den das Manifest ausdrücklich als weggelassen ausweist, ist etwas anderes und wird normal wiederhergestellt.",

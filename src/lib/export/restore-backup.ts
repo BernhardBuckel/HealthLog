@@ -89,6 +89,11 @@ import { restoreProfileData } from "@/lib/export/profile-backup";
 import { restoreIntradayProfileData } from "@/lib/export/intraday-profile-backup";
 import { restoreHealthScoreData } from "@/lib/export/health-score-backup";
 import { restoreOnboardingData } from "@/lib/export/onboarding-backup";
+import {
+  restoreAccountSettings,
+  type AccountSettingsRestoreResult,
+} from "@/lib/export/account-settings-backup";
+import { refreshTextsAfterUnitChange } from "@/lib/insights/unit-change-refresh";
 import { restoreVisitsData } from "@/lib/export/visits-backup";
 import { restoreVaccinationsData } from "@/lib/export/vaccinations-backup";
 import { restoreSensitiveData } from "@/lib/export/sensitive-backup";
@@ -675,6 +680,7 @@ export async function restoreBackup(
     expiredTombstonesSkipped: number;
     cleared: RestoreResponse["cleared"];
     skipped: RestoreSkipSummary;
+    accountSettings: AccountSettingsRestoreResult;
   };
   // The category side table is created lazily. Doing that here, before the
   // transaction, keeps its DDL (which takes a table lock) out of a
@@ -1785,6 +1791,21 @@ export async function restoreBackup(
           payload,
         );
 
+        // The account's own settings, onto the account row, column by column.
+        // Only what `USER_COLUMN_BACKUP_CLASS` calls a setting can be written;
+        // identity, credentials and this host's bookkeeping on the row stay as
+        // the receiving account has them. A value this host will not take is
+        // left out and named in the skip report. Both ends live in
+        // `src/lib/export/account-settings-backup.ts`.
+        const accountSettingsResult = await restoreAccountSettings(
+          tx,
+          ownerId,
+          payload,
+        );
+        for (const column of accountSettingsResult.refused) {
+          skips.push({ catalogue: "accountSetting", key: column, links: 1 });
+        }
+
         reportSection("labs");
         const biomarkerByName = new Map<string, string>();
         const restoredBiomarkerIds = new Set<string>();
@@ -2455,6 +2476,7 @@ export async function restoreBackup(
           cleared,
           skipped: summarizeRestoreSkips(skips),
           expiredTombstonesSkipped,
+          accountSettings: accountSettingsResult,
         };
       },
       {
@@ -2532,7 +2554,8 @@ export async function restoreBackup(
     });
   }
 
-  const { cleared, skipped, expiredTombstonesSkipped } = outcome;
+  const { cleared, skipped, expiredTombstonesSkipped, accountSettings } =
+    outcome;
   const measurementsRestored =
     streamed.measurementCount - expiredTombstonesSkipped;
   annotate({
@@ -2646,6 +2669,9 @@ export async function restoreBackup(
       // the trail has to be able to answer it later.
       restoreInstanceSettings,
       cleared,
+      // How many of the account's own settings came back. The ones that did
+      // not are named in `skipped` under `accountSetting`.
+      accountSettingsApplied: accountSettings.applied,
       // The durable half of the report. The response reaches whoever was
       // looking at the screen; the audit row is still here next week when
       // someone asks why a day-log lost a symptom.
@@ -2684,6 +2710,14 @@ export async function restoreBackup(
 
   // The complete transaction succeeded; only now evict owner-scoped caches.
   invalidateUserData(ownerId);
+
+  // A restored unit preference leaves the stored status notes and period
+  // narratives quoting the old unit, the same gap the settings routes close
+  // on a unit change, closed the same way. Fire-and-forget: the restore has
+  // committed and never fails over a re-warm.
+  if (accountSettings.unitsChanged) {
+    void refreshTextsAfterUnitChange(ownerId);
+  }
 
   const response: RestoreResponse = {
     restored: true,
