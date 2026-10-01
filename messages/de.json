@@ -847,6 +847,7 @@
     "formResetConfirmBody": "Damit werden die eingegebene Stimmung, Tags und Notiz gelöscht. Das lässt sich nicht rückgängig machen.",
     "formResetConfirmAction": "Zurücksetzen",
     "saveError": "Fehler beim Speichern",
+    "tagsNotSaved": "Gespeichert. Tags, die es nicht mehr gibt, wurden weggelassen.",
     "deleteError": "Fehler beim Löschen",
     "deletedToast": "Eintrag gelöscht",
     "restoredToast": "Eintrag wiederhergestellt",

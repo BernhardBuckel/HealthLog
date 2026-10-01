@@ -847,6 +847,7 @@
     "formResetConfirmBody": "This clears the mood, tags and note you have entered. This cannot be undone.",
     "formResetConfirmAction": "Reset",
     "saveError": "Error saving",
+    "tagsNotSaved": "Saved. Tags that are no longer available were left off.",
     "deleteError": "Error deleting",
     "deletedToast": "Entry deleted",
     "restoredToast": "Entry restored",

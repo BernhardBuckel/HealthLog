@@ -847,6 +847,7 @@
     "formResetConfirmBody": "Cela efface l’humeur, les tags et la note que vous avez saisis. Cette action est irréversible.",
     "formResetConfirmAction": "Réinitialiser",
     "saveError": "Erreur lors de l’enregistrement",
+    "tagsNotSaved": "Enregistré. Les étiquettes qui ne sont plus disponibles ont été omises.",
     "deleteError": "Erreur lors de la suppression",
     "deletedToast": "Entrée supprimée",
     "restoredToast": "Entrée restaurée",

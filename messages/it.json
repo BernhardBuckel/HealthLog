@@ -847,6 +847,7 @@
     "formResetConfirmBody": "Questo cancella umore, tag e nota inseriti. L’operazione non può essere annullata.",
     "formResetConfirmAction": "Reimposta",
     "saveError": "Errore durante il salvataggio",
+    "tagsNotSaved": "Salvato. I tag non più disponibili sono stati omessi.",
     "deleteError": "Errore durante l’eliminazione",
     "deletedToast": "Voce eliminata",
     "restoredToast": "Voce ripristinata",

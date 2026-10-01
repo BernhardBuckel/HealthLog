@@ -112,6 +112,10 @@ import { dayOfLocalInput, useLinkedDayContext } from "./use-linked-day-context";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api/api-fetch";
 import { MOOD_LIST_PAGE_SIZE as PAGE_SIZE } from "@/lib/mood/list-page-size";
 import { localizedApiError } from "@/lib/api/localized-error";
+import {
+  droppedAnyLinkKeys,
+  type DroppedLinkKeysWire,
+} from "@/lib/mood/dropped-link-keys";
 
 // Re-export the score map under the legacy local name to keep the
 // rest of this file unchanged. v1.4.27 B6 / BL-P6-11 — the single
@@ -471,7 +475,7 @@ export function MoodList({ onAddFirst }: MoodListProps = {}) {
       note: string | null;
       moodLoggedAt: string;
     }) => {
-      await apiPut(`/api/mood-entries/${id}`, {
+      return apiPut<DroppedLinkKeysWire>(`/api/mood-entries/${id}`, {
         mood,
         tags,
         tagKeys,
@@ -488,7 +492,10 @@ export function MoodList({ onAddFirst }: MoodListProps = {}) {
         moodLoggedAt,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (saved) => {
+      // A tag picked in the dialog may have been archived or deleted
+      // elsewhere since it opened; the server names what it did not store.
+      if (droppedAnyLinkKeys(saved)) toast.warning(t("mood.tagsNotSaved"));
       await invalidateKeys(queryClient, moodDependentKeys);
       await refetchInactiveDailyReads(queryClient);
       setEditSeed({

@@ -58,7 +58,11 @@ import { persistMoodContext } from "@/lib/mood/context";
 import { encryptNote } from "@/lib/crypto/note-cipher";
 import { invalidateUserMood } from "@/lib/cache/invalidate";
 import { recomputeMoodBucketsForEntry } from "@/lib/rollups/mood-rollups";
-import { createTagLinks } from "@/lib/mood/tag-links";
+import {
+  createTagLinks,
+  droppedLinkKeysForWire,
+  NO_DROPPED_LINK_KEYS,
+} from "@/lib/mood/tag-links";
 
 const MAX_ENTRIES_PER_BATCH = 500;
 const BATCH_RATE_LIMIT_MAX = 60;
@@ -73,8 +77,9 @@ const bulkEntrySchema = z.object({
    * Without this the bulk path Zod-stripped the field, so iOS-sent
    * taxonomy links were silently dropped on the adopt-on-pair backfill.
    * The server resolves each key to a `MoodTag` row and writes the
-   * `MoodEntryTagLink` join; unknown keys are dropped silently (the
-   * catalog is the source of truth). Bounds match the single-entry
+   * `MoodEntryTagLink` join; an unknown or archived key is not stored (the
+   * catalog is the source of truth) and is listed on that entry's result
+   * as `droppedTagKeys`. Bounds match the single-entry
    * `structuredTagKeys` schema so one entry can't fan out an unbounded
    * link set.
    */
@@ -178,6 +183,11 @@ interface EntryResult {
   // result so iOS can map a server row id onto its local SwiftData row
   // without re-deriving it. Omitted when the entry sent no externalId.
   externalId?: string;
+  // Submitted keys the catalog did not resolve (unknown, archived, another
+  // account's custom tag, or the wrong kind). Present only when non-empty,
+  // on an "inserted" or "duplicate" result: the entry landed, these did not.
+  droppedTagKeys?: string[];
+  droppedFactorKeys?: string[];
 }
 
 export const POST = apiHandler(withIdempotency<[NextRequest]>(postBulk));
@@ -251,6 +261,8 @@ async function postBulk(request: NextRequest): Promise<Response> {
   const results: EntryResult[] = [];
   let inserted = 0;
   let duplicates = 0;
+  let droppedTagKeyCount = 0;
+  let droppedFactorKeyCount = 0;
   const skipped: Array<{ index: number; reason: string }> = [];
   const unstableShapes: UnstableExternalIdShape[] = [];
 
@@ -437,7 +449,7 @@ async function postBulk(request: NextRequest): Promise<Response> {
       // the row committed) left a persisted mood entry with no links while the
       // per-entry catch reported the entry as "skipped" — the client believes
       // nothing saved and a half-written row is on disk.
-      const result = await prisma.$transaction(async (tx) => {
+      const written = await prisma.$transaction(async (tx) => {
         const upserted = await tx.moodEntry.upsert({
           where: probeWhere,
           create: {
@@ -489,11 +501,14 @@ async function postBulk(request: NextRequest): Promise<Response> {
         // an entry reported as skipped really did write nothing.
         await persistMoodContext(tx, upserted.id, user.id, parsedContext.data);
 
+        // The keys the catalog did not resolve are reported on this entry's
+        // result: "inserted" alone told a client its tags had landed.
+        let droppedKeys = NO_DROPPED_LINK_KEYS;
         if (
           (entry.tagKeys && entry.tagKeys.length > 0) ||
           (entry.ratedFactors && entry.ratedFactors.length > 0)
         ) {
-          await createTagLinks(
+          droppedKeys = await createTagLinks(
             upserted.id,
             user.id,
             entry.tagKeys ?? [],
@@ -502,8 +517,12 @@ async function postBulk(request: NextRequest): Promise<Response> {
           );
         }
 
-        return upserted;
+        return { upserted, droppedKeys };
       });
+      const result = written.upserted;
+      const droppedKeys = written.droppedKeys;
+      droppedTagKeyCount += droppedKeys.droppedTagKeys.length;
+      droppedFactorKeyCount += droppedKeys.droppedFactorKeys.length;
 
       if (existing) {
         duplicates += 1;
@@ -512,6 +531,7 @@ async function postBulk(request: NextRequest): Promise<Response> {
           status: "duplicate",
           id: result.id,
           ...(entry.externalId ? { externalId: entry.externalId } : {}),
+          ...droppedLinkKeysForWire(droppedKeys),
         });
       } else {
         inserted += 1;
@@ -520,6 +540,7 @@ async function postBulk(request: NextRequest): Promise<Response> {
           status: "inserted",
           id: result.id,
           ...(entry.externalId ? { externalId: entry.externalId } : {}),
+          ...droppedLinkKeysForWire(droppedKeys),
         });
       }
     } catch (err: unknown) {
@@ -586,6 +607,8 @@ async function postBulk(request: NextRequest): Promise<Response> {
       inserted,
       duplicates,
       skipped: skipped.length,
+      dropped_tag_keys: droppedTagKeyCount,
+      dropped_factor_keys: droppedFactorKeyCount,
       ...(unstableShapes.length > 0
         ? unstableExternalIdMeta("mood.bulk", unstableShapes)
         : {}),

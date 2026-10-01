@@ -847,6 +847,7 @@
     "formResetConfirmBody": "Esto borra el estado de ánimo, las etiquetas y la nota que has introducido. No se puede deshacer.",
     "formResetConfirmAction": "Restablecer",
     "saveError": "Error al guardar",
+    "tagsNotSaved": "Guardado. Se omitieron las etiquetas que ya no están disponibles.",
     "deleteError": "Error al eliminar",
     "deletedToast": "Entrada eliminada",
     "restoredToast": "Entrada restaurada",

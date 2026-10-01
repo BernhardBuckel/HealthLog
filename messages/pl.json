@@ -847,6 +847,7 @@
     "formResetConfirmBody": "Spowoduje to usunięcie wprowadzonego nastroju, tagów i notatki. Tej operacji nie można cofnąć.",
     "formResetConfirmAction": "Resetuj",
     "saveError": "Błąd zapisu",
+    "tagsNotSaved": "Zapisano. Pominięto tagi, które nie są już dostępne.",
     "deleteError": "Błąd usuwania",
     "deletedToast": "Wpis usunięty",
     "restoredToast": "Wpis przywrócony",

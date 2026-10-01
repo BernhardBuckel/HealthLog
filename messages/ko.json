@@ -847,6 +847,7 @@
     "formResetConfirmBody": "입력한 기분, 태그, 메모가 모두 지워져요. 되돌릴 수 없어요.",
     "formResetConfirmAction": "초기화",
     "saveError": "저장하지 못했어요",
+    "tagsNotSaved": "저장했습니다. 더 이상 사용할 수 없는 태그는 제외했습니다.",
     "deleteError": "삭제하지 못했어요",
     "deletedToast": "기록을 삭제했어요",
     "restoredToast": "기록을 되살렸어요",
