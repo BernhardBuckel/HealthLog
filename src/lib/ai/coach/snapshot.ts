@@ -744,7 +744,7 @@ async function buildCoachSnapshotImpl(
     : null;
   const glp1BlockPromise = excludesMedications
     ? null
-    : buildGlp1SnapshotBlock(userId, now);
+    : buildGlp1SnapshotBlock(userId, now, userTz);
   const derivedBlockPromise = derivedActive
     ? buildDerivedSnapshotBlock(userId, derivedProfile, now, userTz)
     : null;

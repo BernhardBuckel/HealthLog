@@ -25,6 +25,7 @@ import { matchGlp1SideEffectTags } from "@/lib/medications/glp1-side-effect-tag-
 import type { Glp1SideEffectTag } from "@/lib/medications/glp1-side-effect-tags";
 import { isRecordOnly } from "@/lib/medications/intake-tracking";
 import { floorWhole } from "@/lib/medications/units-per-dose";
+import { DEFAULT_TIMEZONE, shiftDateKey, userDayKey } from "@/lib/tz/format";
 
 /**
  * Recommended generic name for the canonical GLP-1 drug brand. The Coach
@@ -159,12 +160,19 @@ function weeksBetween(from: Date, to: Date): number {
   return Math.max(0, Math.round(ms / (7 * 24 * 60 * 60 * 1000)));
 }
 
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+/** Midnight UTC of a calendar-day key: a label for day arithmetic only. */
+function keyEpochDays(key: string): number {
+  return Math.round(Date.parse(`${key}T00:00:00.000Z`) / 86_400_000);
 }
 
 /**
  * Predict next injection from cadence + last intake.
+ *
+ * Works on the user's calendar days throughout: the last injection's day,
+ * today and the schedule's `daysOfWeek` are all local, so the projection
+ * walks local day keys. Walking UTC days and testing `getUTCDay()` against
+ * a local weekday named the wrong day for anyone whose injection time sits
+ * on the other side of UTC midnight.
  *
  * - Weekly cadence with a single weekday: project to the next matching
  *   weekday after the last intake (or after today if no last intake).
@@ -176,26 +184,25 @@ function predictNextInjection(
   schedule: ScheduleEntry | null,
   lastInjection: LastInjection | null,
   now: Date,
+  tz: string,
 ): NextInjection | null {
   if (!schedule) return null;
+  const todayKey = userDayKey(now, tz);
   if (schedule.cadence === "weekly" && schedule.daysOfWeek.length > 0) {
     const targetDow = schedule.daysOfWeek[0];
-    const anchor = lastInjection
-      ? new Date(lastInjection.date + "T00:00:00Z")
-      : now;
     // Project forward from the anchor (lastInjection if known, otherwise
-    // today) until we land on the target weekday.
-    const cursor = new Date(anchor.getTime());
+    // today) until we land on the target weekday. The weekday of a
+    // calendar date does not depend on any zone, so the key's UTC label
+    // answers it.
+    const anchorKey = lastInjection ? lastInjection.date : todayKey;
     for (let i = 1; i <= 14; i += 1) {
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-      if (cursor.getUTCDay() === targetDow) {
+      const key = shiftDateKey(anchorKey, i);
+      if (new Date(`${key}T00:00:00.000Z`).getUTCDay() === targetDow) {
         const daysAway = Math.max(
           0,
-          Math.round(
-            (cursor.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
-          ),
+          keyEpochDays(key) - keyEpochDays(todayKey),
         );
-        return { date: isoDate(cursor), daysAway };
+        return { date: key, daysAway };
       }
     }
   }
@@ -203,9 +210,7 @@ function predictNextInjection(
   // depending on what's already been logged. Surfacing "tomorrow" keeps
   // the Coach from making confident "today is your injection day"
   // claims on partial data.
-  const tomorrow = new Date(now.getTime());
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  return { date: isoDate(tomorrow), daysAway: 1 };
+  return { date: shiftDateKey(todayKey, 1), daysAway: 1 };
 }
 
 /**
@@ -216,6 +221,7 @@ function predictNextInjection(
 export async function buildGlp1SnapshotBlock(
   userId: string,
   now: Date = new Date(),
+  tz: string = DEFAULT_TIMEZONE,
 ): Promise<Glp1SnapshotBlock | null> {
   // Test environments mock parts of prisma (only `measurement` +
   // `moodEntry`) and leave `medication` undefined. Treat the absence
@@ -295,7 +301,7 @@ export async function buildGlp1SnapshotBlock(
       return {
         value: dc.doseValue,
         unit: sanitizeForPrompt(dc.doseUnit, 20),
-        effectiveFrom: isoDate(dc.effectiveFrom),
+        effectiveFrom: userDayKey(dc.effectiveFrom, tz),
         note:
           decryptedNote === null ? null : sanitizeForPrompt(decryptedNote, 200),
       };
@@ -305,7 +311,7 @@ export async function buildGlp1SnapshotBlock(
       ? {
           value: latestChange.doseValue,
           unit: sanitizeForPrompt(latestChange.doseUnit, 20),
-          since: isoDate(latestChange.effectiveFrom),
+          since: userDayKey(latestChange.effectiveFrom, tz),
           weeksOnDose: weeksBetween(latestChange.effectiveFrom, now),
         }
       : null;
@@ -334,7 +340,7 @@ export async function buildGlp1SnapshotBlock(
     const lastInjection: LastInjection | null =
       last && last.takenAt
         ? {
-            date: isoDate(last.takenAt),
+            date: userDayKey(last.takenAt, tz),
             site: last.injectionSite ?? null,
             weeksAgo: weeksBetween(last.takenAt, now),
           }
@@ -344,7 +350,7 @@ export async function buildGlp1SnapshotBlock(
     // information but no injection is predicted as due.
     const nextInjection = isRecordOnly(med)
       ? null
-      : predictNextInjection(schedule, lastInjection, now);
+      : predictNextInjection(schedule, lastInjection, now, tz);
 
     // Inventory math over the per-item entities (v1.16.10 — the same
     // rows the Bestand tab and the consumption hook move).
