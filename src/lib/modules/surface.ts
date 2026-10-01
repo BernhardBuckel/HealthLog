@@ -100,6 +100,9 @@ const STATIC_SURFACE_MODULE = {
   "insights-page:six-minute-walk": "recovery",
   "insights-page:stair-ascent-speed": "recovery",
   "insights-page:stair-descent-speed": "recovery",
+  // The resting heart rate is the recovery module's `resting_hr` domain; its
+  // page, trend slot, correlation channel and summary key follow it.
+  "insights-page:resting-pulse": "recovery",
 
   // ── Insights overview blocks ──
   "overview:cycle-summary": "cycle",
@@ -115,6 +118,7 @@ const STATIC_SURFACE_MODULE = {
   // ── Trends row ──
   "trend:mood": "mood",
   "trend:sleep": "sleep",
+  "trend:resting_hr": "recovery",
 
   // ── Add menu ──
   "capture:mood": "mood",
@@ -141,6 +145,9 @@ const STATIC_SURFACE_MODULE = {
   "summary:SLEEP_DURATION": "sleep",
   "summary:BLOOD_GLUCOSE": "glucose",
   "summary:CARDIO_RECOVERY": "recovery",
+  // The recovery module owns the resting_hr domain (`measurement-scope.ts`),
+  // so the server gates the type on it; the form and the dashboard follow.
+  "summary:RESTING_HEART_RATE": "recovery",
   "summary:SIX_MINUTE_WALK_DISTANCE": "recovery",
   "summary:STAIR_ASCENT_SPEED": "recovery",
   "summary:STAIR_DESCENT_SPEED": "recovery",
@@ -189,6 +196,7 @@ const STATIC_SURFACE_MODULE = {
   "correlation:MOOD": "mood",
   "correlation:SLEEP_DURATION": "sleep",
   "correlation:BLOOD_GLUCOSE": "glucose",
+  "correlation:RESTING_HEART_RATE": "recovery",
   "correlation:MEDICATION_COMPLIANCE": "medications",
   // Symptom burden is read from the illness journal.
   "correlation:SYMPTOM_SEVERITY": "illness",
