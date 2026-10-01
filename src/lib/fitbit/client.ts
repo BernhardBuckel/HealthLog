@@ -386,6 +386,7 @@ export const FITBIT_SLEEP_RANGE_DAYS = 30;
 
 /** `YYYY-MM-DD` (UTC) for a Fitbit date-path segment. */
 export function fitbitDate(d: Date): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: request window edge for the provider API, not a displayed day; rows carry their own dates
   return d.toISOString().slice(0, 10);
 }
 

@@ -12,7 +12,7 @@
  */
 import type { Locale } from "@/lib/i18n/config";
 import { getServerTranslator } from "@/lib/i18n/server-translator";
-import { shiftDateKey, userDayKey } from "@/lib/tz/format";
+import { shiftDateKey, userDayKey, weekdayOfDateKey } from "@/lib/tz/format";
 import type {
   CoachResultCell,
   CoachResultTable,
@@ -189,17 +189,13 @@ function mondayOfIsoWeek(weekIso: string): string | null {
   const year = Number(match[1]);
   const week = Number(match[2]);
   // Week 1 holds January 4th; its Monday is the ISO year's first Monday.
-  const jan4 = Date.UTC(year, 0, 4);
-  const jan4Dow = (new Date(jan4).getUTCDay() + 6) % 7;
-  const monday = jan4 - jan4Dow * 86_400_000 + (week - 1) * 7 * 86_400_000;
-  return new Date(monday).toISOString().slice(0, 10);
+  const jan4 = `${String(year).padStart(4, "0")}-01-04`;
+  return shiftDateKey(mondayOfDay(jan4), (week - 1) * 7);
 }
 
 /** Monday (`YYYY-MM-DD`) of the ISO week a day key falls in. */
 function mondayOfDay(dayKey: string): string {
-  const ms = Date.parse(`${dayKey}T00:00:00Z`);
-  const dow = (new Date(ms).getUTCDay() + 6) % 7;
-  return shiftDateKey(new Date(ms).toISOString().slice(0, 10), -dow);
+  return shiftDateKey(dayKey, -((weekdayOfDateKey(dayKey) + 6) % 7));
 }
 
 /**

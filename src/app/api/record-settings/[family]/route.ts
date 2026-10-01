@@ -41,6 +41,7 @@ import {
   parseNotificationPrefs,
   resolveNotificationPrefs,
 } from "@/lib/validations/notification-prefs";
+import { dayKeyAsUtcMidnight, dateOnlyKey } from "@/lib/tz/date-only";
 import { refreshTextsAfterUnitChange } from "@/lib/insights/unit-change-refresh";
 
 export const dynamic = "force-dynamic";
@@ -94,7 +95,9 @@ export const GET = apiHandler(
         settings = {
           displayName: record.displayName,
           heightCm: record.heightCm,
-          dateOfBirth: record.dateOfBirth?.toISOString().slice(0, 10) ?? null,
+          dateOfBirth: record.dateOfBirth
+            ? dateOnlyKey(record.dateOfBirth)
+            : null,
           gender: record.gender,
           locale: record.locale,
           timezone: record.timezone,
@@ -196,7 +199,7 @@ export const PATCH = apiHandler(
             ...(patch.dateOfBirth !== undefined
               ? {
                   dateOfBirth: patch.dateOfBirth
-                    ? new Date(`${patch.dateOfBirth}T00:00:00.000Z`)
+                    ? dayKeyAsUtcMidnight(patch.dateOfBirth)
                     : null,
                 }
               : {}),
@@ -239,7 +242,9 @@ export const PATCH = apiHandler(
           }
           settings = {
             ...record,
-            dateOfBirth: record.dateOfBirth?.toISOString().slice(0, 10) ?? null,
+            dateOfBirth: record.dateOfBirth
+              ? dateOnlyKey(record.dateOfBirth)
+              : null,
           };
           changed = Object.keys(patch);
           break;

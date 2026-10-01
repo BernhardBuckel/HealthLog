@@ -228,6 +228,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
     }
   }
 
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: file name stamp, not a day shown or compared
   const stamp = new Date().toISOString().slice(0, 10);
   const { t } = getServerTranslator(locale);
 

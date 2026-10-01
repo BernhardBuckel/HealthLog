@@ -108,6 +108,13 @@ const eslintConfig = defineConfig([
       // literal anywhere else is where a user outside that zone got someone
       // else's calendar. src/lib/tz/ and test files are exempt; see the rule.
       "healthlog/no-default-zone-literal": "error",
+      // A day is cut through src/lib/tz (userDayKey, dateOnlyKey,
+      // dateOnlyAtNoonUtc, dayKeyAsUtcMidnight), never by slicing an ISO string or by
+      // parsing a key as UTC midnight: each copy put an entry on the
+      // neighbouring day for someone off UTC. A site where UTC is meant
+      // carries `eslint-disable-next-line ... -- <reason>`; the rule refuses
+      // a directive without one. See the rule header.
+      "healthlog/no-utc-day-key": "error",
     },
   },
   // v1.28.17 — every recharts-rendering component funnels through the

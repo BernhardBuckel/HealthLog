@@ -41,6 +41,7 @@ import {
   toContentIndexSource,
 } from "@/lib/validations/inbound-documents";
 import type { Prisma } from "@/generated/prisma/client";
+import { dateOnlyAtNoonUtc } from "@/lib/tz/date-only";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -232,7 +233,7 @@ export const PATCH = apiHandler(
     if (parsed.data.kind !== undefined) data.kind = parsed.data.kind;
     if (parsed.data.documentDate !== undefined) {
       data.documentDate = parsed.data.documentDate
-        ? new Date(`${parsed.data.documentDate}T00:00:00.000Z`)
+        ? dateOnlyAtNoonUtc(parsed.data.documentDate)
         : null;
     }
 

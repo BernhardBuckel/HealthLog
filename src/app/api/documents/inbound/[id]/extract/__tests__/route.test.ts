@@ -288,6 +288,14 @@ describe("POST /api/documents/inbound/[id]/extract — stored mode", () => {
         data: expect.objectContaining({ status: "EXTRACTED" }),
       }),
     );
+    // The stated report date is a date-only value: stored at noon UTC, not
+    // at UTC midnight (the previous evening west of UTC).
+    const staged = tx.inboundDocument.update.mock.calls[0]![0] as {
+      data: { reportDate: Date };
+    };
+    expect(staged.data.reportDate.toISOString()).toBe(
+      "2026-08-01T12:00:00.000Z",
+    );
     expect(auditLog).toHaveBeenCalledWith(
       "documents.inbound.extract",
       expect.objectContaining({

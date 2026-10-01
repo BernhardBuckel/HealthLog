@@ -52,6 +52,7 @@ import {
 } from "./coverage";
 import { readDayMeanSeries, type BaselineProfile } from "./baseline";
 import type { Derived, DerivedProvenanceSource } from "./types";
+import { daysBetweenDateKeys, shiftDateKey } from "@/lib/tz/format";
 
 /** Trailing window the fit reads (days). Matches the baseline engine. */
 const DEFAULT_WINDOW_DAYS = 30;
@@ -266,11 +267,7 @@ export async function computeTrajectory(
   }
 
   // x = days since the FIRST in-window day; y = the per-day mean.
-  const dayMs = 24 * 60 * 60 * 1000;
-  const startMs = new Date(`${points[0].day}T00:00:00Z`).getTime();
-  const xs = points.map(
-    (p) => (new Date(`${p.day}T00:00:00Z`).getTime() - startMs) / dayMs,
-  );
+  const xs = points.map((p) => daysBetweenDateKeys(points[0].day, p.day));
   const ys = points.map((p) => p.mean);
 
   const fit = fitOls(xs, ys);
@@ -286,9 +283,7 @@ export async function computeTrajectory(
   // Project from the last observed day-offset forward over the horizon,
   // each point carrying the widening prediction band.
   const lastX = xs[xs.length - 1];
-  const lastDayMs = new Date(
-    `${points[points.length - 1].day}T00:00:00Z`,
-  ).getTime();
+  const lastDay = points[points.length - 1].day;
   const projection: TrajectoryPoint[] = [];
   for (let h = 1; h <= horizonDays; h++) {
     const x = lastX + h;
@@ -296,7 +291,7 @@ export async function computeTrajectory(
     const half = predictionIntervalHalfWidth(fit, x);
     projection.push({
       dayOffset: h,
-      date: new Date(lastDayMs + h * dayMs).toISOString().slice(0, 10),
+      date: shiftDateKey(lastDay, h),
       projected,
       bandLow: projected - half,
       bandHigh: projected + half,

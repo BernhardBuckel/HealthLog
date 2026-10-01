@@ -28,6 +28,7 @@ import { probeRollupCoverage } from "@/lib/rollups/measurement-coverage";
 import { readDayMeanSeries } from "@/lib/insights/derived/baseline";
 import { buildScheduleAnchoredComplianceBuckets } from "@/lib/analytics/schedule-anchored-compliance";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/resolver";
+import { userDayKey } from "@/lib/tz/format";
 import { sanitizeForPrompt } from "@/lib/insights/sanitize";
 import {
   inferMedTargetClass,
@@ -35,6 +36,7 @@ import {
   type MedTargetClass,
 } from "@/lib/medications/med-target-map";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
+import { dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MAD_TO_SIGMA = 1.4826;
@@ -160,7 +162,11 @@ export async function buildAdherenceStoryline(
   timezone: string | null,
   now: Date = new Date(),
 ): Promise<AdherenceStoryline | null> {
-  // 1. Active medications with a confidently-known target class.
+  // 1. Active medications with a confidently-known target class. `endsOn` is
+  //    a calendar date, so a course is over only once the user's own day has
+  //    passed it; comparing the column against the instant `now` dropped the
+  //    course's last day.
+  const todayKey = userDayKey(now, timezone ?? DEFAULT_TIMEZONE);
   const meds = await prisma.medication.findMany({
     where: {
       userId,
@@ -168,7 +174,10 @@ export async function buildAdherenceStoryline(
       // v1.39.1 (#1033) — the adherence figure below counts tracked
       // medications only, so a record-only one cannot be its subject.
       ...TRACKED_INTAKE_WHERE,
-      OR: [{ endsOn: null }, { endsOn: { gte: now } }],
+      OR: [
+        { endsOn: null },
+        { endsOn: { gte: dayKeyAsUtcMidnight(todayKey) } },
+      ],
     },
     select: { name: true, treatmentClass: true },
   });

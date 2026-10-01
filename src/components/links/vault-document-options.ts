@@ -31,14 +31,13 @@ import {
   DOCUMENT_LIST_MAX_LIMIT,
   type InboundDocumentDto,
 } from "@/lib/validations/inbound-documents";
+import { daysBetweenDateKeys } from "@/lib/tz/format";
 
 /**
  * How many pages the picker walks. At the route's ceiling of 100 that is a
  * thousand documents, past which the vault's own search is the better tool.
  */
 const VAULT_PICKER_MAX_PAGES = 10;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The fields the option list reads off a document. */
 export type VaultDocument = Pick<
@@ -82,10 +81,12 @@ export function isNearAnchor(
   anchorIso: string | null,
 ): boolean {
   if (!documentDay || !anchorIso) return false;
-  const day = Date.parse(`${documentDay.slice(0, 10)}T00:00:00.000Z`);
-  const anchor = Date.parse(`${anchorIso.slice(0, 10)}T00:00:00.000Z`);
-  if (Number.isNaN(day) || Number.isNaN(anchor)) return false;
-  return Math.abs(day - anchor) <= ENCOUNTER_SUGGEST_WINDOW_DAYS * DAY_MS;
+  const gap = daysBetweenDateKeys(
+    anchorIso.slice(0, 10),
+    documentDay.slice(0, 10),
+  );
+  if (Number.isNaN(gap)) return false;
+  return Math.abs(gap) <= ENCOUNTER_SUGGEST_WINDOW_DAYS;
 }
 
 /**

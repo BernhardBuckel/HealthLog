@@ -155,6 +155,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
         : formatMoodEntriesForExport(decryptedMood, userTz);
   }
 
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: file name stamp, not a day shown or compared
   const filename = `healthlog-export-${new Date().toISOString().slice(0, 10)}`;
 
   if (measurementChunks && format === "csv") {

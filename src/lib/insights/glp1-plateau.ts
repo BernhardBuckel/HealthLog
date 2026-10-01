@@ -104,6 +104,7 @@ export async function detectGlp1Plateau(
     drug,
     doseValue: latestDose.doseValue,
     doseUnit: latestDose.doseUnit,
+    // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: dose-start label in a prompt; this builder has no zone yet
     doseSince: latestDose.effectiveFrom.toISOString().slice(0, 10),
     daysOnDose,
     weightDeltaKg: Math.round(delta * 10) / 10,

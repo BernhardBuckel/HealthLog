@@ -44,6 +44,7 @@ import {
 } from "@/lib/rollups/mood-rollups";
 import { userDayKey, DEFAULT_TIMEZONE } from "@/lib/tz/format";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
+import { dayKeyAsUtcMidnight, dateOnlyKey } from "@/lib/tz/date-only";
 
 export const dynamic = "force-dynamic";
 
@@ -176,7 +177,7 @@ export async function buildComprehensiveResponse(user: AuthedUser) {
   let moodEntryCount: number;
   if (moodRollupDayRows.length > 0) {
     dailyMoodEntries = moodRollupDayRows.map((r) => ({
-      day: r.bucketStart.toISOString().slice(0, 10),
+      day: dateOnlyKey(r.bucketStart),
       value: Math.round(r.mean * 100) / 100,
     }));
     moodDataPoints = moodRollupDayRows.map((r) => ({
@@ -526,6 +527,7 @@ export async function buildComprehensiveResponse(user: AuthedUser) {
     // the scatter and the coefficient rather than dragging continuity down.
     const loggedDays = new Set<string>();
     for (const event of bpMedicationEvents) {
+      // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: pairs intake days with the DAY rollup buckets in sysByDay, which are UTC days
       const dayKey = event.scheduledFor.toISOString().slice(0, 10);
       loggedDays.add(dayKey);
       if (event.skipped || !event.takenAt) continue;
@@ -540,7 +542,7 @@ export async function buildComprehensiveResponse(user: AuthedUser) {
       pairs.push({
         a: continuity,
         b: avgSys,
-        date: new Date(`${dayKey}T00:00:00.000Z`),
+        date: dayKeyAsUtcMidnight(dayKey),
       });
       bpMedicationScatterData.push({
         continuityPct: Math.round(continuity * 100),

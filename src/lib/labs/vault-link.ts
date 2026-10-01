@@ -28,6 +28,7 @@ import { encryptFactData, encryptFactProvenance } from "@/lib/documents/store";
 import { annotate } from "@/lib/logging/context";
 import { isModuleEnabled } from "@/lib/modules/gate";
 import type { ObservationFactData } from "@/lib/validations/inbound-documents";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /** One inserted lab row to cross-link back to its source vault document. */
 export interface InsertedLabForLink {
@@ -54,7 +55,7 @@ function observationFromLab(lab: InsertedLabForLink): ObservationFactData {
     unit: lab.unit,
     referenceLow: lab.referenceLow,
     referenceHigh: lab.referenceHigh,
-    effectiveDate: lab.takenAt.toISOString().slice(0, 10),
+    effectiveDate: dateOnlyKey(lab.takenAt),
   };
 }
 

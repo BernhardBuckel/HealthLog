@@ -453,6 +453,7 @@ function clip(text: string, max: number): { text: string; truncated: boolean } {
 }
 
 function dateOnly(value: Date | null): string | null {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: text label mixing date-only columns and instants, read without a zone
   return value ? value.toISOString().slice(0, 10) : null;
 }
 

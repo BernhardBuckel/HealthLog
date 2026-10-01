@@ -60,6 +60,7 @@ import {
   type RangeDeltaResult,
   type WindowAggregate,
 } from "@/lib/analytics/range-shared";
+import { dayKeyAsUtcMidnight, dateOnlyKey } from "@/lib/tz/date-only";
 
 // The range constants + result shapes live in the client-safe
 // `range-shared` module so the insights client bundle never pulls the
@@ -156,6 +157,7 @@ function splitPerPeriod(
 export function dailyTotalsEndKey(now: number, timezone: string): string {
   const localYesterday = shiftDateKey(userDayKey(new Date(now), timezone), -1);
   const utcYesterday = shiftDateKey(
+    // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the DAY rollups are UTC buckets, so the earlier of the local and the UTC yesterday wins (see the doc comment)
     new Date(now).toISOString().slice(0, 10),
     -1,
   );
@@ -193,13 +195,11 @@ async function readDailyTotals(
   windowDays: number,
   endKey: string,
 ): Promise<Array<{ day: string; value: number }>> {
-  const from = new Date(
-    `${shiftDateKey(endKey, -(2 * windowDays - 1))}T00:00:00.000Z`,
-  );
-  const to = new Date(`${shiftDateKey(endKey, 1)}T00:00:00.000Z`);
+  const from = dayKeyAsUtcMidnight(shiftDateKey(endKey, -(2 * windowDays - 1)));
+  const to = dayKeyAsUtcMidnight(shiftDateKey(endKey, 1));
   const rows = await readRollupBuckets(userId, type, "DAY", from, to);
   return rows.map((r) => ({
-    day: r.bucketStart.toISOString().slice(0, 10),
+    day: dateOnlyKey(r.bucketStart),
     value: r.mean * r.count,
   }));
 }

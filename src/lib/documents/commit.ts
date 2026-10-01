@@ -39,6 +39,7 @@ import type {
   MedicationStatementFactData,
   ObservationFactData,
 } from "@/lib/validations/inbound-documents";
+import { dateOnlyAtNoonUtc, isDateOnlyKey } from "@/lib/tz/date-only";
 
 /** A per-fact commit failure the caller maps to a per-fact 422 entry. */
 export class FactCommitError extends Error {
@@ -55,11 +56,13 @@ export interface CommittedRecordRef {
   recordId: string;
 }
 
-/** Parse a stated YYYY-MM-DD into a UTC instant, or fall back to now. */
+/**
+ * A stated YYYY-MM-DD as the instant a date-only value is stored at (noon
+ * UTC), or now when the document states none. UTC midnight read back as the
+ * previous day anywhere west of UTC.
+ */
 function statedDateOrNow(date: string | null): Date {
-  if (date && /^\d{4}-\d{2}-\d{2}$/u.test(date)) {
-    return new Date(`${date}T00:00:00.000Z`);
-  }
+  if (date && isDateOnlyKey(date)) return dateOnlyAtNoonUtc(date);
   return new Date();
 }
 

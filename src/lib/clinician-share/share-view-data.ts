@@ -31,6 +31,7 @@ import {
   type ReportSelection,
 } from "@/lib/report-selection/selection";
 import type { ShareContext } from "@/lib/clinician-share/resolve-share-token";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /**
  * v1.28 — metadata for one document on the share's frozen set. NEVER carries
@@ -207,7 +208,7 @@ async function loadShareDocuments(
     title: document.title,
     kind: document.kind,
     documentDate: document.documentDate
-      ? document.documentDate.toISOString().slice(0, 10)
+      ? dateOnlyKey(document.documentDate)
       : null,
     byteSize: document.byteSize,
     mimeType: document.mimeType,

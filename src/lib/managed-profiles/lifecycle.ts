@@ -5,6 +5,7 @@ import {
 import { prisma } from "@/lib/db";
 import { auditLog } from "@/lib/auth/audit";
 import type { Prisma } from "@/generated/prisma/client";
+import { dayKeyAsUtcMidnight, dateOnlyKey } from "@/lib/tz/date-only";
 
 type Transaction = Prisma.TransactionClient;
 
@@ -266,7 +267,7 @@ export function toManagedProfileView(row: {
   return {
     id: row.id,
     displayName: row.displayName,
-    dateOfBirth: row.dateOfBirth?.toISOString().slice(0, 10) ?? null,
+    dateOfBirth: row.dateOfBirth ? dateOnlyKey(row.dateOfBirth) : null,
     gender: row.gender,
     locale: row.locale,
     timezone: row.timezone,
@@ -373,7 +374,7 @@ export async function updateManagedProfile(input: {
         ...(patch.dateOfBirth !== undefined
           ? {
               dateOfBirth: patch.dateOfBirth
-                ? new Date(`${patch.dateOfBirth}T00:00:00.000Z`)
+                ? dayKeyAsUtcMidnight(patch.dateOfBirth)
                 : null,
             }
           : {}),

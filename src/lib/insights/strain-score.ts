@@ -71,6 +71,7 @@ import {
   scoreMeasuredAt,
   upsertScoreRow,
 } from "@/lib/insights/score-row";
+import { shiftDateKey } from "@/lib/tz/format";
 
 /** The per-day idempotency-key prefix for a stored Strain score row. */
 export const STRAIN_SCORE_EXTERNAL_ID_PREFIX = "strain:";
@@ -395,6 +396,7 @@ export async function computeStrainScore(
   },
 ): Promise<StrainComputeResult> {
   const dayKey = strainDayKey(now);
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: UTC day window of the UTC-day score engines (scoreDayKey)
   const dayStart = new Date(`${dayKey}T00:00:00.000Z`);
   const dayEnd = new Date(dayStart.getTime() + MS_PER_DAY);
 
@@ -548,12 +550,7 @@ export async function loadStrainAnchorHistory(
   now: Date,
 ): Promise<StrainAnchorHistory> {
   const dayKey = strainDayKey(now);
-  const windowStart = new Date(
-    new Date(`${dayKey}T00:00:00.000Z`).getTime() -
-      STRAIN_CHRONIC_WINDOW_DAYS * MS_PER_DAY,
-  )
-    .toISOString()
-    .slice(0, 10);
+  const windowStart = shiftDateKey(dayKey, -STRAIN_CHRONIC_WINDOW_DAYS);
 
   // The chronic window of cached rows, excluding the scored day itself (its
   // TRIMP is added at compute time so the distribution always reflects the

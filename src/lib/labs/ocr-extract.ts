@@ -36,6 +36,12 @@ import {
   type OcrExtractedRowDto,
   OCR_MAX_ROWS,
 } from "@/lib/validations/labs-ocr";
+import {
+  labReadingDay,
+  labReadingDaySearchRange,
+} from "@/lib/labs/reading-day";
+import { resolveUserTimezone } from "@/lib/tz/resolver";
+import { statedDateKey } from "@/lib/tz/date-only";
 
 const SYSTEM_PROMPT = `You transcribe a photograph or PDF of a laboratory test report into structured data.
 
@@ -90,12 +96,8 @@ Respond ONLY with a JSON object of this exact shape:
 /** A normalised ISO date string (YYYY-MM-DD) or null. */
 function normaliseDate(raw: string | null): string | null {
   if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return null;
   // Keep only the calendar day — the lab reports a date, not an instant.
-  return parsed.toISOString().slice(0, 10);
+  return statedDateKey(raw);
 }
 
 /**
@@ -133,6 +135,7 @@ async function annotateRow(
   userId: string,
   row: ExtractedRow,
   reportDate: string | null,
+  tz: string,
 ): Promise<OcrExtractedRowDto> {
   const analyte = row.analyte.trim();
   const takenAt = normaliseDate(row.takenAt) ?? reportDate;
@@ -149,18 +152,21 @@ async function annotateRow(
   // a likely re-scan. Uses the existing (userId, analyte, takenAt) index.
   let duplicateOf: string | null = null;
   if (takenAt) {
-    const dayStart = new Date(`${takenAt}T00:00:00.000Z`);
-    const dayEnd = new Date(`${takenAt}T23:59:59.999Z`);
-    const candidates = await prisma.labResult.findMany({
+    // The reading's calendar day, the same rule the commit applies, so the
+    // review screen flags exactly the rows the commit will skip.
+    const rows = await prisma.labResult.findMany({
       where: {
         userId,
         deletedAt: null,
         analyte: { equals: analyte, mode: "insensitive" },
-        takenAt: { gte: dayStart, lte: dayEnd },
+        takenAt: labReadingDaySearchRange(takenAt),
       },
-      select: { id: true, value: true, valueText: true },
-      take: 25,
+      select: { id: true, value: true, valueText: true, takenAt: true },
+      take: 100,
     });
+    const candidates = rows.filter(
+      (c) => labReadingDay(c.takenAt, tz) === takenAt,
+    );
     for (const c of candidates) {
       if (row.value !== null && c.value !== null && c.value === row.value) {
         duplicateOf = c.id;
@@ -279,11 +285,12 @@ export async function runOcrExtraction(
   // noticing that a report layout or a language is unsupported and never
   // hearing about it. A count only: the string is the user's document.
   let unreadableRanges = 0;
+  const tz = await resolveUserTimezone(args.userId);
   for (const row of envelope.rows.slice(0, OCR_MAX_ROWS)) {
     if (isUnreadableRange(parseReferenceRange(row.referenceText, row.unit))) {
       unreadableRanges += 1;
     }
-    rows.push(await annotateRow(args.userId, row, reportDate));
+    rows.push(await annotateRow(args.userId, row, reportDate, tz));
   }
 
   annotate({

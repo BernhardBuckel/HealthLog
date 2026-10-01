@@ -30,7 +30,7 @@
  */
 import type { Locale } from "@/lib/i18n/config";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
-import { userDayKey } from "@/lib/tz/format";
+import { userDayKey, shiftDateKey } from "@/lib/tz/format";
 import { annotate } from "@/lib/logging/context";
 import type {
   CoachFollowUp,
@@ -93,9 +93,7 @@ export function followUpChipsEnabled(prefs: CoachPrefs): boolean {
 
 /** `YYYY-MM-DD` minus `days`, as a day key. */
 function dayKeyMinus(dayKey: string, days: number): string {
-  const at = new Date(`${dayKey}T00:00:00Z`);
-  at.setUTCDate(at.getUTCDate() - days);
-  return at.toISOString().slice(0, 10);
+  return shiftDateKey(dayKey, -days);
 }
 
 /** True when the record's first reading lies before `dayKey`. */

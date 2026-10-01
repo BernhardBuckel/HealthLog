@@ -48,6 +48,7 @@ import { localisedValues } from "@/lib/i18n/shared-resolve";
 import { BIOMARKER_CATALOG } from "@/lib/labs/biomarker-catalog";
 import { annotate } from "@/lib/logging/context";
 import { isModuleEnabled } from "@/lib/modules/gate";
+import { dateOnlyAtNoonUtc } from "@/lib/tz/date-only";
 
 /**
  * Lab-report signals used to decide whether a transcribed document is worth an
@@ -215,7 +216,7 @@ async function stageFactsIfStored(
         status: "EXTRACTED",
         providerType: result.providerType,
         reportDate: result.reportDate
-          ? new Date(`${result.reportDate}T00:00:00.000Z`)
+          ? dateOnlyAtNoonUtc(result.reportDate)
           : null,
       },
     });

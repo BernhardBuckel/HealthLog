@@ -132,6 +132,7 @@ export const GET = apiHandler(
       return apiError("Backup payload failed schema validation", 500);
     }
 
+    // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: file name stamp, not a day shown or compared
     const isoDate = backup.createdAt.toISOString().slice(0, 10); // YYYY-MM-DD
     const filename = `healthlog-backup-${backup.userId}-${isoDate}.json`;
 

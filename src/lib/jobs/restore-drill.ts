@@ -167,6 +167,7 @@ export async function runRestoreDrill(
   }
 
   const ageDays = Math.floor(
+    // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: age of a UTC-dated off-host object key
     (now.getTime() - Date.parse(`${dateKey}T00:00:00Z`)) /
       (24 * 60 * 60 * 1000),
   );

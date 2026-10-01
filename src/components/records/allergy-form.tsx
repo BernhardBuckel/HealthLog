@@ -27,6 +27,7 @@ import {
 import { useTranslations } from "@/lib/i18n/context";
 
 import type { AllergyDTO } from "@/lib/records/dto";
+import { dateOnlyAtNoonUtc, isCalendarDateKey } from "@/lib/tz/date-only";
 
 const TEXT_MAX_LENGTH = 2000;
 /** Select sentinel for the optional "not assessed" severity. */
@@ -41,11 +42,14 @@ interface AllergyFormProps {
   footerSlot?: HTMLElement | null;
 }
 
-/** ISO date input (YYYY-MM-DD) → start-of-day UTC instant, or undefined. */
+/**
+ * ISO date input (YYYY-MM-DD) → the instant a date-only value is stored at
+ * (noon UTC), or undefined. UTC midnight read back as the previous day west
+ * of UTC.
+ */
 function toInstant(value: string): string | undefined {
-  if (!value) return undefined;
-  const d = new Date(`${value}T00:00:00.000Z`);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  if (!isCalendarDateKey(value)) return undefined;
+  return dateOnlyAtNoonUtc(value).toISOString();
 }
 
 /**

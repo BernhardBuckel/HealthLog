@@ -22,12 +22,13 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { toastWrittenOutcome } from "@/components/outcome/outcome-toast";
-import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import { useDateFormatPreference, useTranslations } from "@/lib/i18n/context";
 import {
   useLinkDocumentToVaccination,
   useVaccinationSuggestion,
 } from "./use-vaccinations";
 import type { VaccinationSuggestion } from "@/lib/vaccinations/document-suggestion";
+import { formatDate as formatCalendarDate } from "@/lib/date-format";
 
 export function VaccinationDocumentSuggestion({
   anchor,
@@ -39,8 +40,8 @@ export function VaccinationDocumentSuggestion({
   documentId: string;
   disabled?: boolean;
 }) {
-  const { t } = useTranslations();
-  const format = useFormatters();
+  const { t, locale } = useTranslations();
+  const dateFormat = useDateFormatPreference();
   // Lift the date-only anchor to noon UTC — the rule is a ±7-day window, so the
   // time never changes the verdict, and noon keeps a viewer's local midnight
   // from rounding the day either way. The bare date would 422 the endpoint.
@@ -60,7 +61,9 @@ export function VaccinationDocumentSuggestion({
     const name = candidate.antigenSlug
       ? t(`vaccinations.catalog.${candidate.antigenSlug}`)
       : (candidate.vaccineName ?? t("vaccinations.suggestion.unnamed"));
-    return `${name} · ${format.date(candidate.occurredAt)}`;
+    // A date stored at UTC midnight: render the calendar date, not the
+    // instant (the previous evening west of UTC).
+    return `${name} · ${formatCalendarDate(candidate.occurredAt.slice(0, 10), dateFormat, locale)}`;
   };
 
   const onPick = (candidate: VaccinationSuggestion) => {

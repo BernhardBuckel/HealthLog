@@ -250,6 +250,7 @@ export async function pruneIntradayCumulativeProfiles(
   retentionDays: number = CUMULATIVE_PROFILE_RETENTION_DAYS,
 ): Promise<number> {
   const cutoffKey = shiftDateKey(
+    // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: 400-day retention cutoff; no zone moves it by more than a day (see the doc comment)
     now.toISOString().slice(0, 10),
     -retentionDays,
   );

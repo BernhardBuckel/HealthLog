@@ -159,6 +159,13 @@ describe("maybeAutoStageLabFacts", () => {
         data: expect.objectContaining({ status: "EXTRACTED" }),
       }),
     );
+    // The stated report date is stored at noon UTC, not UTC midnight.
+    const moved = updateMany.mock.calls[0]![0] as {
+      data: { reportDate: Date };
+    };
+    expect(moved.data.reportDate.toISOString()).toBe(
+      "2026-07-10T12:00:00.000Z",
+    );
     const created = createMany.mock.calls[0]![0] as {
       data: { status: string }[];
     };

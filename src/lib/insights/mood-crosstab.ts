@@ -17,7 +17,7 @@ import { welchTTest } from "@/lib/insights/correlations";
 import { round } from "@/lib/insights/status-shared";
 import { metricKeyForType } from "@/lib/measurements/cumulative-day-sum";
 import { MS_PER_DAY } from "@/lib/time-constants";
-import { userDayKey } from "@/lib/tz/format";
+import { userDayKey, shiftDateKey } from "@/lib/tz/format";
 import type {
   CrossMetricMeasurement,
   MoodAggregateEntry,
@@ -254,10 +254,7 @@ export function metricDayMap(
 
 /** Add `lagDays` to a YYYY-MM-DD day key (UTC-anchored, DST-immune). */
 export function shiftDayKey(day: string, lagDays: number): string {
-  const [y, m, d] = day.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + lagDays);
-  return dt.toISOString().slice(0, 10);
+  return shiftDateKey(day, lagDays);
 }
 
 /** Convert a raw metric value to the row's display unit. */

@@ -155,6 +155,7 @@ const BRIEFING_REROLL_TEMPERATURE = 0.6;
 
 /** UTC YYYY-MM-DD calendar-day key gating the once-per-day briefing re-roll. */
 function buildRerollDateKey(at: Date = new Date()): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: internal once-per-day re-roll gate key, never shown
   return at.toISOString().slice(0, 10);
 }
 

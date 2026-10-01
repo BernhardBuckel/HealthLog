@@ -98,6 +98,11 @@ import {
   useMeasurementReminderMutations,
   type MeasurementReminder,
 } from "@/hooks/use-measurement-reminders";
+import {
+  detectBrowserTimezone,
+  shiftDateKey,
+  userDayKey,
+} from "@/lib/tz/format";
 
 // v1.18.1 (V3) — the active-measurement set, grouped so the dropdown
 // doesn't read as a flat 15-item list. Mirrors the Zod allow-list in
@@ -177,8 +182,7 @@ function toDateInputValue(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const offset = d.getTimezoneOffset();
-  return new Date(d.getTime() - offset * 60 * 1000).toISOString().slice(0, 10);
+  return userDayKey(d, detectBrowserTimezone());
 }
 
 /**
@@ -839,12 +843,11 @@ export function postponeOffsetTargets(
   // in between moves it an hour, which flips the date for anyone acting near
   // midnight. Anchoring today's local date at UTC noon and stepping whole
   // UTC days keeps every offset on the day its label names.
-  const anchor = new Date(`${isoDayInTz(nowMs, tz)}T12:00:00.000Z`);
-  return SNOOZE_CHIP_DAYS.map((days) => {
-    const target = new Date(anchor);
-    target.setUTCDate(target.getUTCDate() + days);
-    return { days, date: target.toISOString().slice(0, 10) };
-  });
+  const today = isoDayInTz(nowMs, tz);
+  return SNOOZE_CHIP_DAYS.map((days) => ({
+    days,
+    date: shiftDateKey(today, days),
+  }));
 }
 
 function intervalProgress(

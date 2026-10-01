@@ -293,6 +293,7 @@ export async function runCoachPlanReviewTick(
           timeZone: "UTC",
           db: prisma,
         });
+        // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the day series above is read with timeZone UTC, so the plan start is cut on the same calendar
         const startKey = plan.createdAt.toISOString().slice(0, 10);
         const before: number[] = [];
         const after: number[] = [];

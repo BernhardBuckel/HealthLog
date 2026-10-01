@@ -232,6 +232,29 @@ describe("PATCH /api/documents/inbound/[id]", () => {
     expect("documentDate" in arg.data).toBe(false);
   });
 
+  it("stores an edited filing date at noon UTC so it reads back on that day everywhere", async () => {
+    vi.mocked(prisma.inboundDocument.findFirst).mockResolvedValue({
+      id: "doc-1",
+    } as never);
+    vi.mocked(prisma.inboundDocument.update).mockResolvedValue(
+      docRow() as never,
+    );
+    vi.mocked(prisma.inboundDocument.findFirstOrThrow).mockResolvedValue(
+      docRow() as never,
+    );
+
+    const res = await PATCH(
+      mkReq("doc-1", { documentDate: "2026-05-03" }) as never,
+      ctx("doc-1") as never,
+    );
+    expect(res.status).toBe(200);
+    const arg = vi.mocked(prisma.inboundDocument.update).mock.calls[0][0];
+    // UTC midnight is the previous evening west of UTC.
+    expect((arg.data.documentDate as Date).toISOString()).toBe(
+      "2026-05-03T12:00:00.000Z",
+    );
+  });
+
   it("422s on an empty update", async () => {
     const res = await PATCH(mkReq("doc-1", {}) as never, ctx("doc-1") as never);
     expect(res.status).toBe(422);

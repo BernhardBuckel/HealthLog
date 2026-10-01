@@ -16,6 +16,7 @@ import type {
   HeightDraft,
   HeightUnitAdapter,
 } from "@/lib/profile/height-unit-display";
+import { detectBrowserTimezone, userDayKey } from "@/lib/tz/format";
 
 /**
  * The four profile inputs of the onboarding baseline step.
@@ -184,7 +185,7 @@ export function BaselineFields({
           id={IDS.dateOfBirth}
           value={value.dateOfBirth}
           onChange={(next) => onChange("dateOfBirth", next)}
-          max={new Date().toISOString().slice(0, 10)}
+          max={userDayKey(new Date(), detectBrowserTimezone())}
           autoComplete="bday"
           aria-invalid={errors.dateOfBirth ? true : undefined}
           aria-describedby={
