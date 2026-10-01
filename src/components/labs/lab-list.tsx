@@ -13,7 +13,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api/api-fetch";
-import { formatDate } from "@/lib/format";
 import { formatReferenceRange } from "@/lib/labs/reference-range";
 import { formatLabReading } from "@/lib/labs/format-value";
 import { useTranslations } from "@/lib/i18n/context";
@@ -22,7 +21,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { applyOrder, useModuleListPrefs } from "@/lib/module-list-prefs";
 
 import { LabTrendSparkline } from "./lab-trend-sparkline";
-import { useLabNumber } from "./use-lab-format";
+import { useLabDate, useLabNumber } from "./use-lab-format";
 import { LabReferenceRangeBar } from "./lab-reference-range-bar";
 import { ReferenceRangeBadge } from "./reference-range-badge";
 import { SourceRangeNote } from "./source-range-note";
@@ -124,6 +123,7 @@ const MOBILE_CELL = {
 export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
   const { t } = useTranslations();
   const labNumber = useLabNumber();
+  const labDate = useLabDate();
   const { canWriteDomain } = useRecordCapabilities();
   const canAddLab = canWriteDomain("labs");
   const { prefs } = useModuleListPrefs("labs");
@@ -259,7 +259,7 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                     <span className="text-foreground font-semibold tabular-nums">
                       {formatLabReading(group.latest, labNumber)}
                     </span>
-                    <span>{formatDate(group.latest.takenAt)}</span>
+                    <span>{labDate(group.latest.takenAt)}</span>
                   </div>
                 </div>
               );
@@ -394,7 +394,7 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                       className="text-xs"
                     />
                     <span className="text-xs">
-                      {formatDate(group.latest.takenAt)}
+                      {labDate(group.latest.takenAt)}
                     </span>
                     {group.readings.length > 1 ? (
                       <span className="text-xs">

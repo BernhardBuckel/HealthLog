@@ -24,6 +24,7 @@
  * rejected (stated in the copy); an unverified low-confidence fact gets NO
  * decision and stays pending rather than being silently discarded.
  */
+import { useCalendarDate } from "@/hooks/use-calendar-date";
 import { useState } from "react";
 import { FlaskConical, Loader2, ScanSearch } from "lucide-react";
 import { toast } from "sonner";
@@ -34,7 +35,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DateField } from "@/components/ui/date-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import { useTranslations } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import type {
   ConditionFactData,
@@ -209,7 +210,7 @@ function FactRow({
   failure: string | null;
 }) {
   const { t } = useTranslations();
-  const format = useFormatters();
+  const calendarDate = useCalendarDate();
   const editFact = useEditFact();
   const [verifying, setVerifying] = useState(false);
   const [draft, setDraft] = useState<VerifyDraft>(() => draftFor(fact));
@@ -260,7 +261,7 @@ function FactRow({
           </p>
           <p className="text-muted-foreground text-xs">
             {typeLabel}
-            {date ? ` · ${format.date(`${date}T12:00:00.000Z`)}` : ""}
+            {date ? ` · ${calendarDate(date)}` : ""}
             {isObservation &&
             (fact.data as ObservationFactData).referenceText ? (
               <>

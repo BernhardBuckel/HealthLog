@@ -16,6 +16,7 @@
  * copy. A Share action in the footer opens the clinician share-link create
  * flow (shared `ShareLinkCreateForm`) with this document pre-attached.
  */
+import { useCalendarDate } from "@/hooks/use-calendar-date";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -344,6 +345,7 @@ export function DocumentDetailSheet({
 }) {
   const { t, tCount, locale } = useTranslations();
   const format = useFormatters();
+  const calendarDate = useCalendarDate();
   const queryClient = useQueryClient();
   // v1.28.52 (Documents R3) — the vault "Ask the Coach" action opens the REAL
   // fenced coach conversation in the shared side drawer (scoped to this
@@ -695,7 +697,7 @@ export function DocumentDetailSheet({
     ? t(`documents.kind.${suggestion.kind}`)
     : null;
   const suggestionDateLabel = suggestion?.documentDate
-    ? format.date(`${suggestion.documentDate}T12:00:00.000Z`)
+    ? calendarDate(suggestion.documentDate)
     : null;
 
   const title = doc?.title ?? doc?.filename ?? t("documents.card.untitled");

@@ -59,6 +59,24 @@ export function dateOnlyAtNoonUtc(key: string): Date {
 }
 
 /**
+ * True when a stored instant is the noon-UTC anchor of a date-only value.
+ *
+ * For a column that holds both kinds (a lab reading typed with its time of
+ * day, or imported from a report that states only the date), this is how a
+ * reader tells them apart. A reading typed at exactly 12:00:00.000 UTC reads
+ * as its UTC calendar date, which is its local date everywhere from UTC-11
+ * to UTC+11.
+ */
+export function isNoonUtcAnchor(value: Date): boolean {
+  return (
+    value.getUTCHours() === 12 &&
+    value.getUTCMinutes() === 0 &&
+    value.getUTCSeconds() === 0 &&
+    value.getUTCMilliseconds() === 0
+  );
+}
+
+/**
  * The calendar date of a stored date-only value (or of a `@db.Date` column,
  * which Prisma hands back as UTC midnight). Only for values that ARE dates:
  * the day an instant fell on for a person is `userDayKey(instant, tz)`.

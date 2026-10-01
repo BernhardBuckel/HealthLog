@@ -27,6 +27,7 @@
  * With either, a document already in HealthLog can be picked too: it is not
  * stored twice, it is linked or handed to the form.
  */
+import { useCalendarDate } from "@/hooks/use-calendar-date";
 import {
   useInfiniteQuery,
   useQuery,
@@ -66,7 +67,7 @@ import {
   type DocumentSourceSearchDto,
   type DocumentSourceTagDto,
 } from "@/lib/documents/sources/types";
-import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import { useTranslations } from "@/lib/i18n/context";
 import { invalidateKeys, queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import type { InboundDocumentKindValue } from "@/lib/validations/inbound-documents";
@@ -119,7 +120,7 @@ export function DocumentSourcePicker({
   onImported,
 }: DocumentSourcePickerProps) {
   const { t, locale } = useTranslations();
-  const format = useFormatters();
+  const calendarDate = useCalendarDate();
   const queryClient = useQueryClient();
 
   const [system, setSystem] = useState<DocumentPickerSystem | null>(null);
@@ -581,7 +582,7 @@ export function DocumentSourcePicker({
               const run = runs.get(row.sourceId);
               const allowed = selectable(row);
               const meta = [
-                row.date ? format.date(`${row.date}T12:00:00.000Z`) : null,
+                row.date ? calendarDate(row.date) : null,
                 row.sizeBytes !== null
                   ? formatBytes(row.sizeBytes, locale)
                   : null,

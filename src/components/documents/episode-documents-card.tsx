@@ -14,6 +14,7 @@
  * module-gated surfaces never leak. An episode without documents shows a
  * quiet one-line affordance, not a teaching empty state.
  */
+import { useDocumentDate } from "@/components/documents/use-document-date";
 import { useQuery } from "@tanstack/react-query";
 import { FolderOpen, Link2, Upload } from "lucide-react";
 import Link from "next/link";
@@ -28,13 +29,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { apiGet } from "@/lib/api/api-fetch";
-import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import { useTranslations } from "@/lib/i18n/context";
 import { queryKeys } from "@/lib/query-keys";
 import type { InboundDocumentDto } from "@/lib/validations/inbound-documents";
 import { DocumentLinkPicker } from "./document-link-picker";
 import { ImportFromSourceButton } from "./sources/import-from-source-button";
 import { DOCUMENT_KIND_ICONS } from "./document-kind-meta";
-import { documentDateKey } from "./vault-utils";
 
 /** Compact preview size — "Alle anzeigen" carries the long tail. */
 const PREVIEW_LIMIT = 5;
@@ -46,7 +46,7 @@ interface ListPage {
 
 export function EpisodeDocumentsCard({ episodeId }: { episodeId: string }) {
   const { t } = useTranslations();
-  const format = useFormatters();
+  const documentDate = useDocumentDate();
   const { user } = useAuth();
   // Linking a document to an episode writes through
   // `POST /api/documents/inbound/bulk`, the same endpoint the vault gates on
@@ -137,7 +137,7 @@ export function EpisodeDocumentsCard({ episodeId }: { episodeId: string }) {
                           {title}
                         </span>
                         <span className="text-muted-foreground shrink-0 text-xs">
-                          {format.date(`${documentDateKey(doc)}T12:00:00.000Z`)}
+                          {documentDate(doc)}
                         </span>
                       </Link>
                     </ListRow>
