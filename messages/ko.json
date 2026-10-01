@@ -9405,7 +9405,7 @@
       "severity": "심각도 {severity}",
       "noSymptoms": "기록한 증상이 없어요.",
       "impact": "활동 정도: {impact}",
-      "fever": "체온: {value}°C",
+      "fever": "체온: {value}{unit}",
       "empty": "아직 기록한 날이 없어요."
     },
     "loadError": "이 에피소드를 불러오지 못했어요.",

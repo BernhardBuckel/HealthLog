@@ -9405,7 +9405,7 @@
       "severity": "Stärke {severity}",
       "noSymptoms": "Keine Symptome erfasst.",
       "impact": "Befinden: {impact}",
-      "fever": "Temperatur: {value} °C",
+      "fever": "Temperatur: {value} {unit}",
       "empty": "Noch keine Tage erfasst."
     },
     "loadError": "Diese Episode konnte nicht geladen werden.",

@@ -9405,7 +9405,7 @@
       "severity": "Intensité {severity}",
       "noSymptoms": "Aucun symptôme enregistré.",
       "impact": "Votre forme : {impact}",
-      "fever": "Température : {value} °C",
+      "fever": "Température : {value} {unit}",
       "empty": "Aucun jour enregistré pour l’instant."
     },
     "loadError": "Impossible de charger cet épisode.",

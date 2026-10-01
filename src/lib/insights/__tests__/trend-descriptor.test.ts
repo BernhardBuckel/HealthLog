@@ -106,13 +106,31 @@ describe("computeTrendDescriptor", () => {
 });
 
 describe("numericDescriptorCopy", () => {
+  it("states a preference-bound slot in the unit the caller resolves", () => {
+    const d = computeTrendDescriptor(series([181.6, 178.5]), {
+      absoluteFloor: 0.66,
+      relativeFloor: 0.01,
+      decimals: 1,
+    })!;
+    const copy = numericDescriptorCopy("weight", d, (type) =>
+      type === "WEIGHT" ? "lb" : "?",
+    );
+    expect(copy?.params.unit).toBe(" lb");
+    expect(TREND_SLOT_DESCRIPTOR_META.distance.unitType).toBe(
+      "WALKING_RUNNING_DISTANCE",
+    );
+    expect(TREND_SLOT_DESCRIPTOR_META.body_temp.unitType).toBe(
+      "BODY_TEMPERATURE",
+    );
+  });
+
   it("resolves the rising template with a signed delta and spaced unit", () => {
     const d = computeTrendDescriptor(series([120, 128]), {
       absoluteFloor: 2,
       relativeFloor: 0.02,
       decimals: 0,
     })!;
-    const copy = numericDescriptorCopy("bp", d);
+    const copy = numericDescriptorCopy("bp", d, () => "unused");
     expect(copy?.key).toBe("insights.trendDescriptor.rising");
     expect(copy?.params.delta).toBe("+8");
     expect(copy?.params.unit).toBe(" mmHg");
@@ -124,7 +142,7 @@ describe("numericDescriptorCopy", () => {
       relativeFloor: 0.05,
       decimals: 0,
     })!;
-    const copy = numericDescriptorCopy("steps", d);
+    const copy = numericDescriptorCopy("steps", d, () => "unused");
     expect(copy?.key).toBe("insights.trendDescriptor.rising");
     expect(copy?.params.unit).toBe("");
   });
@@ -135,14 +153,14 @@ describe("numericDescriptorCopy", () => {
       relativeFloor: 0.01,
       decimals: 1,
     })!;
-    const copy = numericDescriptorCopy("weight", d);
+    const copy = numericDescriptorCopy("weight", d, () => "kg");
     expect(copy?.key).toBe("insights.trendDescriptor.falling");
     expect(copy?.params.delta).toBe("−1.4");
   });
 
   it("returns null for a slot with no numeric meta (mood)", () => {
     const d = computeTrendDescriptor(series([3, 4]), MOOD_DESCRIPTOR_CONFIG)!;
-    expect(numericDescriptorCopy("mood", d)).toBeNull();
+    expect(numericDescriptorCopy("mood", d, () => "")).toBeNull();
   });
 
   it("covers every numeric slot in the descriptor meta", () => {
@@ -154,7 +172,7 @@ describe("numericDescriptorCopy", () => {
         relativeFloor: 0,
         decimals: 1,
       })!;
-      expect(numericDescriptorCopy(metric, d)).not.toBeNull();
+      expect(numericDescriptorCopy(metric, d, () => "u")).not.toBeNull();
     }
   });
 });

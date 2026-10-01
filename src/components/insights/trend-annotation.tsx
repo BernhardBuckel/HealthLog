@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { CONFIDENCE_BADGE_CLASS } from "./confidence-badge";
 import { apiGet } from "@/lib/api/api-fetch";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
 
 /**
  * v1.4.20 phase B3 — single-sentence AI annotation rendered directly
@@ -264,6 +265,7 @@ export function TrendDescriptorCaption({
 }) {
   const { t } = useTranslations();
   const { isAuthenticated } = useAuth();
+  const { toDisplay, transformFor, unitFor } = useUnitDisplay();
 
   const isMood = kind === "mood";
   const primaryType = types[0] ?? "";
@@ -323,18 +325,28 @@ export function TrendDescriptorCaption({
     }
     // The numeric series is already server-bounded to the trailing
     // 30-day window by the fetch, so every returned row is in-window.
+    // Described in the reader's unit, the same one the chart above plots.
     return (numericQuery.data ?? []).map((row) => ({
       timestamp: new Date(row.measuredAt).getTime(),
-      value: row.value,
+      value: toDisplay(primaryType, row.value),
     }));
-  }, [isMood, moodQuery.data, numericQuery.data]);
+  }, [isMood, moodQuery.data, numericQuery.data, toDisplay, primaryType]);
 
   const descriptor = useMemo(() => {
+    const meta = TREND_SLOT_DESCRIPTOR_META[metric];
+    // A slot that converts its series converts its noise floor with it (a
+    // floor is a difference: factor only).
     const config = isMood
       ? MOOD_DESCRIPTOR_CONFIG
-      : TREND_SLOT_DESCRIPTOR_META[metric]?.config;
+      : meta?.unitType
+        ? {
+            ...meta.config,
+            absoluteFloor:
+              meta.config.absoluteFloor * transformFor(meta.unitType).factor,
+          }
+        : meta?.config;
     return computeTrendDescriptor(points, config);
-  }, [points, isMood, metric]);
+  }, [points, isMood, metric, transformFor]);
 
   // Tier 4 — genuinely too few points (also covers the in-flight window
   // before the small series lands). Surface the real empty hint so the
@@ -361,7 +373,7 @@ export function TrendDescriptorCaption({
   // copy defensively (should not happen for the legacy triple).
   const copy = isMood
     ? moodDescriptorCopy(descriptor)
-    : (numericDescriptorCopy(metric, descriptor) ??
+    : (numericDescriptorCopy(metric, descriptor, unitFor) ??
       moodDescriptorCopy(descriptor));
 
   return (

@@ -9405,7 +9405,7 @@
       "severity": "Nasilenie {severity}",
       "noSymptoms": "Nie zapisano objawów.",
       "impact": "Jak funkcjonowałeś: {impact}",
-      "fever": "Temperatura: {value} °C",
+      "fever": "Temperatura: {value} {unit}",
       "empty": "Nie zapisano jeszcze żadnych dni."
     },
     "loadError": "Nie udało się wczytać tego epizodu.",
