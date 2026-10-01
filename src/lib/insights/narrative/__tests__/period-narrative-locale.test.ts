@@ -74,10 +74,13 @@ function promptHash(locale: "de" | "en"): string {
  * Hashes captured from the prompts as they stood at NARRATIVE_PROMPT_VERSION
  * 1.13.0, before the output-language change. If either moves, the de or en
  * prompt drifted — which this change promised would not happen.
+ *
+ * Re-captured once since: the shared acute red-flag clause now states its
+ * glucose and fever floors in both units.
  */
 const FROZEN_PROMPT_HASHES: Record<"de" | "en", string> = {
-  de: "be667f16beeb44f51a81fedd929716b2249579fe914b45bb8cba0cd9e64a8c6d",
-  en: "bb0b080e21a2b9729bdf0047ae221c326ec29ecd74d0999f19ea8deabcbf078a",
+  de: "1bb2246e991fcc28f9a009996284529beebf0d469b29b157cbad273b822626c6",
+  en: "d34fa0fcb4a855f805f1a30338d309c19b07d5a54533f75de412cbe107b4f772",
 };
 
 describe("period-narrative output language", () => {

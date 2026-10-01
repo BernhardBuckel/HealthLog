@@ -41,12 +41,32 @@ import {
   GLUCOSE_HYPER_FLOOR,
   FEVER_RED_FLAG_C,
 } from "@/lib/clinical-floors";
+import { mgdlToMmol } from "@/lib/glucose";
 
 export type ContractLocale = "de" | "en";
 
 /** A German decimal-comma rendering of a clinical-floor number for prose. */
 function deNum(value: number): string {
   return String(value).replace(".", ",");
+}
+
+/**
+ * A glucose floor in both clinical units, mg/dL first (the unit the floor is
+ * defined in). The acute clause is read against what the person writes, not
+ * against the snapshot, and a person reading mmol/L writes "2.9" — a rule
+ * that only names 54 mg/dL cannot fire on it.
+ */
+function glucoseFloor(mgdl: number, locale: ContractLocale): string {
+  const mmol = mgdlToMmol(mgdl).toFixed(1);
+  return `${mgdl} mg/dL (${locale === "de" ? mmol.replace(".", ",") : mmol} mmol/L)`;
+}
+
+/** A temperature floor in both scales, °C first (the scale it is defined in). */
+function temperatureFloor(celsius: number, locale: ContractLocale): string {
+  const fahrenheit = (celsius * 1.8 + 32).toFixed(1);
+  return locale === "de"
+    ? `${deNum(celsius)} °C (${fahrenheit.replace(".", ",")} °F)`
+    : `${celsius} °C (${fahrenheit} °F)`;
 }
 
 /** A named contract fragment with both hand-composed locale texts. */
@@ -125,9 +145,9 @@ Verschreibe, empfiehl oder ändere NIEMALS Medikamenten-Dosen, auch wenn der Sna
  */
 export const safetyAcute: SharedContract = {
   en: `ACUTE RED FLAGS (contract, not style)
-If the user describes an acute crisis sign — chest pain or chest pressure, fainting or near-fainting (syncope), a sudden severe symptom (e.g. worst-ever headache, sudden weakness or trouble speaking, trouble breathing), a hypertensive-crisis reading (systolic ≥ ${BP_SYS_CRITICAL} or diastolic ≥ ${BP_DIA_CRITICAL} with symptoms), a severe-low or very-high glucose reading (below ${GLUCOSE_HYPO_SEVERE_FLOOR} mg/dL, or below ${GLUCOSE_HYPO_FLOOR} mg/dL with symptoms, or at/above ${GLUCOSE_HYPER_FLOOR} mg/dL with symptoms), a sustained fever at/above ${FEVER_RED_FLAG_C} °C, or any mention of suicidal thoughts or self-harm — say plainly, in one calm sentence, that this needs prompt medical attention or emergency services now, and do NOT data-coach it. Do not diagnose, do not name a condition, do not estimate severity from the numbers — just point to prompt/emergency care and stop. This is a closed list; outside it, stay calm and non-alarmist as usual.`,
+If the user describes an acute crisis sign — chest pain or chest pressure, fainting or near-fainting (syncope), a sudden severe symptom (e.g. worst-ever headache, sudden weakness or trouble speaking, trouble breathing), a hypertensive-crisis reading (systolic ≥ ${BP_SYS_CRITICAL} or diastolic ≥ ${BP_DIA_CRITICAL} with symptoms), a severe-low or very-high glucose reading (below ${glucoseFloor(GLUCOSE_HYPO_SEVERE_FLOOR, "en")}, or below ${glucoseFloor(GLUCOSE_HYPO_FLOOR, "en")} with symptoms, or at/above ${glucoseFloor(GLUCOSE_HYPER_FLOOR, "en")} with symptoms), a sustained fever at/above ${temperatureFloor(FEVER_RED_FLAG_C, "en")}, or any mention of suicidal thoughts or self-harm — say plainly, in one calm sentence, that this needs prompt medical attention or emergency services now, and do NOT data-coach it. Do not diagnose, do not name a condition, do not estimate severity from the numbers — just point to prompt/emergency care and stop. This is a closed list; outside it, stay calm and non-alarmist as usual.`,
   de: `AKUTE WARNZEICHEN (Vertrag, kein Stil)
-Beschreibt der Nutzer ein akutes Krisenzeichen — Brustschmerz oder Druck auf der Brust, Ohnmacht oder Beinahe-Ohnmacht (Synkope), ein plötzliches schweres Symptom (z. B. stärkster Kopfschmerz aller Zeiten, plötzliche Schwäche oder Sprachstörung, Atemnot), einen hypertensiven Notfallwert (systolisch ≥ ${BP_SYS_CRITICAL} oder diastolisch ≥ ${BP_DIA_CRITICAL} mit Symptomen), einen schwer-niedrigen oder sehr hohen Glukosewert (unter ${GLUCOSE_HYPO_SEVERE_FLOOR} mg/dL, oder unter ${GLUCOSE_HYPO_FLOOR} mg/dL mit Symptomen, oder ≥ ${GLUCOSE_HYPER_FLOOR} mg/dL mit Symptomen), anhaltendes Fieber ≥ ${deNum(FEVER_RED_FLAG_C)} °C oder Gedanken an Suizid bzw. Selbstverletzung — sage in einem ruhigen Satz klar, dass das jetzt umgehende ärztliche Hilfe oder den Notruf braucht, und coache es NICHT anhand der Daten. Diagnostiziere nicht, benenne keine Erkrankung, schätze keinen Schweregrad aus den Zahlen — verweise nur auf umgehende Hilfe bzw. den Notruf und höre auf. Das ist eine geschlossene Liste; außerhalb davon bleibe wie gewohnt ruhig und nicht alarmierend.`,
+Beschreibt der Nutzer ein akutes Krisenzeichen — Brustschmerz oder Druck auf der Brust, Ohnmacht oder Beinahe-Ohnmacht (Synkope), ein plötzliches schweres Symptom (z. B. stärkster Kopfschmerz aller Zeiten, plötzliche Schwäche oder Sprachstörung, Atemnot), einen hypertensiven Notfallwert (systolisch ≥ ${BP_SYS_CRITICAL} oder diastolisch ≥ ${BP_DIA_CRITICAL} mit Symptomen), einen schwer-niedrigen oder sehr hohen Glukosewert (unter ${glucoseFloor(GLUCOSE_HYPO_SEVERE_FLOOR, "de")}, oder unter ${glucoseFloor(GLUCOSE_HYPO_FLOOR, "de")} mit Symptomen, oder ≥ ${glucoseFloor(GLUCOSE_HYPER_FLOOR, "de")} mit Symptomen), anhaltendes Fieber ≥ ${temperatureFloor(FEVER_RED_FLAG_C, "de")} oder Gedanken an Suizid bzw. Selbstverletzung — sage in einem ruhigen Satz klar, dass das jetzt umgehende ärztliche Hilfe oder den Notruf braucht, und coache es NICHT anhand der Daten. Diagnostiziere nicht, benenne keine Erkrankung, schätze keinen Schweregrad aus den Zahlen — verweise nur auf umgehende Hilfe bzw. den Notruf und höre auf. Das ist eine geschlossene Liste; außerhalb davon bleibe wie gewohnt ruhig und nicht alarmierend.`,
 };
 
 /**

@@ -39,6 +39,7 @@
  * still gets a correct, distinct build (the rare case); the common path
  * collapses to one build.
  */
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 import { z } from "zod/v4";
 
 import { annotate } from "@/lib/logging/context";
@@ -839,6 +840,7 @@ async function getMetricTable(
     timeZone,
     locale: turn?.locale ?? "en",
     ref: "r0",
+    units: gate.units,
     now: turn?.now,
   });
   if (!table) {
@@ -862,6 +864,7 @@ async function getMetricTable(
       timeZone,
       locale: turn?.locale ?? "en",
       ref: "r0",
+      units: gate.units,
       now: turn?.now,
     });
     comparison = current ? compareWithCurrent(table, current) : null;
@@ -1067,6 +1070,8 @@ async function withProjectedTable(
           timeZone: await resolveUserTimezone(userId),
           locale: turn.locale,
           ref: "r0",
+          // Sleep is read in minutes for every reader; no preference applies.
+          units: DEFAULT_UNIT_PREFERENCES,
           now: turn.now,
         });
         table =

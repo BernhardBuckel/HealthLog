@@ -28,6 +28,12 @@
  * Pure and client-safe: no DB read, no clock.
  */
 import type { TrendDirectionSentiment } from "@/lib/insights/trend-sentiment";
+import {
+  applyDisplayTransform,
+  DEFAULT_UNIT_PREFERENCE,
+  getDisplayTransform,
+  type UnitPreference,
+} from "@/lib/measurements/display-transform";
 
 /** Where a weight sits against the person's own target band. */
 export type WeightTargetPosition = "below" | "inside" | "above";
@@ -99,8 +105,12 @@ export function resolveWeightTrend(
  * colour, the prose makes no promise about which way is better).
  */
 export interface WeightTargetFeature {
-  minKg: number;
-  maxKg: number;
+  /** The band's lower edge, in `unit`. */
+  min: number;
+  /** The band's upper edge, in `unit`. */
+  max: number;
+  /** The reader's mass unit; the band and the reading sentence are in it. */
+  unit: string;
   position: WeightTargetPosition;
   progress: "gaining" | "losing" | "holding steady";
   reading: string;
@@ -118,13 +128,21 @@ const PROGRESS_BY_POSITION: Record<
 export function buildWeightTargetFeature(
   target: { min: number; max: number } | null,
   summary: { avg7: number | null; latest: number | null } | null | undefined,
+  /**
+   * The reader's metric/imperial choice. The position is judged on the
+   * canonical kilograms either way; only the band the text quotes converts.
+   */
+  system: UnitPreference = DEFAULT_UNIT_PREFERENCE,
 ): WeightTargetFeature | null {
   const position = weightTargetPosition(
     target,
     weightTrendReferenceKg(summary),
   );
   if (!target || !position) return null;
-  const band = `${target.min}–${target.max} kg`;
+  const transform = getDisplayTransform("WEIGHT", system);
+  const min = applyDisplayTransform(target.min, transform);
+  const max = applyDisplayTransform(target.max, transform);
+  const band = `${min}–${max} ${transform.displayUnit}`;
   const reading =
     position === "below"
       ? `The person set their own weight target at ${band} and is currently below it, so gaining weight is progress and losing weight moves away from the goal. Judge weight changes against this target; never describe a gain as a setback or a regression.`
@@ -132,8 +150,9 @@ export function buildWeightTargetFeature(
         ? `The person set their own weight target at ${band} and is currently above it, so losing weight is progress and gaining moves away from the goal.`
         : `The person set their own weight target at ${band} and is currently inside it, so holding steady is progress; a small move either way within the band is not a setback.`;
   return {
-    minKg: target.min,
-    maxKg: target.max,
+    min,
+    max,
+    unit: transform.displayUnit,
     position,
     progress: PROGRESS_BY_POSITION[position],
     reading,

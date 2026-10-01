@@ -30,8 +30,16 @@ import {
 import {
   buildGradedSeriesFromPoints,
   buildGradedSeriesWithRollups,
+  convertGradedSeries,
   degradeStatusSnapshotToBudget,
 } from "@/lib/insights/graded-series";
+import {
+  applyDisplayTransform,
+  applyDisplayTransformDelta,
+  getReadingTransform,
+  resolveUnitPreferences,
+  transformRescales,
+} from "@/lib/measurements/display-transform";
 import { buildMetricSignal } from "@/lib/insights/metric-signal";
 import {
   type SupportedLocale,
@@ -236,20 +244,27 @@ export async function prepareWeightStatusForUser(
   // v1.39 (#1006) — the person's own weight target decides which way is
   // progress. Folded into the input fingerprint so editing the target flips
   // the gate even when no weight row moved.
-  const weightTarget = resolveWeightTargetOverride(
-    (
-      await prisma.user.findUnique({
-        where: { id: userId },
-        select: { thresholdsJson: true },
-      })
-    )?.thresholdsJson,
-  );
+  const userRow = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { thresholdsJson: true, unitPreference: true },
+  });
+  const weightTarget = resolveWeightTargetOverride(userRow?.thresholdsJson);
+  // The note is written in the reader's mass unit. Every weight figure the
+  // snapshot carries is converted once, after the canonical arithmetic; the
+  // correlations are scale-free and stay as computed.
+  const units = resolveUnitPreferences({
+    unitPreference: userRow?.unitPreference,
+  });
+  const mass = getReadingTransform("WEIGHT", units);
+  const toMass = (kg: number) => applyDisplayTransform(kg, mass);
   const inputHash = await computeStatusInputFingerprint({
     userId,
     types: ["WEIGHT", "BLOOD_PRESSURE_SYS", "BLOOD_PRESSURE_DIA"],
     extra: {
       weightTargetMin: weightTarget?.min ?? null,
       weightTargetMax: weightTarget?.max ?? null,
+      // A unit switch changes every figure the note quotes.
+      unitPreference: units.system,
     },
     includeMood: true,
     // v1.18.11 (P6-tighten) — WEIGHT is an FDR discovery OUTCOME channel and
@@ -370,11 +385,14 @@ export async function prepareWeightStatusForUser(
   // the MONTH / YEAR rollup tier (with a full-history in-memory fallback
   // on a cold-tier coverage miss). Mood has no rollup tier, so it stays
   // an in-memory fold.
-  const [weightGraded, sysGraded, diaGraded] = await Promise.all([
+  const [canonicalWeightGraded, sysGraded, diaGraded] = await Promise.all([
     buildGradedSeriesWithRollups(userId, "WEIGHT", now, userTz),
     buildGradedSeriesWithRollups(userId, "BLOOD_PRESSURE_SYS", now, userTz),
     buildGradedSeriesWithRollups(userId, "BLOOD_PRESSURE_DIA", now, userTz),
   ]);
+  const weightGraded = transformRescales(mass)
+    ? convertGradedSeries(canonicalWeightGraded, mass, mass.decimals)
+    : canonicalWeightGraded;
   const moodGraded = buildGradedSeriesFromPoints(
     moodSeries.daily.map((b) => ({
       measuredAt: canonicalDailyTimestamp(
@@ -473,17 +491,21 @@ export async function prepareWeightStatusForUser(
   const recentWeights = weightSeries.daily
     .filter((bucket) => bucket.dayOffset < 7)
     .map((bucket) => bucket.value);
-  const weightTargetFeature = buildWeightTargetFeature(weightTarget, {
-    avg7:
-      recentWeights.length > 0
-        ? recentWeights.reduce((sum, value) => sum + value, 0) /
-          recentWeights.length
-        : null,
-    latest: latestWeight?.value ?? null,
-  });
+  const weightTargetFeature = buildWeightTargetFeature(
+    weightTarget,
+    {
+      avg7:
+        recentWeights.length > 0
+          ? recentWeights.reduce((sum, value) => sum + value, 0) /
+            recentWeights.length
+          : null,
+      latest: latestWeight?.value ?? null,
+    },
+    units.system,
+  );
   const weightSignal = buildMetricSignal({
     metric: locale === "en" ? "your weight" : "dein Gewicht",
-    unit: "kg",
+    unit: mass.displayUnit,
     direction:
       weightTargetFeature?.position === "below"
         ? "higher-better"
@@ -504,21 +526,25 @@ export async function prepareWeightStatusForUser(
       newestMeasurementDaysAgo,
     },
     weight: {
+      unit: mass.displayUnit,
       ...(weightSignal ? { signal: weightSignal } : {}),
       ...(weightTargetFeature ? { target: weightTargetFeature } : {}),
       summary: summarizeSeries(
-        weightSeries.daily.map((bucket) => ({ value: bucket.value })),
+        weightSeries.daily.map((bucket) => ({ value: toMass(bucket.value) })),
       ),
       series: weightGraded,
       latestDayFocus: latestWeight
         ? {
             day: latestWeightDay,
             dayOffset: latestWeight.dayOffset,
-            value: latestWeight.value,
+            value: toMass(latestWeight.value),
             deltaToPreviousDailyPoint:
               previousWeight == null
                 ? null
-                : round(latestWeight.value - previousWeight.value, 2),
+                : applyDisplayTransformDelta(
+                    round(latestWeight.value - previousWeight.value, 2),
+                    mass,
+                  ),
             sameDayBloodPressure: sameDayBp,
           }
         : null,
@@ -547,7 +573,7 @@ export async function prepareWeightStatusForUser(
         .slice(-CORRELATION_PAIR_CAP)
         .map((entry) => ({
           day: entry.dayKey,
-          weight: round(entry.a, 2),
+          weight: toMass(round(entry.a, 2)),
           systolic: round(entry.b, 2),
         })),
     },
@@ -555,7 +581,7 @@ export async function prepareWeightStatusForUser(
       correlation: weightVsMeanBpCorrelation,
       pairs: weightVsMeanBpPairs.slice(-CORRELATION_PAIR_CAP).map((entry) => ({
         day: entry.dayKey,
-        weight: round(entry.a, 2),
+        weight: toMass(round(entry.a, 2)),
         meanBloodPressure: round(entry.b, 2),
       })),
     },
@@ -626,7 +652,10 @@ export async function prepareWeightStatusForUser(
 
   // v1.12.7 — diversity / anti-repetition block (see blood-pressure-status).
   const varietyLead = pickVarietyLead(userId, "weight", todayKey);
-  const steadyRun = computeSteadyRun(weightGraded.weekly, weightGraded.monthly);
+  const steadyRun = computeSteadyRun(
+    canonicalWeightGraded.weekly,
+    canonicalWeightGraded.monthly,
+  );
   const relations = await getRelevantCorrelationsForMetric(
     userId,
     "WEIGHT",
@@ -654,7 +683,7 @@ export async function prepareWeightStatusForUser(
     metric: "weight",
     userId,
     cacheAction,
-    systemPrompt: getWeightSystemPrompt(locale),
+    systemPrompt: getWeightSystemPrompt(locale, units.system),
     userPrompt: getWeightUserPrompt(
       snapshotJson,
       todayKey,

@@ -3,6 +3,7 @@
  * own days, one row per period with absence kept as null, weeks folded the
  * way the chart folds them, and the bounded summary the model reads.
  */
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const readDailySeries = vi.fn();
@@ -172,6 +173,7 @@ describe("readMetricTable", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     expect(table).not.toBeNull();
@@ -214,6 +216,7 @@ describe("readMetricTable", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     const chart = bucketTimeSeries(
@@ -243,6 +246,7 @@ describe("readMetricTable", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     expect(table).toBeNull();
@@ -263,6 +267,7 @@ describe("readMetricTable", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     const rows = new Map(table!.rows.map((row) => [row[0], row]));
@@ -298,6 +303,7 @@ describe("summariseTable", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     }))!;
   }
@@ -388,6 +394,7 @@ describe("totals and levels", () => {
       timeZone: tz,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: WEST_NOW,
     });
   }
@@ -408,6 +415,7 @@ describe("totals and levels", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     expect(table!.columns[1]).toMatchObject({
@@ -439,6 +447,7 @@ describe("totals and levels", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     expect(table!.columns[1].labelKey).toBe("coach.result.column.mean");
@@ -536,6 +545,7 @@ describe("totals and levels", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     const day = table!.rows.find((row) => row[0] === "2026-09-25")!;
@@ -556,6 +566,7 @@ describe("totals and levels", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     expect(table!.columns[1].decimals).toBe(2);
@@ -581,6 +592,7 @@ describe("totals and levels", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     expect(table!.columns.map((c) => c.key)).toEqual([
@@ -604,5 +616,52 @@ describe("totals and levels", () => {
     expect(summary.stats).toMatchObject({
       value: { total: 440_000, mean: 220_000 },
     });
+  });
+});
+
+describe("readMetricTable — the reader's units", () => {
+  const read = (
+    metric: "weight" | "distance" | "walking_speed",
+    units: { system: "metric" | "imperial"; glucoseUnit: "mg/dL" },
+  ) =>
+    readMetricTable({
+      userId: "u1",
+      metric,
+      window: "last7days",
+      period: "current",
+      granularity: undefined,
+      timeZone: TZ,
+      locale: "en",
+      ref: "r1",
+      units,
+      now: NOW,
+    });
+
+  it("states weight in pounds for an imperial reader", async () => {
+    readDailySeries.mockResolvedValue([dayRow("WEIGHT", "2026-09-27", 80)]);
+    const table = await read("weight", {
+      system: "imperial",
+      glucoseUnit: "mg/dL",
+    });
+    expect(table!.columns[1]).toMatchObject({ unit: "lb", decimals: 1 });
+    expect(table!.rows.at(-1)).toEqual(["2026-09-27", 176.4, 1]);
+  });
+
+  it("states walking distance in miles and kilometres, never in metres", async () => {
+    readDailySeries.mockResolvedValue([
+      dayRow("WALKING_RUNNING_DISTANCE", "2026-09-27", 8000),
+    ]);
+    const imperial = await read("distance", {
+      system: "imperial",
+      glucoseUnit: "mg/dL",
+    });
+    expect(imperial!.columns[1]).toMatchObject({ unit: "mi", decimals: 2 });
+    expect(imperial!.rows.at(-1)).toEqual(["2026-09-27", 4.97, 1]);
+    const metric = await read("distance", {
+      system: "metric",
+      glucoseUnit: "mg/dL",
+    });
+    expect(metric!.columns[1]).toMatchObject({ unit: "km" });
+    expect(metric!.rows.at(-1)).toEqual(["2026-09-27", 8, 1]);
   });
 });

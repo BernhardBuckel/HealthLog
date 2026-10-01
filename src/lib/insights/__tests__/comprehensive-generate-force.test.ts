@@ -94,6 +94,8 @@ vi.mock("@/lib/ai/coach/about-me", () => ({
 import { generateComprehensiveInsight } from "../comprehensive-generate";
 import { hashInsightSnapshot } from "../snapshot-hash";
 import { compactSections } from "@/lib/ai/prompts/compact-sections";
+import { featuresInReaderUnits } from "../features-units";
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 
 /** A small data-bearing feature set that survives `compactSections`. */
 const FEATURES = {
@@ -103,9 +105,16 @@ const FEATURES = {
 // (null here — the about-me module is mocked to no text), the
 // comparison-baseline setting ("none" — the mocked user row carries no
 // dashboardWidgetsJson) and the generation locale, matching the
-// composite shape both the gate and the POST route hash.
+// composite shape both the gate and the POST route hash. The features are
+// hashed as the prompt reads them: in the reader's units (the mocked user
+// row carries no preference, so the defaults).
 const FEATURES_HASH = hashInsightSnapshot({
-  features: compactSections(FEATURES as unknown as Record<string, unknown>),
+  features: compactSections(
+    featuresInReaderUnits(
+      FEATURES as never,
+      DEFAULT_UNIT_PREFERENCES,
+    ) as unknown as Record<string, unknown>,
+  ),
   aboutMe: null,
   comparisonBaseline: "none",
   generationLocale: "de",
@@ -303,6 +312,61 @@ describe("generateComprehensiveInsight — content-hash gate (v1.16.8)", () => {
     expect(data.insightsCachedLocale).toBe("de");
     // v1.16.8 — the blanket per-status eviction is gone.
     expect(auditDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("hands the model the feature set in the reader's units and fingerprints that", async () => {
+    makeByokChain();
+    findUnique.mockResolvedValue({
+      insightsPrivacyMode: "aggregated",
+      insightsCachedAt: new Date(Date.now() - 26 * 60 * 60 * 1000),
+      insightsCachedText: JSON.stringify({ dailyBriefing: { p: "old" } }),
+      insightsExcludeMetrics: [],
+      insightsSnapshotHash: FEATURES_HASH,
+      unitPreference: "imperial",
+      glucoseUnit: "mmol/L",
+    });
+    runRawCompletionWithFallback.mockResolvedValue({
+      result: {
+        content: JSON.stringify({ dailyBriefing: { p: "new" } }),
+        tokensUsed: 10,
+        providerType: "openai",
+        model: "m",
+      },
+      workingProvider: { providerType: "openai" },
+      fallbackHops: [],
+    });
+
+    // The kilogram fingerprint no longer matches: a unit switch regenerates.
+    const outcome = await generateComprehensiveInsight("u1", {
+      locale: "de",
+      force: true,
+    });
+    expect(outcome).toEqual({ status: "generated", providerType: "openai" });
+
+    const prompt = JSON.stringify(runRawCompletionWithFallback.mock.calls[0]);
+    expect(prompt).toContain('\\"unit\\": \\"lb\\"');
+    expect(prompt).toContain("179.5");
+    expect(prompt).not.toContain("81.4");
+
+    const write = userUpdate.mock.calls.find(
+      (c) =>
+        (c[0] as { data: Record<string, unknown> }).data.insightsCachedText !==
+        undefined,
+    );
+    const data = (write![0] as { data: Record<string, unknown> }).data;
+    expect(data.insightsSnapshotHash).toBe(
+      hashInsightSnapshot({
+        features: compactSections(
+          featuresInReaderUnits(FEATURES as never, {
+            system: "imperial",
+            glucoseUnit: "mmol/L",
+          }) as unknown as Record<string, unknown>,
+        ),
+        aboutMe: null,
+        comparisonBaseline: "none",
+        generationLocale: "de",
+      }),
+    );
   });
 
   it("a fresh cache tagged with another language does not short-circuit an unforced run", async () => {

@@ -45,6 +45,7 @@ import {
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { SheetSection, SheetSectionCount } from "@/components/ui/sheet-section";
 import { useTranslations } from "@/lib/i18n/context";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
 import { resolveIntlLocale } from "@/lib/format-locale";
 import type { Locale } from "@/lib/i18n/config";
 import { CUSTOM_SYMPTOM_ICON_ALLOWLIST } from "@/lib/cycle/custom-symptoms-shared";
@@ -188,6 +189,23 @@ function resolveBbt(bbt: string): number | null {
   return n != null && Number.isFinite(n) ? n : null;
 }
 
+/**
+ * The temperature field's text, typed in the reader's unit, as the stored
+ * degrees Celsius (two decimals, the field's own step). Text equal to what
+ * the sheet seeded returns the stored value untouched: converting it there
+ * and back would move a reading the person never edited.
+ */
+export function bbtTextToCelsius(
+  text: string,
+  seed: { text: string; celsius: number } | null,
+  toCelsius: (typed: number) => number,
+): number | null {
+  const typed = resolveBbt(text);
+  if (typed == null) return null;
+  if (seed && text === seed.text) return seed.celsius;
+  return Math.round(toCelsius(typed) * 100) / 100;
+}
+
 function symptomList(
   symptoms: Map<string, number | null>,
 ): CycleSymptomSelection[] {
@@ -202,13 +220,22 @@ function symptomList(
  * deselected so the server clears it (the POST merge can only add/keep — QA
  * W-2). Pure + exported for the unit test.
  */
-export function buildDayLogPatch(s: DayLogFormState): CycleDayLogPatch {
+export function buildDayLogPatch(
+  s: DayLogFormState,
+  /**
+   * The typed temperature (in the reader's unit) as stored degrees Celsius.
+   * The sheet passes the preference-bound conversion; the default reads the
+   * field as Celsius.
+   */
+  bbtToCelsius: (bbt: string) => number | null = resolveBbt,
+): CycleDayLogPatch {
+  const bbtC = bbtToCelsius(s.bbt);
   return {
     flow: s.flow ?? null,
     intermenstrualBleeding: s.intermenstrual,
-    basalBodyTempC: resolveBbt(s.bbt),
+    basalBodyTempC: bbtC,
     // Only meaningful with a BBT present; a cleared reading resets the flag.
-    temperatureExcluded: resolveBbt(s.bbt) != null ? s.bbtDisturbed : false,
+    temperatureExcluded: bbtC != null ? s.bbtDisturbed : false,
     ovulationTest: s.opk ?? null,
     cervicalMucus: s.mucus ?? null,
     cervixPosition: s.cervixPosition ?? null,
@@ -229,8 +256,10 @@ export function buildDayLogPatch(s: DayLogFormState): CycleDayLogPatch {
 export function buildDayLogInput(
   s: DayLogFormState,
   date: string,
+  /** See `buildDayLogPatch`. */
+  bbtToCelsius: (bbt: string) => number | null = resolveBbt,
 ): CycleDayLogInput {
-  const bbtVal = resolveBbt(s.bbt);
+  const bbtVal = bbtToCelsius(s.bbt);
   return {
     date,
     loggedAt: new Date().toISOString(),
@@ -619,6 +648,18 @@ export function LogDaySheet({
     new Map(),
   );
   const [bbt, setBbt] = useState<string>("");
+  // The temperature field reads and writes in the reader's unit; storage is
+  // degrees Celsius. The seeded text keeps its stored value, so saving an
+  // untouched reading never drifts it through a round trip of rounding.
+  const unitDisplay = useUnitDisplay();
+  const [bbtSeed, setBbtSeed] = useState<{
+    text: string;
+    celsius: number;
+  } | null>(null);
+  const bbtToCelsius = (text: string): number | null =>
+    bbtTextToCelsius(text, bbtSeed, (typed) =>
+      unitDisplay.fromDisplay("BODY_TEMPERATURE", typed),
+    );
   const [bbtDisturbed, setBbtDisturbed] = useState(false);
   const [opk, setOpk] = useState<OvulationTest | null>(null);
   const [mucus, setMucus] = useState<CervicalMucus | null>(null);
@@ -666,7 +707,16 @@ export function LogDaySheet({
     setFlow((dto?.flow ?? null) as FlowLevel | null);
     setIntermenstrual(dto?.intermenstrualBleeding ?? false);
     setSymptoms(new Map((dto?.symptoms ?? []).map((s) => [s.key, s.severity])));
-    setBbt(dto?.basalBodyTempC != null ? String(dto.basalBodyTempC) : "");
+    const seededBbt =
+      dto?.basalBodyTempC != null
+        ? String(unitDisplay.toDisplay("BODY_TEMPERATURE", dto.basalBodyTempC))
+        : "";
+    setBbt(seededBbt);
+    setBbtSeed(
+      dto?.basalBodyTempC != null
+        ? { text: seededBbt, celsius: dto.basalBodyTempC }
+        : null,
+    );
     setBbtDisturbed(dto?.temperatureExcluded ?? false);
     setOpk((dto?.ovulationTest ?? null) as OvulationTest | null);
     setMucus((dto?.cervicalMucus ?? null) as CervicalMucus | null);
@@ -753,10 +803,12 @@ export function LogDaySheet({
         // chip actually CLEARS (the POST merge can only add/keep — QA W-2).
         await patchDay.mutateAsync({
           id: currentRowId,
-          patch: buildDayLogPatch(formState),
+          patch: buildDayLogPatch(formState, bbtToCelsius),
         });
       } else {
-        await logDay.mutateAsync(buildDayLogInput(formState, date));
+        await logDay.mutateAsync(
+          buildDayLogInput(formState, date, bbtToCelsius),
+        );
       }
       onOpenChange(false);
     } catch {
@@ -1041,11 +1093,11 @@ export function LogDaySheet({
             type="number"
             inputMode="decimal"
             step="0.01"
-            min={30}
-            max={45}
+            min={unitDisplay.toDisplay("BODY_TEMPERATURE", 30)}
+            max={unitDisplay.toDisplay("BODY_TEMPERATURE", 45)}
             value={bbt}
             onChange={(e) => setBbt(e.target.value)}
-            placeholder={t("cycle.sheet.temperaturePlaceholder")}
+            placeholder={unitDisplay.unitFor("BODY_TEMPERATURE")}
             className="w-32"
             aria-label={t("cycle.sheet.temperature")}
           />

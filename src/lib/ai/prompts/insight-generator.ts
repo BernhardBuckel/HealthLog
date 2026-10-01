@@ -386,7 +386,7 @@ gib die obige Verweigerung zurück.`,
     "consider increasing to Y mg", "stop at Z mg", or any
     variation. A plateau finding ALWAYS frames the next decision
     as a conversation with the prescribing clinician — pattern:
-    "Weight has settled around <kg> for three weeks at <dose> —
+    "Weight has settled around <weight> for three weeks at <dose> —
     typical mid-titration. Worth mentioning at the next visit if
     it persists." This is a SAFETY contract; treat any
     dose-prescriptive instinct as a sign the response is
@@ -605,7 +605,7 @@ gib die obige Verweigerung zurück.`,
     mg" oder eine Variante davon enthalten. Ein Plateau-Befund
     rahmt die nächste Entscheidung IMMER als Gespräch mit der
     behandelnden Ärztin — Muster: "Das Gewicht hat sich seit drei
-    Wochen bei <kg> auf <Dosis> eingependelt — typische
+    Wochen bei <weight> auf <Dosis> eingependelt — typische
     mid-titration Phase. Lohnt sich beim nächsten Termin
     anzusprechen, falls es darüber hinaus persistiert." Das ist
     ein SICHERHEITS-Vertrag; behandle jeden dosis-präskriptiven

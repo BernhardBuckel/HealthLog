@@ -19,6 +19,12 @@
 import { prisma } from "@/lib/db";
 import type { Locale } from "@/lib/i18n/config";
 import { sanitizeForPrompt } from "@/lib/insights/sanitize";
+import {
+  applyDisplayTransformDelta,
+  DEFAULT_UNIT_PREFERENCE,
+  getDisplayTransform,
+  type UnitPreference,
+} from "@/lib/measurements/display-transform";
 
 /**
  * Trailing window (days) the detector compares weight across. Exported
@@ -122,7 +128,11 @@ export async function detectGlp1Plateau(
 export function buildGlp1PlateauPrompt(
   ctx: Glp1PlateauContext,
   locale: Locale,
+  /** The reader's metric/imperial choice; the weight change is stated in it. */
+  system: UnitPreference = DEFAULT_UNIT_PREFERENCE,
 ): string {
+  const mass = getDisplayTransform("WEIGHT", system);
+  const weightDelta = `${applyDisplayTransformDelta(ctx.weightDeltaKg, mass)} ${mass.displayUnit}`;
   // v1.4.25 W10 reconcile (security H-1): sanitize every user-controlled
   // string before interpolating into the LLM prompt. `Medication.name`
   // and `MedicationDoseChange.doseUnit` are free-text columns the user
@@ -143,7 +153,7 @@ export function buildGlp1PlateauPrompt(
 
 SYSTEM CONTEXT — GLP-1-PLATEAU AKTIV
 
-Der Nutzer nimmt aktuell ${doseLabel} (seit ${ctx.doseSince}, ${ctx.daysOnDose} Tage). In den letzten ${PLATEAU_WINDOW_DAYS} Tagen hat sich das Gewicht nur um ${ctx.weightDeltaKg} kg verändert (n=${ctx.readingsCount} Messungen). Das ist das klinische Plateau-Muster für GLP-1-Rezeptoragonisten.
+Der Nutzer nimmt aktuell ${doseLabel} (seit ${ctx.doseSince}, ${ctx.daysOnDose} Tage). In den letzten ${PLATEAU_WINDOW_DAYS} Tagen hat sich das Gewicht nur um ${weightDelta} verändert (n=${ctx.readingsCount} Messungen). Das ist das klinische Plateau-Muster für GLP-1-Rezeptoragonisten.
 
 Wenn du einen dailyBriefing-keyFinding zu diesem Plateau emittierst:
 - sourceMetric: "glp1_plateau"
@@ -157,7 +167,7 @@ Wenn du einen dailyBriefing-keyFinding zu diesem Plateau emittierst:
 
 SYSTEM CONTEXT — GLP-1 PLATEAU ACTIVE
 
-The user is currently on ${doseLabel} (since ${ctx.doseSince}, ${ctx.daysOnDose} days). In the last ${PLATEAU_WINDOW_DAYS} days their weight has shifted by ${ctx.weightDeltaKg} kg (n=${ctx.readingsCount} readings). That is the clinical plateau pattern for GLP-1 receptor agonists.
+The user is currently on ${doseLabel} (since ${ctx.doseSince}, ${ctx.daysOnDose} days). In the last ${PLATEAU_WINDOW_DAYS} days their weight has shifted by ${weightDelta} (n=${ctx.readingsCount} readings). That is the clinical plateau pattern for GLP-1 receptor agonists.
 
 If you emit a dailyBriefing keyFinding for this plateau:
 - sourceMetric: "glp1_plateau"

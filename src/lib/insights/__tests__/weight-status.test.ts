@@ -438,3 +438,50 @@ describe("generateWeightStatusForUser — judged against the stored target (#100
     expect(snapshot.weight.signal.direction).toBe("target-band");
   });
 });
+
+describe("generateWeightStatusForUser — the reader's mass unit", () => {
+  it("hands an imperial reader every weight figure and threshold in pounds", async () => {
+    const now = new Date();
+    const records = Array.from({ length: 40 }, (_, day) => ({
+      type: "WEIGHT",
+      value: 80,
+      measuredAt: new Date(now.getTime() - day * dayMs),
+    }));
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      thresholdsJson: { WEIGHT: { min: 65, max: 70 } },
+      unitPreference: "imperial",
+    } as never);
+    vi.mocked(prisma.measurement.findMany).mockResolvedValue(records as never);
+    vi.mocked(prisma.moodEntry.findMany).mockResolvedValue([] as never);
+    let sent: { systemPrompt: string; userPrompt: string } | null = null;
+    vi.mocked(runStatusCompletion).mockImplementation(async (args) => {
+      sent = args as never;
+      return {
+        kind: "ok",
+        content: '{"summary":"OK"}',
+        providerType: "anthropic",
+        model: "x",
+        tokensUsed: 1,
+      } as never;
+    });
+
+    await generateWeightStatusForUser("user-1", { locale: "en" });
+
+    const snapshot = JSON.parse(sent!.userPrompt.match(/\{[\s\S]*\}/)![0]);
+    expect(snapshot.weight.unit).toBe("lb");
+    expect(snapshot.weight.signal.unit).toBe("lb");
+    expect(snapshot.weight.latestDayFocus.value).toBe(176.4);
+    expect(snapshot.weight.summary.mean).toBe(176.4);
+    expect(snapshot.weight.series.recent[0].mean).toBe(176.4);
+    expect(snapshot.weight.target).toMatchObject({
+      min: 143.3,
+      max: 154.3,
+      unit: "lb",
+    });
+    expect(JSON.stringify(snapshot.weight)).not.toContain("kg");
+    // The card's own thresholds are stated in pounds as well.
+    expect(sent!.systemPrompt).toContain("< 1.1 lb over");
+    expect(sent!.systemPrompt).toContain("~1.1 lb-2.2 lb per week");
+    expect(sent!.systemPrompt).not.toMatch(/\d kg/);
+  });
+});

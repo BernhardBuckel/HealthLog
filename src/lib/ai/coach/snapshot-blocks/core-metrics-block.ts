@@ -1,10 +1,16 @@
 import type { AggregatedFeatures } from "@/lib/insights/features";
+import { weightFeatureInReaderUnits } from "@/lib/insights/features-units";
+import {
+  getReadingTransform,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 import type { ReferenceMetric } from "@/lib/reference-ranges";
 import {
   bpBandFromRows,
   bucketWeekly,
   buildDailyBpRows,
   buildDailyValueRows,
+  timelineInUnit,
   type CoarseTimelineTail,
 } from "../snapshot-series";
 import type {
@@ -38,6 +44,8 @@ interface CoreMetricsBlockContext {
   counts: NonNullable<CoachProvenance["counts"]>;
   registerBlock: (key: string, source: CoachScopeSource) => void;
   groundingValues: Map<ReferenceMetric, number>;
+  /** The reader's units; the weight block is stated in them. */
+  units: UnitPreferences;
 }
 
 export function buildCoreMetricsBlocks(
@@ -93,16 +101,24 @@ export function buildCoreMetricsBlocks(
 
   if (ctx.sources.has("weight") && ctx.features.weight) {
     const rows = byType("WEIGHT");
+    const aggregate = weightFeatureInReaderUnits(
+      ctx.features.weight,
+      ctx.units,
+    );
     ctx.snapshot.weight = {
-      aggregate: ctx.features.weight,
-      timeline: {
-        recent: buildDailyValueRows(rows, ctx.recentCutoff, ctx.userTz),
-        weekly: bucketWeekly(
-          rows.filter((row) => row.measuredAt < ctx.recentCutoff),
-          ctx.userTz,
-        ),
-        ...(ctx.coarseTails.weight ? { coarse: ctx.coarseTails.weight } : {}),
-      },
+      unit: aggregate.unit,
+      aggregate,
+      timeline: timelineInUnit(
+        {
+          recent: buildDailyValueRows(rows, ctx.recentCutoff, ctx.userTz),
+          weekly: bucketWeekly(
+            rows.filter((row) => row.measuredAt < ctx.recentCutoff),
+            ctx.userTz,
+          ),
+          ...(ctx.coarseTails.weight ? { coarse: ctx.coarseTails.weight } : {}),
+        },
+        getReadingTransform("WEIGHT", ctx.units),
+      ),
     };
     ctx.metrics.add("weight");
     ctx.windows.add("last7days");

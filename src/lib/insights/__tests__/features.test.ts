@@ -392,8 +392,9 @@ describe("extractFeatures — weight target direction (#1006)", () => {
     prismaMock.measurement.findMany.mockResolvedValue(weightRows);
     const f = await extractFeatures("user-1", false);
     expect(f.weight?.target).toMatchObject({
-      minKg: 65,
-      maxKg: 70,
+      min: 65,
+      max: 70,
+      unit: "kg",
       position: "below",
       progress: "gaining",
     });

@@ -202,8 +202,7 @@ export function computeSignalsOfDay(
       "mmHg",
     ),
   );
-  // Glucose uses the canonical stored value (the model reads the snapshot,
-  // not display units); absent data simply produces no signal.
+  // Absent data simply produces no signal.
   push(buildSignal("glucose", "blood glucose", byType("BLOOD_GLUCOSE"), now));
   push(
     buildSignal(
@@ -215,7 +214,10 @@ export function computeSignalsOfDay(
     ),
   );
   push(buildSignal("pulse", "pulse", byType("PULSE"), now, "bpm"));
-  push(buildSignal("weight", "weight", byType("WEIGHT"), now, "kg"));
+  // Weight and glucose are canonical here and carry no unit: the reader's
+  // unit is attached where the signal is converted for the prompt
+  // (`featuresInReaderUnits`), so no canonical symbol can leak into one.
+  push(buildSignal("weight", "weight", byType("WEIGHT"), now));
   // Sleep is stored one row per stage per night, so a raw "latest" point
   // would mis-sum; the sleep aggregates carry that signal already. Steps
   // ingest as many intraday `stats:`-prefixed samples, so the newest raw row

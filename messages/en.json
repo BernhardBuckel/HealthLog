@@ -3739,7 +3739,7 @@
     "walkingSpeed": {
       "title": "Walking Speed",
       "description": "Your average walking speed over time, in km/h.",
-      "chartTitle": "Walking speed (km/h)",
+      "chartTitle": "Walking speed",
       "emptyState": {
         "title": "No walking-speed data yet",
         "description": "Walking-speed readings appear here once Apple Health syncs."
@@ -4142,7 +4142,7 @@
     "wristTemperature": {
       "title": "Wrist Temperature",
       "description": "Your overnight wrist temperature, tracked against your own baseline.",
-      "chartTitle": "Wrist temperature (°C)",
+      "chartTitle": "Wrist temperature",
       "emptyState": {
         "title": "No wrist-temperature data yet",
         "description": "Wrist-temperature readings appear here once Apple Health syncs overnight wear."
@@ -8287,9 +8287,6 @@
         "unitSteps": "steps",
         "unitBpm": "bpm",
         "unitMs": "ms",
-        "unitKg": "kg",
-        "unitCelsius": "°C",
-        "unitGlucose": "mg/dL",
         "unitMood": "pts",
         "confidenceLow": "Low confidence",
         "confidenceMedium": "Medium confidence",
@@ -8464,7 +8461,6 @@
       "flow": "Flow",
       "symptoms": "Symptoms",
       "temperature": "Basal body temperature",
-      "temperaturePlaceholder": "°C",
       "temperatureDisturbed": "Mark reading as disturbed",
       "temperatureDisturbedHint": "Fever, illness, alcohol or a late measurement — excluded from the temperature evaluation.",
       "ovulationTest": "Ovulation test",
@@ -8556,7 +8552,7 @@
       "empty": "No temperature readings yet",
       "emptyHint": "Log your basal body temperature each morning to see your cycle's temperature shift.",
       "ovulationEstimate": "Est. ovulation",
-      "tooltipTemp": "{temp} °C",
+      "tooltipTemp": "{temp} {unit}",
       "ovulationConfirmed": "Confirmed ovulation"
     },
     "fieldInfo": {

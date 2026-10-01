@@ -3739,7 +3739,7 @@
     "walkingSpeed": {
       "title": "Prędkość chodu",
       "description": "Twoja średnia prędkość chodu w czasie, w km/h.",
-      "chartTitle": "Prędkość chodu (km/h)",
+      "chartTitle": "Prędkość chodu",
       "emptyState": {
         "title": "Brak danych",
         "description": "Odczyty pojawią się tutaj po synchronizacji Apple Health."
@@ -4142,7 +4142,7 @@
     "wristTemperature": {
       "title": "Temperatura nadgarstka",
       "description": "Nocna temperatura nadgarstka, odniesiona do Twojej wartości bazowej.",
-      "chartTitle": "Temperatura nadgarstka (°C)",
+      "chartTitle": "Temperatura nadgarstka",
       "emptyState": {
         "title": "Brak danych o temperaturze nadgarstka",
         "description": "Wartości pojawią się tutaj, gdy Apple Health zsynchronizuje nocne noszenie."
@@ -8287,9 +8287,6 @@
         "unitSteps": "kroki",
         "unitBpm": "ud./min",
         "unitMs": "ms",
-        "unitKg": "kg",
-        "unitCelsius": "°C",
-        "unitGlucose": "mg/dL",
         "unitMood": "pkt",
         "confidenceLow": "Niska pewność",
         "confidenceMedium": "Średnia pewność",
@@ -8464,7 +8461,6 @@
       "flow": "Krwawienie",
       "symptoms": "Objawy",
       "temperature": "Podstawowa temperatura ciała",
-      "temperaturePlaceholder": "°C",
       "temperatureDisturbed": "Oznacz pomiar jako zakłócony",
       "temperatureDisturbedHint": "Gorączka, choroba, alkohol lub spóźniony pomiar — wykluczony z oceny temperatury.",
       "ovulationTest": "Test owulacyjny",
@@ -8556,7 +8552,7 @@
       "empty": "Brak pomiarów temperatury",
       "emptyHint": "Zapisuj podstawową temperaturę ciała każdego ranka, aby zobaczyć przesunięcie temperatury w cyklu.",
       "ovulationEstimate": "Szac. owulacja",
-      "tooltipTemp": "{temp} °C",
+      "tooltipTemp": "{temp} {unit}",
       "ovulationConfirmed": "Potwierdzona owulacja"
     },
     "fieldInfo": {

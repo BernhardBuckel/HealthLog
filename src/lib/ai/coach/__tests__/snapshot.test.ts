@@ -322,6 +322,7 @@ describe("buildCoachSnapshot", () => {
                 ],
                 "weekly": [],
               },
+              "unit": "kg/m²",
             },
             "dayStrain": {
               "days": 2,
@@ -410,6 +411,7 @@ describe("buildCoachSnapshot", () => {
                   },
                 ],
               },
+              "unit": "°C",
             },
             "steps": {
               "timeline": {
@@ -428,14 +430,23 @@ describe("buildCoachSnapshot", () => {
                   },
                 ],
               },
+              "unit": "steps",
             },
             "weight": {
               "aggregate": {
+                "allTimeAvg": undefined,
+                "allTimeMax": undefined,
+                "allTimeMin": undefined,
+                "avg30": undefined,
+                "avg7": undefined,
+                "avg90": undefined,
                 "bmi": 24.7,
                 "coverage": {
                   "count": 2,
                 },
                 "latest": 80.8,
+                "slope30": undefined,
+                "unit": "kg",
               },
               "timeline": {
                 "recent": [
@@ -453,6 +464,7 @@ describe("buildCoachSnapshot", () => {
                   },
                 ],
               },
+              "unit": "kg",
             },
           },
           "snapshotJson": "{
@@ -490,12 +502,14 @@ describe("buildCoachSnapshot", () => {
             }
           },
           "weight": {
+            "unit": "kg",
             "aggregate": {
               "latest": 80.8,
               "bmi": 24.7,
               "coverage": {
                 "count": 2
-              }
+              },
+              "unit": "kg"
             },
             "timeline": {
               "recent": [
@@ -563,6 +577,7 @@ describe("buildCoachSnapshot", () => {
             }
           },
           "bodyMassIndex": {
+            "unit": "kg/m²",
             "timeline": {
               "recent": [
                 {
@@ -580,6 +595,7 @@ describe("buildCoachSnapshot", () => {
             }
           },
           "steps": {
+            "unit": "steps",
             "timeline": {
               "recent": [
                 {
@@ -598,6 +614,7 @@ describe("buildCoachSnapshot", () => {
             }
           },
           "skinTemperature": {
+            "unit": "°C",
             "timeline": {
               "recent": [
                 {
@@ -643,6 +660,10 @@ describe("buildCoachSnapshot", () => {
             "timelineRecentDays": 14
           }
         }",
+          "units": {
+            "glucoseUnit": "mg/dL",
+            "system": "metric",
+          },
         }
       `);
     } finally {
@@ -655,6 +676,55 @@ describe("buildCoachSnapshot", () => {
     expect(out.provenance.metrics).toContain("general");
     const parsed = JSON.parse(out.snapshotJson);
     expect(parsed.scope.window).toBe("last30days");
+  });
+
+  it("states weight, temperature and the grounding bands in an imperial reader's units", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      coachPrefsJson: null,
+      timezone: "UTC",
+      unitPreference: "imperial",
+      glucoseUnit: "mmol/L",
+      hasDiabetes: false,
+    });
+    featuresMock.mockResolvedValue({
+      weight: {
+        latest: 80,
+        avg7: 80.5,
+        bmi: 24.7,
+        coverage: { count: 2 },
+      },
+    });
+    prismaMock.measurement.findMany.mockResolvedValue([
+      daysAgo(4, 80, "WEIGHT"),
+      daysAgo(2, 81, "WEIGHT"),
+      daysAgo(3, 36.6, "BODY_TEMPERATURE"),
+      daysAgo(1, 37, "BODY_TEMPERATURE"),
+    ]);
+
+    const out = await buildCoachSnapshot("imperial-user", {
+      window: "last30days",
+      sources: ["weight", "body_temp"],
+    });
+    const parsed = JSON.parse(out.snapshotJson);
+    expect(parsed.weight.unit).toBe("lb");
+    expect(parsed.weight.aggregate).toMatchObject({
+      unit: "lb",
+      latest: 176.4,
+      avg7: 177.5,
+      bmi: 24.7,
+    });
+    expect(
+      parsed.weight.timeline.recent.map((r: { value: number }) => r.value),
+    ).toEqual([176.4, 178.6]);
+    expect(parsed.bodyTemperature.unit).toBe("°F");
+    expect(
+      parsed.bodyTemperature.timeline.recent.map(
+        (r: { value: number }) => r.value,
+      ),
+    ).toEqual([97.9, 98.6]);
+    // The band beside it is in °F too, placed on the canonical °C mean.
+    expect(out.referenceGrounding).toContain("96.3–99.3 °F");
+    expect(out.referenceGrounding).not.toContain("°C");
   });
 
   it("includes day-level BP rows with weekday labels for the recent window", async () => {

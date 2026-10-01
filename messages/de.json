@@ -3739,7 +3739,7 @@
     "walkingSpeed": {
       "title": "Gehgeschwindigkeit",
       "description": "Deine durchschnittliche Gehgeschwindigkeit im Zeitverlauf, in km/h.",
-      "chartTitle": "Gehgeschwindigkeit (km/h)",
+      "chartTitle": "Gehgeschwindigkeit",
       "emptyState": {
         "title": "Noch keine Gehgeschwindigkeitsdaten",
         "description": "Werte erscheinen hier, sobald Apple Health synchronisiert."
@@ -4142,7 +4142,7 @@
     "wristTemperature": {
       "title": "Handgelenktemperatur",
       "description": "Deine nächtliche Handgelenktemperatur, gemessen an deinem eigenen Ausgangswert.",
-      "chartTitle": "Handgelenktemperatur (°C)",
+      "chartTitle": "Handgelenktemperatur",
       "emptyState": {
         "title": "Noch keine Handgelenktemperatur-Daten",
         "description": "Werte erscheinen hier, sobald Apple Health das nächtliche Tragen synchronisiert."
@@ -8287,9 +8287,6 @@
         "unitSteps": "Schritte",
         "unitBpm": "S/min",
         "unitMs": "ms",
-        "unitKg": "kg",
-        "unitCelsius": "°C",
-        "unitGlucose": "mg/dL",
         "unitMood": "Pkt.",
         "confidenceLow": "Geringe Sicherheit",
         "confidenceMedium": "Mittlere Sicherheit",
@@ -8464,7 +8461,6 @@
       "flow": "Stärke",
       "symptoms": "Symptome",
       "temperature": "Basaltemperatur",
-      "temperaturePlaceholder": "°C",
       "temperatureDisturbed": "Messwert als gestört markieren",
       "temperatureDisturbedHint": "Fieber, Krankheit, Alkohol oder eine späte Messung — wird von der Temperaturauswertung ausgeschlossen.",
       "ovulationTest": "Ovulationstest",
@@ -8556,7 +8552,7 @@
       "empty": "Noch keine Temperaturwerte",
       "emptyHint": "Miss deine Basaltemperatur jeden Morgen, um den Temperaturanstieg deines Zyklus zu sehen.",
       "ovulationEstimate": "Gesch. Eisprung",
-      "tooltipTemp": "{temp} °C",
+      "tooltipTemp": "{temp} {unit}",
       "ovulationConfirmed": "Bestätigter Eisprung"
     },
     "fieldInfo": {

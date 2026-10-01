@@ -87,6 +87,8 @@ import { resolveServerLocale } from "@/lib/i18n/server-locale";
 import { normalizeLocale } from "@/lib/insights/status-shared";
 import { hasUsableStatusProvider } from "@/lib/insights/status-provider";
 import { hashInsightSnapshot } from "@/lib/insights/snapshot-hash";
+import { featuresInReaderUnits } from "@/lib/insights/features-units";
+import { resolveUnitPreferences } from "@/lib/measurements/display-transform";
 import { enqueueForceWarm } from "@/lib/jobs/insight-pregenerate-shared";
 // v1.28.25 — the comparison-snapshot builder was a private near-copy of
 // the lib export (drifted only in comments); the route now shares the
@@ -340,6 +342,10 @@ export const POST = apiHandler((request: NextRequest) =>
         // v1.25 — per-user response-timeout (seconds), threaded onto the
         // generation calls so a slow self-hosted backend honours the setting.
         aiResponseTimeoutSeconds: true,
+        // The reader's units; the feature set is converted into them before
+        // it is serialised, hashed and checked for grounding.
+        unitPreference: true,
+        glucoseUnit: true,
       },
     });
     const modeAtRead = dbUser?.insightsPrivacyMode ?? "aggregated";
@@ -610,6 +616,13 @@ export const POST = apiHandler((request: NextRequest) =>
     // BEFORE serialisation so the model never sees the dropped blocks.
     const excludeList = dbUser?.insightsExcludeMetrics ?? [];
     features = applyInsightsExcludeFilter(features, excludeList);
+    // The reader's units, after all canonical arithmetic: the prompt, the
+    // stored hash and the grounding check read the same converted figures.
+    const units = resolveUnitPreferences({
+      unitPreference: dbUser?.unitPreference,
+      glucoseUnit: dbUser?.glucoseUnit,
+    });
+    features = featuresInReaderUnits(features, units);
     // v1.4.36 W3 T4 — drop zero-row blocks so the prompt never carries
     // labelled-empty sections (`"sleep": []`, `"medications": []`,
     // etc.). Prevents the model from narrating "there are no
@@ -651,7 +664,11 @@ export const POST = apiHandler((request: NextRequest) =>
       comparisonSnapshot ?? undefined,
     );
     if (plateauContext) {
-      userPrompt += buildGlp1PlateauPrompt(plateauContext, locale);
+      userPrompt += buildGlp1PlateauPrompt(
+        plateauContext,
+        locale,
+        units.system,
+      );
     }
     // v1.15.20 — fold the user-authored "about me" self-description
     // (Settings → AI) into the briefing as a delimited, user-provided

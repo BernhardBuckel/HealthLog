@@ -12,11 +12,15 @@
  * every card the record has is enqueued, the worker forces a fresh snapshot,
  * and a card whose snapshot did not change (a metric that does not depend on
  * the preference) gets a timestamp refresh and no model call. Narratives are
- * re-warmed only where one already exists. Best-effort and fire-and-forget:
+ * re-warmed only where one already exists. The daily briefing (and with it
+ * the Coach-adjacent overview text) is re-warmed when one is cached: its
+ * fingerprint covers the converted feature set, so the forced warm writes a
+ * new one in the new unit. Best-effort and fire-and-forget:
  * the preference write never waits on it and never fails because of it.
  */
 import { prisma } from "@/lib/db";
 import { enqueueNarrativeWarm } from "@/lib/jobs/period-narrative-shared";
+import { enqueueForceWarm } from "@/lib/jobs/insight-pregenerate-shared";
 import { enqueueStatusRefillForUser } from "@/lib/insights/status-invalidation";
 import { normalizeLocale } from "@/lib/insights/status-shared";
 import { locales, type Locale } from "@/lib/i18n/config";
@@ -29,7 +33,11 @@ export async function refreshTextsAfterUnitChange(
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { locale: true },
+      select: {
+        locale: true,
+        insightsCachedAt: true,
+        insightsCachedLocale: true,
+      },
     });
     const statusScopes = await enqueueStatusRefillForUser(
       userId,
@@ -52,9 +60,21 @@ export async function refreshTextsAfterUnitChange(
       narrativeCount++;
     }
 
+    const briefing = user?.insightsCachedAt != null;
+    if (briefing) {
+      void enqueueForceWarm({
+        userId,
+        locale: normalizeLocale(user?.insightsCachedLocale ?? user?.locale),
+      });
+    }
+
     annotate({
       action: { name: "insights.unit-change.refresh" },
-      meta: { status_scopes: statusScopes, narratives: narrativeCount },
+      meta: {
+        status_scopes: statusScopes,
+        narratives: narrativeCount,
+        briefing,
+      },
     });
   } catch {
     // Best-effort: the nightly warm and the next ingest still converge the

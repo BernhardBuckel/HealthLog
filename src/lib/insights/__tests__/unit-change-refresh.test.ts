@@ -12,10 +12,14 @@ vi.mock("@/lib/insights/status-invalidation", () => ({
 vi.mock("@/lib/jobs/period-narrative-shared", () => ({
   enqueueNarrativeWarm: vi.fn(),
 }));
+vi.mock("@/lib/jobs/insight-pregenerate-shared", () => ({
+  enqueueForceWarm: vi.fn(),
+}));
 
 import { prisma } from "@/lib/db";
 import { enqueueStatusRefillForUser } from "@/lib/insights/status-invalidation";
 import { enqueueNarrativeWarm } from "@/lib/jobs/period-narrative-shared";
+import { enqueueForceWarm } from "@/lib/jobs/insight-pregenerate-shared";
 import { refreshTextsAfterUnitChange } from "../unit-change-refresh";
 
 beforeEach(() => {
@@ -49,6 +53,34 @@ describe("refreshTextsAfterUnitChange", () => {
       period: "month",
       locale: "en",
     });
+  });
+
+  it("re-warms a cached briefing in the language it was written in", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      locale: "de",
+      insightsCachedAt: new Date(),
+      insightsCachedLocale: "en",
+    } as never);
+    vi.mocked(prisma.insightNarrative.findMany).mockResolvedValue([]);
+
+    await refreshTextsAfterUnitChange("user-1");
+
+    expect(enqueueForceWarm).toHaveBeenCalledWith({
+      userId: "user-1",
+      locale: "en",
+    });
+  });
+
+  it("leaves the briefing alone when none was ever written", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      locale: "de",
+      insightsCachedAt: null,
+    } as never);
+    vi.mocked(prisma.insightNarrative.findMany).mockResolvedValue([]);
+
+    await refreshTextsAfterUnitChange("user-1");
+
+    expect(enqueueForceWarm).not.toHaveBeenCalled();
   });
 
   it("never throws into the preference write", async () => {

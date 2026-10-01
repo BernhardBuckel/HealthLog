@@ -23,7 +23,10 @@ import {
 } from "@/lib/validations/coach-prefs";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/resolver";
 import { locales, defaultLocale, type Locale } from "@/lib/i18n/config";
-import { resolveGlucoseUnit } from "@/lib/glucose";
+import {
+  resolveUnitPreferences,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 import type { SleepStageRow } from "@/lib/analytics/sleep-night";
 import { compactSections } from "@/lib/ai/prompts/compact-sections";
 import { annotate } from "@/lib/logging/context";
@@ -126,6 +129,12 @@ export interface CoachSnapshotResult {
    * from `src/lib/reference-ranges.ts`; carries no commercial brand name.
    */
   referenceGrounding: string | null;
+  /**
+   * The reader's unit choices the snapshot was written in. A tool that reads
+   * beyond the snapshot (the metric table) states its figures in the same
+   * units, so a reply never mixes the two.
+   */
+  units: UnitPreferences;
 }
 
 /**
@@ -303,6 +312,9 @@ async function buildCoachSnapshotImpl(
         // display unit so the Coach reads the same number every other surface
         // shows. Read it on this existing prefs hop (no extra round-trip).
         glucoseUnit: true,
+        // The metric/imperial choice: the grounding bands and the blocks
+        // that carry a mass, length or temperature are written in it.
+        unitPreference: true,
         // v1.18.6 (W7) — the explicit, user-declared diabetes opt-in. Selects
         // the tighter ADA glycemic GOAL band for the glucose reference-grounding
         // line only; never inferred from a reading, never a diagnosis. Read on
@@ -326,7 +338,11 @@ async function buildCoachSnapshotImpl(
     clusterDefault,
   );
   const userTz = prefsRow?.timezone ?? DEFAULT_TIMEZONE;
-  const glucoseUnit = resolveGlucoseUnit(prefsRow?.glucoseUnit ?? null);
+  const units = resolveUnitPreferences({
+    unitPreference: prefsRow?.unitPreference,
+    glucoseUnit: prefsRow?.glucoseUnit,
+  });
+  const glucoseUnit = units.glucoseUnit;
   // v1.18.0 — fold disabled data-domain modules into the system exclusion.
   // `moduleMap[key] === false` means the user turned that module off; the
   // gate has already resolved every delegation (cycle/coach) so this map
@@ -875,6 +891,7 @@ async function buildCoachSnapshotImpl(
     counts,
     registerBlock,
     groundingValues,
+    units,
   });
   // Medication compliance lives outside the structured features — the block
   // is assembled in `snapshot-blocks/compliance-block.ts` from the ledger
@@ -904,6 +921,7 @@ async function buildCoachSnapshotImpl(
     counts,
     registerBlock,
     groundingValues,
+    units,
   });
   // ── v1.7.0 sleep block (with optional per-stage enrichment) ───────
   // Assembled in `snapshot-blocks/sleep-block.ts` from the dedicated
@@ -969,6 +987,7 @@ async function buildCoachSnapshotImpl(
       metrics,
       counts,
       registerBlock,
+      unitPreference: units.system,
     });
   }
 
@@ -1206,6 +1225,7 @@ async function buildCoachSnapshotImpl(
   const referenceGrounding = buildReferenceGroundingBlock({
     metrics: groundingMetrics,
     hasDiabetes: prefsRow?.hasDiabetes ?? false,
+    units,
   });
   if (referenceGrounding) {
     annotate({
@@ -1232,6 +1252,7 @@ async function buildCoachSnapshotImpl(
       counts: Object.keys(counts).length > 0 ? counts : undefined,
     },
     referenceGrounding,
+    units,
   };
 }
 

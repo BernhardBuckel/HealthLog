@@ -55,14 +55,16 @@ const METRIC_LABEL_KEY: Record<string, string> = {
   mood: "cycle.insights.crosstab.metricMood",
 };
 
-const UNIT_KEY: Record<CyclePhaseCrosstabDisplay, string> = {
+/**
+ * Bundle labels for the displays no preference changes. Weight, the
+ * temperatures and glucose take their symbol from the reader's transform
+ * (`DISPLAY_TO_TYPE` below) and have no bundle label to fall back on.
+ */
+const UNIT_KEY: Partial<Record<CyclePhaseCrosstabDisplay, string>> = {
   hours: "cycle.insights.crosstab.unitHours",
   steps: "cycle.insights.crosstab.unitSteps",
   bpm: "cycle.insights.crosstab.unitBpm",
   ms: "cycle.insights.crosstab.unitMs",
-  kg: "cycle.insights.crosstab.unitKg",
-  celsius: "cycle.insights.crosstab.unitCelsius",
-  glucose: "cycle.insights.crosstab.unitGlucose",
   mood: "cycle.insights.crosstab.unitMood",
 };
 

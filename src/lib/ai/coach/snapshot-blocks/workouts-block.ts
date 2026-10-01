@@ -20,6 +20,11 @@
  * the UI. Run the SAME picker here, keyed off the user's own
  * `sourcePriorityJson`, so both surfaces agree.
  */
+import {
+  applyDisplayTransform,
+  getQuantityTransform,
+  type UnitPreference,
+} from "@/lib/measurements/display-transform";
 import { pickCanonicalWorkoutRows } from "@/lib/measurements/pick-canonical-workout-rows";
 import type { MeasurementSource } from "@/generated/prisma/client";
 import { annotate } from "@/lib/logging/context";
@@ -57,6 +62,8 @@ interface WorkoutsBlockContext {
   metrics: Set<CoachProvenanceMetric>;
   counts: NonNullable<CoachProvenance["counts"]>;
   registerBlock: (key: string, source: CoachScopeSource) => void;
+  /** The reader's metric/imperial choice; distances are stated in it. */
+  unitPreference: UnitPreference;
 }
 
 export function buildWorkoutsBlock(ctx: Readonly<WorkoutsBlockContext>): void {
@@ -68,7 +75,9 @@ export function buildWorkoutsBlock(ctx: Readonly<WorkoutsBlockContext>): void {
     metrics,
     counts,
     registerBlock,
+    unitPreference,
   } = ctx;
+  const distanceTransform = getQuantityTransform("distance", unitPreference);
   // The workout sessions are read in parallel by the builder, raw
   // (every source, every duplicate). Collapse cross-source duplicates
   // with the same picker the UI uses before narrating anything.
@@ -92,7 +101,10 @@ export function buildWorkoutsBlock(ctx: Readonly<WorkoutsBlockContext>): void {
       sport: w.sportType,
       durationMin: Math.round(w.durationSec / 60),
       energyKcal: w.totalEnergyKcal ?? null,
-      distanceM: w.totalDistanceM ?? null,
+      distance:
+        w.totalDistanceM == null
+          ? null
+          : applyDisplayTransform(w.totalDistanceM, distanceTransform),
       avgHr: w.avgHeartRate ?? null,
       maxHr: w.maxHeartRate ?? null,
     }));
@@ -121,6 +133,7 @@ export function buildWorkoutsBlock(ctx: Readonly<WorkoutsBlockContext>): void {
       }))
       .sort((a, b) => b.count - a.count);
     snapshot.workouts = {
+      distanceUnit: distanceTransform.displayUnit,
       recent: recentList,
       perSport: sportRollup,
       totalInWindow: workoutRows.length,

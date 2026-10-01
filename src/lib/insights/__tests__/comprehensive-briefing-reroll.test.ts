@@ -94,10 +94,18 @@ vi.mock("@/lib/cache/invalidate", () => ({
 import { generateComprehensiveInsight } from "../comprehensive-generate";
 import { hashInsightSnapshot } from "../snapshot-hash";
 import { compactSections } from "@/lib/ai/prompts/compact-sections";
+import { featuresInReaderUnits } from "../features-units";
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 
 const FEATURES = { weight: { count: 12, latest: 81.4, mean30: 82.1 } };
+// Hashed as the prompt reads it: in the reader's units (defaults here).
 const FEATURES_HASH = hashInsightSnapshot({
-  features: compactSections(FEATURES as unknown as Record<string, unknown>),
+  features: compactSections(
+    featuresInReaderUnits(
+      FEATURES as never,
+      DEFAULT_UNIT_PREFERENCES,
+    ) as unknown as Record<string, unknown>,
+  ),
   aboutMe: null,
   comparisonBaseline: "none",
   generationLocale: "de",
