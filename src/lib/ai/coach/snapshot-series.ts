@@ -8,6 +8,10 @@
  * is one-way (snapshot → series), never back.
  */
 import { userDayKey } from "@/lib/tz/format";
+import {
+  applyDisplayTransform,
+  type DisplayTransform,
+} from "@/lib/measurements/display-transform";
 import { buildTieredSeries } from "@/lib/rollups/tiered-context";
 import type { MeasurementType } from "@/generated/prisma/client";
 import { buildBaselineBand } from "@/lib/insights/derived/baseline";
@@ -254,6 +258,62 @@ export async function buildCoarseTimelineTail(
       value: a.value,
       deltaSd: a.deltaSd,
     })),
+  };
+}
+
+/**
+ * A built timeline in the reader's unit. The series are aggregated on the
+ * canonical value and converted once at the end, so a mean in pounds is the
+ * converted mean of the kilograms, not a mean of rounded pound readings.
+ * Identity for every transform that does not rescale.
+ */
+export function timelineInUnit(
+  timeline: {
+    recent: DailyValueRow[];
+    weekly: WeeklyBucket[];
+    coarse?: CoarseTimelineTail;
+  },
+  transform: DisplayTransform,
+): {
+  recent: DailyValueRow[];
+  weekly: WeeklyBucket[];
+  coarse?: CoarseTimelineTail;
+} {
+  const v = (value: number) => applyDisplayTransform(value, transform);
+  return {
+    recent: timeline.recent.map((row) => ({ ...row, value: v(row.value) })),
+    weekly: timeline.weekly.map((bucket) => ({
+      ...bucket,
+      mean: v(bucket.mean),
+    })),
+    ...(timeline.coarse
+      ? {
+          coarse: {
+            monthly: timeline.coarse.monthly.map(
+              ([start, mean, min, max]) =>
+                [start, v(mean), v(min), v(max)] as [
+                  string,
+                  number,
+                  number,
+                  number,
+                ],
+            ),
+            yearly: timeline.coarse.yearly.map(
+              ([start, mean, min, max]) =>
+                [start, v(mean), v(min), v(max)] as [
+                  string,
+                  number,
+                  number,
+                  number,
+                ],
+            ),
+            anomalies: timeline.coarse.anomalies.map((a) => ({
+              ...a,
+              value: v(a.value),
+            })),
+          },
+        }
+      : {}),
   };
 }
 

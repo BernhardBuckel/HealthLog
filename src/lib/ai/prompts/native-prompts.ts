@@ -83,21 +83,25 @@ const DAY_LEVEL_BODY: Record<NativeCoachLocale, string> = {
 - Pour une question portant sur un jour ou un jour-de-semaine précis ("pourquoi la tension était-elle plus élevée lundi dernier ?"), répondez depuis "timeline.recent" — citez la lecture réelle de ce jour avec la date et le jour-de-semaine.
 - Quand aucune ligne n'existe pour le jour mentionné, dites-le clairement ("je n'ai pas de lecture pour lundi 5 mai") et proposez le jour disponible le plus proche.
 - Les questions plus anciennes (>14 jours) basculent sur "timeline.weekly" ou, à défaut, sur l'agrégat.
+- Le "unit" d'un bloc (et le "distanceUnit" du bloc "workouts") est l'unité dans laquelle l'utilisateur lit ses valeurs, et chaque chiffre du bloc y est déjà. Citez les chiffres dans cette unité ; ne les convertissez jamais et ne nommez jamais une autre unité pour la même grandeur.
 - L'objet "scope" nomme la fenêtre choisie et les sources. Quand l'utilisateur interroge une métrique absente de scope.sources, dites qu'elle n'est pas dans le périmètre de cette conversation.`,
   es: `Cada métrica en el SNAPSHOT lleva un objeto "timeline" junto al bloque "aggregate". "timeline.recent" es una lista ordenada de filas-día de los últimos 14 días; cada fila lleva una "date" (YYYY-MM-DD), una etiqueta "weekday" (Lun/Mar/Mié/...) y los valores de la métrica para ese día. "timeline.weekly" agrupa los días más antiguos en medias ISO-semanales.
 - Ante preguntas sobre un día concreto o un día de la semana ("¿por qué la tensión estuvo más alta el lunes pasado?"), responda desde "timeline.recent" — cite la lectura real de ese día con fecha y día de la semana.
 - Cuando no exista fila para el día mencionado, dígalo claramente ("no tengo lectura del lunes 5 de mayo") y ofrezca el día más cercano disponible.
 - Las preguntas más antiguas (>14 días) acuden a "timeline.weekly" o, si no, al agregado.
+- La "unit" de un bloque (y la "distanceUnit" del bloque "workouts") es la unidad en la que el usuario lee sus valores, y cada cifra del bloque ya está en ella. Cite las cifras en esa unidad; nunca las convierta ni nombre otra unidad para la misma magnitud.
 - El objeto "scope" nombra la ventana seleccionada y las fuentes. Si el usuario pregunta por una métrica que no está en scope.sources, indique que está fuera del alcance de esta conversación.`,
   it: `Ogni metrica nello SNAPSHOT porta un oggetto "timeline" accanto al blocco "aggregate". "timeline.recent" è una lista ordinata di righe-giorno per gli ultimi 14 giorni; ogni riga porta una "date" (YYYY-MM-DD), un'etichetta "weekday" (Lun/Mar/Mer/...) e i valori della metrica per quel giorno. "timeline.weekly" raggruppa i giorni più vecchi in medie ISO-settimanali.
 - Per domande su un giorno o giorno-della-settimana specifico ("perché la pressione era più alta lunedì scorso?"), risponda da "timeline.recent" — citi la lettura reale di quel giorno con data e giorno-della-settimana.
 - Quando non esiste una riga per il giorno nominato, lo dica chiaramente ("non ho una lettura per lunedì 5 maggio") e proponga il giorno più vicino disponibile.
 - Le domande più vecchie (>14 giorni) ripiegano su "timeline.weekly" o, in mancanza, sull'aggregato.
+- La "unit" di un blocco (e la "distanceUnit" del blocco "workouts") è l'unità in cui l'utente legge i propri valori, e ogni cifra del blocco è già in essa. Citi le cifre in quell'unità; non le converta mai e non nomini mai un'altra unità per la stessa grandezza.
 - L'oggetto "scope" nomina la finestra scelta dall'utente e le fonti. Se l'utente chiede di una metrica non presente in scope.sources, dica che non rientra nello scopo di questa conversazione.`,
   pl: `Każda metryka w SNAPSHOT zawiera obiekt "timeline" obok bloku "aggregate". "timeline.recent" to uporządkowana lista wierszy-dnia za ostatnie 14 dni; każdy wiersz ma "date" (YYYY-MM-DD), etykietę "weekday" (Pn/Wt/Śr/...) i wartości metryki dla tego dnia. "timeline.weekly" grupuje starsze dni w średnie ISO-tygodniowe.
 - Przy pytaniach o konkretny dzień lub dzień tygodnia ("dlaczego ciśnienie było wyższe w zeszły poniedziałek?"), proszę odpowiadać z "timeline.recent" — cytować rzeczywisty odczyt z tego dnia z datą i dniem tygodnia.
 - Gdy nie ma wiersza dla wymienionego dnia, proszę powiedzieć to wprost ("nie mam odczytu z poniedziałku 5 maja") i zaproponować najbliższy dostępny dzień.
 - Starsze pytania (>14 dni) sięgają do "timeline.weekly" lub, w razie braku, do agregatu.
+- "unit" bloku (oraz "distanceUnit" bloku "workouts") to jednostka, w której użytkownik odczytuje swoje wartości, i każda liczba w bloku jest już w niej podana. Proszę cytować liczby w tej jednostce; nigdy ich nie przeliczać i nigdy nie podawać innej jednostki dla tej samej wielkości.
 - Obiekt "scope" wymienia wybrane okno i źródła. Jeśli użytkownik pyta o metrykę nieobecną w scope.sources, proszę powiedzieć, że nie należy ona do zakresu tej rozmowy.`,
 };
 
@@ -115,7 +119,7 @@ Règles :
 - Chaque ligne : "<label> : <value> [<unit>] (<window>)". L'unité et la fenêtre sont optionnelles ; omettez les crochets si vous n'en avez pas.
 - "label" ≤ 40 caractères — un nom d'agrégat ("avg30 systolique") ou un pin-jour ("Mar 6 mai").
 - "value" est une chaîne pré-formatée ("138/85", "84,2", "4,1"). Formatez l'humeur en N/5 si numérique.
-- "unit" est l'un de : mmHg, kg, bpm, /5, %, mg/dL, mmol/L, min (dette de sommeil / décalage social).
+- "unit" est l'unité que le snapshot donne pour cette valeur (p. ex. mmHg, bpm, /5, %, min pour la dette de sommeil / le décalage social).
 - "window" est l'un de : last7days, last30days, last90days, allTime ; omettez-la pour les pins-jour.
 - Omettez tout le bloc (pas de ---KEYVALUES---, pas de ---END---) quand la réponse est qualitative et qu'aucun chiffre précis ne portait la réponse. Le bloc est invisible pour l'utilisateur — l'UI le rend comme une boîte déroulante "Sur quoi je m'appuie ?" sous votre message. Ne le mentionnez pas dans votre texte.`,
   es: `Después de su texto, añada los números determinantes como un bloque-centinela en su propia línea. Formato exacto:
@@ -130,7 +134,7 @@ Reglas:
 - Cada línea: "<label>: <value> [<unit>] (<window>)". La unidad y la ventana son opcionales; omita los corchetes si no las tiene.
 - "label" ≤ 40 caracteres — un nombre de agregado ("avg30 sistólica") o un pin-día ("Mar 6 may").
 - "value" es una cadena preformateada ("138/85", "84,2", "4,1"). Formatee el estado de ánimo como N/5 si es numérico.
-- "unit" es uno de: mmHg, kg, bpm, /5, %, mg/dL, mmol/L, min (deuda de sueño / jet lag social).
+- "unit" es la unidad que el snapshot da para ese valor (p. ej. mmHg, bpm, /5, %, min para deuda de sueño / jet lag social).
 - "window" es uno de: last7days, last30days, last90days, allTime; omítala en los pin-día.
 - Omita todo el bloque (sin ---KEYVALUES---, sin ---END---) cuando la respuesta sea cualitativa y ningún número concreto haya portado la respuesta. El bloque es invisible para el usuario — la UI lo presenta como un desplegable "¿En qué me apoyo?" bajo su mensaje. No lo mencione en su texto.`,
   it: `Dopo il suo testo, aggiunga i numeri portanti come blocco-sentinella su una riga propria. Formato esatto:
@@ -145,7 +149,7 @@ Regole:
 - Ogni riga: "<label>: <value> [<unit>] (<window>)". L'unità e la finestra sono opzionali; ometta le parentesi se non le ha.
 - "label" ≤ 40 caratteri — un nome di aggregato ("avg30 sistolica") o un pin-giorno ("Mar 6 mag").
 - "value" è una stringa pre-formattata ("138/85", "84,2", "4,1"). Formatti l'umore come N/5 se numerico.
-- "unit" è uno di: mmHg, kg, bpm, /5, %, mg/dL, mmol/L, min (debito di sonno / jet lag sociale).
+- "unit" è l'unità che lo snapshot indica per quel valore (ad es. mmHg, bpm, /5, %, min per debito di sonno / jet lag sociale).
 - "window" è uno di: last7days, last30days, last90days, allTime; lo ometta per i pin-giorno.
 - Ometta l'intero blocco (niente ---KEYVALUES---, niente ---END---) quando la risposta è qualitativa e nessun numero specifico ha portato la risposta. Il blocco è invisibile all'utente — l'UI lo rende come un menù a tendina "Su cosa mi baso?" sotto il suo messaggio. Non lo menzioni nel testo.`,
   pl: `Po tekście proszę dodać kluczowe liczby jako blok-sentinel w osobnej linii. Format dokładnie:
@@ -160,7 +164,7 @@ Zasady:
 - Każda linia: "<label>: <value> [<unit>] (<window>)". Jednostka i okno są opcjonalne; proszę pominąć nawiasy, gdy ich nie ma.
 - "label" ≤ 40 znaków — nazwa agregatu ("avg30 skurczowe") lub pin-dnia ("Wt 6 maja").
 - "value" to wstępnie sformatowany ciąg ("138/85", "84,2", "4,1"). Nastrój proszę formatować jako N/5, jeśli liczbowy.
-- "unit" to jeden z: mmHg, kg, bpm, /5, %, mg/dL, mmol/L, min (deficyt snu / jet lag społeczny).
+- "unit" to jednostka, którą snapshot podaje dla tej wartości (np. mmHg, bpm, /5, %, min dla deficytu snu / jet lagu społecznego).
 - "window" to jeden z: last7days, last30days, last90days, allTime; proszę pominąć przy pinach-dnia.
 - Proszę pominąć cały blok (bez ---KEYVALUES---, bez ---END---), gdy odpowiedź była jakościowa i żadna konkretna liczba nie nosiła odpowiedzi. Blok jest niewidoczny dla użytkownika — UI renderuje go jako rozwijaną sekcję "Na czym się opieram?" pod wiadomością. Proszę go nie wspominać w tekście.`,
 };

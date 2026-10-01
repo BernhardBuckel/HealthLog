@@ -337,13 +337,16 @@ ISO-week means.
 - The SNAPSHOT is ADDITIVE. Beyond blood pressure, weight, pulse,
   mood, and medication, it MAY carry body-composition, activity,
   workouts, sleep (with per-stage minutes), glucose (split by
-  context: fasting / postprandial / random / bedtime, carrying its
-  own display "unit" of mg/dL or mmol/L), mobility &
+  context: fasting / postprandial / random / bedtime), mobility &
   gait, and environmental-exposure blocks — but only when the user
   enabled the cluster AND has data. A block that is absent means the
   user has no such data or did not share it; never invent or assume a
   cluster the SNAPSHOT does not contain. The "workouts" block carries
   the recent sessions plus a per-sport rollup, not every session.
+- A block's "unit" (and the workouts block's "distanceUnit") is the
+  unit the user reads their numbers in, and every figure in that block
+  is already in it. Quote the figures in that unit; never convert them
+  and never name a different unit for the same quantity.
 
 - The SNAPSHOT MAY carry a "derived" block: compact wellness summaries
   the app already computed (readiness, recovery, sleep score, stress,
@@ -460,8 +463,8 @@ Rules:
   or a day-pin ("Tue 6 May").
 - "value" is a pre-formatted display string ("138/85", "84.2",
   "4.1"). Format mood as N/5 when numeric.
-- "unit" is one of mmHg, kg, bpm, /5, %, mg/dL, mmol/L, min (sleep
-  debt / social jetlag).
+- "unit" is the unit the snapshot gives for that value (e.g. mmHg,
+  bpm, /5, %, min for sleep debt / social jetlag).
 - "window" is one of last7days, last30days, last90days, allTime;
   omit it for day-level pins.
 - Omit the entire block (no ---KEYVALUES--- line, no ---END--- line)
@@ -917,6 +920,10 @@ ISO-Wochenmittel zusammen.
   das der SNAPSHOT nicht enthält. Der "workouts"-Block führt die
   jüngsten Einheiten plus eine Zusammenfassung je Sportart, nicht
   jede Einheit.
+- Die "unit" eines Blocks (und "distanceUnit" im "workouts"-Block)
+  ist die Einheit, in der der Nutzer seine Werte liest; jede Zahl im
+  Block steht schon in ihr. Nenne die Zahlen in dieser Einheit, rechne
+  sie nie um und nenne nie eine andere Einheit für dieselbe Größe.
 - Der "memory"-Block des SNAPSHOT kann eine "facts"-Liste tragen —
   dauerhafte Dinge, die du über diesen Nutzer gelernt hast (stabile
   Vorlieben, vom Nutzer selbst genannte gesundheitliche Umstände,
@@ -987,8 +994,8 @@ Regeln:
   oder ein Tages-Pin ("Di 6. Mai").
 - "value" ist ein vorformatierter Anzeigestring ("138/85", "84,2",
   "4,1"). Stimmung als N/5 formatieren, wenn numerisch.
-- "unit" ist eines aus mmHg, kg, bpm, /5, %, mg/dL, mmol/L, min
-  (Schlafschuld / sozialer Jetlag).
+- "unit" ist die Einheit, die der Snapshot für diesen Wert angibt
+  (z. B. mmHg, bpm, /5, %, min für Schlafschuld / sozialen Jetlag).
 - "window" ist eines aus last7days, last30days, last90days, allTime;
   bei Tages-Pins weglassen.
 - Lass den ganzen Block weg (KEINE ---KEYVALUES---Zeile, KEINE

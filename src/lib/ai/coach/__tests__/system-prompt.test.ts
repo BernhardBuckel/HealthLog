@@ -120,6 +120,15 @@ describe("getCoachSystemPrompt — EN", () => {
     expect(prompt).not.toMatch(/70–180 mg\/dL/);
   });
 
+  it("tells the model every block is already in the reader's unit", () => {
+    expect(prompt).toMatch(
+      /A block's "unit" \(and the workouts block's "distanceUnit"\)/,
+    );
+    expect(prompt).toMatch(/never convert them/);
+    // No fixed list that offers kg (or both glucose units) for one quantity.
+    expect(prompt).not.toMatch(/"unit" is one of/);
+  });
+
   it("documents the WHOOP-native dayStrain block vs the computed proxy", () => {
     // v1.17.0 — native 0–21 strain preferred over the computed 0–100 proxy.
     expect(prompt).toMatch(/dayStrain/);
@@ -204,12 +213,16 @@ describe("getCoachSystemPrompt — DE", () => {
     expect(prompt).toMatch(/außerhalb dessen, womit ich helfen kann/);
   });
 
-  it("lists glucose + duration units in the evidence-block enumeration", () => {
-    // v1.17.0 — the DE unit list must sanction mg/dL, mmol/L and min so a
-    // German coach can cite glucose + duration values with a valid token.
-    expect(prompt).toMatch(/mg\/dL/);
-    expect(prompt).toMatch(/mmol\/L/);
-    expect(prompt).toMatch(/min[\s\S]*\(Schlafschuld/);
+  it("takes the evidence-block unit from the snapshot, not from a fixed list", () => {
+    // The list used to be fixed (mmHg, kg, …, mg/dL, mmol/L): a reader on
+    // pounds had no sanctioned token, and both glucose units were offered
+    // for one quantity. The unit now comes from the block that holds the
+    // value; minutes stay named for the sleep-debt figures.
+    expect(prompt).toMatch(
+      /"unit" ist die Einheit, die der Snapshot für diesen Wert angibt/,
+    );
+    expect(prompt).toMatch(/min für Schlafschuld/);
+    expect(prompt).not.toMatch(/"unit" ist eines aus/);
   });
 
   it("carries the v1.21.2 narrative-presence clauses (A4/A5/A6/A7)", () => {
@@ -309,4 +322,15 @@ describe("conditional trajectory ground rule (v1.11.0 Epic B, Pillar 3)", () => 
     expect(de).toMatch(/Risiko-Score/);
     expect(de).toMatch(/datiertes\s+Ereignis/i);
   });
+});
+
+describe("getCoachSystemPrompt — native locales name the reader's unit", () => {
+  it.each(["fr", "es", "it", "pl"] as const)(
+    "%s carries the block-unit rule and no fixed unit list",
+    (locale) => {
+      const prompt = getCoachSystemPrompt(locale);
+      expect(prompt).toContain('"distanceUnit"');
+      expect(prompt).not.toMatch(/mmHg, kg, bpm/);
+    },
+  );
 });

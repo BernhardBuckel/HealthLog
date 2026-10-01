@@ -1,7 +1,15 @@
 import { annotate } from "@/lib/logging/context";
+import {
+  getReadingTransform,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 import type { ReferenceMetric } from "@/lib/reference-ranges";
 import { sourceCluster } from "../clusters";
-import { bucketWeekly, buildDailyValueRows } from "../snapshot-series";
+import {
+  bucketWeekly,
+  buildDailyValueRows,
+  timelineInUnit,
+} from "../snapshot-series";
 import type {
   CoachProvenance,
   CoachProvenanceMetric,
@@ -241,7 +249,12 @@ interface ValueSeriesBlocksContext {
   counts: NonNullable<CoachProvenance["counts"]>;
   registerBlock: (key: string, source: CoachScopeSource) => void;
   groundingValues: Map<ReferenceMetric, number>;
+  /** The reader's units; every block is stated and labelled in them. */
+  units: UnitPreferences;
 }
+
+/** Unit tokens that are not a unit a reader could be quoted. */
+const UNLABELLED_UNITS: ReadonlySet<string> = new Set(["", "unknown", "score"]);
 
 export function buildValueSeriesBlocks(
   ctx: Readonly<ValueSeriesBlocksContext>,
@@ -270,14 +283,26 @@ export function buildValueSeriesBlocks(
     }
 
     const recentRows = buildDailyValueRows(rows, ctx.recentCutoff, ctx.userTz);
+    // Aggregated on the canonical value (the grounding below reads that),
+    // stated in the reader's unit. The two HRV estimators share one unit.
+    const transform = getReadingTransform(
+      typeof block.type === "string" ? block.type : block.type[0],
+      ctx.units,
+    );
     ctx.snapshot[block.snapshotKey] = {
-      timeline: {
-        recent: recentRows,
-        weekly: bucketWeekly(
-          rows.filter((row) => row.measuredAt < ctx.recentCutoff),
-          ctx.userTz,
-        ),
-      },
+      ...(UNLABELLED_UNITS.has(transform.displayUnit)
+        ? {}
+        : { unit: transform.displayUnit }),
+      timeline: timelineInUnit(
+        {
+          recent: recentRows,
+          weekly: bucketWeekly(
+            rows.filter((row) => row.measuredAt < ctx.recentCutoff),
+            ctx.userTz,
+          ),
+        },
+        transform,
+      ),
     };
     ctx.metrics.add(block.metric);
     ctx.counts[block.metric] = rows.length;

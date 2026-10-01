@@ -882,6 +882,7 @@ async function buildCoachSnapshotImpl(
     counts,
     registerBlock,
     groundingValues,
+    units,
   });
   // Medication compliance lives outside the structured features — the block
   // is assembled in `snapshot-blocks/compliance-block.ts` from the ledger
@@ -911,6 +912,7 @@ async function buildCoachSnapshotImpl(
     counts,
     registerBlock,
     groundingValues,
+    units,
   });
   // ── v1.7.0 sleep block (with optional per-stage enrichment) ───────
   // Assembled in `snapshot-blocks/sleep-block.ts` from the dedicated
@@ -976,6 +978,7 @@ async function buildCoachSnapshotImpl(
       metrics,
       counts,
       registerBlock,
+      unitPreference: units.system,
     });
   }
 
