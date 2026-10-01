@@ -25,6 +25,12 @@
  * The deterministic digest adds only the same computed context rendered next
  * to the reaction.
  */
+import {
+  applyDisplayTransform,
+  getQuantityTransform,
+  getReadingTransform,
+  resolveUnitPreferences,
+} from "@/lib/measurements/display-transform";
 import type { Job } from "pg-boss";
 
 import { prisma } from "@/lib/db";
@@ -140,11 +146,19 @@ export function sanitiseReactionLine(
  * intentionally a narrow, labels-and-numbers-only projection: no notes or
  * other free text can enter the provider prompt through this path.
  */
-async function loadArrivalEvidence(
+export async function loadArrivalEvidence(
   job: ReactionLineJob,
   row: { occurredAt: Date; refId: string | null },
-  user: { timezone: string; sourcePriorityJson: unknown },
+  user: {
+    timezone: string;
+    sourcePriorityJson: unknown;
+    unitPreference: string | null;
+    glucoseUnit: string | null;
+  },
 ): Promise<string> {
+  // The line is written in the reader's units, so the new datum it reacts to
+  // is handed over in them.
+  const units = resolveUnitPreferences(user);
   if (job.kind === "weight" || job.kind === "blood_pressure") {
     const types =
       job.kind === "weight"
@@ -157,15 +171,15 @@ async function loadArrivalEvidence(
         measuredAt: row.occurredAt,
         deletedAt: null,
       },
-      select: { type: true, value: true, unit: true },
+      select: { type: true, value: true },
       orderBy: { type: "asc" },
     });
     if (readings.length > 0) {
       return readings
-        .map(
-          (reading) =>
-            `- Newly arrived reading: ${reading.type} ${reading.value} ${reading.unit}.`,
-        )
+        .map((reading) => {
+          const transform = getReadingTransform(reading.type, units);
+          return `- Newly arrived reading: ${reading.type} ${applyDisplayTransform(reading.value, transform)} ${transform.displayUnit}.`;
+        })
         .join("\n");
     }
   }
@@ -241,7 +255,12 @@ async function loadArrivalEvidence(
       },
     });
     if (workout) {
-      return `- Newly arrived workout: ${workout.sportType}; duration ${workout.durationSec} seconds; distance ${workout.totalDistanceM ?? "not reported"} metres; energy ${workout.totalEnergyKcal ?? "not reported"} kcal; average heart rate ${workout.avgHeartRate ?? "not reported"} bpm.`;
+      const distance = getQuantityTransform("distance", units.system);
+      const distanceText =
+        workout.totalDistanceM == null
+          ? "not reported"
+          : `${applyDisplayTransform(workout.totalDistanceM, distance)} ${distance.displayUnit}`;
+      return `- Newly arrived workout: ${workout.sportType}; duration ${workout.durationSec} seconds; distance ${distanceText}; energy ${workout.totalEnergyKcal ?? "not reported"} kcal; average heart rate ${workout.avgHeartRate ?? "not reported"} bpm.`;
     }
   }
 
