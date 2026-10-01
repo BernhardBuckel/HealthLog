@@ -934,9 +934,6 @@ export const USER_COLUMN_BACKUP_CLASS = {
   Record<string, "SETTING" | "CREDENTIAL" | "IDENTITY" | "OPERATIONAL">
 >;
 
-export type UserColumnBackupClass =
-  (typeof USER_COLUMN_BACKUP_CLASS)[keyof typeof USER_COLUMN_BACKUP_CLASS];
-
 /** The `User` columns the `accountSettings` section carries. */
 export type AccountSettingColumn = {
   [
