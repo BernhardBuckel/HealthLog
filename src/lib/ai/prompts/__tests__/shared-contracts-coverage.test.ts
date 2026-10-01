@@ -220,4 +220,17 @@ describe("safetyAcute numbers are bound to clinical-floors", () => {
       String(FEVER_RED_FLAG_C).replace(".", ","),
     );
   });
+
+  // A person reading mmol/L or °F describes a crisis in that unit. A clause
+  // that names only mg/dL and °C cannot match "my sugar is 2.9" or "103 °F".
+  it("states every glucose and fever floor in both units", () => {
+    expect(safetyAcute.en).toContain("below 54 mg/dL (3.0 mmol/L)");
+    expect(safetyAcute.en).toContain("below 70 mg/dL (3.9 mmol/L)");
+    expect(safetyAcute.en).toContain("250 mg/dL (13.9 mmol/L)");
+    expect(safetyAcute.en).toContain("38.5 °C (101.3 °F)");
+    expect(safetyAcute.de).toContain("unter 54 mg/dL (3,0 mmol/L)");
+    expect(safetyAcute.de).toContain("unter 70 mg/dL (3,9 mmol/L)");
+    expect(safetyAcute.de).toContain("250 mg/dL (13,9 mmol/L)");
+    expect(safetyAcute.de).toContain("38,5 °C (101,3 °F)");
+  });
 });
