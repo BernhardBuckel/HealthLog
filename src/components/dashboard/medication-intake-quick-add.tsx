@@ -32,6 +32,7 @@ import {
   runUndoIntake,
 } from "@/components/medications/use-medication-intake";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import { useMedicationDueThresholds } from "@/lib/queries/use-reminder-thresholds";
 
 /**
  * v1.4.37 W7b — dashboard "Hinzufügen" → "Medikamenteneinnahme" quick-add.
@@ -122,6 +123,9 @@ export function MedicationIntakeQuickAdd({
   // logged-out mounts behave unchanged.
   const { user } = useAuth();
   const userTz = user?.timezone || DEFAULT_TIMEZONE;
+  // The account's own late / missed thresholds decide which dose counts as
+  // due for the preselection, the same tiers the medication cards show.
+  const dueThresholds = useMedicationDueThresholds();
   // The record this dose lands in, or null in the caller's own.
   const recordName = useActiveRecordName();
 
@@ -188,7 +192,7 @@ export function MedicationIntakeQuickAdd({
       medications,
       medicationOverride,
       selectionNow,
-      undefined,
+      dueThresholds,
       userTz,
     ) ?? "";
   const selectedMedication = medications.find((m) => m.id === medicationId);

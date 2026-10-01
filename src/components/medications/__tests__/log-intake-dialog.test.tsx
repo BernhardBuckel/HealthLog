@@ -3,8 +3,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider } from "@/lib/i18n/context";
 
+// The reminder-thresholds read: `undefined` = not loaded (the 120 / 240
+// defaults apply), otherwise the account's own tiers.
+let mockThresholds:
+  | { lateMinutes: number; missedMinutes: number; lowStockRunwayDays: null }
+  | undefined;
+
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQuery: () => ({ data: mockThresholds }),
 }));
 
 vi.mock("sonner", () => ({
@@ -49,6 +56,7 @@ function medication(
     name: `Medication ${id}`,
     dose: "5 mg",
     active: true,
+    intakeActionable: true,
     schedules: [],
     lastTakenAt: null,
     todayEventCount: 0,
@@ -82,6 +90,37 @@ describe("<LogIntakeDialog> medication default", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    mockThresholds = undefined;
+  });
+
+  it("grades the due dose by the account's own missed threshold", () => {
+    // 10:00 in Berlin, five hours after a 04:00–05:00 window closed. Under the
+    // 240-minute default the dose is past missed and the alphabetical
+    // fallback wins; an account that keeps a six-hour missed threshold still
+    // sees it as very late, so it is the default.
+    const meds = [
+      medication("first", { name: "Alpha" }),
+      medication("late", {
+        name: "Zulu",
+        nextDueAt: undefined,
+        schedules: [
+          {
+            windowStart: "04:00",
+            windowEnd: "05:00",
+            daysOfWeek: null,
+            label: null,
+            dose: null,
+          },
+        ],
+      }),
+    ];
+    expectSelected(renderDialog(meds), "first");
+    mockThresholds = {
+      lateMinutes: 120,
+      missedMinutes: 360,
+      lowStockRunwayDays: null,
+    };
+    expectSelected(renderDialog(meds), "late");
   });
   it("selects an overdue current-window medication ahead of array order", () => {
     const html = renderDialog([

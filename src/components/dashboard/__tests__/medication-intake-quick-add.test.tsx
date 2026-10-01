@@ -98,7 +98,9 @@ describe("pickDefaultMedicationId — auto-select heuristic", () => {
   it("returns null when no active medications exist", () => {
     expect(pickDefaultMedicationId([])).toBeNull();
     expect(
-      pickDefaultMedicationId([makeMed("a", { active: false })]),
+      pickDefaultMedicationId([
+        makeMed("a", { active: false, intakeActionable: false }),
+      ]),
     ).toBeNull();
   });
 
