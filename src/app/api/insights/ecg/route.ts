@@ -64,10 +64,15 @@ const MAX_SAMPLES = 32_768;
 // any real recording. A DoS ceiling, not a tight bound.
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
-// One recording per request, so the limit is per recording. A person records
-// a handful of strips a week; 60/min still drains a full watch history in
-// minutes and stops a leaked wildcard token from saturating the write path.
-const INGEST_RATE_LIMIT_MAX = 60;
+// One recording per request, so the limit is per recording. The iPhone app
+// sends every recording its sweep has not yet consumed in one go and, on a
+// 429, stops and starts the same sweep again on its next wake. A window that
+// held more than the limit could therefore never finish: with 60 per minute
+// the 61st recording was refused on every sync and the newest ECG never
+// arrived (#1060). 600 covers more than a decade of weekly strips in one
+// sweep and still stops a leaked token from saturating the write path; a
+// request is at most 2 MB and usually about 100 KB.
+const INGEST_RATE_LIMIT_MAX = 600;
 const INGEST_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
 // Only the three ECG verdicts. `RhythmClassification` in the database has six
