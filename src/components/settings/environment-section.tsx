@@ -32,6 +32,12 @@ import { formatDateTime } from "@/lib/format";
 import { useTranslations } from "@/lib/i18n/context";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api/api-fetch";
 import { queryKeys } from "@/lib/query-keys";
+import {
+  DEFAULT_TIMEZONE,
+  detectBrowserTimezone,
+  userDayKey,
+  validTimezoneOr,
+} from "@/lib/tz/format";
 
 interface GeocodeResult {
   lat: number;
@@ -72,14 +78,18 @@ interface EnvironmentOverview {
   attribution: string;
 }
 
-function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function EnvironmentSection() {
   const { t, tCount } = useTranslations();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  // Date defaults are the user's own days. The UTC day was tomorrow for
+  // anyone east of UTC in the small hours and yesterday west of it in the
+  // evening.
+  const tz = validTimezoneOr(
+    user?.timezone ?? detectBrowserTimezone(),
+    DEFAULT_TIMEZONE,
+  );
+  const todayKey = () => userDayKey(new Date(), tz);
 
   const enabled = user?.modules?.environment === true;
 
@@ -217,7 +227,7 @@ export function EnvironmentSection() {
   // user can still type an earlier start, but pre-home days resolve to SKIP on
   // the server — to fill the deep past they add an explicit location period.
   const effectiveBackfillStart =
-    backfillStart || home?.since?.slice(0, 10) || "";
+    backfillStart || (home?.since ? userDayKey(new Date(home.since), tz) : "");
 
   return (
     <div className="space-y-6">
