@@ -156,15 +156,15 @@ describe("assemblePeriodNarrativeContext — the reader's units", () => {
     );
     const g = ctx.metricDeltas.find((d) => d.type === "BLOOD_GLUCOSE")!;
     expect(g.unit).toBe("mmol/L");
-    expect(g.current).toBe(5.99);
-    expect(g.prior).toBe(4.99);
+    expect(g.current).toBe(6);
+    expect(g.prior).toBe(5);
     expect(g.delta).toBe(1);
     // Percent is unit-free.
     expect(g.deltaPercent).toBe(20);
     const w = ctx.metricDeltas.find((d) => d.type === "WEIGHT")!;
     expect(w.unit).toBe("lb");
-    expect(w.current).toBe(180.78);
-    expect(w.delta).toBe(4.41);
+    expect(w.current).toBe(180.8);
+    expect(w.delta).toBe(4.4);
 
     const prose = buildDeterministicNarrative(ctx, "en");
     expect(prose).toContain("mmol/L");
@@ -172,7 +172,7 @@ describe("assemblePeriodNarrativeContext — the reader's units", () => {
     expect(prose).not.toContain("mg/dL");
     expect(prose).not.toContain("kg");
     const prompt = buildNarrativeUserPrompt(ctx, "en");
-    expect(prompt).toContain("BLOOD_GLUCOSE: 5.99 mmol/L");
+    expect(prompt).toContain("BLOOD_GLUCOSE: 6 mmol/L");
     expect(prompt).not.toContain("mg/dL");
   });
 
@@ -231,10 +231,10 @@ describe("assemblePeriodNarrativeContext — the reader's units", () => {
     );
     const t = ctx.bandTransitions.find((b) => b.type === "BLOOD_GLUCOSE")!;
     expect(t.unit).toBe("mmol/L");
-    expect(t.center).toBe(7.77);
+    expect(t.center).toBe(7.8);
     expect(t.movedOut).toBe(true);
     expect(buildNarrativeUserPrompt(ctx, "en")).toContain(
-      "BLOOD_GLUCOSE: 7.77 mmol/L",
+      "BLOOD_GLUCOSE: 7.8 mmol/L",
     );
   });
 });

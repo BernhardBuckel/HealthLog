@@ -13,7 +13,7 @@ import {
 import { useTranslations } from "@/lib/i18n/context";
 import { useUnitDisplay } from "@/hooks/use-unit-display";
 import {
-  applyDisplayTransformUnrounded,
+  applyDisplayTransform,
   getQuantityTransform,
 } from "@/lib/measurements/display-transform";
 
@@ -41,8 +41,8 @@ export function WorkoutElevationChart({
   const distance = getQuantityTransform("distance", preference);
   const elevation = getQuantityTransform("elevation", preference);
   const data = points.map((p) => ({
-    dist: applyDisplayTransformUnrounded(p.distanceM, distance),
-    alt: applyDisplayTransformUnrounded(p.altitude, elevation),
+    dist: applyDisplayTransform(p.distanceM, distance),
+    alt: applyDisplayTransform(p.altitude, elevation),
   }));
 
   return (

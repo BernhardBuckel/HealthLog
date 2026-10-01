@@ -57,7 +57,8 @@ import { assembleDiscoveryMatrix } from "@/lib/insights/discovery-matrix";
 import { resolveModuleMap } from "@/lib/modules/gate";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
 import {
-  applyDisplayTransformUnrounded,
+  applyDisplayTransform,
+  applyDisplayTransformDelta,
   getReadingTransform,
   isUnitSensitiveType,
   resolveUnitPreferences,
@@ -135,8 +136,10 @@ function narratedUnit(
     const transform = getReadingTransform(type, units);
     return {
       unit: transform.displayUnit,
-      abs: (v) => round2(applyDisplayTransformUnrounded(v, transform)),
-      delta: (v) => round2(v * transform.factor),
+      // Rounded to the unit's own grain (one decimal for lb and mmol/L), the
+      // grain every screen shows the same reading at.
+      abs: (v) => round2(applyDisplayTransform(v, transform)),
+      delta: (v) => round2(applyDisplayTransformDelta(v, transform)),
     };
   }
   if (type === "SLEEP_DURATION") {

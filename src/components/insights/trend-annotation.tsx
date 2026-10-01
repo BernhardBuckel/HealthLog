@@ -265,7 +265,7 @@ export function TrendDescriptorCaption({
 }) {
   const { t } = useTranslations();
   const { isAuthenticated } = useAuth();
-  const { toDisplay, transformFor, unitFor } = useUnitDisplay();
+  const { toDisplay, toDisplayDelta, unitFor } = useUnitDisplay();
 
   const isMood = kind === "mood";
   const primaryType = types[0] ?? "";
@@ -334,19 +334,21 @@ export function TrendDescriptorCaption({
 
   const descriptor = useMemo(() => {
     const meta = TREND_SLOT_DESCRIPTOR_META[metric];
-    // A slot that converts its series converts its noise floor with it (a
-    // floor is a difference: factor only).
+    // A slot that converts its series converts its noise floor with it: the
+    // floor is declared canonically and is a difference (factor only).
     const config = isMood
       ? MOOD_DESCRIPTOR_CONFIG
       : meta?.unitType
         ? {
             ...meta.config,
-            absoluteFloor:
-              meta.config.absoluteFloor * transformFor(meta.unitType).factor,
+            absoluteFloor: toDisplayDelta(
+              meta.unitType,
+              meta.config.absoluteFloor,
+            ),
           }
         : meta?.config;
     return computeTrendDescriptor(points, config);
-  }, [points, isMood, metric, transformFor]);
+  }, [points, isMood, metric, toDisplayDelta]);
 
   // Tier 4 — genuinely too few points (also covers the in-flight window
   // before the small series lands). Surface the real empty hint so the

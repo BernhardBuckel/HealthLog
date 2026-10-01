@@ -1,7 +1,6 @@
 import { getNumberFormat, getDateTimeFormat } from "@/lib/intl/formatter-cache";
 import {
   applyDisplayTransform,
-  applyDisplayTransformUnrounded,
   getQuantityTransform,
   paceSecondsPerDistanceUnit,
   type UnitPreference,
@@ -46,7 +45,7 @@ export function formatDistance(
   preference: UnitPreference,
 ): string {
   const transform = getQuantityTransform("distance", preference);
-  const value = applyDisplayTransformUnrounded(meters, transform);
+  const value = applyDisplayTransform(meters, transform);
   const formatted = getNumberFormat(locale, {
     maximumFractionDigits: 2,
     minimumFractionDigits: value < 10 ? 2 : 1,

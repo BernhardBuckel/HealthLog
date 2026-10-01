@@ -148,7 +148,8 @@ export interface TrendSlotDescriptorMeta {
   /**
    * For a metric whose unit follows the reader's preference: the
    * measurement type the caller resolves the unit of (and converts the
-   * series and the noise floor through) before describing it.
+   * series and the noise floor through) before describing it. Such a slot
+   * declares its `absoluteFloor` in the CANONICAL unit (kg, m, °C).
    */
   unitType?: string;
   config: TrendDescriptorConfig;
@@ -196,7 +197,8 @@ export const TREND_SLOT_DESCRIPTOR_META: Record<
   },
   distance: {
     unitType: "WALKING_RUNNING_DISTANCE",
-    config: { absoluteFloor: 0.3, relativeFloor: 0.05, decimals: 1 },
+    // 300 m — canonical metres, converted to the reader's km or mi.
+    config: { absoluteFloor: 300, relativeFloor: 0.05, decimals: 1 },
   },
   vo2_max: {
     unit: "",
