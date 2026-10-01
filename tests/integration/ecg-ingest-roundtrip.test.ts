@@ -205,6 +205,24 @@ describe("POST /api/insights/ecg — round trip through the real routes", () => 
     expect(posted.data.durationSeconds).toBeCloseTo(SAMPLES.length / 512, 10);
   });
 
+  it("takes a whole sweep of recordings in one go (#1060)", async () => {
+    // The app posts every recording its sweep has not consumed and restarts
+    // the sweep after a 429; a limit below the sweep's size refused the same
+    // last recording on every sync. Seventy distinct strips must all land.
+    const statuses: number[] = [];
+    for (let i = 0; i < 70; i += 1) {
+      const posted = await ingest(
+        ingestPayload({
+          externalRecordingId: `sweep-${i}`,
+          recordedAt: new Date(Date.UTC(2026, 5, 1, 8, i)).toISOString(),
+        }),
+      );
+      statuses.push(posted.status);
+    }
+    expect(statuses.filter((s) => s === 429)).toHaveLength(0);
+    expect(await getPrismaClient().ecgRecording.count()).toBe(70);
+  });
+
   it("never writes the waveform as plaintext", async () => {
     const posted = await ingest(ingestPayload());
     const row = await getPrismaClient().ecgRecording.findUniqueOrThrow({
