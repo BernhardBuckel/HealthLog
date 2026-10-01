@@ -33,12 +33,17 @@ import { AlarmClock, Syringe } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InfoPopover } from "@/components/ui/info-popover";
-import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import {
+  useDateFormatPreference,
+  useFormatters,
+  useTranslations,
+} from "@/lib/i18n/context";
 import type { SeriesPosition } from "@/lib/vaccinations/series";
 import type { VaccinationRenewalDTO } from "@/lib/vaccinations/renewal";
 import { cn } from "@/lib/utils";
 import type { Vaccination } from "./use-vaccinations";
 import { CatalogInfo, catalogInfoAvailable } from "./catalog-info";
+import { formatDate as formatCalendarDate } from "@/lib/date-format";
 
 type Translate = ReturnType<typeof useTranslations>["t"];
 
@@ -148,8 +153,8 @@ function DoseRow({
   row: GroupRow;
   onEdit?: (record: Vaccination) => void;
 }) {
-  const { t } = useTranslations();
-  const format = useFormatters();
+  const { t, locale } = useTranslations();
+  const dateFormat = useDateFormatPreference();
   const { record, position } = row;
   const series = seriesLabel(t, position);
   const identity = recordIdentity(t, record);
@@ -199,9 +204,13 @@ function DoseRow({
           </div>
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
             <span>
-              {/* A date, stored at UTC midnight: render its date part, not
-                  the instant (the previous evening west of UTC). */}
-              {format.date(`${record.occurredAt.slice(0, 10)}T12:00:00.000Z`)}
+              {/* A date, stored at UTC midnight: render the calendar date,
+                  not the instant (the previous evening west of UTC). */}
+              {formatCalendarDate(
+                record.occurredAt.slice(0, 10),
+                dateFormat,
+                locale,
+              )}
             </span>
             {record.lotNumber ? (
               <span data-slot="vaccination-lot">
