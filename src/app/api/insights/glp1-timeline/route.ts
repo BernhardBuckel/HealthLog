@@ -80,7 +80,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
       deletedAt: null,
       moodLoggedAt: { gte: ninetyDaysAgo },
     },
-    select: { moodLoggedAt: true, tags: true },
+    select: { date: true, tags: true },
     orderBy: { moodLoggedAt: "desc" },
   });
 
@@ -140,7 +140,10 @@ export const GET = apiHandler(async (request: NextRequest) => {
     const { matched, unresolvedCount } = matchGlp1SideEffectTags(mood.tags);
     unresolvedTagCount += unresolvedCount;
     if (matched.length === 0) continue;
-    const dayKey = mood.moodLoggedAt.toISOString().slice(0, 10);
+    // `date` is the day the entry belongs to in the writer's zone. The UTC
+    // day of `moodLoggedAt` moved an evening entry west of UTC (a morning
+    // one east of it) onto the neighbouring day.
+    const dayKey = mood.date;
     const existing = sideEffectByDay.get(dayKey) ?? [];
     for (const t of matched) {
       if (!existing.includes(t)) existing.push(t);

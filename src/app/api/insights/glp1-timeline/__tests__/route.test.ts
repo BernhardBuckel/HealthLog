@@ -54,6 +54,7 @@ function medication() {
 
 function moodDay(day: number, tags: string[]) {
   return {
+    date: `2026-04-${String(day).padStart(2, "0")}`,
     moodLoggedAt: new Date(Date.UTC(2026, 3, day, 9, 0, 0)),
     tags: JSON.stringify(tags),
   };
@@ -95,6 +96,20 @@ describe("GET /api/insights/glp1-timeline side-effect days", () => {
         kind: "side-effect",
         tags: ["headache", "fatigue"],
       },
+      { date: "2026-04-10T12:00:00Z", kind: "side-effect", tags: ["nausea"] },
+    ]);
+  });
+
+  it("files a side effect under the entry's own day, not its UTC day", async () => {
+    // Logged 2026-04-10 at 20:00 in Los Angeles: already the 11th in UTC.
+    const out = await timeline([
+      {
+        date: "2026-04-10",
+        moodLoggedAt: new Date("2026-04-11T03:00:00.000Z"),
+        tags: JSON.stringify(["nausea"]),
+      },
+    ]);
+    expect(out.entries).toEqual([
       { date: "2026-04-10T12:00:00Z", kind: "side-effect", tags: ["nausea"] },
     ]);
   });
