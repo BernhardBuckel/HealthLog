@@ -260,8 +260,8 @@ const QUANTITY_TRANSFORMS: Record<
     imperial: { factor: 0.000621371192237, displayUnit: "mi", decimals: 2 },
   },
   elevation: {
-    metric: { factor: 1, displayUnit: "m", decimals: 0 },
-    imperial: { factor: M_TO_FT, displayUnit: "ft", decimals: 0 },
+    metric: { factor: 1, displayUnit: "m", decimals: 1 },
+    imperial: { factor: M_TO_FT, displayUnit: "ft", decimals: 1 },
   },
 };
 

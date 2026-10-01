@@ -17,12 +17,15 @@ import { TileHeader } from "@/components/insights/tile-header";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "@/lib/i18n/context";
 import type { WorkoutDetailPayload } from "@/hooks/use-workouts";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
+import type { UnitPreference } from "@/lib/measurements/display-transform";
 
 import {
   formatDuration,
-  formatDistanceKm,
+  formatDistance,
+  formatElevation,
   formatNumber,
-  formatPaceMinPerKm,
+  formatPace,
   formatDurationMinutes,
 } from "./format";
 
@@ -69,12 +72,13 @@ const PACE_SPORTS = new Set(["walking", "running", "hiking", "cycling"]);
 function sportAverageLine(
   workout: WorkoutDetailPayload,
   locale: string,
+  preference: UnitPreference,
 ): string | null {
   const ctx = workout.sportContext;
   if (!ctx || ctx.count < 2) return null;
   const parts: string[] = [];
   if (ctx.avgDistanceM != null && ctx.avgDistanceM > 0) {
-    parts.push(`${formatDistanceKm(ctx.avgDistanceM, locale)} km`);
+    parts.push(formatDistance(ctx.avgDistanceM, locale, preference));
   }
   parts.push(`${formatDurationMinutes(ctx.avgDurationSec, locale)} min`);
   if (ctx.avgAvgHr != null) parts.push(`${ctx.avgAvgHr} bpm`);
@@ -83,6 +87,7 @@ function sportAverageLine(
 
 export function WorkoutDetailStats({ workout }: WorkoutDetailStatsProps) {
   const { t, locale } = useTranslations();
+  const { preference } = useUnitDisplay();
   const tiles: StatTileProps[] = [];
 
   tiles.push({
@@ -95,7 +100,7 @@ export function WorkoutDetailStats({ workout }: WorkoutDetailStatsProps) {
     tiles.push({
       icon: <Map className="size-4" />,
       label: t("insights.workouts.detail.statsDistance"),
-      value: `${formatDistanceKm(workout.distanceM, locale)} km`,
+      value: formatDistance(workout.distanceM, locale, preference),
     });
   }
 
@@ -139,7 +144,7 @@ export function WorkoutDetailStats({ workout }: WorkoutDetailStatsProps) {
     tiles.push({
       icon: <Mountain className="size-4" />,
       label: t("insights.workouts.detail.statsElevation"),
-      value: `${formatNumber(workout.elevationM, locale, 1)} m`,
+      value: formatElevation(workout.elevationM, locale, preference),
     });
   }
 
@@ -151,11 +156,11 @@ export function WorkoutDetailStats({ workout }: WorkoutDetailStatsProps) {
     tiles.push({
       icon: <Timer className="size-4" />,
       label: t("insights.workouts.detail.statsPace"),
-      value: formatPaceMinPerKm(workout.durationSec, workout.distanceM),
+      value: formatPace(workout.durationSec, workout.distanceM, preference),
     });
   }
 
-  const averageLine = sportAverageLine(workout, locale);
+  const averageLine = sportAverageLine(workout, locale, preference);
 
   return (
     <Card data-slot="workout-detail-stats">

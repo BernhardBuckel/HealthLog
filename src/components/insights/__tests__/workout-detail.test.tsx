@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -15,6 +15,19 @@ import {
 import { WorkoutInsightCard } from "../workout-detail/insight-slot";
 import type { WorkoutDetailPayload } from "@/hooks/use-workouts";
 import type { RouteCoordinate } from "@/lib/workouts/route-svg";
+
+// The unit preference comes from the account payload; a mutable stub lets a
+// test switch the reader to imperial.
+const account = vi.hoisted(() => ({
+  user: { unitPreference: "metric", glucoseUnit: null } as Record<
+    string,
+    unknown
+  >,
+}));
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: account.user, isAuthenticated: true }),
+  useAccountOnceMounted: () => account.user,
+}));
 
 /**
  * #67 — `<WorkoutDetail*>` unit tests over the split `workout-detail/`
@@ -147,6 +160,44 @@ describe("<WorkoutDetailStats>", () => {
     const html = render(<WorkoutDetailStats workout={withCtx} />);
     expect(html).toContain('data-slot="workout-detail-sport-average"');
     expect(html).toContain("148 bpm");
+  });
+
+  it("states distance, pace, elevation and the average line in imperial units", () => {
+    account.user = { unitPreference: "imperial", glucoseUnit: null };
+    try {
+      const html = render(
+        <WorkoutDetailStats
+          workout={{
+            ...FIXTURE,
+            sportContext: {
+              count: 8,
+              avgDurationSec: 2040,
+              avgDistanceM: 5800,
+              avgAvgHr: 148,
+            },
+          }}
+        />,
+      );
+      // 5200 m = 3.23 mi; 1800 s over it = 9:17 per mile; 12.5 m = 41.0 ft.
+      expect(html).toContain("3.23 mi");
+      expect(html).toContain("9:17 /mi");
+      expect(html).toContain("41.0 ft");
+      // The sport-average line: 5800 m = 3.60 mi.
+      expect(html).toContain("3.60 mi");
+      expect(html).not.toContain(" km");
+      expect(html).not.toContain("/km");
+      const header = render(<WorkoutDetailHeader workout={FIXTURE} />);
+      expect(header).toContain("3.23 mi");
+    } finally {
+      account.user = { unitPreference: "metric", glucoseUnit: null };
+    }
+  });
+
+  it("keeps kilometres, minutes per km and metres for a metric reader", () => {
+    const html = render(<WorkoutDetailStats workout={FIXTURE} />);
+    expect(html).toContain("5.20 km");
+    expect(html).toContain("5:46 /km");
+    expect(html).toContain("12.5 m");
   });
 
   it("hides the average line for a lone session", () => {

@@ -384,7 +384,7 @@ describe("display-transform — both unit preferences, one resolver", () => {
     expect(mi.displayUnit).toBe("mi");
     expect(
       applyDisplayTransform(100, getQuantityTransform("elevation", "imperial")),
-    ).toBe(328);
+    ).toBe(328.1);
     expect(getQuantityTransform("elevation", "metric").displayUnit).toBe("m");
     // 30 min over 5 km: 360 s/km, 579.4 s/mi.
     expect(paceSecondsPerDistanceUnit(1800, 5000, "metric")).toBeCloseTo(

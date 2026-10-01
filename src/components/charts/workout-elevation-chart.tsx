@@ -11,6 +11,11 @@ import {
 } from "recharts";
 
 import { useTranslations } from "@/lib/i18n/context";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
+import {
+  applyDisplayTransformUnrounded,
+  getQuantityTransform,
+} from "@/lib/measurements/display-transform";
 
 /**
  * Workout elevation profile — a small cumulative-distance / altitude
@@ -30,7 +35,15 @@ export function WorkoutElevationChart({
   points: WorkoutElevationPoint[];
 }) {
   const { t } = useTranslations();
-  const data = points.map((p) => ({ km: p.distanceM / 1000, alt: p.altitude }));
+  const { preference } = useUnitDisplay();
+  // Distance along the route in km or mi, altitude in m or ft — the same
+  // registry the stat tiles read, so the axis and the tiles agree.
+  const distance = getQuantityTransform("distance", preference);
+  const elevation = getQuantityTransform("elevation", preference);
+  const data = points.map((p) => ({
+    dist: applyDisplayTransformUnrounded(p.distanceM, distance),
+    alt: applyDisplayTransformUnrounded(p.altitude, elevation),
+  }));
 
   return (
     <div className="h-24 w-full" data-slot="workout-elevation-chart">
@@ -57,7 +70,7 @@ export function WorkoutElevationChart({
             opacity={0.4}
           />
           <XAxis
-            dataKey="km"
+            dataKey="dist"
             type="number"
             domain={[0, "dataMax"]}
             tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
@@ -80,9 +93,11 @@ export function WorkoutElevationChart({
               borderRadius: "0.5rem",
               fontSize: "0.875rem",
             }}
-            labelFormatter={(km) => `${Number(km).toFixed(2)} km`}
+            labelFormatter={(d) =>
+              `${Number(d).toFixed(2)} ${distance.displayUnit}`
+            }
             formatter={(value) => [
-              `${Math.round(Number(value))} m`,
+              `${Math.round(Number(value))} ${elevation.displayUnit}`,
               t("insights.workouts.detail.elevationTitle"),
             ]}
           />
