@@ -61,6 +61,8 @@ interface DialogCase {
   prepare?: (page: import("@playwright/test").Page) => Promise<void>;
   /** Something inside the dialog that proves it rendered its form, not a shell. */
   ready: string;
+  /** Render in this locale instead of the suite's pinned English. */
+  locale?: "de";
 }
 
 const DIALOGS: DialogCase[] = [
@@ -92,14 +94,22 @@ const DIALOGS: DialogCase[] = [
     trigger: /^add$/i,
     ready: '[data-slot="date-time-field"]',
   },
+  // The labs sheet's footer holds three buttons (Cancel, Save & add another,
+  // Save). They fit a phone row in English; the German labels are ~100px
+  // wider and pushed Cancel off the sheet's left edge, at every width.
+  {
+    name: "labs add (German)",
+    path: "/labs",
+    trigger: /^hinzufügen$/i,
+    ready: '[data-slot="date-time-field"]',
+    locale: "de",
+  },
 ];
 
 const VIEWPORTS = [
   { label: "desktop 1280", width: 1280, height: 800 },
   { label: "phone 390", width: 390, height: 844 },
-  // The narrowest common Android width. The labs sheet's three-button footer
-  // (Cancel, Save & add another, Save) fits 390 in English and pushed Cancel
-  // off the left edge in German; 360 is where English hits the same wall.
+  // The narrowest common Android width.
   { label: "phone 360", width: 360, height: 780 },
 ];
 
@@ -204,7 +214,17 @@ test.describe("add/edit dialogs do not scroll sideways", () => {
     for (const dialog of DIALOGS) {
       test(`${dialog.name} fits its surface at ${vp.label}`, async ({
         page,
-      }) => {
+        context,
+      }, testInfo) => {
+        if (dialog.locale) {
+          await context.addCookies([
+            {
+              name: "healthlog-locale",
+              value: dialog.locale,
+              url: testInfo.project.use.baseURL ?? "http://localhost:3000",
+            },
+          ]);
+        }
         await page.setViewportSize({ width: vp.width, height: vp.height });
         await page.goto(dialog.path, { waitUntil: "domcontentloaded" });
 
