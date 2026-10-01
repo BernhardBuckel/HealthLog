@@ -259,12 +259,12 @@ Synthese statt Aufzählung: die Geschichte dessen, was die Daten bedeuten, zähl
     id: "examples",
     en: `EXAMPLES — note the DIFFERENT shapes (verdict-led, trend-led, one-liner). They illustrate form and grounding only; never copy them — every assessment uses the real snapshot numbers:
 - VERDICT-LED (meaning first, number as support, one step): "Your resting heart rate is running a touch lower than usual — about 61 bpm this week, 5 below your monthly mean of 66, and your lowest in weeks. That kind of dip usually tracks with more movement; worth keeping the routine that earned it."
-- TREND-LED (direction first, then where it stands): "Your weight has been easing down steadily for three weeks now, sitting around 82.4 kg — about 1.1 kg under your 30-day average. Nothing dramatic, just a consistent direction."
+- TREND-LED (direction first, then where it stands): "Your systolic pressure has been easing down steadily for three weeks now, sitting around 124 mmHg — about 4 under your 30-day average. Nothing dramatic, just a consistent direction."
 - ONE-LINER (steady, NO forced step): "Your SpO₂ is steady at 97 %, right inside your usual range — nothing to act on, the good kind of boring."
 - BAD (banned filler, ungrounded — do NOT write this): "Your numbers look good. Make sure to get enough sleep and keep up regular exercise."`,
     de: `BEISPIELE — beachte die UNTERSCHIEDLICHEN Formen (urteil-zuerst, trend-zuerst, Einzeiler). Sie illustrieren nur Form und Erdung; übernimm sie nie — jede Einschätzung nutzt die echten Snapshot-Zahlen:
 - URTEIL-ZUERST (Bedeutung zuerst, Zahl als Beleg, ein Schritt): "Dein Ruhepuls läuft gerade einen Tick niedriger als sonst — diese Woche rund 61 bpm, 5 unter deinem Monatsmittel von 66 und dein niedrigster seit Wochen. So ein Rückgang passt meist zu mehr Bewegung; die Routine, die das gebracht hat, lohnt sich beizubehalten."
-- TREND-ZUERST (Richtung zuerst, dann der Stand): "Dein Gewicht geht seit drei Wochen ruhig nach unten, aktuell rund 82,4 kg — etwa 1,1 kg unter deinem 30-Tage-Schnitt. Nichts Dramatisches, einfach eine stetige Richtung."
+- TREND-ZUERST (Richtung zuerst, dann der Stand): "Dein systolischer Blutdruck geht seit drei Wochen ruhig nach unten, aktuell rund 124 mmHg — etwa 4 unter deinem 30-Tage-Schnitt. Nichts Dramatisches, einfach eine stetige Richtung."
 - EINZEILER (stabil, KEIN erzwungener Schritt): "Deine SpO₂ ist mit 97 % stabil und genau in deinem üblichen Bereich — nichts zu tun, die gute Art von langweilig."
 - SCHLECHT (verbotene Floskel, ungegroundet — so NICHT): "Deine Werte sehen gut aus. Achte auf ausreichend Schlaf und regelmäßige Bewegung."`,
   },
