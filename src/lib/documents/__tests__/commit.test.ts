@@ -28,6 +28,7 @@ import { prisma } from "@/lib/db";
 import { resolveOrMintBiomarker } from "@/lib/labs/biomarker-store";
 import { decryptFactData } from "@/lib/documents/store";
 import type { ExtractedFact } from "@/generated/prisma/client";
+import { userDayKey } from "@/lib/tz/format";
 
 function observationFact(): ExtractedFact {
   return {
@@ -94,5 +95,12 @@ describe("commitApprovedFact — OBSERVATION unit integrity", () => {
     const ref = await commitApprovedFact("user-1", observationFact());
     expect(ref).toEqual({ recordType: "labResult", recordId: "lr-1" });
     expect(prisma.labResult.create).toHaveBeenCalledOnce();
+    // The stated date is stored at noon UTC: it reads back on the stated day
+    // as a UTC label and formatted in a zone west of UTC alike. UTC midnight
+    // showed the reading a day early there.
+    const takenAt = vi.mocked(prisma.labResult.create).mock.calls[0]![0].data
+      .takenAt as Date;
+    expect(takenAt.toISOString()).toBe("2025-01-01T12:00:00.000Z");
+    expect(userDayKey(takenAt, "America/Los_Angeles")).toBe("2025-01-01");
   });
 });

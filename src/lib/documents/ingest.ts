@@ -58,6 +58,9 @@ import type {
   DocumentSourceSystemValue,
   InboundDocumentKindValue,
 } from "@/lib/validations/inbound-documents";
+import { dateOnlyAtNoonUtc } from "@/lib/tz/date-only";
+import { userDayKey } from "@/lib/tz/format";
+import { resolveUserTimezone } from "@/lib/tz/resolver";
 
 /**
  * The person's own uploads per hour, from the web or the phone, and the
@@ -74,7 +77,12 @@ export function personalUploadBucket(userId: string): string {
   return `documents-upload:${userId}`;
 }
 
-/** Parse a YYYY-MM-DD value into a UTC midnight Date. */
+/**
+ * A YYYY-MM-DD as UTC midnight: the lower bound of that date for a range
+ * filter over stored date-only values (which sit at noon UTC, or at UTC
+ * midnight for rows written before the noon anchor). Not a storage anchor;
+ * a stored date goes through `dateOnlyAtNoonUtc`.
+ */
 export function isoDateToUtc(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
@@ -297,9 +305,13 @@ export async function ingestDocument(
           contentCodec: codec,
           contentSha256,
           status: "STORED",
-          documentDate: input.documentDate
-            ? isoDateToUtc(input.documentDate)
-            : new Date(),
+          // The upload day when none is stated is the uploader's own day,
+          // not the UTC one (just after midnight east of UTC that was
+          // yesterday).
+          documentDate: dateOnlyAtNoonUtc(
+            input.documentDate ??
+              userDayKey(new Date(), await resolveUserTimezone(input.userId)),
+          ),
           sourceSystem,
           sourceId,
           sourceInstance,
