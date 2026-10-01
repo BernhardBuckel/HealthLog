@@ -1,7 +1,11 @@
 import type { jsPDF } from "jspdf";
 import { GLUCOSE_CONTEXT_BUCKETS } from "@/lib/glucose";
 import autoTable from "jspdf-autotable";
-import { convertGlucose, resolveGlucoseUnit } from "../glucose";
+import {
+  convertGlucose,
+  glucoseBandParams,
+  resolveGlucoseUnit,
+} from "../glucose";
 import { reportStatValue } from "../doctor-report/stat-display";
 import type { MeasurementType } from "@/generated/prisma/client";
 import { MEASUREMENT_TYPE_LABEL_KEYS } from "../measurements/type-label-keys";
@@ -303,26 +307,29 @@ export function buildMeasurementsChartsSection(
   const clinical = data.glucoseClinical;
   if (clinical && clinical.readingCount > 0 && clinical.distribution) {
     const pct = (fraction: number) => `${num(fraction * 100)} %`;
+    // The band edges follow the reader's glucose unit, like every value in
+    // the table beside them.
+    const bands = glucoseBandParams(glucoseUnit, num);
     const clinicalRows: string[][] = [];
     const dist = clinical.distribution;
     clinicalRows.push([
-      t("doctorReport.glucoseClinical.tirInRange"),
+      t("doctorReport.glucoseClinical.tirInRange", bands),
       pct(dist.tir),
     ]);
     clinicalRows.push([
-      t("doctorReport.glucoseClinical.tirLow"),
+      t("doctorReport.glucoseClinical.tirLow", bands),
       pct(dist.tbrLevel1),
     ]);
     clinicalRows.push([
-      t("doctorReport.glucoseClinical.tirVeryLow"),
+      t("doctorReport.glucoseClinical.tirVeryLow", bands),
       pct(dist.tbrLevel2),
     ]);
     clinicalRows.push([
-      t("doctorReport.glucoseClinical.tirHigh"),
+      t("doctorReport.glucoseClinical.tirHigh", bands),
       pct(dist.tarLevel1),
     ]);
     clinicalRows.push([
-      t("doctorReport.glucoseClinical.tirVeryHigh"),
+      t("doctorReport.glucoseClinical.tirVeryHigh", bands),
       pct(dist.tarLevel2),
     ]);
     if (clinical.meanMgdl !== null) {

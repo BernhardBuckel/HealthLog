@@ -42,6 +42,59 @@ export function toCanonicalMgdl(value: number, from: GlucoseUnit): number {
   return from === "mmol/L" ? mmolToMgdl(value) : Math.round(value);
 }
 
+/**
+ * A published glucose cut-point, in both units as its source states it.
+ *
+ * The SI figure is carried rather than converted because a guideline prints
+ * its own rounding: ADA's fasting cut-point is 100 mg/dL and 5.6 mmol/L, and
+ * `mgdlToMmol(100)` gives 5.5. A reader on mmol/L must see the number their
+ * own guideline prints, not a re-rounded neighbour of it.
+ */
+export interface GlucoseCutPoint {
+  mgdl: number;
+  mmol: number;
+}
+
+/** Consensus time-in-range band edges (Battelino 2019). */
+export const GLUCOSE_TIR_CUT_POINTS = {
+  veryLow: { mgdl: 54, mmol: 3.0 },
+  low: { mgdl: 70, mmol: 3.9 },
+  high: { mgdl: 180, mmol: 10.0 },
+  veryHigh: { mgdl: 250, mmol: 13.9 },
+} as const satisfies Record<string, GlucoseCutPoint>;
+
+/** Fasting-glucose diagnostic cut-points for adults (ADA 2024). */
+export const GLUCOSE_FASTING_CUT_POINTS = {
+  prediabetesFrom: { mgdl: 100, mmol: 5.6 },
+  prediabetesTo: { mgdl: 125, mmol: 6.9 },
+  diabetesFrom: { mgdl: 126, mmol: 7.0 },
+} as const satisfies Record<string, GlucoseCutPoint>;
+
+/**
+ * The interpolation parameters every glucose band sentence takes: each
+ * cut-point in the reader's unit, formatted by the caller's locale-aware
+ * number formatter, plus the unit symbol. A sentence that names a band
+ * reads its numbers from here, so no locale string carries a fixed unit.
+ */
+export function glucoseBandParams(
+  unit: GlucoseUnit,
+  formatNumber: (value: number, fractionDigits: number) => string,
+): Record<string, string> {
+  const digits = unit === "mmol/L" ? 1 : 0;
+  const v = (point: GlucoseCutPoint) =>
+    formatNumber(unit === "mmol/L" ? point.mmol : point.mgdl, digits);
+  return {
+    unit,
+    veryLow: v(GLUCOSE_TIR_CUT_POINTS.veryLow),
+    low: v(GLUCOSE_TIR_CUT_POINTS.low),
+    high: v(GLUCOSE_TIR_CUT_POINTS.high),
+    veryHigh: v(GLUCOSE_TIR_CUT_POINTS.veryHigh),
+    prediabetesFrom: v(GLUCOSE_FASTING_CUT_POINTS.prediabetesFrom),
+    prediabetesTo: v(GLUCOSE_FASTING_CUT_POINTS.prediabetesTo),
+    diabetesFrom: v(GLUCOSE_FASTING_CUT_POINTS.diabetesFrom),
+  };
+}
+
 export function resolveGlucoseUnit(
   userPreference: string | null | undefined,
 ): GlucoseUnit {

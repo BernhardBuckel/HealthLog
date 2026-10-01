@@ -5,8 +5,12 @@ import { Droplet } from "lucide-react";
 import { HealthKitMetricPage } from "@/components/insights/healthkit-metric-page";
 import { GlucoseClinicalPanel } from "@/components/insights/glucose/glucose-clinical-panel";
 import { useAuth } from "@/hooks/use-auth";
-import { useTranslations } from "@/lib/i18n/context";
-import { MGDL_PER_MMOL, resolveGlucoseUnit } from "@/lib/glucose";
+import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import {
+  glucoseBandParams,
+  MGDL_PER_MMOL,
+  resolveGlucoseUnit,
+} from "@/lib/glucose";
 
 /**
  * v1.7.0 — `/insights/blood-glucose`.
@@ -27,6 +31,7 @@ import { MGDL_PER_MMOL, resolveGlucoseUnit } from "@/lib/glucose";
 export default function InsightsBlutzuckerPage() {
   const { user } = useAuth();
   const { t } = useTranslations();
+  const fmt = useFormatters();
   const glucoseUnit = resolveGlucoseUnit(user?.glucoseUnit ?? null);
   const isMmol = glucoseUnit === "mmol/L";
 
@@ -38,6 +43,9 @@ export default function InsightsBlutzuckerPage() {
       chartKey="bloodGlucose"
       i18nPrefix="insights.bloodGlucose"
       explainerMetric="bloodGlucose"
+      // The definition names the fasting cut-points; they follow the
+      // reader's glucose unit like the chart does.
+      explainerParams={glucoseBandParams(glucoseUnit, fmt.number)}
       color="var(--chart-3)"
       unit={glucoseUnit}
       yAxisUnit={glucoseUnit}

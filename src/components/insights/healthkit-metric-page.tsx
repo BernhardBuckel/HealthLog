@@ -153,6 +153,8 @@ export interface HealthKitMetricPageProps {
    * Resolves `insights.subPage.explainer.<explainerMetric>{Title,Body}`.
    */
   explainerMetric?: string;
+  /** Interpolation values for the explainer sentence (`SubPageShell`). */
+  explainerParams?: Record<string, string>;
   /**
    * v1.8.5 W5 — when set, renders `<MetricTargetSummary slug=…>` beneath
    * the chart. Used by blood glucose, whose per-context ADA / DDG bands
@@ -227,6 +229,7 @@ export function HealthKitMetricPage({
   coachPrefill,
   valueScale,
   explainerMetric,
+  explainerParams,
   targetSummarySlug,
   statusMetric,
   statIcon,
@@ -334,7 +337,10 @@ export function HealthKitMetricPage({
       : rawSummary;
 
   const title = t(`${i18nPrefix}.title`);
-  const description = t(`${i18nPrefix}.description`);
+  // A description that names its unit ("in mg/dL") reads the resolved one.
+  const description = t(`${i18nPrefix}.description`, {
+    unit: resolvedUnit ?? "",
+  });
 
   // v1.12.7 — in-flight skeleton. The page consumed only `{data, isEmpty}`
   // before, so the ~30 HealthKit sub-pages painted nothing until the
@@ -347,6 +353,7 @@ export function HealthKitMetricPage({
         title={title}
         description={description}
         explainerMetric={explainerMetric}
+        explainerParams={explainerParams}
         statStrip={<StatStripSkeleton />}
       >
         <ChartSkeleton />
@@ -364,6 +371,7 @@ export function HealthKitMetricPage({
         title={title}
         description={description}
         explainerMetric={explainerMetric}
+        explainerParams={explainerParams}
       >
         <QueryErrorRow
           slot="healthkit-metric-error"
@@ -389,6 +397,7 @@ export function HealthKitMetricPage({
         title={title}
         description={description}
         explainerMetric={explainerMetric}
+        explainerParams={explainerParams}
       >
         <MetricEmptyState
           icon={emptyStateIcon}
@@ -406,6 +415,7 @@ export function HealthKitMetricPage({
       title={title}
       description={description}
       explainerMetric={explainerMetric}
+      explainerParams={explainerParams}
       statStrip={
         <MetricStatStrip
           summary={summary}

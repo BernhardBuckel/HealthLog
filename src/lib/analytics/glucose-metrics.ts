@@ -39,6 +39,8 @@
  *     Diabetes Care 29(11):2433-2438, DOI 10.2337/dc06-1085.
  */
 
+import { GLUCOSE_TIR_CUT_POINTS } from "@/lib/glucose";
+
 // ── Inputs ───────────────────────────────────────────────
 
 /** A single spot blood-glucose reading. Value is canonical mg/dL. */
@@ -79,11 +81,13 @@ export interface GlucoseMetricsOptions {
 }
 
 // ── Consensus thresholds (Battelino 2019) ────────────────
-// Bands in mg/dL. These are consensus FACTS, cited above.
-const TBR_LEVEL2_MAX = 54; // very low: G < 54
-const TBR_LEVEL1_MAX = 70; // low: G < 70 (level-1 sub-band is 54–69)
-const TAR_LEVEL1_MIN = 180; // high: G > 180 (level-1 sub-band is 181–250)
-const TAR_LEVEL2_MIN = 250; // very high: G > 250
+// Bands in mg/dL. These are consensus FACTS, cited above. The values live in
+// `GLUCOSE_TIR_CUT_POINTS` so the band labels a reader sees and the bands
+// this engine counts are the same numbers.
+const TBR_LEVEL2_MAX = GLUCOSE_TIR_CUT_POINTS.veryLow.mgdl; // very low: G < 54
+const TBR_LEVEL1_MAX = GLUCOSE_TIR_CUT_POINTS.low.mgdl; // low: G < 70 (level-1 sub-band is 54–69)
+const TAR_LEVEL1_MIN = GLUCOSE_TIR_CUT_POINTS.high.mgdl; // high: G > 180 (level-1 sub-band is 181–250)
+const TAR_LEVEL2_MIN = GLUCOSE_TIR_CUT_POINTS.veryHigh.mgdl; // very high: G > 250
 // Time-in-range target band is [70, 180] inclusive.
 /** The time-in-range band, mg/dL, inclusive at both ends. */
 export const TIME_IN_RANGE_MGDL = {

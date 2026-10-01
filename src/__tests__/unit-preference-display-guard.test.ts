@@ -10,7 +10,7 @@
  *
  * Mutation check: add `unit="kg"` back to any swept page and this goes red.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { stripComments, walkSourceFiles } from "./helpers/source-files";
@@ -513,5 +513,76 @@ describe("unit-preference display guard — AI and Coach producers", () => {
         ),
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * Locale strings that may name a glucose unit literally, each with the reason
+ * it is not a reading shown in the reader's unit. Keys are dotted paths and
+ * apply to every locale bundle.
+ */
+const GLUCOSE_UNIT_LITERAL_ALLOWLIST: Record<string, string> = {
+  "dashboard.metric.unit.glucose":
+    "the unit token the dashboard summary wire hands the native client; the web resolves the glucose unit from the account instead",
+  "labs.biomarker.form.unitPlaceholder":
+    "an example of a free-text lab unit in an input placeholder, not a reading",
+};
+
+const GLUCOSE_UNIT_LITERAL = /mg\/dl|mmol\/l\b/i;
+
+function flattenStrings(
+  node: unknown,
+  path: string,
+  out: Array<[string, string]>,
+): void {
+  if (typeof node === "string") {
+    out.push([path, node]);
+  } else if (node && typeof node === "object") {
+    for (const [key, value] of Object.entries(node)) {
+      flattenStrings(value, path ? `${path}.${key}` : key, out);
+    }
+  }
+}
+
+describe("unit-preference display guard — locale strings", () => {
+  const MESSAGES = join(process.cwd(), "messages");
+  const bundles = readdirSync(MESSAGES).filter((f) => f.endsWith(".json"));
+
+  it("reads every locale bundle", () => {
+    expect(bundles.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it("no locale string fixes a glucose unit outside the allowlist", () => {
+    // A sentence that prints "70–180 mg/dL" shows mg/dL to a reader who
+    // chose mmol/L. Band and unit go in as parameters (`glucoseBandParams`).
+    const offenders: string[] = [];
+    for (const file of bundles) {
+      const entries: Array<[string, string]> = [];
+      flattenStrings(
+        JSON.parse(readFileSync(join(MESSAGES, file), "utf8")),
+        "",
+        entries,
+      );
+      for (const [key, value] of entries) {
+        if (key in GLUCOSE_UNIT_LITERAL_ALLOWLIST) continue;
+        if (GLUCOSE_UNIT_LITERAL.test(value)) offenders.push(`${file}: ${key}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("every allowlisted key still exists and still names a unit", () => {
+    // An entry whose string was reworded or removed is a stale exemption.
+    const en: Array<[string, string]> = [];
+    flattenStrings(
+      JSON.parse(readFileSync(join(MESSAGES, "en.json"), "utf8")),
+      "",
+      en,
+    );
+    const byKey = new Map(en);
+    const stale = Object.keys(GLUCOSE_UNIT_LITERAL_ALLOWLIST).filter(
+      (key) => !GLUCOSE_UNIT_LITERAL.test(byKey.get(key) ?? ""),
+    );
+    expect(stale).toEqual([]);
   });
 });

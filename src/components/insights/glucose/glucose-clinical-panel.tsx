@@ -12,8 +12,12 @@ import { LearnMoreLink } from "@/components/ui/learn-more-link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useAnalyticsQuery } from "@/lib/queries/use-analytics-query";
-import { useTranslations } from "@/lib/i18n/context";
-import { convertGlucose, resolveGlucoseUnit } from "@/lib/glucose";
+import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import {
+  convertGlucose,
+  glucoseBandParams,
+  resolveGlucoseUnit,
+} from "@/lib/glucose";
 import type { DataSummary } from "@/lib/analytics/trends";
 import { GlucoseTirBar } from "./glucose-tir-bar";
 import { GlucoseAdvancedDisclosure } from "./glucose-advanced-disclosure";
@@ -41,6 +45,7 @@ import { GlucoseAdvancedDisclosure } from "./glucose-advanced-disclosure";
 export function GlucoseClinicalPanel() {
   const { user, isAuthenticated } = useAuth();
   const { t } = useTranslations();
+  const fmt = useFormatters();
   const query = useAnalyticsQuery({});
 
   const glucoseUnit = resolveGlucoseUnit(user?.glucoseUnit ?? null);
@@ -158,7 +163,10 @@ export function GlucoseClinicalPanel() {
             </div>
             <GlucoseTirBar distribution={dist} />
             <p className="text-muted-foreground text-xs">
-              {t("insights.bloodGlucose.clinical.tir.caption")}
+              {t(
+                "insights.bloodGlucose.clinical.tir.caption",
+                glucoseBandParams(glucoseUnit, fmt.number),
+              )}
             </p>
           </section>
         ) : null}
