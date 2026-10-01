@@ -10,7 +10,14 @@ import {
   transformRescales,
   TRANSFORMED_TYPES,
   DEFAULT_UNIT_PREFERENCE,
+  DEFAULT_UNIT_PREFERENCES,
+  getQuantityTransform,
+  getReadingTransform,
+  isUnitSensitiveType,
+  paceSecondsPerDistanceUnit,
+  resolveUnitPreferences,
 } from "../display-transform";
+import { convertGlucose } from "@/lib/glucose";
 
 describe("display-transform", () => {
   it("converts WALKING_SPEED m/s → km/h (factor 3.6)", () => {
@@ -306,5 +313,87 @@ describe("display-transform — converted values carry the declared precision", 
       185.2 / imperial.factor,
     );
     expect(invertDisplayTransform(185.2, imperial)).not.toBe(84);
+  });
+});
+
+describe("display-transform — both unit preferences, one resolver", () => {
+  it("reads glucose in the preferred clinical unit, matching convertGlucose", () => {
+    const mmol = getReadingTransform("BLOOD_GLUCOSE", {
+      system: "metric",
+      glucoseUnit: "mmol/L",
+    });
+    expect(mmol.displayUnit).toBe("mmol/L");
+    for (const mgdl of [54, 70, 99, 126, 140, 250]) {
+      expect(applyDisplayTransform(mgdl, mmol)).toBe(
+        convertGlucose(mgdl, "mmol/L"),
+      );
+    }
+    const mgdl = getReadingTransform("BLOOD_GLUCOSE", DEFAULT_UNIT_PREFERENCES);
+    expect(mgdl.displayUnit).toBe("mg/dL");
+    expect(applyDisplayTransform(99, mgdl)).toBe(99);
+  });
+
+  it("leaves glucose alone under the imperial preference", () => {
+    const t = getReadingTransform("BLOOD_GLUCOSE", {
+      system: "imperial",
+      glucoseUnit: "mg/dL",
+    });
+    expect(t.displayUnit).toBe("mg/dL");
+  });
+
+  it("delegates every other type to the metric/imperial registry", () => {
+    expect(
+      getReadingTransform("WEIGHT", {
+        system: "imperial",
+        glucoseUnit: "mmol/L",
+      }).displayUnit,
+    ).toBe("lb");
+    expect(
+      getReadingTransform("PULSE", {
+        system: "imperial",
+        glucoseUnit: "mmol/L",
+      }).displayUnit,
+    ).toBe("bpm");
+  });
+
+  it("marks glucose and the transformed set as unit-sensitive", () => {
+    expect(isUnitSensitiveType("BLOOD_GLUCOSE")).toBe(true);
+    expect(isUnitSensitiveType("WEIGHT")).toBe(true);
+    expect(isUnitSensitiveType("HEART_RATE_VARIABILITY")).toBe(false);
+  });
+
+  it("resolves the stored columns with their defaults", () => {
+    expect(resolveUnitPreferences({})).toEqual(DEFAULT_UNIT_PREFERENCES);
+    expect(
+      resolveUnitPreferences({
+        unitPreference: "imperial",
+        glucoseUnit: "mmol/L",
+      }),
+    ).toEqual({ system: "imperial", glucoseUnit: "mmol/L" });
+    expect(resolveUnitPreferences({ unitPreference: "bogus" }).system).toBe(
+      "metric",
+    );
+  });
+
+  it("converts workout distance, elevation and pace per preference", () => {
+    const km = getQuantityTransform("distance", "metric");
+    const mi = getQuantityTransform("distance", "imperial");
+    expect(applyDisplayTransform(5000, km)).toBe(5);
+    expect(km.displayUnit).toBe("km");
+    expect(applyDisplayTransform(5000, mi)).toBe(3.11);
+    expect(mi.displayUnit).toBe("mi");
+    expect(
+      applyDisplayTransform(100, getQuantityTransform("elevation", "imperial")),
+    ).toBe(328);
+    expect(getQuantityTransform("elevation", "metric").displayUnit).toBe("m");
+    // 30 min over 5 km: 360 s/km, 579.4 s/mi.
+    expect(paceSecondsPerDistanceUnit(1800, 5000, "metric")).toBeCloseTo(
+      360,
+      6,
+    );
+    expect(paceSecondsPerDistanceUnit(1800, 5000, "imperial")).toBeCloseTo(
+      579.36,
+      2,
+    );
   });
 });

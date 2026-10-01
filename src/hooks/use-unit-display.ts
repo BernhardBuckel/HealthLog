@@ -23,13 +23,21 @@ import {
   getDisplayTransform,
   invertDisplayTransform,
   hasDisplayTransform,
+  resolveUnitPreference,
   type DisplayTransform,
   type UnitPreference,
 } from "@/lib/measurements/display-transform";
+import { resolveGlucoseUnit, type GlucoseUnit } from "@/lib/glucose";
 
 export interface UnitDisplay {
   /** Resolved preference ("metric" by default / on a stale payload). */
   preference: UnitPreference;
+  /**
+   * Resolved glucose unit ("mg/dL" by default). Carried beside the
+   * metric/imperial branch so a surface that edits or renders glucose reads
+   * both preferences from the one hook.
+   */
+  glucoseUnit: GlucoseUnit;
   /** The full transform for a type under the current preference. */
   transformFor: (type: string) => DisplayTransform;
   /** Convert a raw canonical ABSOLUTE value to the display value. */
@@ -48,7 +56,7 @@ export interface UnitDisplay {
 
 export function useUnitDisplay(): UnitDisplay {
   const { user } = useAuth();
-  return useDisplayForPreference(user?.unitPreference);
+  return useDisplayForPreference(user?.unitPreference, user?.glucoseUnit);
 }
 
 /**
@@ -69,20 +77,22 @@ export function useUnitDisplay(): UnitDisplay {
  */
 export function useUnitDisplayOnceMounted(): UnitDisplay {
   const user = useAccountOnceMounted();
-  return useDisplayForPreference(user?.unitPreference);
+  return useDisplayForPreference(user?.unitPreference, user?.glucoseUnit);
 }
 
 function useDisplayForPreference(
   rawPreference: string | null | undefined,
+  rawGlucoseUnit: string | null | undefined,
 ): UnitDisplay {
-  const preference: UnitPreference =
-    rawPreference === "imperial" ? "imperial" : "metric";
+  const preference = resolveUnitPreference(rawPreference);
+  const glucoseUnit = resolveGlucoseUnit(rawGlucoseUnit);
 
   return useMemo<UnitDisplay>(() => {
     const transformFor = (type: string) =>
       getDisplayTransform(type, preference);
     return {
       preference,
+      glucoseUnit,
       transformFor,
       toDisplay: (type, rawValue) =>
         applyDisplayTransform(rawValue, transformFor(type)),
@@ -94,5 +104,5 @@ function useDisplayForPreference(
       decimalsFor: (type) => transformFor(type).decimals,
       isTransformed: (type) => hasDisplayTransform(type),
     };
-  }, [preference]);
+  }, [preference, glucoseUnit]);
 }
