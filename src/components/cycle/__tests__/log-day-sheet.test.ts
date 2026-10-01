@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildDayLogPatch,
   buildDayLogInput,
+  bbtTextToCelsius,
   symptomsCount,
   temperatureCount,
   intimacyCount,
@@ -328,5 +329,32 @@ describe("sheetDayContext (#1004)", () => {
     ]);
     expect(ctx.dayOfCycle).toBe(4);
     expect(ctx.periodEndable).toBe(true);
+  });
+});
+
+describe("bbtTextToCelsius — the field reads in the reader's unit", () => {
+  const fromFahrenheit = (f: number) => (f - 32) / 1.8;
+
+  it("stores a typed Fahrenheit reading as Celsius", () => {
+    expect(bbtTextToCelsius("98.2", null, fromFahrenheit)).toBe(36.78);
+  });
+
+  it("returns the stored value for text the sheet seeded, so a save never drifts it", () => {
+    const seed = { text: "98.2", celsius: 36.75 };
+    expect(bbtTextToCelsius("98.2", seed, fromFahrenheit)).toBe(36.75);
+    expect(bbtTextToCelsius("98.4", seed, fromFahrenheit)).toBe(36.89);
+  });
+
+  it("is null for an empty or unreadable field", () => {
+    expect(bbtTextToCelsius("", null, fromFahrenheit)).toBeNull();
+    expect(bbtTextToCelsius("abc", null, fromFahrenheit)).toBeNull();
+  });
+
+  it("feeds the payload through the converter it is given", () => {
+    const patch = buildDayLogPatch({ ...blank(), bbt: "98.2" }, (text) =>
+      bbtTextToCelsius(text, null, fromFahrenheit),
+    );
+    expect(patch.basalBodyTempC).toBe(36.78);
+    expect(patch.temperatureExcluded).toBe(false);
   });
 });

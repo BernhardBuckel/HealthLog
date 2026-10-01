@@ -40,6 +40,7 @@ import {
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { TileHeader } from "@/components/insights/tile-header";
 import { useTranslations, useFormatters } from "@/lib/i18n/context";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
 import { prefersReducedMotion } from "@/lib/charts/reduced-motion";
 import { cn } from "@/lib/utils";
 import type { CalendarDay, CervicalMucus, OvulationTest } from "./types";
@@ -81,6 +82,39 @@ function ymdToMs(d: string): number {
   return Date.parse(`${d}T12:00:00Z`);
 }
 
+/**
+ * The plotted readings of the window, oldest first, each temperature in the
+ * reader's unit (`toDisplay` converts the stored degrees Celsius).
+ */
+export function bbtPoints(args: {
+  days: CalendarDay[];
+  fromDate: string;
+  today: string;
+  rawChartMode: boolean;
+  toDisplay: (celsius: number) => number;
+}): BbtPoint[] {
+  const { days, fromDate, today, rawChartMode, toDisplay } = args;
+  const fromMs = ymdToMs(fromDate);
+  const todayMs = ymdToMs(today);
+  return days
+    .filter((d) => {
+      if (d.basalBodyTempC == null || !Number.isFinite(d.basalBodyTempC)) {
+        return false;
+      }
+      const ms = ymdToMs(d.date);
+      return ms >= fromMs && ms <= todayMs;
+    })
+    .map((d) => ({
+      t: ymdToMs(d.date),
+      temp: toDisplay(d.basalBodyTempC as number),
+      phaseHue:
+        rawChartMode || d.phase == null ? LINE_COLOR : PHASE_HUE[d.phase],
+      mucus: d.cervicalMucus,
+      ovulationTest: d.ovulationTest,
+    }))
+    .sort((a, b) => a.t - b.t);
+}
+
 export function BbtChart({
   days,
   today,
@@ -91,6 +125,9 @@ export function BbtChart({
 }: BbtChartProps) {
   const { t } = useTranslations();
   const fmt = useFormatters();
+  // Stored in °C, read in the reader's unit: every point, the padding and
+  // the empty-state domain go through the same transform.
+  const unitDisplay = useUnitDisplay();
   const animationsEnabled = !prefersReducedMotion();
 
   // Scope to the current cycle using the server's resolved start; fall back to
@@ -101,27 +138,18 @@ export function BbtChart({
     return shiftDateKey(today, -FALLBACK_WINDOW_DAYS);
   }, [cycleStartDate, today]);
 
-  const points = useMemo<BbtPoint[]>(() => {
-    const fromMs = ymdToMs(fromDate);
-    const todayMs = ymdToMs(today);
-    return days
-      .filter((d) => {
-        if (d.basalBodyTempC == null || !Number.isFinite(d.basalBodyTempC)) {
-          return false;
-        }
-        const ms = ymdToMs(d.date);
-        return ms >= fromMs && ms <= todayMs;
-      })
-      .map((d) => ({
-        t: ymdToMs(d.date),
-        temp: d.basalBodyTempC as number,
-        phaseHue:
-          rawChartMode || d.phase == null ? LINE_COLOR : PHASE_HUE[d.phase],
-        mucus: d.cervicalMucus,
-        ovulationTest: d.ovulationTest,
-      }))
-      .sort((a, b) => a.t - b.t);
-  }, [days, fromDate, today, rawChartMode]);
+  const points = useMemo(
+    () =>
+      bbtPoints({
+        days,
+        fromDate,
+        today,
+        rawChartMode,
+        toDisplay: (celsius) =>
+          unitDisplay.toDisplay("BODY_TEMPERATURE", celsius),
+      }),
+    [days, fromDate, today, rawChartMode, unitDisplay],
+  );
 
   const ovulationMs = useMemo(() => {
     if (rawChartMode || !predictedOvulation) return null;
@@ -133,16 +161,23 @@ export function BbtChart({
   }, [predictedOvulation, points, rawChartMode]);
 
   const yDomain = useMemo<[number, number]>(() => {
-    if (points.length === 0) return [36, 37.5];
+    if (points.length === 0) {
+      return [
+        unitDisplay.toDisplay("BODY_TEMPERATURE", 36),
+        unitDisplay.toDisplay("BODY_TEMPERATURE", 37.5),
+      ];
+    }
     const temps = points.map((p) => p.temp);
     const min = Math.min(...temps);
     const max = Math.max(...temps);
-    // Pad ±0.15 °C so the shift is legible and the line never hugs an edge.
+    // Pad by 0.15 °C (in the reader's unit) so the shift is legible and the
+    // line never hugs an edge.
+    const pad = unitDisplay.toDisplayDelta("BODY_TEMPERATURE", 0.15);
     return [
-      Math.floor((min - 0.15) * 10) / 10,
-      Math.ceil((max + 0.15) * 10) / 10,
+      Math.floor((min - pad) * 10) / 10,
+      Math.ceil((max + pad) * 10) / 10,
     ];
-  }, [points]);
+  }, [points, unitDisplay]);
 
   const ticks = useMemo(() => {
     if (points.length < 2) return [];
@@ -279,12 +314,13 @@ function PhaseDot(props: { cx?: number; cy?: number; payload?: BbtPoint }) {
 }
 
 /** Tooltip restating the temperature + any fertility signs logged that day. */
-function BbtTooltip(props: {
+export function BbtTooltip(props: {
   active?: boolean;
   payload?: { payload: BbtPoint }[];
 }) {
   const { t } = useTranslations();
   const fmt = useFormatters();
+  const unitDisplay = useUnitDisplay();
   if (!props.active || !props.payload || props.payload.length === 0)
     return null;
   const p = props.payload[0].payload;
@@ -298,7 +334,10 @@ function BbtTooltip(props: {
         {fmt.dateShortSmart(new Date(p.t))}
       </p>
       <p className="text-foreground font-medium tabular-nums">
-        {t("cycle.bbt.tooltipTemp", { temp: fmt.number(p.temp) })}
+        {t("cycle.bbt.tooltipTemp", {
+          temp: fmt.number(p.temp),
+          unit: unitDisplay.unitFor("BODY_TEMPERATURE"),
+        })}
       </p>
       {p.mucus ? (
         <p className="text-muted-foreground mt-0.5">

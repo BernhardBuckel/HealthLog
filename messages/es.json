@@ -3739,7 +3739,7 @@
     "walkingSpeed": {
       "title": "Velocidad al andar",
       "description": "Tu velocidad media al andar en el tiempo, en km/h.",
-      "chartTitle": "Velocidad al andar (km/h)",
+      "chartTitle": "Velocidad al andar",
       "emptyState": {
         "title": "Aún no hay datos",
         "description": "Las lecturas aparecen aquí cuando Apple Health sincroniza."
@@ -4142,7 +4142,7 @@
     "wristTemperature": {
       "title": "Temperatura de muñeca",
       "description": "Tu temperatura de muñeca durante la noche, comparada con tu valor de referencia.",
-      "chartTitle": "Temperatura de muñeca (°C)",
+      "chartTitle": "Temperatura de muñeca",
       "emptyState": {
         "title": "Aún no hay datos de temperatura de muñeca",
         "description": "Los valores aparecen aquí cuando Apple Health sincroniza el uso nocturno."
@@ -8286,9 +8286,6 @@
         "unitSteps": "pasos",
         "unitBpm": "lpm",
         "unitMs": "ms",
-        "unitKg": "kg",
-        "unitCelsius": "°C",
-        "unitGlucose": "mg/dL",
         "unitMood": "pts",
         "confidenceLow": "Confianza baja",
         "confidenceMedium": "Confianza media",
@@ -8463,7 +8460,6 @@
       "flow": "Flujo",
       "symptoms": "Síntomas",
       "temperature": "Temperatura basal",
-      "temperaturePlaceholder": "°C",
       "temperatureDisturbed": "Marcar la medición como alterada",
       "temperatureDisturbedHint": "Fiebre, enfermedad, alcohol o una medición tardía: se excluye de la evaluación de temperatura.",
       "ovulationTest": "Test de ovulación",
@@ -8555,7 +8551,7 @@
       "empty": "Aún no hay mediciones de temperatura",
       "emptyHint": "Registra tu temperatura basal cada mañana para ver el cambio de temperatura de tu ciclo.",
       "ovulationEstimate": "Ovulación est.",
-      "tooltipTemp": "{temp} °C",
+      "tooltipTemp": "{temp} {unit}",
       "ovulationConfirmed": "Ovulación confirmada"
     },
     "fieldInfo": {

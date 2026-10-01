@@ -7,6 +7,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
+// The BBT chart reads the unit preference through react-query; no
+// QueryClient here, so a fixed metric display stands in.
+vi.mock("@/hooks/use-unit-display", async () => {
+  const { unitDisplayFor } =
+    await import("@/__tests__/helpers/unit-display-mock");
+  return { useUnitDisplay: () => unitDisplayFor("metric") };
+});
+
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));

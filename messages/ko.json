@@ -3739,7 +3739,7 @@
     "walkingSpeed": {
       "title": "보행 속도",
       "description": "시간에 따른 평균 보행 속도예요(km/h).",
-      "chartTitle": "보행 속도(km/h)",
+      "chartTitle": "보행 속도",
       "emptyState": {
         "title": "아직 보행 속도 데이터가 없어요",
         "description": "Apple Health가 동기화되면 보행 속도 측정값이 여기에 나타나요."
@@ -4142,7 +4142,7 @@
     "wristTemperature": {
       "title": "손목 온도",
       "description": "내 기준값과 비교한 밤사이 손목 온도예요.",
-      "chartTitle": "손목 온도 (°C)",
+      "chartTitle": "손목 온도",
       "emptyState": {
         "title": "아직 손목 온도 데이터가 없어요",
         "description": "Apple Health가 밤사이 착용 기록을 동기화하면 손목 온도 측정값이 여기에 표시돼요."
@@ -8286,9 +8286,6 @@
         "unitSteps": "걸음",
         "unitBpm": "bpm",
         "unitMs": "ms",
-        "unitKg": "kg",
-        "unitCelsius": "°C",
-        "unitGlucose": "mg/dL",
         "unitMood": "점",
         "confidenceLow": "신뢰도 낮음",
         "confidenceMedium": "신뢰도 보통",
@@ -8463,7 +8460,6 @@
       "flow": "생리량",
       "symptoms": "증상",
       "temperature": "기초 체온",
-      "temperaturePlaceholder": "°C",
       "temperatureDisturbed": "측정값을 방해받음으로 표시",
       "temperatureDisturbedHint": "발열, 아픈 날, 음주, 늦은 측정 — 체온 평가에서 제외돼요.",
       "ovulationTest": "배란 테스트",
@@ -8555,7 +8551,7 @@
       "empty": "아직 체온 기록이 없어요",
       "emptyHint": "매일 아침 기초 체온을 기록하면 주기의 체온 변화를 볼 수 있어요.",
       "ovulationEstimate": "예상 배란",
-      "tooltipTemp": "{temp}°C",
+      "tooltipTemp": "{temp}{unit}",
       "ovulationConfirmed": "확인된 배란"
     },
     "fieldInfo": {

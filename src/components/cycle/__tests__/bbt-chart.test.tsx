@@ -1,7 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { BbtChart } from "../bbt-chart";
+// `useUnitDisplay` reads the account through react-query; these static
+// renders have no QueryClient, so the hook is a real display for a fixed
+// preference the test sets.
+const reader = vi.hoisted(() => ({
+  preference: "metric" as "metric" | "imperial",
+}));
+vi.mock("@/hooks/use-unit-display", async () => {
+  const { unitDisplayFor } =
+    await import("@/__tests__/helpers/unit-display-mock");
+  return { useUnitDisplay: () => unitDisplayFor(reader.preference) };
+});
+
+import { BbtChart, BbtTooltip, bbtPoints } from "../bbt-chart";
+import { unitDisplayFor } from "@/__tests__/helpers/unit-display-mock";
 import { I18nProvider } from "@/lib/i18n/context";
 import type { CalendarDay } from "../types";
 
@@ -80,5 +93,48 @@ describe("<BbtChart>", () => {
     );
     expect(html).toContain('data-slot="cycle-bbt-chart"');
     expect(html).toContain('data-slot="cycle-bbt-caption"');
+  });
+});
+
+describe("<BbtChart> — the reader's temperature unit", () => {
+  it("plots each reading in °F for an imperial reader", () => {
+    const display = unitDisplayFor("imperial");
+    const points = bbtPoints({
+      days: [
+        day("2026-06-05", { basalBodyTempC: 36.5 }),
+        day("2026-06-09", { basalBodyTempC: 36.9 }),
+      ],
+      fromDate: "2026-06-01",
+      today: "2026-06-10",
+      rawChartMode: false,
+      toDisplay: (c) => display.toDisplay("BODY_TEMPERATURE", c),
+    });
+    expect(points.map((p) => p.temp)).toEqual([97.7, 98.4]);
+  });
+
+  it("labels the tooltip with the reader's unit", () => {
+    reader.preference = "imperial";
+    try {
+      const html = render(
+        <BbtTooltip
+          active
+          payload={[
+            {
+              payload: {
+                t: Date.parse("2026-06-09T12:00:00Z"),
+                temp: 98.4,
+                phaseHue: "red",
+                mucus: null,
+                ovulationTest: null,
+              },
+            },
+          ]}
+        />,
+      );
+      expect(html).toContain("98.4 °F");
+      expect(html).not.toContain("°C");
+    } finally {
+      reader.preference = "metric";
+    }
   });
 });

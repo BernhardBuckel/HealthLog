@@ -3739,7 +3739,7 @@
     "walkingSpeed": {
       "title": "Velocità di cammino",
       "description": "La tua velocità media di cammino nel tempo, in km/h.",
-      "chartTitle": "Velocità di cammino (km/h)",
+      "chartTitle": "Velocità di cammino",
       "emptyState": {
         "title": "Nessun dato",
         "description": "Le letture appaiono qui quando Apple Health si sincronizza."
@@ -4142,7 +4142,7 @@
     "wristTemperature": {
       "title": "Temperatura del polso",
       "description": "La temperatura del polso durante la notte, rispetto al tuo valore di riferimento.",
-      "chartTitle": "Temperatura del polso (°C)",
+      "chartTitle": "Temperatura del polso",
       "emptyState": {
         "title": "Nessun dato sulla temperatura del polso",
         "description": "I valori compaiono qui quando Apple Health sincronizza l'uso notturno."
@@ -8286,9 +8286,6 @@
         "unitSteps": "passi",
         "unitBpm": "bpm",
         "unitMs": "ms",
-        "unitKg": "kg",
-        "unitCelsius": "°C",
-        "unitGlucose": "mg/dL",
         "unitMood": "pts",
         "confidenceLow": "Affidabilità bassa",
         "confidenceMedium": "Affidabilità media",
@@ -8463,7 +8460,6 @@
       "flow": "Flusso",
       "symptoms": "Sintomi",
       "temperature": "Temperatura basale",
-      "temperaturePlaceholder": "°C",
       "temperatureDisturbed": "Segna la misurazione come disturbata",
       "temperatureDisturbedHint": "Febbre, malattia, alcol o una misurazione tardiva: esclusa dalla valutazione della temperatura.",
       "ovulationTest": "Test di ovulazione",
@@ -8555,7 +8551,7 @@
       "empty": "Ancora nessuna misurazione della temperatura",
       "emptyHint": "Registra la temperatura basale ogni mattina per vedere il rialzo termico del tuo ciclo.",
       "ovulationEstimate": "Ovulazione stim.",
-      "tooltipTemp": "{temp} °C",
+      "tooltipTemp": "{temp} {unit}",
       "ovulationConfirmed": "Ovulazione confermata"
     },
     "fieldInfo": {
