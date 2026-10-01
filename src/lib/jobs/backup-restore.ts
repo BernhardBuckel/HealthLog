@@ -811,7 +811,12 @@ export async function enqueueBackupRestoreSweepAtBoot(
     await boss.send(
       BACKUP_RESTORE_QUEUE,
       { sweep: true } satisfies BackupRestorePayload,
-      { startAfter: Math.ceil(BACKUP_RESTORE_STALE_AFTER_MS / 1000) + 15 },
+      {
+        startAfter: Math.ceil(BACKUP_RESTORE_STALE_AFTER_MS / 1000) + 15,
+        // The sweep is short, but it rides a queue whose every send carries
+        // the restore's expiry, so no job on it is cut at the default.
+        expireInSeconds: BACKUP_RESTORE_EXPIRE_SECONDS,
+      },
     );
   } catch {
     // The admission check fails an abandoned job the next time the account

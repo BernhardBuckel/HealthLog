@@ -49,11 +49,23 @@ const SLEEP_SERIES_MAX_DAYS = 365;
  * byte-identical. Sparse kinds (weight, BP, …) are untouched.
  */
 const DENSE_SERIES_RAW_WINDOW_DAYS = 90;
-const DENSE_SERIES_KINDS: ReadonlySet<string> = new Set(["glucose", "pulse"]);
+/**
+ * The kinds a device can write at sampling rate. Heart-rate variability and
+ * blood oxygen joined pulse and glucose once watches and rings began writing
+ * them every few minutes overnight: their 3650-day "Alle" range read every
+ * raw row, which is the read this rule exists to stop.
+ */
+const DENSE_SERIES_KINDS: ReadonlySet<string> = new Set([
+  "glucose",
+  "pulse",
+  "heartRateVariability",
+  "oxygenSaturation",
+]);
 
 /**
- * #1023 — inside the raw window, a pulse or glucose series with more rows
- * than this is bucketed per local hour in SQL instead of sent raw.
+ * #1023 — inside the raw window, a dense-kind series (pulse, glucose, HRV,
+ * blood oxygen) with more rows than this is bucketed per local hour in SQL
+ * instead of sent raw.
  *
  * A watch that records heart rate once a minute puts 43 000 rows in the
  * default 30-day window and 130 000 in 90 days: a 15 MB response the client
@@ -381,7 +393,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
         },
       })) > DENSE_SERIES_RAW_ROW_CAP)
   ) {
-    // Day buckets past the raw window; hour buckets for a pulse or CGM
+    // Day buckets past the raw window; hour buckets for a dense-kind
     // stream too dense to send raw inside it.
     const grain = days > DENSE_SERIES_RAW_WINDOW_DAYS ? "day" : "hour";
     // v1.28.25 — long-window read of a sample-dense kind (CGM glucose,
@@ -489,17 +501,19 @@ export const GET = apiHandler(async (request: NextRequest) => {
         };
       }
     } else {
-      // pulse — `value` is the bucket's average; valueMin/valueMax carry the
-      // bucket's low/high band (folding each hourly import bucket's own
+      // `value` is the bucket's average. For pulse, valueMin/valueMax carry
+      // the bucket's low/high band (folding each hourly import bucket's own
       // spread via the COALESCE above), same band semantics as the per-hour
-      // shape.
+      // shape. The other dense kinds keep the bare point shape their raw rows
+      // have, so a client reads a bucket the way it reads a reading.
       points = bucketRows.map((r) => ({
         id: dayId(r.bucket_start),
         at: r.bucket_start.toISOString(),
         value: round2(r.mean),
         secondary: null,
-        valueMin: r.min_value,
-        valueMax: r.max_value,
+        ...(kind === "pulse"
+          ? { valueMin: r.min_value, valueMax: r.max_value }
+          : {}),
       }));
       if (
         rawAgg !== undefined &&

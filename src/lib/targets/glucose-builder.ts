@@ -4,8 +4,9 @@ import {
   type GlucoseContextBucket,
 } from "@/lib/glucose";
 import { resolveGlucoseTarget } from "./glucose-targets";
-import { makeRangeClassifier, rollupConsistency } from "./consistency";
-import type { TargetGlucoseRow, TargetItem, TargetProfile } from "./types";
+import { makeRangeClassifier, rollupConsistencyFromDays } from "./consistency";
+import type { TargetGlucoseContextSummary } from "./glucose-read";
+import type { TargetItem, TargetProfile } from "./types";
 
 const LABEL_BY_CONTEXT: Record<GlucoseContextBucket, string> = {
   FASTING: "targets.glucoseFasting",
@@ -16,38 +17,53 @@ const LABEL_BY_CONTEXT: Record<GlucoseContextBucket, string> = {
 };
 
 interface GlucoseTargetsInput {
-  rows: TargetGlucoseRow[];
+  /**
+   * One summary per stored meal context: the newest reading of the year and
+   * the last thirty days per local day (`readGlucoseTargetSummaries`).
+   */
+  summaries: TargetGlucoseContextSummary[];
   profile: TargetProfile;
   timezone: string;
   now: Date;
 }
 
 export function buildGlucoseTargets({
-  rows,
+  summaries,
   profile,
   timezone,
   now,
 }: GlucoseTargetsInput): TargetItem[] {
   const targets: TargetItem[] = [];
   const unit = resolveGlucoseUnit(profile.glucoseUnit);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   // #943 — the untagged bucket rides the same loop. Iterating the four named
   // contexts alone left an account whose source writes no meal-time tag with
   // no glucose target at all, the same gap the dashboard tile had.
-  for (const [context, contextRows] of groupByGlucoseContext(
-    rows,
-    (row) => row.glucoseContext,
+  for (const [context, contextSummaries] of groupByGlucoseContext(
+    summaries,
+    (summary) => summary.glucoseContext,
   )) {
-    const latest = contextRows[0].value;
-    const recent = contextRows.filter((row) => row.measuredAt >= thirtyDaysAgo);
+    // A bucket is one stored context today; folding several keeps the newest
+    // reading and adds the days up, should two ever share a bucket.
+    const newest = contextSummaries.reduce((a, b) =>
+      b.latestAt > a.latestAt ? b : a,
+    );
+    const latest = newest.latest;
+    const recentByDay = new Map<string, { sum: number; count: number }>();
+    let recentCount = 0;
+    let recentSum = 0;
+    for (const summary of contextSummaries) {
+      recentCount += summary.recentCount;
+      for (const [day, bucket] of summary.recentByDay) {
+        const current = recentByDay.get(day) ?? { sum: 0, count: 0 };
+        current.sum += bucket.sum;
+        current.count += bucket.count;
+        recentByDay.set(day, current);
+        recentSum += bucket.sum;
+      }
+    }
     const average30 =
-      recent.length > 0
-        ? Math.round(
-            (recent.reduce((sum, row) => sum + row.value, 0) / recent.length) *
-              10,
-          ) / 10
-        : null;
+      recentCount > 0 ? Math.round((recentSum / recentCount) * 10) / 10 : null;
     const resolved = resolveGlucoseTarget({
       context,
       hasDiabetes: profile.hasDiabetes,
@@ -97,11 +113,9 @@ export function buildGlucoseTargets({
           : resolved.source === "ADA goal (diabetes)"
             ? "ADA goal (diabetes)"
             : "ADA 2024 / DDG",
-      ...rollupConsistency({
-        events: recent.map((row) => ({
-          measuredAt: row.measuredAt,
-          value: row.value,
-        })),
+      ...rollupConsistencyFromDays({
+        byDay: recentByDay,
+        readingCount: recentCount,
         classify: makeRangeClassifier(
           range,
           effectiveRange

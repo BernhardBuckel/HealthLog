@@ -64,6 +64,14 @@ export const CONTENT_INDEX_BACKFILL_CONCURRENCY = 1;
 /** Discovery page size (id-only; blobs are loaded one at a time). */
 const PAGE_SIZE = 50;
 
+/**
+ * The job's expiry: three hours. One job transcribes up to 200 documents with
+ * a provider call each, which outlasted pg-boss's fifteen-minute default and
+ * was retried beside itself. The run stops at three quarters of this
+ * (`jobBudget`) and holds a lock per account (`lockedPass`).
+ */
+export const CONTENT_INDEX_BACKFILL_EXPIRE_SECONDS = 3 * 60 * 60;
+
 /** Max documents one job indexes before yielding (bounds spend + runtime). */
 const MAX_DOCS_PER_RUN = 200;
 
@@ -97,6 +105,11 @@ export interface ContentIndexBackfillSummary {
   failed: number;
   reason:
     "ok" | "no-provider" | "no-consent" | "budget-reached" | "unavailable";
+  /**
+   * The job's time budget ran out before the walk did. The documents not
+   * reached stay un-indexed for the next run.
+   */
+  stoppedEarly?: boolean;
 }
 
 /**
@@ -158,6 +171,11 @@ async function retokeniseStaleRows(
  */
 export async function runContentIndexBackfillForUser(
   userId: string,
+  /**
+   * The job's time budget (`jobBudget`), checked before each document: up to
+   * 200 transcriptions, one provider call each, can outlast the job.
+   */
+  shouldStop: () => boolean = () => false,
 ): Promise<ContentIndexBackfillSummary> {
   // Stale-tokeniser rows first: local work that owes nothing to the
   // provider, consent, or budget gates below, so a user without a usable
@@ -222,6 +240,7 @@ export async function runContentIndexBackfillForUser(
   let failed = stale.failed;
   let reason: ContentIndexBackfillSummary["reason"] = "ok";
   let cursor: string | null = null;
+  let stoppedEarly = false;
 
   outer: for (;;) {
     if (indexed >= MAX_DOCS_PER_RUN) break;
@@ -244,6 +263,10 @@ export async function runContentIndexBackfillForUser(
 
     for (const { id } of rows) {
       if (indexed >= MAX_DOCS_PER_RUN) break outer;
+      if (shouldStop()) {
+        stoppedEarly = true;
+        break outer;
+      }
 
       const dateKey = buildDateKey();
       const reservation = await reserveBudget(
@@ -325,9 +348,23 @@ export async function runContentIndexBackfillForUser(
 
   annotate({
     action: { name: "documents.contentIndex.backfill" },
-    meta: { indexed, retokenised: stale.retokenised, skipped, failed, reason },
+    meta: {
+      indexed,
+      retokenised: stale.retokenised,
+      skipped,
+      failed,
+      reason,
+      stopped_early: stoppedEarly,
+    },
   });
-  return { indexed, retokenised: stale.retokenised, skipped, failed, reason };
+  return {
+    indexed,
+    retokenised: stale.retokenised,
+    skipped,
+    failed,
+    reason,
+    ...(stoppedEarly ? { stoppedEarly } : {}),
+  };
 }
 
 /**
@@ -344,6 +381,7 @@ export async function enqueueContentIndexBackfill(
     enqueuedAt: new Date().toISOString(),
   };
   const jobId = await boss.send(CONTENT_INDEX_BACKFILL_QUEUE, payload, {
+    expireInSeconds: CONTENT_INDEX_BACKFILL_EXPIRE_SECONDS,
     retryLimit: 3,
     retryDelay: 60,
     retryBackoff: true,
