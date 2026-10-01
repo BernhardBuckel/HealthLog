@@ -109,11 +109,13 @@ export const GET = apiHandler(async () => {
       // Bearer scope. All sourced from the canonical `rest.ts` constants.
       restBaseUrl: "/api/fhir",
       // The face checks a narrow `fhir:read` scope, and NO code path mints a
-      // token carrying it — every mint grants a wildcard, the medication
-      // ingest scope, or an MCP scope. So the face is reachable by the owner's
-      // cookie session or a wildcard device token, and by nothing else. It is
-      // reported that way rather than advertising a credential a client cannot
-      // obtain.
+      // token carrying it — every mint grants a wildcard (login, passkey,
+      // refresh), the per-medication ingest pair (`medication:ingest` +
+      // `medication:<id>:ingest`), `measurements:write`, `workouts:write`,
+      // `documents:write`, or an MCP scope (`health:read`, `health:write`).
+      // So the face is reachable by the owner's cookie session or a wildcard
+      // device token, and by nothing else. It is reported that way rather than advertising a credential a
+      // client cannot obtain.
       scopeMintable: false,
       resourceTypes: FHIR_REST_RESOURCE_TYPES,
       operations: [FHIR_EVERYTHING_OPERATION],

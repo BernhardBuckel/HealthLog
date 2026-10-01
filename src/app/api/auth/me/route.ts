@@ -346,11 +346,12 @@ export const GET = apiHandler(async () => {
     // defaults rather than to `undefined`, so the switch is what renders.
     // No extra query — the session already loads the row this column is on.
     notificationPrefs: parseNotificationPrefs(user.notificationPrefs ?? null),
-    // v1.4.47 W3 — per-user Coach opt-out. Default `false` if the
-    // column is absent (partial-deploy rollback safety, see migration
-    // 0078 commentary). Every Coach mount point on the client checks
-    // `user.disableCoach` BELOW the operator-level `flags.coach`
-    // short-circuit; both gates must agree to paint the affordance.
+    // v1.4.47 W3 — the caller's own stored Coach opt-out, published for the
+    // switch that edits it. Default `false` if the column is absent
+    // (partial-deploy rollback safety, see migration 0078 commentary). It is
+    // not a gate: whether the Coach shows for the record on screen is the
+    // resolved `ai.capabilities.coach` and `modules.coach` below, which fold
+    // in the record's own opt-out, the operator's switches and the grant.
     disableCoach: user.disableCoach ?? false,
     // v1.7.0 — health-record export identity fields. All optional.
     fullName: user.fullName ?? null,

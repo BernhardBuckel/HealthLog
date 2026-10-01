@@ -2,7 +2,9 @@
  * MCP connector tokens — list + mint.
  *
  * The MCP settings card mints a DEDICATED `health:read`-scoped Bearer here (NOT
- * the `medication:ingest` scope the generic `/api/tokens` mints, and NEVER the
+ * one of the write scopes the other token surfaces mint — the per-medication
+ * ingest pair `medication:ingest` + `medication:<id>:ingest`,
+ * `measurements:write`, `workouts:write`, `documents:write` — and NEVER the
  * `["*"]` wildcard). The raw `hlk_` value is shown once. This is the manual /
  * stdio / power-user path; the OAuth bridge (`/api/mcp/oauth/*`) mints the same
  * `health:read` scope automatically for cloud connectors. Both surface here so

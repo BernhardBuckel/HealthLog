@@ -144,13 +144,14 @@ export interface AuthUser {
    */
   dateFormat: DateFormatPreference;
   /**
-   * v1.4.47 W3 — per-user Coach opt-out. When `true`, every Coach
-   * mount point (`<LayoutCoachFab>`, `<LayoutCoachMount>`, the
-   * inline `<CoachLaunchButton>` pill, the `/targets` page CTA)
-   * renders nothing. The gate sits BELOW the operator-level
-   * `flags.coach` short-circuit — both must agree to render the
-   * affordance. Defaults to `false` when the field is absent (e.g.
-   * stale /me payload from a partial-deploy rollback).
+   * v1.4.47 W3 — the signed-in person's own stored Coach opt-out. It is
+   * the value the Activate-Coach switch and the module toggle edit, and
+   * nothing else should read it: it belongs to the account, not to the
+   * record on screen, and it is only one of the layers that decide whether
+   * the Coach is there. Every Coach surface gates on the resolved answers
+   * instead — `ai.capabilities.coach` (`useAiCapability("coach")`) for
+   * the affordances, `modules.coach` for the Coach's settings and tuning.
+   * Defaults to `false` when the field is absent (a stale /me payload).
    */
   disableCoach: boolean;
   /**
