@@ -63012,6 +63012,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OcrExtractedRow"
+        pageCoverage:
+          description: "Present only when a PDF ran past the pages a scan reads: the rows come from the first `read` of `total`
+            pages. Absent when the whole document was read."
+          type: object
+          properties:
+            read:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            total:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+          required:
+            - read
+            - total
+          additionalProperties: false
       required:
         - reportDate
         - providerType

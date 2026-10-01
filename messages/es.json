@@ -8992,6 +8992,7 @@
       "reviewTitle": "Revisar antes de guardar",
       "reviewHint": "Revisa cada valor y guarda los que quieras conservar.",
       "foundCount": "{count} valores encontrados",
+      "pagesCapped": "Solo se leyeron las primeras {read} de {total} páginas. Los valores de las páginas siguientes no están en esta lista.",
       "confirmRow": "Incluir este valor",
       "analyteLabel": "Nombre de la prueba",
       "resultLabel": "Resultado",

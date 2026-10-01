@@ -8992,6 +8992,7 @@
       "reviewTitle": "Sprawdź przed zapisaniem",
       "reviewHint": "Sprawdź każdy wynik, a następnie zapisz te, które chcesz zachować.",
       "foundCount": "Znaleziono {count} wyników",
+      "pagesCapped": "Odczytano tylko pierwsze {read} z {total} stron. Wartości z dalszych stron nie ma na tej liście.",
       "confirmRow": "Uwzględnij ten wynik",
       "analyteLabel": "Nazwa badania",
       "resultLabel": "Wynik",

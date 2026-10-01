@@ -8992,6 +8992,7 @@
       "reviewTitle": "Vérifier avant d'enregistrer",
       "reviewHint": "Vérifiez chaque valeur, puis enregistrez celles à conserver.",
       "foundCount": "{count} valeurs trouvées",
+      "pagesCapped": "Seules les {read} premières pages sur {total} ont été lues. Les valeurs des pages suivantes ne figurent pas dans cette liste.",
       "confirmRow": "Inclure cette valeur",
       "analyteLabel": "Nom de l'analyse",
       "resultLabel": "Résultat",

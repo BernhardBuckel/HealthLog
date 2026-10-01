@@ -138,6 +138,11 @@ export function OcrReviewDialog({
   // because the person has not filled it in yet. Once shown they follow the
   // edits, so fixing a field clears its mark at once.
   const [showErrors, setShowErrors] = useState(false);
+  // Set when the server read only the first pages of a long PDF.
+  const [pageCoverage, setPageCoverage] = useState<{
+    read: number;
+    total: number;
+  } | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
   const reviewListRef = useRef<HTMLDivElement>(null);
 
@@ -184,6 +189,7 @@ export function OcrReviewDialog({
   function reset() {
     setStage("pick");
     setShowErrors(false);
+    setPageCoverage(null);
     setRows([]);
     setPickedFile(null);
     setVisitId(null);
@@ -207,6 +213,7 @@ export function OcrReviewDialog({
           return;
         }
         setRows(seeded);
+        setPageCoverage(data.pageCoverage ?? null);
         setStage("review");
       },
       onError: (err) => toast.error(extractErrorMessage(err, t)),
@@ -353,6 +360,8 @@ export function OcrReviewDialog({
             {t("labs.ocr.foundCount", { count: rows.length })}
           </p>
 
+          <OcrPageCoverageNote coverage={pageCoverage} />
+
           {showErrors && rowErrors.size > 0 ? (
             <p
               role="alert"
@@ -387,5 +396,28 @@ export function OcrReviewDialog({
         </div>
       )}
     </ResponsiveSheet>
+  );
+}
+
+/**
+ * The server read only the first pages of a long PDF (`pageCoverage` on the
+ * extract response). Said on the review screen, beside the rows, because the
+ * person checking the list is the one who would otherwise assume the whole
+ * report was read. Renders nothing when the whole document was read.
+ */
+export function OcrPageCoverageNote({
+  coverage,
+}: {
+  coverage: { read: number; total: number } | null;
+}) {
+  const { t } = useTranslations();
+  if (!coverage) return null;
+  return (
+    <p data-slot="ocr-page-coverage" className="text-warning text-sm">
+      {t("labs.ocr.pagesCapped", {
+        read: coverage.read,
+        total: coverage.total,
+      })}
+    </p>
   );
 }

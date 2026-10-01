@@ -90,6 +90,9 @@ describe("rasterizePdf", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.images).toHaveLength(RASTER_MAX_PAGES);
+    // The page count travels with the result, so a caller can say the
+    // reading stopped short.
+    expect(result.pageCount).toBe(RASTER_MAX_PAGES + 4);
   });
 
   it("honours a caller maxPages bound (thumbnail path renders page 1 only)", async () => {

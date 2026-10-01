@@ -8992,6 +8992,7 @@
       "reviewTitle": "Vor dem Speichern prüfen",
       "reviewHint": "Prüfe jeden Wert und speichere die gewünschten Einträge.",
       "foundCount": "{count} Werte gefunden",
+      "pagesCapped": "Nur die ersten {read} von {total} Seiten wurden gelesen. Werte auf späteren Seiten fehlen in dieser Liste.",
       "confirmRow": "Diesen Wert übernehmen",
       "analyteLabel": "Bezeichnung",
       "resultLabel": "Ergebnis",

@@ -8992,6 +8992,7 @@
       "reviewTitle": "Review before saving",
       "reviewHint": "Check each reading, then save the ones you want to keep.",
       "foundCount": "{count} readings found",
+      "pagesCapped": "Only the first {read} of {total} pages were read. Values on later pages are not in this list.",
       "confirmRow": "Include this reading",
       "analyteLabel": "Test name",
       "resultLabel": "Result",

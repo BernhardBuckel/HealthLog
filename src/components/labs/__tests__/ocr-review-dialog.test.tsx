@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api/api-fetch";
 import {
   extractErrorMessage,
   handleFilePickerChange,
+  OcrPageCoverageNote,
   OcrReviewDialog,
 } from "../ocr-review-dialog";
 
@@ -199,5 +200,26 @@ describe("extractErrorMessage", () => {
     expect(extractErrorMessage(new ApiError("forbidden", 403), t)).toBe(
       "labs.ocr.extractFailed",
     );
+  });
+});
+
+describe("<OcrPageCoverageNote> — a long PDF read from its first pages", () => {
+  it("says how many of the pages were read", () => {
+    const html = renderToStaticMarkup(
+      <I18nProvider initialLocale="en">
+        <OcrPageCoverageNote coverage={{ read: 10, total: 23 }} />
+      </I18nProvider>,
+    );
+    expect(html).toContain('data-slot="ocr-page-coverage"');
+    expect(html).toContain("Only the first 10 of 23 pages were read.");
+  });
+
+  it("renders nothing when the whole document was read", () => {
+    const html = renderToStaticMarkup(
+      <I18nProvider initialLocale="en">
+        <OcrPageCoverageNote coverage={null} />
+      </I18nProvider>,
+    );
+    expect(html).toBe("");
   });
 });

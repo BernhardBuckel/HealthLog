@@ -8992,6 +8992,7 @@
       "reviewTitle": "Controlla prima di salvare",
       "reviewHint": "Controlla ogni valore, poi salva quelli da conservare.",
       "foundCount": "{count} valori trovati",
+      "pagesCapped": "Sono state lette solo le prime {read} pagine su {total}. I valori delle pagine successive non sono in questo elenco.",
       "confirmRow": "Includi questo valore",
       "analyteLabel": "Nome dell'esame",
       "resultLabel": "Risultato",

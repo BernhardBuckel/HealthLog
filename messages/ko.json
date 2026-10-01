@@ -8992,6 +8992,7 @@
       "reviewTitle": "저장 전에 확인하기",
       "reviewHint": "측정값을 하나씩 확인하고, 남길 항목만 저장하세요.",
       "foundCount": "측정값 {count}개를 찾았어요",
+      "pagesCapped": "전체 {total}쪽 중 처음 {read}쪽만 읽었습니다. 이후 쪽의 값은 이 목록에 없습니다.",
       "confirmRow": "이 측정값 포함",
       "analyteLabel": "검사 항목",
       "resultLabel": "결과",
