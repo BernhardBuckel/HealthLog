@@ -19,6 +19,15 @@ import { annotate } from "@/lib/logging/context";
 
 export const INSIGHT_PREGENERATE_QUEUE = "insight-pregenerate";
 
+/**
+ * The job's expiry: three hours. The scheduled pass walks up to 200 accounts
+ * with a comprehensive generation each, which can outlast pg-boss's fifteen
+ * minute default; past it pg-boss retried the job beside the pass still
+ * running. The pass now stops itself at three quarters of this (`jobBudget`)
+ * and holds a lock (`lockedPass`), and every send and the schedule carry it.
+ */
+export const INSIGHT_PREGENERATE_EXPIRE_SECONDS = 3 * 60 * 60;
+
 export interface InsightPregeneratePayload {
   /** Set on the nightly scheduled tick (informational; the handler keys
    * its batch behaviour off the ABSENCE of `userId`/`force`). */
@@ -73,6 +82,7 @@ export async function enqueueForceWarm(payload: {
       } satisfies InsightPregeneratePayload,
       {
         singletonKey: `force:${payload.userId}`,
+        expireInSeconds: INSIGHT_PREGENERATE_EXPIRE_SECONDS,
         // De-dupe within a 6-minute window. v1.16.8 — widened from 120 s:
         // the client's revalidation poll runs up to ~250 s after a stale
         // page-open, so a 2-minute singleton let the tail of one poll
@@ -148,6 +158,7 @@ export async function enqueuePregenerateFailureRetry(payload: {
         // warm can never swallow the scheduled retry (and vice versa);
         // one retry per user per window.
         singletonKey: `retry:${payload.userId}`,
+        expireInSeconds: INSIGHT_PREGENERATE_EXPIRE_SECONDS,
         singletonSeconds: 3600,
         // A worker crash mid-warm re-runs the job; a warm that completes
         // with a failed comprehensive does NOT throw, so this cannot loop.

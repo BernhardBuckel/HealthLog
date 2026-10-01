@@ -43,12 +43,13 @@ function last7DayKeys(now: Date, timezone: string): string[] {
   return keys;
 }
 
-function computeStrip(
+/** A day's readings folded to their sum and count, keyed by local day. */
+export type DaySums = ReadonlyMap<string, { sum: number; count: number }>;
+
+function sumByDay(
   events: ReadonlyArray<{ measuredAt: Date; value: number }>,
-  classify: (mean: number) => DayBand | null,
   timezone: string,
-  now: Date,
-) {
+): Map<string, { sum: number; count: number }> {
   const byDay = new Map<string, { sum: number; count: number }>();
   for (const event of events) {
     const key = userDayKey(event.measuredAt, timezone);
@@ -57,7 +58,15 @@ function computeStrip(
     bucket.count += 1;
     byDay.set(key, bucket);
   }
+  return byDay;
+}
 
+function computeStrip(
+  byDay: DaySums,
+  classify: (mean: number) => DayBand | null,
+  timezone: string,
+  now: Date,
+) {
   const consistency7d: Array<DayBand | null> = [];
   let daysInRange7d = 0;
   let daysLogged7d = 0;
@@ -77,13 +86,40 @@ function computeStrip(
 
 export function rollupConsistency({
   events,
+  ...rest
+}: RollupConsistencyInput): TargetConsistency {
+  return rollupConsistencyFromDays({
+    ...rest,
+    byDay: sumByDay(events, rest.timezone),
+    readingCount: events.length,
+  });
+}
+
+interface RollupDaySumsInput extends ConsistencyClock {
+  /** Each local day's readings as sum and count. */
+  byDay: DaySums;
+  /** Readings behind `byDay`, for the thin-data threshold. */
+  readingCount: number;
+  classify: (mean: number) => DayBand | null;
+  totalReadingsThreshold?: number;
+}
+
+/**
+ * The same consistency as {@link rollupConsistency}, from readings already
+ * folded per local day. Every figure here is a function of each day's mean
+ * and of the reading count, so a reader that folds in SQL hands over one row
+ * per day instead of every reading and gets the same answer.
+ */
+export function rollupConsistencyFromDays({
+  byDay,
+  readingCount,
   classify,
   timezone,
   now,
   totalReadingsThreshold = 3,
-}: RollupConsistencyInput): TargetConsistency {
-  if (events.length < totalReadingsThreshold) {
-    const partial = computeStrip(events, classify, timezone, now);
+}: RollupDaySumsInput): TargetConsistency {
+  if (readingCount < totalReadingsThreshold) {
+    const partial = computeStrip(byDay, classify, timezone, now);
     return {
       ...EMPTY_CONSISTENCY,
       ...partial,
@@ -91,15 +127,7 @@ export function rollupConsistency({
     };
   }
 
-  const byDay = new Map<string, { sum: number; count: number }>();
-  for (const event of events) {
-    const key = userDayKey(event.measuredAt, timezone);
-    const bucket = byDay.get(key) ?? { sum: 0, count: 0 };
-    bucket.sum += event.value;
-    bucket.count += 1;
-    byDay.set(key, bucket);
-  }
-  const strip = computeStrip(events, classify, timezone, now);
+  const strip = computeStrip(byDay, classify, timezone, now);
 
   let daysInRange30d = 0;
   let daysLogged30d = 0;
@@ -136,7 +164,7 @@ export function rollupConsistency({
     lastMetGoalAt,
     streakDays,
     insufficientData:
-      events.length < totalReadingsThreshold || strip.daysLogged7d < 1,
+      readingCount < totalReadingsThreshold || strip.daysLogged7d < 1,
     consistency7d: strip.consistency7d,
   };
 }

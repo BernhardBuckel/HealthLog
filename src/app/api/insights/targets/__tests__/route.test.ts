@@ -30,6 +30,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
+// The glucose and heart-rate streams fold in SQL; this file pins the route's
+// composition over Prisma mocks, so both readers are mocked at the module.
+vi.mock("@/lib/targets/glucose-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/targets/glucose-read")>()),
+  readGlucoseTargetSummaries: vi.fn(),
+}));
+vi.mock("@/lib/analytics/resting-pulse-read", () => ({
+  readRestingPulseProxy: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     user: { findUnique: vi.fn() },
@@ -84,6 +94,11 @@ import { GET } from "../route";
 import { getSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { __resetAllCachesForTests } from "@/lib/cache/server-cache";
+import {
+  foldGlucoseTargetRows,
+  readGlucoseTargetSummaries,
+} from "@/lib/targets/glucose-read";
+import { readRestingPulseProxy } from "@/lib/analytics/resting-pulse-read";
 
 const SESSION_USER = {
   id: "user-targets-1",
@@ -153,6 +168,8 @@ beforeEach(() => {
   // v1.28.25 — the latest-ever-per-type read is a raw `DISTINCT ON`
   // (Prisma's `distinct` dedups client-side after pulling every row).
   (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  vi.mocked(readGlucoseTargetSummaries).mockResolvedValue([]);
+  vi.mocked(readRestingPulseProxy).mockResolvedValue([]);
 });
 
 describe("GET /api/insights/targets — mood-rollup tier swap", () => {
@@ -338,16 +355,26 @@ describe("GET /api/insights/targets — mood-rollup tier swap", () => {
   it("bounds the glucose read with the same one-year floor (v1.16.8)", async () => {
     // The glucose section used to scan the user's entire BLOOD_GLUCOSE
     // history on every cold build (no `measuredAt` filter at all) just
-    // to read the latest value per context. The read now carries the
-    // same 365-day floor as the latest-ever-per-type query.
+    // to read the latest value per context. It now folds in SQL, newest
+    // per context over a year and per day over thirty days, and no glucose
+    // or heart-rate reading is read as a row.
     await callGet(makeReq());
 
     const calls = (
       prisma.measurement.findMany as ReturnType<typeof vi.fn>
     ).mock.calls.map((c) => c[0]);
-    const glucoseCall = calls.find((c) => c?.where?.type === "BLOOD_GLUCOSE");
-    expect(glucoseCall).toBeDefined();
-    expect(glucoseCall?.where?.measuredAt?.gte).toBeInstanceOf(Date);
+    expect(
+      calls.find((c) => c?.where?.type === "BLOOD_GLUCOSE"),
+    ).toBeUndefined();
+    expect(
+      calls.filter((c) => c?.where?.type?.in?.includes?.("PULSE")),
+    ).toEqual([]);
+    const [args] = vi.mocked(readGlucoseTargetSummaries).mock.calls[0];
+    const day = 86_400_000;
+    expect(Date.now() - args.since.getTime()).toBeGreaterThan(364 * day);
+    expect(Date.now() - args.since.getTime()).toBeLessThan(366 * day);
+    expect(Date.now() - args.recentSince.getTime()).toBeGreaterThan(29 * day);
+    expect(Date.now() - args.recentSince.getTime()).toBeLessThan(31 * day);
   });
 
   it("pins the complete ordered public response for representative populated data", async () => {
@@ -408,9 +435,19 @@ describe("GET /api/insights/targets — mood-rollup tier swap", () => {
       ).mockImplementation(
         async (args: { where?: { type?: string | { in: string[] } } }) => {
           if (args.where?.type === "SLEEP_DURATION") return sleepRows;
-          if (args.where?.type === "BLOOD_GLUCOSE") return glucoseRows;
           return genericRows;
         },
+      );
+      vi.mocked(readGlucoseTargetSummaries).mockImplementation(
+        async ({ recentSince, timeZone }) =>
+          foldGlucoseTargetRows(
+            glucoseRows.map((row) => ({
+              ...row,
+              glucoseContext: row.glucoseContext as "FASTING",
+            })),
+            recentSince,
+            timeZone,
+          ),
       );
       (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mockResolvedValue([
         { type: "WEIGHT", value: 70 },

@@ -1,16 +1,17 @@
 /**
- * The per-local-day pre-aggregation for the two sample-dense measurement
- * types.
+ * The per-local-day pre-aggregation for the sample-dense measurement types.
  *
  * On a long window a CGM or a per-sample heart-rate account produces six
- * figures of rows, so pulse and glucose collapse to one row per local
- * day/source/device/context in SQL and the canonical-source picker then works
- * over that bounded intermediate set. Every other type keeps the raw-row path.
+ * figures of rows, so the dense types (glucose, pulse, heart-rate variability,
+ * blood oxygen) collapse to one row per local day/source/device/context in
+ * SQL and the canonical-source picker then works over that bounded
+ * intermediate set. Every other type keeps the raw-row path.
  *
  * Extracted from the aggregator with the selection rework: the query is a job
  * of its own, it is the one raw-SQL surface on this path, and keeping it in a
  * thousand-line function is how a parameter stops being reviewed.
  */
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type {
   GlucoseContext,
@@ -46,8 +47,8 @@ export interface DenseMeasurementBucket {
 }
 
 /**
- * Load the dense buckets for whichever of the two types the caller wants. Both
- * flags false is not a call: the caller skips it entirely.
+ * Load the dense buckets for the types the caller names. An empty list is not
+ * a call: nothing is read.
  *
  * Every value is bound as a tagged-template parameter — no splice, no
  * interpolation of anything that came off the wire.
@@ -57,11 +58,13 @@ export async function loadDenseMeasurementBuckets(params: {
   start: Date;
   end: Date;
   reportTz: string;
-  densePulse: boolean;
-  denseGlucose: boolean;
+  denseTypes: readonly MeasurementType[];
 }): Promise<DenseMeasurementBucket[]> {
-  const { userId, start, end, reportTz, densePulse, denseGlucose } = params;
-  if (!densePulse && !denseGlucose) return [];
+  const { userId, start, end, reportTz, denseTypes } = params;
+  if (denseTypes.length === 0) return [];
+  const typeList = Prisma.join(
+    denseTypes.map((type) => Prisma.sql`${type}::"measurement_type"`),
+  );
   return prisma.$queryRaw<DenseMeasurementBucket[]>`
         WITH localized AS (
           SELECT
@@ -81,11 +84,7 @@ export async function loadDenseMeasurementBuckets(params: {
             AND m."measured_at" >= ${start}
             AND m."measured_at" <= ${end}
             AND m."deleted_at" IS NULL
-            AND (
-              (${densePulse} AND m."type" = 'PULSE'::"measurement_type")
-              OR
-              (${denseGlucose} AND m."type" = 'BLOOD_GLUCOSE'::"measurement_type")
-            )
+            AND m."type" IN (${typeList})
         ),
         scored AS (
           SELECT

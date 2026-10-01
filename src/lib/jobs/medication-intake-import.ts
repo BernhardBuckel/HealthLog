@@ -4,7 +4,8 @@ import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import { invalidateUserMedications } from "@/lib/cache/invalidate";
 import { auditLog } from "@/lib/auth/audit";
 import { prisma, toJson } from "@/lib/db";
-import { jobDone, type JobOutcome } from "@/lib/jobs/job-outcome";
+import { jobDone, jobFailed, type JobOutcome } from "@/lib/jobs/job-outcome";
+import { jobBudget } from "@/lib/jobs/job-budget";
 import { consumeImportedIntakesBatch } from "@/lib/medications/inventory/consumption";
 import { queueMedicationIntakeSync } from "@/lib/notifications/medication-intake-sync";
 import {
@@ -825,13 +826,25 @@ async function processNextChunk(
   );
 }
 
-export async function processMedicationIntakeImportJob(
+/**
+ * Work the import chunk by chunk until it is finished. `shouldStop` is the
+ * job's time budget: between chunks, once it is spent, the run returns
+ * `"stopped"` and leaves the job row as it is. Every chunk commits its own
+ * progress under the row lock, so the retry that follows picks up at the next
+ * chunk, and a second delivery running beside this one waits on that lock and
+ * continues from the progress this one wrote.
+ */
+async function workMedicationIntakeImport(
   jobId: string,
-): Promise<MedicationImportResult | null> {
+  shouldStop: () => boolean,
+): Promise<MedicationImportResult | null | "stopped"> {
   const client = getWorkerPrisma();
   for (;;) {
     const outcome = await processNextChunk(client, jobId);
-    if (!outcome.terminal) continue;
+    if (!outcome.terminal) {
+      if (shouldStop()) return "stopped";
+      continue;
+    }
     if (outcome.finalized && outcome.userId && outcome.result) {
       if (outcome.result.imported > 0) {
         invalidateUserMedications(outcome.userId, { evict: true });
@@ -841,6 +854,14 @@ export async function processMedicationIntakeImportJob(
     }
     return null;
   }
+}
+
+/** The whole import in one go, with no time budget. */
+export async function processMedicationIntakeImportJob(
+  jobId: string,
+): Promise<MedicationImportResult | null> {
+  const result = await workMedicationIntakeImport(jobId, () => false);
+  return result === "stopped" ? null : result;
 }
 
 async function recordWorkerFailure(
@@ -879,7 +900,19 @@ export async function handleMedicationIntakeImport(
   job: Job<MedicationIntakeImportQueuePayload>,
 ): Promise<JobOutcome> {
   try {
-    const result = await processMedicationIntakeImportJob(job.data.jobId);
+    const result = await workMedicationIntakeImport(
+      job.data.jobId,
+      jobBudget([job]),
+    );
+    // Out of time before the last chunk: fail the delivery so pg-boss
+    // retries it, and the retry resumes from the committed progress.
+    if (result === "stopped") {
+      return jobFailed(
+        "stopped before the last chunk; the retry resumes",
+        undefined,
+        { stopped_early: true },
+      );
+    }
     // A null result is a delivery that found the row already terminal or gone.
     // There was nothing left to import, which is an absence of work rather
     // than a failure to do it.

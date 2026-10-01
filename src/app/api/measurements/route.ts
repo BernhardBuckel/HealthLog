@@ -543,9 +543,18 @@ async function sleepListResponse(
     loadUserSourcePriority(user.id),
   ]);
 
-  // Bound the read window: honour an explicit from/to, otherwise cap to
-  // the last year so the per-stage scan stays small.
-  const since = from ?? new Date(Date.now() - SLEEP_LIST_MAX_DAYS * 86_400_000);
+  // Bound the read window to a year ending at `to` (or now). An explicit
+  // `from` narrows it but never widens it: an early `from` used to walk every
+  // per-stage row back to that date, which on a multi-year, multi-source
+  // account is the unbounded read this cap exists to stop. Older nights are
+  // reached by moving `to` back, and `meta.windowFrom` says where a cut
+  // window started so a client can tell a cut from an empty history.
+  const windowEnd = to ?? new Date();
+  const floor = new Date(
+    windowEnd.getTime() - SLEEP_LIST_MAX_DAYS * 86_400_000,
+  );
+  const since = from && from > floor ? from : floor;
+  const windowCut = from !== undefined && from < floor;
   const rows = await prisma.measurement.findMany({
     where: {
       userId: user.id,
@@ -690,7 +699,13 @@ async function sleepListResponse(
   });
   return apiSuccess({
     measurements,
-    meta: { total: totalNights, limit, offset, groupBy: "night" },
+    meta: {
+      total: totalNights,
+      limit,
+      offset,
+      groupBy: "night",
+      ...(windowCut ? { windowFrom: since.toISOString() } : {}),
+    },
   });
 }
 

@@ -70,6 +70,7 @@ function buildPrismaMock(
 ) {
   return {
     user: { findMany: vi.fn().mockResolvedValue(users) },
+    dataBackup: { findMany: vi.fn().mockResolvedValue([]) },
   };
 }
 
@@ -234,5 +235,46 @@ describe("handleDataBackup outcome", () => {
     const outcome = await handleDataBackup([]);
 
     expect(outcome).toMatchObject({ ok: true, did: { backed: 0, total: 0 } });
+  });
+});
+
+describe("handleDataBackup on a large instance", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.store.mockResolvedValue(undefined);
+  });
+
+  it("backs up the accounts with the oldest copies first and stops on the budget", async () => {
+    const prisma = buildPrismaMock([
+      { id: "fresh", username: "fresh" },
+      { id: "never", username: "never" },
+      { id: "stale", username: "stale" },
+    ]);
+    prisma.dataBackup.findMany.mockResolvedValue([
+      { userId: "fresh", createdAt: new Date("2026-09-30T00:00:00Z") },
+      { userId: "stale", createdAt: new Date("2026-09-01T00:00:00Z") },
+    ]);
+    mocks.getWorkerPrisma.mockReturnValue(prisma);
+    const controller = new AbortController();
+    // Two accounts in, pg-boss gives up on the job.
+    mocks.store.mockImplementation(async () => {
+      if (mocks.store.mock.calls.length === 2) controller.abort();
+    });
+
+    const outcome = await handleDataBackup([
+      {
+        expireInSeconds: 7200,
+        signal: controller.signal,
+      } as unknown as Parameters<typeof handleDataBackup>[0][number],
+    ]);
+
+    const order = mocks.store.mock.calls.map(
+      ([input]) => (input as { userId: string }).userId,
+    );
+    expect(order).toEqual(["never", "stale"]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      did: { backed: 2, stopped_early: true },
+    });
   });
 });
