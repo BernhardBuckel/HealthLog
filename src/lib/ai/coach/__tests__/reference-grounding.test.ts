@@ -113,6 +113,39 @@ describe("buildReferenceGroundingBlock", () => {
     expect(outOfGoal).toContain("outside the typical diabetes management goal");
   });
 
+  it("states the glucose bands in the reader's glucose unit and still places on mg/dL", () => {
+    const units = { system: "metric", glucoseUnit: "mmol/L" } as const;
+    const general = buildReferenceGroundingBlock({
+      metrics: [{ metric: "BLOOD_GLUCOSE", value: 92 }],
+      hasDiabetes: false,
+      units,
+    })!;
+    expect(general).toContain("≤5.5 mmol/L");
+    expect(general).not.toContain("mg/dL");
+    // 92 mg/dL is inside the fasting band: the placement is canonical.
+    expect(general).toContain("sits inside the general reference band");
+
+    const goal = buildReferenceGroundingBlock({
+      metrics: [{ metric: "BLOOD_GLUCOSE", value: 200 }],
+      hasDiabetes: true,
+      units,
+    })!;
+    expect(goal).toContain("4.4–7.2 mmol/L");
+    expect(goal).not.toContain("mg/dL");
+    expect(goal).toContain("outside the typical diabetes management goal");
+  });
+
+  it("states the body-temperature band in °F for an imperial reader", () => {
+    const block = buildReferenceGroundingBlock({
+      metrics: [{ metric: "BODY_TEMPERATURE", value: 36.8 }],
+      hasDiabetes: false,
+      units: { system: "imperial", glucoseUnit: "mg/dL" },
+    })!;
+    expect(block).toContain("96.3–99.3 °F");
+    expect(block).not.toContain("°C");
+    expect(block).toContain("sits inside the general reference band");
+  });
+
   it("grounds BMI against the WHO normal band, not the first (Underweight) band", () => {
     // The headline band rendered must be the 18.5–24.9 normal range — the
     // index-0 bug surfaced the Underweight "≤18.5" ceiling instead.

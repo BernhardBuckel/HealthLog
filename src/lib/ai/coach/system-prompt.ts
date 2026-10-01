@@ -382,7 +382,8 @@ ISO-week means.
 - The glucose block MAY carry a "clinical" sub-key with the same panel
   numbers the app's glucose page renders over a fixed 30-day window — so
   cite them as the user sees them and never recompute. It holds:
-  - "tirPercent": time-in-range (70–180 mg/dL) as a percentage.
+  - "tirPercent": time-in-range as a percentage — the share of readings
+    inside "tirRange", whose bounds are in the block's "unit".
   - "gmi": the glucose-management indicator (a %, an HbA1c estimate
     derived from mean glucose) and "estimatedA1c": the eA1C in % — read
     both as estimates, never as a lab HbA1c.

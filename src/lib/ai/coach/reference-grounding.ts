@@ -47,6 +47,12 @@ import {
   type ReferenceMetric,
   type ReferencePlacement,
 } from "@/lib/reference-ranges";
+import {
+  applyDisplayTransform,
+  DEFAULT_UNIT_PREFERENCES,
+  getReadingTransform,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 
 /**
  * One metric the snapshot carries, paired with the user's current
@@ -74,6 +80,44 @@ export interface ReferenceGroundingInput {
    * for the glucose line ONLY. Never inferred from a reading.
    */
   readonly hasDiabetes: boolean;
+  /**
+   * The reader's two unit choices. The band text is printed in them, so the
+   * line sits beside the glucose block (already in the reader's glucose unit)
+   * without handing the model a second unit for the same quantity. The
+   * placement is still classified on the canonical value. Defaults to metric
+   * and mg/dL.
+   */
+  readonly units?: UnitPreferences;
+}
+
+/**
+ * The reference metrics whose band is a stored measurement read in a
+ * preference-dependent unit, keyed to that measurement type. Every other
+ * band (mmHg, bpm, %, h, kg/m²) reads the same for everyone.
+ */
+const UNIT_SENSITIVE_REFERENCE_TYPE: Partial<Record<ReferenceMetric, string>> =
+  {
+    BLOOD_GLUCOSE: "BLOOD_GLUCOSE",
+    BODY_TEMPERATURE: "BODY_TEMPERATURE",
+  };
+
+/** A canonical band edge and the unit symbol, in the reader's units. */
+function bandEdges(
+  metric: ReferenceMetric,
+  units: UnitPreferences,
+): { edge: (value: number) => number; unit: string } {
+  const type = UNIT_SENSITIVE_REFERENCE_TYPE[metric];
+  if (!type) {
+    return {
+      edge: (value) => value,
+      unit: getReferenceRange(metric)?.unit ?? "",
+    };
+  }
+  const transform = getReadingTransform(type, units);
+  return {
+    edge: (value) => applyDisplayTransform(value, transform),
+    unit: transform.displayUnit,
+  };
 }
 
 /**
@@ -140,17 +184,20 @@ function placementPhrase(placement: ReferencePlacement): string {
  * pulse-pressure Narrow). Open-ended bounds render with a leading/trailing
  * ≤ / ≥.
  */
-function headlineBandText(metric: ReferenceMetric): string | null {
+function headlineBandText(
+  metric: ReferenceMetric,
+  units: UnitPreferences,
+): string | null {
   const range = getReferenceRange(metric);
   if (!range || range.bands.length === 0) return null;
   const idx = normalBandIndex(metric);
   const band = range.bands[idx];
-  const unit = range.unit;
+  const { edge, unit } = bandEdges(metric, units);
   if (band.low != null && band.high != null) {
-    return `${band.low}–${band.high} ${unit}`;
+    return `${edge(band.low)}–${edge(band.high)} ${unit}`;
   }
-  if (band.high != null) return `≤${band.high} ${unit}`;
-  if (band.low != null) return `≥${band.low} ${unit}`;
+  if (band.high != null) return `≤${edge(band.high)} ${unit}`;
+  if (band.low != null) return `≥${edge(band.low)} ${unit}`;
   return null;
 }
 
@@ -160,9 +207,14 @@ function headlineBandText(metric: ReferenceMetric): string | null {
  * GOAL band when the user declared diabetes. The diabetic branch frames the
  * band as a clinician-set GOAL, never a screening threshold.
  */
-function glucoseLine(value: number | null, hasDiabetes: boolean): string {
+function glucoseLine(
+  value: number | null,
+  hasDiabetes: boolean,
+  units: UnitPreferences,
+): string {
   const label = METRIC_LABEL.BLOOD_GLUCOSE;
   if (hasDiabetes) {
+    const { edge, unit } = bandEdges("BLOOD_GLUCOSE", units);
     const { low, high } = ADA_DIABETIC_FASTING_GOAL;
     // Placement against the diabetic GOAL band, framed as a target the
     // user's clinician individualises — never a diagnostic call.
@@ -174,11 +226,11 @@ function glucoseLine(value: number | null, hasDiabetes: boolean): string {
     } else {
       where = "is outside the typical diabetes management goal";
     }
-    return `- ${label}: a common diabetes management goal is ${low}–${high} mg/dL fasting (${referenceLabel(
+    return `- ${label}: a common diabetes management goal is ${edge(low)}–${edge(high)} ${unit} fasting (${referenceLabel(
       "BLOOD_GLUCOSE",
     )} — clinician-set goal, individualised, not a screening line). Yours ${where}.`;
   }
-  const band = headlineBandText("BLOOD_GLUCOSE");
+  const band = headlineBandText("BLOOD_GLUCOSE", units);
   const placement = classifyReference("BLOOD_GLUCOSE", value);
   return `- ${label}: general non-diabetic normal is ${band} (${referenceLabel(
     "BLOOD_GLUCOSE",
@@ -186,9 +238,13 @@ function glucoseLine(value: number | null, hasDiabetes: boolean): string {
 }
 
 /** Build one standard (non-glucose) grounding line for a metric. */
-function standardLine(metric: ReferenceMetric, value: number | null): string {
+function standardLine(
+  metric: ReferenceMetric,
+  value: number | null,
+  units: UnitPreferences,
+): string {
   const label = METRIC_LABEL[metric];
-  const band = headlineBandText(metric);
+  const band = headlineBandText(metric, units);
   const placement = classifyReference(metric, value);
   const cite = referenceLabel(metric);
   // Blood pressure cites ESH 2023 by construction (the reference-range
@@ -234,10 +290,11 @@ export function buildReferenceGroundingBlock(
   }
   if (ordered.length === 0) return null;
 
+  const units = input.units ?? DEFAULT_UNIT_PREFERENCES;
   const lines = ordered.map((m) =>
     m.metric === "BLOOD_GLUCOSE"
-      ? glucoseLine(m.value, input.hasDiabetes)
-      : standardLine(m.metric, m.value),
+      ? glucoseLine(m.value, input.hasDiabetes, units)
+      : standardLine(m.metric, m.value, units),
   );
 
   // The preamble + closing caveat carry the firm general-guidance framing.

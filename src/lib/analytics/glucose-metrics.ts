@@ -85,6 +85,11 @@ const TBR_LEVEL1_MAX = 70; // low: G < 70 (level-1 sub-band is 54–69)
 const TAR_LEVEL1_MIN = 180; // high: G > 180 (level-1 sub-band is 181–250)
 const TAR_LEVEL2_MIN = 250; // very high: G > 250
 // Time-in-range target band is [70, 180] inclusive.
+/** The time-in-range band, mg/dL, inclusive at both ends. */
+export const TIME_IN_RANGE_MGDL = {
+  low: TBR_LEVEL1_MAX,
+  high: TAR_LEVEL1_MIN,
+} as const;
 
 /** Monnier 2017 variability cutoff: CV% ≥ 36 is "unstable". */
 export const CV_INSTABILITY_THRESHOLD = 36;

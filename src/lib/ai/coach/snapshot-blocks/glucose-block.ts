@@ -20,6 +20,7 @@ import {
 import {
   computeGlucoseClinicalMetrics,
   GLUCOSE_PANEL_WINDOW_DAYS,
+  TIME_IN_RANGE_MGDL,
 } from "@/lib/analytics/glucose-metrics";
 import { annotate } from "@/lib/logging/context";
 import type { ReferenceMetric } from "@/lib/reference-ranges";
@@ -162,6 +163,12 @@ export function buildGlucoseBlock(ctx: Readonly<GlucoseBlockContext>): void {
           tirPercent: clinicalRaw.distribution
             ? Math.round(clinicalRaw.distribution.tir * 100)
             : null,
+          // The band the percentage counts, in the block's unit, so the
+          // prompt never states it in a unit the reader does not use.
+          tirRange: {
+            low: convertGlucose(TIME_IN_RANGE_MGDL.low, glucoseUnit),
+            high: convertGlucose(TIME_IN_RANGE_MGDL.high, glucoseUnit),
+          },
           timeBelowPercent: clinicalRaw.distribution
             ? Math.round(clinicalRaw.distribution.tbrLevel1 * 100)
             : null,

@@ -113,6 +113,13 @@ describe("getCoachSystemPrompt — EN", () => {
     expect(prompt).toMatch(/isSpotEstimate/);
   });
 
+  it("names the time-in-range band through the block, never in one fixed unit", () => {
+    // The glucose block is in the reader's unit; a band stated here in
+    // mg/dL would sit beside mmol/L numbers for a mmol/L reader.
+    expect(prompt).toMatch(/"tirRange"/);
+    expect(prompt).not.toMatch(/70–180 mg\/dL/);
+  });
+
   it("documents the WHOOP-native dayStrain block vs the computed proxy", () => {
     // v1.17.0 — native 0–21 strain preferred over the computed 0–100 proxy.
     expect(prompt).toMatch(/dayStrain/);
