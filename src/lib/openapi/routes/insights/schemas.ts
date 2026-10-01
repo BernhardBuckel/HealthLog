@@ -1678,11 +1678,10 @@ export const ecgIngestRequest = z
       ),
     samplingFrequency: z
       .number()
-      .int()
       .min(1)
       .max(10_000)
       .describe(
-        "Signal sampling rate in Hz (an Apple Watch ECG is 512). Part of the recording's identity, and the divisor for the server-derived `durationSeconds`.",
+        "Signal sampling rate in Hz (an Apple Watch ECG is 512). A fractional value is accepted and rounded to the nearest whole hertz before it is stored. Part of the recording's identity, and the divisor for the server-derived `durationSeconds`.",
       ),
     samples: z
       .array(z.number().int().min(-1_000_000).max(1_000_000))
@@ -1700,12 +1699,13 @@ export const ecgIngestRequest = z
       .describe("Recording lead label when the device reports one (e.g. `I`)."),
     averageHeartRate: z
       .number()
-      .int()
       .min(1)
       .max(300)
       .nullable()
       .optional()
-      .describe("The device's average heart rate (BPM) for the strip."),
+      .describe(
+        "The device's average heart rate (BPM) for the strip. HealthKit reports it with a fraction; it is accepted as sent and rounded to whole beats per minute before it is stored.",
+      ),
     classification: ecgClassification
       .optional()
       .describe(

@@ -188,6 +188,23 @@ describe("POST /api/insights/ecg — round trip through the real routes", () => 
     expect(detail.body.classification).toBe("NOT_DETECTED");
   });
 
+  it("accepts the fractional heart rate and frequency HealthKit reports and rounds them (#1060)", async () => {
+    // HealthKit hands both over as doubles; a watch's average heart rate is
+    // often fractional. Requiring integers refused those recordings outright.
+    const posted = await ingest(
+      ingestPayload({ averageHeartRate: 64.7, samplingFrequency: 511.96 }),
+    );
+    expect(posted.status).toBe(201);
+    expect(posted.data.status).toBe("inserted");
+
+    const list = await readList();
+    expect(list.recordings[0]).toMatchObject({
+      averageHeartRate: 65,
+      samplingFrequency: 512,
+    });
+    expect(posted.data.durationSeconds).toBeCloseTo(SAMPLES.length / 512, 10);
+  });
+
   it("never writes the waveform as plaintext", async () => {
     const posted = await ingest(ingestPayload());
     const row = await getPrismaClient().ecgRecording.findUniqueOrThrow({
