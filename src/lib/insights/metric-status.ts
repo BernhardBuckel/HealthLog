@@ -679,7 +679,7 @@ function readingDisplay(
     meta.measurementType,
     preferences,
   );
-  const converts = transform.factor !== 1 || (transform.offset ?? 0) !== 0;
+  const converts = transformRescales(transform);
   return {
     unit: transform.displayUnit,
     decimals: transform.decimals,
