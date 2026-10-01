@@ -389,6 +389,12 @@ const listMeasurementsMeta = z
       .describe(
         "Rows discarded by the cross-source canonical picker on the day-collapse mode.",
       ),
+    windowFrom: z.iso
+      .datetime({ offset: true })
+      .optional()
+      .describe(
+        "Set on the per-night SLEEP_DURATION mode when the requested window was longer than 365 days: the instant the read started from. The window is a year ending at `to` (or now); page further back by moving `to`.",
+      ),
   })
   .meta({ id: "ListMeasurementsMeta" });
 
