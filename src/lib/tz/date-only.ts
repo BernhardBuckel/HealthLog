@@ -34,3 +34,13 @@ export function dateOnlyAtNoonUtc(key: string): Date {
 export function dateOnlyKey(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
+
+/**
+ * The value a `@db.Date` column holds for calendar date `key` (Prisma reads
+ * and writes those columns as UTC midnight). Use it to compare such a column
+ * with a day: `endsOn >= dbDate(todayKey)` keeps a course through its last
+ * day, where comparing against the instant `now` dropped that day.
+ */
+export function dbDate(key: string): Date {
+  return new Date(`${key}T00:00:00.000Z`);
+}
