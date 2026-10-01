@@ -74,7 +74,16 @@ export interface RasterImage {
  * would not render" (`render-failed` — malformed / encrypted / zero pages).
  */
 export type RasterResult =
-  | { ok: true; images: RasterImage[] }
+  | {
+      ok: true;
+      images: RasterImage[];
+      /**
+       * Pages in the PDF. Above `images.length` when the page cap cut the
+       * render short, which a caller showing the result has to say: the
+       * reading covers the first pages only.
+       */
+      pageCount: number;
+    }
   | { ok: false; reason: "unsupported" | "render-failed" };
 
 // Minimal structural types for the slice of the pdfjs API this module uses. A
@@ -212,7 +221,7 @@ export async function rasterizePdf(
       action: { name: "documents.rasterize.ok" },
       meta: { pages: images.length, cappedFrom: doc.numPages },
     });
-    return { ok: true, images };
+    return { ok: true, images, pageCount: doc.numPages };
   } catch (err) {
     annotate({
       action: { name: "documents.rasterize.failed" },

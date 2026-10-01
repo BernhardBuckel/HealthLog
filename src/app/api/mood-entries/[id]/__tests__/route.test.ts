@@ -126,8 +126,8 @@ beforeEach(() => {
   txClient.moodEntryTagLink.findMany.mockResolvedValue([]);
   txClient.moodContext.deleteMany.mockResolvedValue({ count: 0 });
   txClient.moodContext.findUnique.mockResolvedValue(null);
-  vi.mocked(replaceTagLinks).mockResolvedValue(undefined);
-  vi.mocked(replaceRatedFactorLinks).mockResolvedValue(undefined);
+  vi.mocked(replaceTagLinks).mockResolvedValue([]);
+  vi.mocked(replaceRatedFactorLinks).mockResolvedValue([]);
   // v1.7.0 sync — PUT now looks the row up via `findFirst` with a
   // `deletedAt: null` guard (refuses to resurrect-edit a tombstone).
   vi.mocked(prisma.moodEntry.findFirst).mockResolvedValue(
@@ -316,6 +316,7 @@ describe("PUT /api/mood-entries/[id] — split tag replacement", () => {
     };
     vi.mocked(replaceTagLinks).mockImplementationOnce(async () => {
       draft.binary = ["calm"];
+      return [];
     });
     vi.mocked(replaceRatedFactorLinks).mockImplementationOnce(async () => {
       draft.rated = [{ key: "factor_work", rating: 5 }];

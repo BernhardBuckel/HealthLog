@@ -66,8 +66,10 @@ vi.mock("@/lib/mood/tag-links", async () => {
     "@/lib/mood/tag-links",
   );
   return {
-    createTagLinks: vi.fn().mockResolvedValue(undefined),
+    createTagLinks: vi.fn().mockResolvedValue(actual.NO_DROPPED_LINK_KEYS),
     RatedFactorOutOfRangeError: actual.RatedFactorOutOfRangeError,
+    droppedLinkKeysForWire: actual.droppedLinkKeysForWire,
+    NO_DROPPED_LINK_KEYS: actual.NO_DROPPED_LINK_KEYS,
   };
 });
 
@@ -137,7 +139,10 @@ beforeEach(() => {
     (fn as (tx: typeof txClient) => unknown)(txClient),
   );
   txClient.moodEntryTagLink.findMany.mockResolvedValue([]);
-  vi.mocked(createTagLinks).mockResolvedValue(undefined);
+  vi.mocked(createTagLinks).mockResolvedValue({
+    droppedTagKeys: [],
+    droppedFactorKeys: [],
+  });
   // `reset` blanks the post-commit best-effort mock; restore the promise
   // return so `recompute(...)` awaits.
   vi.mocked(recomputeMoodBucketsForEntry).mockResolvedValue(undefined);
@@ -347,6 +352,37 @@ describe("POST /api/mood-entries — entry + tag-links transaction (v1.8.5)", ()
     // Read-after-write parity: the create response carries the same
     // `tagKeys` the list GET surfaces.
     expect(body.data.tagKeys).toEqual(["happy"]);
+  });
+
+  it("names the keys it did not store on the 201, and omits the fields when all landed", async () => {
+    txClient.moodEntry.create.mockResolvedValue({
+      id: "mood-1",
+      tags: null,
+      moodLoggedAt: new Date(VALID_BODY.moodLoggedAt),
+      mood: "GUT",
+      note: null,
+      source: "MANUAL",
+      date: "2026-06-01",
+    });
+    txClient.moodEntryTagLink.findMany.mockResolvedValue([
+      { moodTag: { key: "happy" } },
+    ]);
+    vi.mocked(createTagLinks).mockResolvedValueOnce({
+      droppedTagKeys: ["custom:archived"],
+      droppedFactorKeys: [],
+    });
+
+    const res = await POST(
+      postReq({ ...VALID_BODY, tagKeys: ["happy", "custom:archived"] }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: Record<string, unknown> };
+    expect(body.data.droppedTagKeys).toEqual(["custom:archived"]);
+    expect(body.data).not.toHaveProperty("droppedFactorKeys");
+
+    const clean = await POST(postReq({ ...VALID_BODY, tagKeys: ["happy"] }));
+    const cleanBody = (await clean.json()) as { data: Record<string, unknown> };
+    expect(cleanBody.data).not.toHaveProperty("droppedTagKeys");
   });
 
   it("rolls the entry back when the tag-link write fails (no commit)", async () => {

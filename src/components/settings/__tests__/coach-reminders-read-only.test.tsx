@@ -34,6 +34,8 @@ vi.mock("@/hooks/use-auth", () => ({
       role: "USER",
       timezone: "Europe/Berlin",
       disableCoach: !coach.available,
+      // The record's module map, which the section's gate reads.
+      modules: { coach: coach.available },
     },
     isAuthenticated: true,
     isLoading: false,

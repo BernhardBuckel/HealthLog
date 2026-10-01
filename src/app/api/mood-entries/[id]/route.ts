@@ -25,6 +25,7 @@ import {
   RatedFactorOutOfRangeError,
   replaceRatedFactorLinks,
   replaceTagLinks,
+  droppedLinkKeysForWire,
 } from "@/lib/mood/tag-links";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -197,11 +198,15 @@ export const PUT = apiHandler(
 
         // Omission preserves the corresponding link set. Explicit null/empty
         // clears it, matching the validated update contract.
-        if (data.tagKeys !== undefined) {
-          await replaceTagLinks(id, user.id, data.tagKeys ?? [], tx);
-        }
+        // Each replacement returns the submitted keys it could not store,
+        // reported on the response rather than dropped in silence.
+        const droppedTagKeys =
+          data.tagKeys !== undefined
+            ? await replaceTagLinks(id, user.id, data.tagKeys ?? [], tx)
+            : [];
+        let droppedFactorKeys: string[] = [];
         if (data.ratedFactors !== undefined) {
-          await replaceRatedFactorLinks(
+          droppedFactorKeys = await replaceRatedFactorLinks(
             id,
             user.id,
             data.ratedFactors ?? [],
@@ -236,6 +241,7 @@ export const PUT = apiHandler(
         return {
           entry: updated,
           contextOutcome,
+          droppedKeys: { droppedTagKeys, droppedFactorKeys },
           persistedContext: storedContext,
           persistedTagKeys: links
             .filter((link) => link.moodTag.kind !== "RATED")
@@ -282,6 +288,7 @@ export const PUT = apiHandler(
       persistedRatedFactors,
       persistedContext,
       contextOutcome,
+      droppedKeys,
     } = transactionOutcome.result;
 
     await auditLog("moodEntry.update", {
@@ -315,7 +322,12 @@ export const PUT = apiHandler(
 
     annotate({
       action: { name: "mood-entries.update" },
-      meta: { moodEntryId: id, mood_context: contextOutcome },
+      meta: {
+        moodEntryId: id,
+        mood_context: contextOutcome,
+        dropped_tag_keys: droppedKeys.droppedTagKeys.length,
+        dropped_factor_keys: droppedKeys.droppedFactorKeys.length,
+      },
     });
 
     // v1.4.34 IW-G — bust per-user mood + achievements + analytics caches.
@@ -360,6 +372,10 @@ export const PUT = apiHandler(
       ratedFactors: persistedRatedFactors,
       // v1.38 — the stored context after the edit, or null when there is none.
       context: persistedContext ? contextForWire(persistedContext) : null,
+      // Submitted keys that are not on the entry after the edit, each list
+      // present only when non-empty (an archived link the edit preserved is
+      // on the entry and is not listed).
+      ...droppedLinkKeysForWire(droppedKeys),
     });
   },
 );

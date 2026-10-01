@@ -14,6 +14,13 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/settings/coach",
 }));
 
+// Past hydration only where a test says so: the gate reads the account once
+// mounted, and the pre-hydration pass shows every card.
+const mountState = { mounted: false };
+vi.mock("@/hooks/use-mounted", () => ({
+  useMounted: () => mountState.mounted,
+}));
+
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({ data: null, isLoading: false, refetch: vi.fn() }),
   useInfiniteQuery: () => ({ data: undefined, isLoading: false }),
@@ -31,10 +38,18 @@ vi.mock("@/hooks/use-ai-capability", () => ({
   }),
 }));
 
-const authState: { disableCoach: boolean } = { disableCoach: false };
+const authState: {
+  disableCoach: boolean;
+  modules: { coach?: boolean } | undefined;
+} = { disableCoach: false, modules: undefined };
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    user: { id: "u1", role: "USER", disableCoach: authState.disableCoach },
+    user: {
+      id: "u1",
+      role: "USER",
+      disableCoach: authState.disableCoach,
+      modules: authState.modules,
+    },
     isAuthenticated: true,
     isLoading: false,
     refetch: vi.fn(),
@@ -81,5 +96,26 @@ describe("<CoachSection> — SSR smoke", () => {
     expect(html).toContain("Coach aktivieren");
     expect(html).not.toContain("settings.sections.coach.");
     expect(html).not.toContain("settings.coach.activate.");
+  });
+});
+
+describe("<CoachSection> — the tuning follows the record, not the account", () => {
+  it("hides the nudge when the record has the Coach off, whatever the viewer's own opt-out says", () => {
+    // A guardian with the Coach on, inside a managed record that has it off:
+    // `/me` publishes the viewer's own `disableCoach` and the RECORD's module
+    // map. The record's answer decides.
+    mountState.mounted = true;
+    authState.disableCoach = false;
+    authState.modules = { coach: false };
+    try {
+      expect(render()).not.toContain('id="coach-nudge"');
+      authState.disableCoach = true;
+      authState.modules = { coach: true };
+      expect(render()).toContain('id="coach-nudge"');
+    } finally {
+      mountState.mounted = false;
+      authState.disableCoach = false;
+      authState.modules = undefined;
+    }
   });
 });
