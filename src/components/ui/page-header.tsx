@@ -26,6 +26,15 @@ import { cn } from "@/lib/utils";
  * shells hand-rolled the whole block to get the second copy, which is how
  * they drifted apart from every module page in the first place.
  */
+/**
+ * A one-word German title ("Krankheitstagebuch") is wider than the column a
+ * phone leaves beside the actions, and without a break opportunity it ran
+ * underneath them. `hyphens-auto` breaks it by the page's `lang`; the
+ * `wrap-break-word` floor covers a word the hyphenation dictionary does not.
+ */
+const HEADING_CLASS =
+  "text-2xl font-bold tracking-tight hyphens-auto wrap-break-word";
+
 export function PageHeader({
   title,
   titleId,
@@ -34,6 +43,7 @@ export function PageHeader({
   backLink,
   topSlot,
   actions,
+  stackActionsOnPhone = false,
   className,
 }: {
   title: ReactNode;
@@ -44,37 +54,65 @@ export function PageHeader({
   /** Optional block above the title (e.g. a hub back-link the shell owns). */
   topSlot?: ReactNode;
   actions?: ReactNode;
+  /**
+   * Below `sm`, move the actions onto their own row under the description.
+   * For text-labelled actions (two outline links, say): beside the title they
+   * left the H1 a column narrower than its own word. Icon actions fit beside
+   * the title and leave this off.
+   */
+  stackActionsOnPhone?: boolean;
   className?: string;
 }) {
   const heading =
     headingAs === "div" ? (
-      <div
-        id={titleId}
-        role="heading"
-        aria-level={1}
-        className="text-2xl font-bold tracking-tight"
-      >
+      <div id={titleId} role="heading" aria-level={1} className={HEADING_CLASS}>
         {title}
       </div>
     ) : (
-      <h1 id={titleId} className="text-2xl font-bold tracking-tight">
+      <h1 id={titleId} className={HEADING_CLASS}>
         {title}
       </h1>
     );
 
+  // Title, description and actions share one grid. On a phone the
+  // description spans the full row under the title + actions: a header with
+  // three or four icon actions otherwise left the sentence a ~130 px column
+  // that wrapped five or six times. From `sm` up the actions span both rows,
+  // so the description sits beside them exactly as before.
   return (
     <div className={cn("space-y-1.5", className)}>
       {backLink ? <BackLink {...backLink} /> : null}
       {topSlot}
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1.5">
-          {heading}
-          {description ? (
-            <p className="text-muted-foreground text-sm">{description}</p>
-          ) : null}
-        </div>
+      <div
+        data-slot="page-header-row"
+        className={cn(
+          "grid items-start gap-x-3 gap-y-1.5",
+          actions ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1",
+          actions && stackActionsOnPhone && "max-sm:grid-cols-1",
+        )}
+      >
+        <div className="min-w-0">{heading}</div>
         {actions ? (
-          <div className="flex shrink-0 items-center gap-2">{actions}</div>
+          <div
+            className={cn(
+              "col-start-2 row-start-1 flex shrink-0 items-center gap-2",
+              description && "sm:row-span-2",
+              stackActionsOnPhone &&
+                "max-sm:col-span-full max-sm:col-start-1 max-sm:row-start-3 max-sm:flex-wrap",
+            )}
+          >
+            {actions}
+          </div>
+        ) : null}
+        {description ? (
+          <p
+            className={cn(
+              "text-muted-foreground text-sm",
+              actions && "col-span-full sm:col-span-1",
+            )}
+          >
+            {description}
+          </p>
         ) : null}
       </div>
     </div>
