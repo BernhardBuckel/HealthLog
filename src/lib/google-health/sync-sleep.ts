@@ -70,6 +70,12 @@ export async function syncUserSleep(
 
   const readings: GoogleHealthMeasurementUpsert[] = [];
   const replaceWindows: GoogleHealthSleepReplaceWindow[] = [];
+  // Segments whose stage label the mapper does not know are skipped, so the
+  // night total reads short by them. Counted across the page for the wide
+  // event, with the labels, so a new upstream stage shows up instead of
+  // quietly shortening nights.
+  let unknownStageSegments = 0;
+  const unknownStageLabels = new Set<string>();
   for (const point of points) {
     // Per-session throw-guard (mapper parity with sync-metrics): a single
     // malformed session must not abort the sibling sessions in the same page.
@@ -84,6 +90,10 @@ export async function syncUserSleep(
       );
       noteHardFailure("mapSleepSession");
       continue;
+    }
+    unknownStageSegments += session.unknownStageSegments;
+    for (const label of session.unknownStageLabels) {
+      if (unknownStageLabels.size < 5) unknownStageLabels.add(label);
     }
     if (session.rows.length === 0) continue;
     for (const m of session.rows) {
@@ -130,6 +140,12 @@ export async function syncUserSleep(
 
   annotate({
     action: { name: "googleHealth.sleep.sync", details: { imported } },
+    meta: {
+      unknown_stage_segments: unknownStageSegments,
+      ...(unknownStageSegments > 0
+        ? { unknown_stage_labels: [...unknownStageLabels].join(",") }
+        : {}),
+    },
   });
   return imported;
 }
