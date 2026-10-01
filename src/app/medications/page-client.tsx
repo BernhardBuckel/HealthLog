@@ -665,6 +665,7 @@ export default function MedicationsPageClient() {
               name: m.name,
               dose: m.dose,
               active: m.active,
+              intakeActionable: m.intakeActionable === true,
               lastTakenAt: m.lastTakenAt,
               todayEventCount: m.todayEventCount ?? 0,
               nextDueAt: m.nextDueAt,

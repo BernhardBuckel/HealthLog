@@ -55,8 +55,10 @@ vi.mock("@/lib/mood/tag-links", async () => {
     "@/lib/mood/tag-links",
   );
   return {
-    createTagLinks: vi.fn().mockResolvedValue(undefined),
+    createTagLinks: vi.fn().mockResolvedValue(actual.NO_DROPPED_LINK_KEYS),
     RatedFactorOutOfRangeError: actual.RatedFactorOutOfRangeError,
+    droppedLinkKeysForWire: actual.droppedLinkKeysForWire,
+    NO_DROPPED_LINK_KEYS: actual.NO_DROPPED_LINK_KEYS,
   };
 });
 
@@ -140,7 +142,10 @@ beforeEach(() => {
   vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
   vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
   vi.mocked(checkRateLimit).mockResolvedValue({ allowed: true } as never);
-  vi.mocked(createTagLinks).mockResolvedValue(undefined);
+  vi.mocked(createTagLinks).mockResolvedValue({
+    droppedTagKeys: [],
+    droppedFactorKeys: [],
+  });
 });
 
 describe("POST /api/mood-entries/bulk — 422 multi-issue (v1.4.43 W6)", () => {
@@ -315,6 +320,45 @@ describe("POST /api/mood-entries/bulk — structured tagKeys (v1.12.0)", () => {
       txClient,
       [{ key: "factor_work", rating: 4 }],
     );
+  });
+
+  it("lists the keys that did not land on that entry's result, and only there", async () => {
+    vi.mocked(createTagLinks)
+      .mockResolvedValueOnce({
+        droppedTagKeys: ["custom:archived"],
+        droppedFactorKeys: ["factor_retired"],
+      })
+      .mockResolvedValueOnce({ droppedTagKeys: [], droppedFactorKeys: [] });
+    const res = await POST(
+      postReq({
+        entries: [
+          {
+            mood: "GUT",
+            moodLoggedAt: "2026-05-16T08:00:00.000Z",
+            tagKeys: ["movies", "custom:archived"],
+            ratedFactors: [{ key: "factor_retired", rating: 2 }],
+          },
+          {
+            mood: "OKAY",
+            moodLoggedAt: "2026-05-16T09:00:00.000Z",
+            tagKeys: ["movies"],
+          },
+        ],
+      }),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      data: { entries: Array<Record<string, unknown>> };
+    };
+    expect(json.data.entries[0]).toMatchObject({
+      status: "inserted",
+      droppedTagKeys: ["custom:archived"],
+      droppedFactorKeys: ["factor_retired"],
+    });
+    // Nothing dropped: the fields are absent, so the result reads exactly
+    // as it did before they existed.
+    expect(json.data.entries[1]).not.toHaveProperty("droppedTagKeys");
+    expect(json.data.entries[1]).not.toHaveProperty("droppedFactorKeys");
   });
 
   it("reads existence once via a batched findMany, keyed on (source, externalId) when the entry carries one", async () => {

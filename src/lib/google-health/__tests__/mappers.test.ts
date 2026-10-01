@@ -34,6 +34,7 @@ import {
   mapRespiratoryRate,
   mapRestingHeartRate,
   mapSleepSession,
+  mapSleepSessionDetailed,
   mapSteps,
   mapVo2Max,
   mapWeight,
@@ -373,6 +374,37 @@ describe("mapVo2Max — daily-vo2-max summary", () => {
         dailyVo2Max: { vo2Max: 0, date: { year: 2026, month: 6, day: 1 } },
       }),
     ).toEqual([]);
+  });
+});
+
+describe("mapSleepSessionDetailed — unknown stage labels are counted", () => {
+  it("reports how many segments it skipped and which labels they carried", () => {
+    const session = mapSleepSessionDetailed({
+      sleep: {
+        stages: [
+          {
+            type: "DEEP",
+            startTime: "2026-06-02T02:00:00.000Z",
+            endTime: "2026-06-02T02:45:00.000Z",
+          },
+          {
+            type: "SLEEP_STAGE_TYPE_UNSPECIFIED",
+            startTime: "2026-06-02T04:00:00.000Z",
+            endTime: "2026-06-02T04:10:00.000Z",
+          },
+          {
+            type: "SLEEP_STAGE_TYPE_UNSPECIFIED",
+            startTime: "2026-06-02T04:10:00.000Z",
+            endTime: "2026-06-02T04:20:00.000Z",
+          },
+        ],
+      },
+    });
+    expect(session.rows).toHaveLength(1);
+    expect(session.unknownStageSegments).toBe(2);
+    expect(session.unknownStageLabels).toEqual([
+      "SLEEP_STAGE_TYPE_UNSPECIFIED",
+    ]);
   });
 });
 

@@ -17,6 +17,7 @@ import { DEFAULT_TIMEZONE } from "@/lib/tz/resolver";
 import pLimit from "p-limit";
 import type { MeasurementType } from "@/generated/prisma/client";
 import {
+  resolveBpTargetOverride,
   resolveWeightTargetOverride,
   type ThresholdOverridesJson,
 } from "@/lib/analytics/effective-range";
@@ -293,6 +294,17 @@ export async function buildTargetsResponse(user: AuthedUser) {
     // set one, so the reference panel and the weight chart above it name the
     // same band.
     weightTargetOverride: resolveWeightTargetOverride(dbUser?.thresholdsJson),
+    // The blood-pressure card likewise names the user's own band when they
+    // set one. The insights page draws its chart zones from this same range,
+    // so the chart and the card below it cannot disagree.
+    bpTargetOverride: resolveBpTargetOverride(
+      {
+        heightCm,
+        dateOfBirth: dbUser?.dateOfBirth ?? null,
+        gender: dbUser?.gender ?? null,
+      },
+      dbUser?.thresholdsJson,
+    ),
   });
   const sleepTarget = buildSleepTarget({
     sleepStageRows,

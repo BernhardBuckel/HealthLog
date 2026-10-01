@@ -955,6 +955,15 @@ export interface GoogleHealthSleepSession {
   /** Latest segment end across the session (UTC), or null if none map. */
   windowEnd: Date | null;
   rows: GoogleHealthMappedMeasurement[];
+  /**
+   * Segments skipped because their stage label is not one this mapper knows
+   * (`SLEEP_STAGE_TYPE_UNSPECIFIED`, or a label Google adds later). Counted
+   * rather than dropped in silence: the night total reads short by exactly
+   * these segments, and the sync's wide event is where that shows.
+   */
+  unknownStageSegments: number;
+  /** The distinct unknown labels, for the wide event (at most five). */
+  unknownStageLabels: string[];
 }
 
 /**
@@ -972,7 +981,8 @@ export interface GoogleHealthSleepSession {
  * duplicate rows the night-total then double-counted. A segment's start instant
  * is stable per block, and dropping the stage from the key means a mere
  * re-classification (LIGHT→DEEP on the same block) UPDATES the row in place
- * rather than orphaning it. Unknown stage labels are skipped; a session with no
+ * rather than orphaning it. Unknown stage labels are skipped and counted
+ * (`unknownStageSegments`); a session with no
  * parseable segment yields an empty `rows` (and a null window).
  *
  * Segment timestamps can arrive OFFSET-LESS (local wall clock); `tz` (the user's
@@ -989,10 +999,18 @@ export function mapSleepSessionDetailed(
   const rows: GoogleHealthMappedMeasurement[] = [];
   let windowStart: Date | null = null;
   let windowEnd: Date | null = null;
+  let unknownStageSegments = 0;
+  const unknownStageLabels = new Set<string>();
 
   for (const seg of segments) {
     const stage = mapGoogleHealthSleepStage(seg.stage);
-    if (!stage) continue;
+    if (!stage) {
+      unknownStageSegments += 1;
+      if (unknownStageLabels.size < 5) {
+        unknownStageLabels.add(seg.stage.slice(0, 40));
+      }
+      continue;
+    }
     const mins = minutesBetween(seg.startTime, seg.endTime);
     if (mins === null || !(mins > 0)) continue;
     const start = parseLocalInstant(seg.startTime as string, tz);
@@ -1010,7 +1028,14 @@ export function mapSleepSessionDetailed(
     });
   }
 
-  return { anchor, windowStart, windowEnd, rows };
+  return {
+    anchor,
+    windowStart,
+    windowEnd,
+    rows,
+    unknownStageSegments,
+    unknownStageLabels: [...unknownStageLabels],
+  };
 }
 
 /**

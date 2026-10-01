@@ -54,6 +54,7 @@ vi.mock("@/lib/daily/morning-refresh-trigger", () => ({
   maybeEnqueueMorningRefresh: maybeEnqueueMorningRefreshMock,
 }));
 
+import { annotate } from "@/lib/logging/context";
 import { syncUserSleep } from "../sync-sleep";
 
 beforeEach(() => {
@@ -72,6 +73,8 @@ beforeEach(() => {
     ],
     windowStart: new Date("2026-06-01T22:00:00.000Z"),
     windowEnd: sleepMeasuredAt,
+    unknownStageSegments: 0,
+    unknownStageLabels: [],
   });
   upsertMock.mockImplementation(
     async (
@@ -125,6 +128,8 @@ describe("google-health syncUserSleep — S4 morning-refresh trigger", () => {
       ],
       windowStart: new Date("2026-06-01T22:00:00.000Z"),
       windowEnd: sleepMeasuredAt,
+      unknownStageSegments: 0,
+      unknownStageLabels: [],
     });
 
     await syncUserSleep("user-1");
@@ -133,5 +138,30 @@ describe("google-health syncUserSleep — S4 morning-refresh trigger", () => {
     // sleep timestamps — so it no-ops rather than refreshing on non-sleep rows.
     expect(maybeEnqueueMorningRefreshMock).toHaveBeenCalledTimes(1);
     expect(maybeEnqueueMorningRefreshMock).toHaveBeenCalledWith("user-1", []);
+  });
+});
+
+describe("google-health syncUserSleep — segments with an unknown stage", () => {
+  it("counts them on the wide event with their labels instead of dropping them silently", async () => {
+    fetchDataPointsMock.mockResolvedValue([{ raw: "a" }, { raw: "b" }]);
+    mapSleepSessionDetailedMock.mockReturnValue({
+      rows: [],
+      windowStart: null,
+      windowEnd: null,
+      unknownStageSegments: 2,
+      unknownStageLabels: ["SLEEP_STAGE_TYPE_UNSPECIFIED"],
+    });
+
+    await syncUserSleep("user-1");
+
+    expect(annotate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: expect.objectContaining({ name: "googleHealth.sleep.sync" }),
+        meta: {
+          unknown_stage_segments: 4,
+          unknown_stage_labels: "SLEEP_STAGE_TYPE_UNSPECIFIED",
+        },
+      }),
+    );
   });
 });

@@ -85,6 +85,15 @@ const extractResponse = z
     reportDate: z.string().nullable(),
     providerType: z.string(),
     rows: z.array(extractedRow),
+    pageCoverage: z
+      .object({
+        read: z.number().int().positive(),
+        total: z.number().int().positive(),
+      })
+      .optional()
+      .describe(
+        "Present only when a PDF ran past the pages a scan reads: the rows come from the first `read` of `total` pages. Absent when the whole document was read.",
+      ),
   })
   .meta({
     id: "OcrExtractResponse",

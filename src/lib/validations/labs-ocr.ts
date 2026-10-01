@@ -132,6 +132,12 @@ export interface OcrExtractResponseDto {
   reportDate: string | null;
   providerType: string;
   rows: OcrExtractedRowDto[];
+  /**
+   * Present only when a PDF was longer than the pages the scan reads
+   * (`RASTER_MAX_PAGES`): the rows come from the first `read` of `total`
+   * pages, and the review screen says so.
+   */
+  pageCoverage?: { read: number; total: number };
 }
 
 /**

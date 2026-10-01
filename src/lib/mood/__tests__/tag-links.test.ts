@@ -310,3 +310,69 @@ describe("entry-ownership guard", () => {
     });
   });
 });
+
+describe("the write helpers report the keys they did not store", () => {
+  it("createTagLinks returns the unresolved binary and factor keys", async () => {
+    // First lookup: rated factors (only `factor_work` is a live factor).
+    // Second lookup: binary keys (`happy` live; the other two are unknown or
+    // archived, which the `isActive` filter makes look the same).
+    moodTagFindMany
+      .mockResolvedValueOnce([
+        { id: "mt_factor_work", key: "factor_work", scaleMin: 1, scaleMax: 5 },
+      ])
+      .mockResolvedValueOnce([{ id: "mt_happy", key: "happy" }]);
+
+    const dropped = await createTagLinks(
+      "entry-1",
+      "user-1",
+      ["happy", "custom:gone", "no_such_tag", "happy"],
+      undefined,
+      [
+        { key: "factor_work", rating: 3 },
+        { key: "factor_retired", rating: 2 },
+      ],
+    );
+
+    expect(dropped).toEqual({
+      droppedTagKeys: ["custom:gone", "no_such_tag"],
+      droppedFactorKeys: ["factor_retired"],
+    });
+  });
+
+  it("createTagLinks reports nothing when every key landed", async () => {
+    moodTagFindMany.mockResolvedValue([{ id: "mt_happy", key: "happy" }]);
+    expect(await createTagLinks("entry-1", "user-1", ["happy"])).toEqual({
+      droppedTagKeys: [],
+      droppedFactorKeys: [],
+    });
+  });
+
+  it("replaceTagLinks does not report a key whose archived link it preserved", async () => {
+    // `custom:old` is archived but already on the entry: the edit keeps it,
+    // so it is not dropped. `custom:never` resolves to nothing anywhere.
+    moodTagFindMany.mockResolvedValue([]);
+    linkFindMany.mockResolvedValue([
+      {
+        moodTagId: "mt_old",
+        moodTag: { isActive: false, kind: "BINARY", key: "custom:old" },
+      },
+    ]);
+    expect(
+      await replaceTagLinks("entry-1", "user-1", [
+        "custom:old",
+        "custom:never",
+      ]),
+    ).toEqual(["custom:never"]);
+  });
+
+  it("replaceRatedFactorLinks does not report an archived factor that stays on the entry", async () => {
+    moodTagFindMany.mockResolvedValue([]);
+    linkFindMany.mockResolvedValue([{ moodTag: { key: "factor_archived" } }]);
+    expect(
+      await replaceRatedFactorLinks("entry-1", "user-1", [
+        { key: "factor_archived", rating: 2 },
+        { key: "factor_unknown", rating: 2 },
+      ]),
+    ).toEqual(["factor_unknown"]);
+  });
+});

@@ -229,11 +229,15 @@ describe("POST /api/labs/ocr/extract — vision PDF rasterization", () => {
     vi.mocked(rasterizePdf).mockResolvedValue({
       ok: true,
       images: [{ mediaType: "image/jpeg", dataBase64: "cGFnZQ==" }],
+      pageCount: 1,
     });
     vi.mocked(runOcrExtraction).mockResolvedValue({ rows: [] } as never);
 
     const res = await POST(pdfReq());
     expect(res.status).toBe(200);
+    // The whole PDF was read: no coverage note on the response.
+    const whole = (await res.json()) as { data: Record<string, unknown> };
+    expect(whole.data).not.toHaveProperty("pageCoverage");
     expect(rasterizePdf).toHaveBeenCalledOnce();
     // The rendered page images flow through as `input_image`s; no native PDF
     // document block is sent for a non-Anthropic provider.
@@ -243,6 +247,26 @@ describe("POST /api/labs/ocr/extract — vision PDF rasterization", () => {
         documents: [],
       }),
     );
+  });
+
+  it("says on the response when only the first pages of a long PDF were read", async () => {
+    const tenPages = Array.from({ length: 10 }, () => ({
+      mediaType: "image/jpeg" as const,
+      dataBase64: "cGFnZQ==",
+    }));
+    vi.mocked(rasterizePdf).mockResolvedValue({
+      ok: true,
+      images: tenPages,
+      pageCount: 23,
+    });
+    vi.mocked(runOcrExtraction).mockResolvedValue({ rows: [] } as never);
+
+    const res = await POST(pdfReq());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { pageCoverage?: { read: number; total: number } };
+    };
+    expect(body.data.pageCoverage).toEqual({ read: 10, total: 23 });
   });
 
   it("hands the slot back when the upload is not an image or PDF", async () => {

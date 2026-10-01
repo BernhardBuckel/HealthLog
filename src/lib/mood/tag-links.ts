@@ -6,8 +6,11 @@ import { prisma } from "@/lib/db";
  *
  * Resolve a list of catalog tag keys (`mood_tags.key`) to their ids and
  * write the `mood_entry_tag_links` join for a mood entry. The catalog is
- * the source of truth: unknown keys are dropped silently so a stale
- * client can never mint a link to a tag the deployment doesn't carry.
+ * the source of truth: an unknown or archived key never mints a link, so a
+ * stale client cannot link a tag the deployment doesn't carry. The write
+ * helpers return the keys they did not store, and the routes report them
+ * per entry (`droppedTagKeys` / `droppedFactorKeys`), so a client is never
+ * told an entry landed whole when part of it did not.
  *
  * Every helper accepts an optional `db` client so the caller can thread
  * the same `$transaction` client that wrote the entry — the entry row and
@@ -76,7 +79,8 @@ interface ResolvedRatedFactor {
  * resolved `MoodTag`'s own `scaleMin..scaleMax`. The route maps this to a
  * 422 (the per-tag scale is the real gate; the Zod schema only enforces
  * the outer 1..5 envelope). Unknown / non-RATED keys are NOT an error —
- * they are dropped silently, matching the binary `tagKeys` posture.
+ * the entry still lands without them, matching the binary `tagKeys`
+ * posture, and the write helpers report them back as dropped.
  */
 export class RatedFactorOutOfRangeError extends Error {
   constructor(
@@ -93,9 +97,19 @@ export class RatedFactorOutOfRangeError extends Error {
 }
 
 /**
+ * The submitted keys a write did not store: unknown to the catalog, archived,
+ * another account's custom tag, or the wrong kind for the field they came in.
+ * Empty arrays when everything landed.
+ */
+export interface DroppedLinkKeys {
+  droppedTagKeys: string[];
+  droppedFactorKeys: string[];
+}
+
+/**
  * Resolve rated-factor inputs against the catalog. Unknown keys, inactive
- * tags, and `kind = 'BINARY'` keys are dropped silently (the catalog is
- * the source of truth, same posture as `resolveTagKeysToIds`). A rating
+ * tags, and `kind = 'BINARY'` keys are not resolved (the catalog is the
+ * source of truth, same posture as `resolveTagKeysToIds`). A rating
  * outside the resolved tag's `scaleMin..scaleMax` throws
  * `RatedFactorOutOfRangeError` so the route returns 422. The last value
  * wins on a duplicate key in the same payload.
@@ -104,7 +118,15 @@ export async function resolveRatedFactors(
   factors: RatedFactorInput[],
   db: TagLinkDb = prisma,
 ): Promise<ResolvedRatedFactor[]> {
-  if (factors.length === 0) return [];
+  return (await resolveRatedFactorsReporting(factors, db)).resolved;
+}
+
+/** `resolveRatedFactors`, plus the submitted keys that did not resolve. */
+async function resolveRatedFactorsReporting(
+  factors: RatedFactorInput[],
+  db: TagLinkDb,
+): Promise<{ resolved: ResolvedRatedFactor[]; dropped: string[] }> {
+  if (factors.length === 0) return { resolved: [], dropped: [] };
   // Last-writer-wins on a duplicate key in the same submission.
   const byKey = new Map<string, number>();
   for (const f of factors) byKey.set(f.key, f.rating);
@@ -135,7 +157,11 @@ export async function resolveRatedFactors(
     }
     resolved.push({ moodTagId: row.id, rating });
   }
-  return resolved;
+  const found = new Set(rows.map((row) => row.key));
+  return {
+    resolved,
+    dropped: [...byKey.keys()].filter((key) => !found.has(key)),
+  };
 }
 
 /**
@@ -161,8 +187,18 @@ export async function resolveTagKeysToIds(
   ownerUserId?: string,
   kind?: "BINARY" | "RATED",
 ): Promise<string[]> {
+  return (await resolveTagKeysReporting(keys, db, ownerUserId, kind)).ids;
+}
+
+/** `resolveTagKeysToIds`, plus the submitted keys that did not resolve. */
+async function resolveTagKeysReporting(
+  keys: string[],
+  db: TagLinkDb,
+  ownerUserId?: string,
+  kind?: "BINARY" | "RATED",
+): Promise<{ ids: string[]; dropped: string[] }> {
   const unique = Array.from(new Set(keys));
-  if (unique.length === 0) return [];
+  if (unique.length === 0) return { ids: [], dropped: [] };
   const ownerClause = ownerUserId
     ? { OR: [{ userId: null }, { userId: ownerUserId }] }
     : { userId: null };
@@ -173,9 +209,13 @@ export async function resolveTagKeysToIds(
       ...(kind ? { kind } : {}),
       ...ownerClause,
     },
-    select: { id: true },
+    select: { id: true, key: true },
   });
-  return rows.map((row) => row.id);
+  const found = new Set(rows.map((row) => row.key));
+  return {
+    ids: rows.map((row) => row.id),
+    dropped: unique.filter((key) => !found.has(key)),
+  };
 }
 
 /**
@@ -191,6 +231,8 @@ export async function resolveTagKeysToIds(
  * route 422) when a rating is out of the factor's scale. Asserts the
  * entry belongs to `userId` before any write — a defensive guard against
  * linking into an entry the acting session does not own.
+ *
+ * Returns the submitted keys that were not stored, for the route to report.
  */
 export async function createTagLinks(
   moodEntryId: string,
@@ -198,12 +240,13 @@ export async function createTagLinks(
   keys: string[],
   db: TagLinkDb = prisma,
   ratedFactors: RatedFactorInput[] = [],
-): Promise<void> {
+): Promise<DroppedLinkKeys> {
   await assertEntryOwnership(moodEntryId, userId, db);
   // Resolve rated factors FIRST so an out-of-range rating aborts before
   // any write, and so the rated rows (which carry a value) take priority
   // over a bare binary row for the same tag id under `skipDuplicates`.
-  const resolvedFactors = await resolveRatedFactors(ratedFactors, db);
+  const { resolved: resolvedFactors, dropped: droppedFactorKeys } =
+    await resolveRatedFactorsReporting(ratedFactors, db);
   const ratedTagIds = new Set(resolvedFactors.map((f) => f.moodTagId));
 
   if (resolvedFactors.length > 0) {
@@ -218,16 +261,19 @@ export async function createTagLinks(
     });
   }
 
-  const tagIds = (await resolveTagKeysToIds(keys, db, userId)).filter(
+  const binary = await resolveTagKeysReporting(keys, db, userId);
+  const tagIds = binary.ids.filter(
     // A key already written as a rated link is not re-inserted as a
     // bare binary row (that would lose the rating to `skipDuplicates`).
     (id) => !ratedTagIds.has(id),
   );
-  if (tagIds.length === 0) return;
-  await db.moodEntryTagLink.createMany({
-    data: tagIds.map((moodTagId) => ({ moodEntryId, moodTagId })),
-    skipDuplicates: true,
-  });
+  if (tagIds.length > 0) {
+    await db.moodEntryTagLink.createMany({
+      data: tagIds.map((moodTagId) => ({ moodEntryId, moodTagId })),
+      skipDuplicates: true,
+    });
+  }
+  return { droppedTagKeys: binary.dropped, droppedFactorKeys };
 }
 
 /**
@@ -248,24 +294,31 @@ export async function createTagLinks(
  * (`isActive: false`) are therefore preserved untouched no matter what
  * the body carries; a purge (`DELETE /api/mood/tags/custom/[key]?purge=true`)
  * remains the only path that removes them.
+ *
+ * Returns the submitted keys that are not on the entry afterwards. A key
+ * whose archived link was preserved is on the entry, so it is not reported.
  */
 export async function replaceTagLinks(
   moodEntryId: string,
   userId: string,
   keys: string[],
   db: TagLinkDb = prisma,
-): Promise<void> {
+): Promise<string[]> {
   await assertEntryOwnership(moodEntryId, userId, db);
-  const desiredIds = new Set(
-    await resolveTagKeysToIds(keys, db, userId, "BINARY"),
-  );
+  const desired = await resolveTagKeysReporting(keys, db, userId, "BINARY");
+  const desiredIds = new Set(desired.ids);
   const existing = await db.moodEntryTagLink.findMany({
     where: { moodEntryId },
     select: {
       moodTagId: true,
-      moodTag: { select: { isActive: true, kind: true } },
+      moodTag: { select: { isActive: true, kind: true, key: true } },
     },
   });
+  const preservedKeys = new Set(
+    existing
+      .filter((row) => !row.moodTag.isActive && row.moodTag.kind === "BINARY")
+      .map((row) => row.moodTag.key),
+  );
   const existingIds = new Set(existing.map((row) => row.moodTagId));
 
   const toDelete = existing
@@ -289,6 +342,7 @@ export async function replaceTagLinks(
       skipDuplicates: true,
     });
   }
+  return desired.dropped.filter((key) => !preservedKeys.has(key));
 }
 
 /**
@@ -300,17 +354,40 @@ export async function replaceTagLinks(
  * Throws `RatedFactorOutOfRangeError` (→ route 422) before any write when a
  * rating is out of scale. Asserts the entry belongs to `userId` before any
  * write.
+ *
+ * Returns the submitted factor keys that are not on the entry afterwards; an
+ * archived factor whose link survives is on the entry and is not reported.
  */
 export async function replaceRatedFactorLinks(
   moodEntryId: string,
   userId: string,
   factors: RatedFactorInput[],
   db: TagLinkDb = prisma,
-): Promise<void> {
+): Promise<string[]> {
   await assertEntryOwnership(moodEntryId, userId, db);
   // Resolve (and range-check) before mutating so an out-of-range rating
   // aborts the replace cleanly.
-  const resolved = await resolveRatedFactors(factors, db);
+  const { resolved, dropped } = await resolveRatedFactorsReporting(factors, db);
+  // Looked up only when something did not resolve: which of those keys still
+  // sit on the entry as an archived factor the replacement leaves alone.
+  const preservedKeys =
+    dropped.length === 0
+      ? new Set<string>()
+      : new Set(
+          (
+            await db.moodEntryTagLink.findMany({
+              where: {
+                moodEntryId,
+                moodTag: {
+                  isActive: false,
+                  kind: "RATED",
+                  key: { in: dropped },
+                },
+              },
+              select: { moodTag: { select: { key: true } } },
+            })
+          ).map((row) => row.moodTag.key),
+        );
 
   // Drop every active RATED link, including a legacy row whose rating is
   // null. Same archive contract as `replaceTagLinks`: a link whose tag has
@@ -333,4 +410,30 @@ export async function replaceRatedFactorLinks(
       skipDuplicates: true,
     });
   }
+  return dropped.filter((key) => !preservedKeys.has(key));
 }
+
+/**
+ * The wire form of `DroppedLinkKeys`: each list only when it is non-empty.
+ * Absent means every submitted key of that kind landed, which keeps the
+ * common response byte-identical to what clients read before the fields
+ * existed.
+ */
+export function droppedLinkKeysForWire(
+  dropped: DroppedLinkKeys,
+): Partial<DroppedLinkKeys> {
+  return {
+    ...(dropped.droppedTagKeys.length > 0
+      ? { droppedTagKeys: dropped.droppedTagKeys }
+      : {}),
+    ...(dropped.droppedFactorKeys.length > 0
+      ? { droppedFactorKeys: dropped.droppedFactorKeys }
+      : {}),
+  };
+}
+
+/** No key dropped: the value a write that carried no keys reports. */
+export const NO_DROPPED_LINK_KEYS: DroppedLinkKeys = Object.freeze({
+  droppedTagKeys: [],
+  droppedFactorKeys: [],
+}) as DroppedLinkKeys;

@@ -33,6 +33,8 @@ import { invalidateUserMood } from "@/lib/cache/invalidate";
 import { recomputeMoodBucketsForEntry } from "@/lib/rollups/mood-rollups";
 import {
   createTagLinks,
+  droppedLinkKeysForWire,
+  NO_DROPPED_LINK_KEYS,
   RatedFactorOutOfRangeError,
 } from "@/lib/mood/tag-links";
 
@@ -219,6 +221,7 @@ async function postMoodEntry(request: NextRequest) {
       persistedRatedFactors,
       persistedContext,
       contextOutcome,
+      droppedKeys,
     } = await prisma.$transaction(async (tx) => {
       // v1.12.1 — when the client supplies a source-stable `externalId`,
       // upsert on the NULL-distinct `(userId, source, externalId)` key so
@@ -287,14 +290,16 @@ async function postMoodEntry(request: NextRequest) {
             },
           });
 
+      let droppedKeys = NO_DROPPED_LINK_KEYS;
       if (
         (tagKeys && tagKeys.length > 0) ||
         (ratedFactors && ratedFactors.length > 0)
       ) {
-        // Unknown / non-RATED keys are dropped inside the helper (the
-        // catalog is the source of truth). An out-of-scale rating
-        // throws `RatedFactorOutOfRangeError`, rolling the tx back.
-        await createTagLinks(
+        // Unknown, archived or non-RATED keys are not stored (the catalog
+        // is the source of truth); the helper returns them so the response
+        // can say so. An out-of-scale rating throws
+        // `RatedFactorOutOfRangeError`, rolling the tx back.
+        droppedKeys = await createTagLinks(
           created.id,
           user.id,
           tagKeys ?? [],
@@ -333,6 +338,7 @@ async function postMoodEntry(request: NextRequest) {
       return {
         entry: created,
         contextOutcome,
+        droppedKeys,
         persistedContext: storedContext,
         persistedTagKeys: links
           .filter((link) => link.moodTag.kind !== "RATED")
@@ -360,7 +366,13 @@ async function postMoodEntry(request: NextRequest) {
       // boolean, because "the request said nothing" and "the request cleared
       // it" are different acts and a dashboard that folded them together
       // could not tell an abandoned section from a deliberate one.
-      meta: { moodEntryId: entry.id, mood, mood_context: contextOutcome },
+      meta: {
+        moodEntryId: entry.id,
+        mood,
+        mood_context: contextOutcome,
+        dropped_tag_keys: droppedKeys.droppedTagKeys.length,
+        dropped_factor_keys: droppedKeys.droppedFactorKeys.length,
+      },
     });
 
     // v1.4.34 IW-G — bust per-user mood + achievements + analytics caches.
@@ -398,6 +410,10 @@ async function postMoodEntry(request: NextRequest) {
         // when the entry carries none, which is a different answer from an
         // object full of nulls and reads as one.
         context: persistedContext ? contextForWire(persistedContext) : null,
+        // The submitted keys that were not stored (unknown, archived, or the
+        // wrong kind), each list present only when non-empty. Without them
+        // a 201 read as "everything landed" when part of it had not.
+        ...droppedLinkKeysForWire(droppedKeys),
       },
       201,
     );
