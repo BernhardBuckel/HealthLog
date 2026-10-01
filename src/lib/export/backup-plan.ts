@@ -738,6 +738,212 @@ export const AUTH_MODELS_OUT_OF_SCOPE: readonly string[] = [
   "InviteRedemption",
 ];
 
+/**
+ * Every column of the `User` row, and whether it travels.
+ *
+ * The models above are decided one table at a time. The account row cannot
+ * be: it holds the person's own choices next to their sign-in credentials,
+ * the integration keys, the operator's policy for the account and a dozen
+ * cursors, and a single verdict for the whole row would either leave the
+ * choices behind or carry the credentials with them. Before this table the
+ * row was simply not in the backup, so a restore brought the record back and
+ * dropped units, language, time zone, modules, reminder thresholds and the
+ * rest of how the account had been set up.
+ *
+ * `SETTING`     — something the person chose. Exported in the
+ *                 `accountSettings` section and written back to the account
+ *                 being restored, column by column, after the same checks
+ *                 the settings routes apply. Both ends live in
+ *                 `src/lib/export/account-settings-backup.ts`.
+ * `CREDENTIAL`  — a secret, a token, a provider registration or an external
+ *                 identity binding, and the state that only means something
+ *                 next to one. A backup file is not a credential store; the
+ *                 same reasoning as `ApiToken` above.
+ * `IDENTITY`    — what the account IS rather than how it is set up: its key,
+ *                 its sign-in name, its role, whether it is a managed record,
+ *                 and the limits the operator set for it. A restore puts data
+ *                 back into an account; it never changes which account that
+ *                 is or what the operator allowed it.
+ * `OPERATIONAL` — cursors, caches and timestamps this host wrote while
+ *                 working for the account. Carrying them would assert work
+ *                 the receiving host never did, the reason `IntegrationStatus`
+ *                 and `ProviderHealth` are excluded above.
+ *
+ * `src/__tests__/user-column-backup-classification.test.ts` reads the
+ * schema and fails on a column that is missing here, so a new column gets a
+ * decision rather than a default.
+ */
+export const USER_COLUMN_BACKUP_CLASS = {
+  // ── Identity ──────────────────────────────────────────────────────────────
+  id: "IDENTITY",
+  username: "IDENTITY",
+  email: "IDENTITY",
+  role: "IDENTITY",
+  createdAt: "IDENTITY",
+  updatedAt: "IDENTITY",
+  // Whether somebody else runs this record. Account shape, and the gate for
+  // the guardian's reach: the wipe keeps it for the same reason.
+  managedProfileAt: "IDENTITY",
+  // The operator's per-account policy and quota, set by the operator and not
+  // by the person; a file from Monday must not undo Tuesday's decision.
+  mfaEnforced: "IDENTITY",
+  documentQuotaBytes: "IDENTITY",
+
+  // ── Credentials ───────────────────────────────────────────────────────────
+  passwordHash: "CREDENTIAL",
+  oidcIssuer: "CREDENTIAL",
+  oidcSub: "CREDENTIAL",
+  totpSecretEncrypted: "CREDENTIAL",
+  totpConfirmedAt: "CREDENTIAL",
+  totpLastStep: "CREDENTIAL",
+  codexAccessTokenEncrypted: "CREDENTIAL",
+  codexRefreshTokenEncrypted: "CREDENTIAL",
+  codexTokenExpiresAt: "CREDENTIAL",
+  codexConnectedAt: "CREDENTIAL",
+  codexConnectionStatus: "CREDENTIAL",
+  aiAnthropicKeyEncrypted: "CREDENTIAL",
+  aiLocalKeyEncrypted: "CREDENTIAL",
+  aiOpenaiKeyEncrypted: "CREDENTIAL",
+  aiCompatKeyEncrypted: "CREDENTIAL",
+  // The bot token, the chat it is bound to, and the switch that only means
+  // something with both: the same reasoning as `NotificationChannel`.
+  telegramBotToken: "CREDENTIAL",
+  telegramChatId: "CREDENTIAL",
+  telegramEnabled: "CREDENTIAL",
+  withingsClientIdEncrypted: "CREDENTIAL",
+  withingsClientSecretEncrypted: "CREDENTIAL",
+  whoopClientIdEncrypted: "CREDENTIAL",
+  whoopClientSecretEncrypted: "CREDENTIAL",
+  fitbitClientIdEncrypted: "CREDENTIAL",
+  fitbitClientSecretEncrypted: "CREDENTIAL",
+  googleHealthClientIdEncrypted: "CREDENTIAL",
+  googleHealthClientSecretEncrypted: "CREDENTIAL",
+  // The address is stored sealed beside its token because it can carry one,
+  // and the private-host exemption is a security decision about that one
+  // connection, not a preference that should arrive ahead of it.
+  nightscoutUrlEncrypted: "CREDENTIAL",
+  nightscoutTokenEncrypted: "CREDENTIAL",
+  nightscoutAllowPrivateHost: "CREDENTIAL",
+  polarAccessTokenEncrypted: "CREDENTIAL",
+  polarUserIdEncrypted: "CREDENTIAL",
+  polarClientIdEncrypted: "CREDENTIAL",
+  polarClientSecretEncrypted: "CREDENTIAL",
+  ouraAccessTokenEncrypted: "CREDENTIAL",
+  ouraRefreshTokenEncrypted: "CREDENTIAL",
+  ouraClientIdEncrypted: "CREDENTIAL",
+  ouraClientSecretEncrypted: "CREDENTIAL",
+  stravaClientIdEncrypted: "CREDENTIAL",
+  stravaClientSecretEncrypted: "CREDENTIAL",
+  stravaAccessTokenEncrypted: "CREDENTIAL",
+  stravaRefreshTokenEncrypted: "CREDENTIAL",
+  stravaAthleteId: "CREDENTIAL",
+
+  // ── Operational ───────────────────────────────────────────────────────────
+  insightsCachedAt: "OPERATIONAL",
+  insightsCachedText: "OPERATIONAL",
+  insightsCachedLocale: "OPERATIONAL",
+  insightsSnapshotHash: "OPERATIONAL",
+  insightsWarmFailedAt: "OPERATIONAL",
+  insightsBriefingRerollDate: "OPERATIONAL",
+  morningDigestRefreshedOn: "OPERATIONAL",
+  coachLastSeenAt: "OPERATIONAL",
+  stravaLastActivityAt: "OPERATIONAL",
+  stravaBackfillCompletedAt: "OPERATIONAL",
+  healthKitLastSyncedAt: "OPERATIONAL",
+  healthKitLastSyncTrigger: "OPERATIONAL",
+  healthKitLastBackgroundSyncAt: "OPERATIONAL",
+  lastSyncedAt: "OPERATIONAL",
+  // The restore stamps its own: paired clients' cursors from before it must
+  // be refused, which a carried value would undo.
+  syncResetAt: "OPERATIONAL",
+
+  // ── Settings ──────────────────────────────────────────────────────────────
+  // The body and the person, for the reference ranges, the score and the
+  // doctor's report. No other section carries them.
+  heightCm: "SETTING",
+  dateOfBirth: "SETTING",
+  gender: "SETTING",
+  hasDiabetes: "SETTING",
+  displayName: "SETTING",
+  fullName: "SETTING",
+  insurerName: "SETTING",
+  insuranceNumberEncrypted: "SETTING",
+  insurerIkNumber: "SETTING",
+  lastReportPracticeName: "SETTING",
+  avatarBytes: "SETTING",
+  avatarContentType: "SETTING",
+  avatarUpdatedAt: "SETTING",
+  // Home, which the environment history is resolved against.
+  homeLat: "SETTING",
+  homeLon: "SETTING",
+  homeLabel: "SETTING",
+  homeTimezone: "SETTING",
+  homeSince: "SETTING",
+  // How the interface reads.
+  timezone: "SETTING",
+  locale: "SETTING",
+  unitPreference: "SETTING",
+  glucoseUnit: "SETTING",
+  timeFormat: "SETTING",
+  dateFormat: "SETTING",
+  // What is switched on, what is shown where, and what counts as in range.
+  modulePreferencesJson: "SETTING",
+  thresholdsJson: "SETTING",
+  healthScoreConfigJson: "SETTING",
+  sourcePriorityJson: "SETTING",
+  dashboardWidgetsJson: "SETTING",
+  insightsLayoutJson: "SETTING",
+  medicationListLayoutJson: "SETTING",
+  moodTagLayoutJson: "SETTING",
+  reportSelectionJson: "SETTING",
+  globalExcludedInjectionSites: "SETTING",
+  healthKitConfigJson: "SETTING",
+  // Reminders and notifications, as preferences rather than channels.
+  notificationPrefs: "SETTING",
+  moodReminderEnabled: "SETTING",
+  // The AI choices, never the keys: which provider, which model, which
+  // order, how long to wait, what may be sent, and whether to use it at all.
+  // The keys stay behind, so a restored choice of provider reads as "not
+  // configured" until a key is entered, which is also how it reads after a
+  // key is removed in Settings.
+  aiProvider: "SETTING",
+  aiModel: "SETTING",
+  aiBaseUrl: "SETTING",
+  aiCompatBaseUrl: "SETTING",
+  aiCompatModel: "SETTING",
+  aiProviderChain: "SETTING",
+  aiResponseTimeoutSeconds: "SETTING",
+  useCentralCodex: "SETTING",
+  insightsPrivacyMode: "SETTING",
+  insightsExcludeMetrics: "SETTING",
+  disableCoach: "SETTING",
+  coachPrefsJson: "SETTING",
+  documentsAutoAiRead: "SETTING",
+  labsLocalOcrEnabled: "SETTING",
+  // Where the person is in the app's introductions. Without these a restored
+  // account is sent through setup and the tour again, and asked to accept the
+  // disclaimer it already accepted (a newer disclaimer still asks, because the
+  // version is compared).
+  onboardingCompletedAt: "SETTING",
+  onboardingTourCompleted: "SETTING",
+  onboardingTourProgressJson: "SETTING",
+  disclaimerAcknowledgedAt: "SETTING",
+  disclaimerAcknowledgedVersion: "SETTING",
+  passkeyUpgradeNudgeDismissed: "SETTING",
+} as const satisfies Readonly<
+  Record<string, "SETTING" | "CREDENTIAL" | "IDENTITY" | "OPERATIONAL">
+>;
+
+export type UserColumnBackupClass =
+  (typeof USER_COLUMN_BACKUP_CLASS)[keyof typeof USER_COLUMN_BACKUP_CLASS];
+
+/** The `User` columns the `accountSettings` section carries. */
+export type AccountSettingColumn = {
+  [
+    K in keyof typeof USER_COLUMN_BACKUP_CLASS
+  ]: (typeof USER_COLUMN_BACKUP_CLASS)[K] extends "SETTING" ? K : never;
+}[keyof typeof USER_COLUMN_BACKUP_CLASS];
+
 export type BackupVerdict = "BACKED_UP" | "DERIVED" | "NOT_IN_BACKUP" | "AUTH";
 
 /**
