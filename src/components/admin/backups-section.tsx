@@ -467,6 +467,9 @@ function catalogueLabel(
   if (catalogue === "scheduleRevisionLink") {
     return t("admin.section.backups.restoreSkippedScheduleRevisionLink");
   }
+  if (catalogue === "accountSetting") {
+    return t("admin.section.backups.restoreSkippedAccountSetting");
+  }
   // Not a fallback: the chain above is exhaustive and this line is what makes
   // the compiler say so. A catalogue added without a label here now stops the
   // build instead of shipping under a label that belongs to something else,

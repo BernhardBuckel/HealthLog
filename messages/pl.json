@@ -7343,6 +7343,7 @@
         "restoreSkippedEcgReference": "Pochodzenie zapisu EKG",
         "restoreSkippedMedicationTarget": "Analit docelowy leku",
         "restoreSkippedScheduleRevisionLink": "Następstwo okresów schematu",
+        "restoreSkippedAccountSetting": "Ustawienie konta",
         "restoreMissingTitle": "Przywracanie odrzucone — plik jest niekompletny",
         "restoreMissingDescription": "Manifest pliku mówi, że zawiera on poniższą sekcję, a jej nie zawiera. Nic nie zostało zmienione: przywracanie zastępuje całą klasę rekordów, więc brakująca sekcja by ją opróżniła.",
         "restoreMissingRemedy": "Użyj kopii do odtwarzania po awarii albo wyeksportuj konto ponownie i wgraj nowy plik. Sekcja, którą manifest jawnie deklaruje jako pominiętą, to co innego i przywraca się normalnie.",

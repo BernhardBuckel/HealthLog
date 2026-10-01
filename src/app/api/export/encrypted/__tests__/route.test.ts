@@ -27,6 +27,9 @@ vi.mock("@/lib/db", () => ({
     intradayCumulativeProfile: { findMany: vi.fn().mockResolvedValue([]) },
     healthScoreRecord: { findMany: vi.fn().mockResolvedValue([]) },
     onboardingRecord: { findUnique: vi.fn().mockResolvedValue(null) },
+    // The account row's settings, read by `buildAccountSettingsBackupSection`.
+    // Absent here; the section has its own tests.
+    user: { findUnique: vi.fn().mockResolvedValue(null) },
     // The visit tables. Empty here: this file asserts the sections it seeds,
     // and an account with no visits is the ordinary case the builder must
     // still answer for.

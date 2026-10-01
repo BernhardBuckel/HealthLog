@@ -77,7 +77,12 @@ import {
 } from "@/lib/labs/biomarker-store";
 import { legacyStreamedBlobFrom } from "@/__tests__/helpers/legacy-backup-blob";
 import { streamFullBackupJson } from "@/lib/export/full-backup-stream";
-import { TWO_ENDED_MODELS, type TwoEndedModel } from "@/lib/export/backup-plan";
+import {
+  TWO_ENDED_MODELS,
+  USER_COLUMN_BACKUP_CLASS,
+  type TwoEndedModel,
+} from "@/lib/export/backup-plan";
+import { ACCOUNT_SETTING_COLUMNS } from "@/lib/export/account-settings-backup";
 import { parseOnboardingSteps } from "@/lib/onboarding/needs";
 import { POST } from "./restore-job-driver";
 import {
@@ -3639,5 +3644,199 @@ describe("every column of every two-ended model survives a real restore", () => 
       ...Object.keys(FILL_OVERRIDES),
     ].filter((key) => !known.has(key));
     expect(stale).toEqual([]);
+  });
+});
+
+/**
+ * A 1x1 PNG: the smallest picture the avatar upload, and so the restore,
+ * accepts.
+ */
+const AVATAR_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+  "base64",
+);
+
+/**
+ * Values for `User` columns where the type alone would produce one the
+ * restore rightly refuses: a vocabulary, a time zone, an AI endpoint, a
+ * threshold band, an image.
+ */
+const USER_FILL_OVERRIDES: Readonly<Record<string, unknown>> = {
+  "User.gender": "FEMALE",
+  "User.locale": "fr",
+  "User.timezone": "America/Chicago",
+  "User.homeTimezone": "Asia/Tokyo",
+  "User.unitPreference": "imperial",
+  "User.glucoseUnit": "mmol/L",
+  "User.insightsPrivacyMode": "raw",
+  "User.aiProvider": "LOCAL",
+  "User.aiBaseUrl": "https://llm.example.com/v1",
+  "User.aiCompatBaseUrl": "https://gateway.example.com/v1",
+  "User.thresholdsJson": { WEIGHT: { min: 60, max: 80 } },
+  "User.globalExcludedInjectionSites": ["THIGH_LEFT"],
+  "User.avatarBytes": () => {
+    const bytes = new Uint8Array(new ArrayBuffer(AVATAR_PNG.byteLength));
+    bytes.set(AVATAR_PNG);
+    return bytes;
+  },
+  "User.avatarContentType": "image/png",
+};
+
+/**
+ * Columns of the account row the restore writes for reasons of its own, so
+ * "unchanged on the target" does not apply to them.
+ */
+const USER_ROW_STAMPED: Readonly<Record<string, string>> = {
+  updatedAt: "@updatedAt; Prisma stamps it on the restore's write",
+  syncResetAt:
+    "the restore stamps it so paired clients' delta cursors are refused",
+};
+
+describe("the account's own settings survive a real restore", () => {
+  it("brings every setting column back and leaves the rest of the target's row alone", async () => {
+    const prisma = getPrismaClient();
+    await seedAdminSession(prisma);
+    await createOwner(prisma);
+
+    const [userModel] = readAuditModels(prisma, ["User"]);
+    const enumValues = enumValuesFromSchema();
+    const settings = new Set<string>(ACCOUNT_SETTING_COLUMNS);
+    const classes = USER_COLUMN_BACKUP_CLASS as Readonly<
+      Record<string, string>
+    >;
+
+    // Every column the source account can be given a non-default value in,
+    // settings and everything else alike: a credential that came back on the
+    // target is as much a failure as a setting that did not.
+    const fillable = userModel.columns.filter(
+      (column) =>
+        !column.isId &&
+        !column.isUpdatedAt &&
+        column.name !== "username" &&
+        column.name !== "role",
+    );
+    const unfillable: string[] = [];
+    for (const column of fillable) {
+      try {
+        await prisma.user.update({
+          where: { id: OWNER_ID },
+          data: {
+            [column.name]: syntheticValue(
+              column,
+              enumValues,
+              USER_FILL_OVERRIDES,
+            ),
+          },
+        });
+      } catch (error) {
+        unfillable.push(
+          `${column.name}: ${String(error).split("\n").slice(-3).join(" ").slice(0, 200)}`,
+        );
+      }
+    }
+    expect(unfillable, "columns the fill could not set").toEqual([]);
+    const source = (await prisma.user.findUniqueOrThrow({
+      where: { id: OWNER_ID },
+    })) as unknown as Record<string, unknown>;
+    const defaulted = [...settings].filter((name) =>
+      isDefaultValue(
+        userModel.columns.find((c) => c.name === name)!,
+        source[name],
+      ),
+    );
+    expect(
+      defaulted,
+      "these settings still hold their default, so coming back with the " +
+        "default would read as carried",
+    ).toEqual([]);
+
+    let json = "";
+    await streamFullBackupJson(
+      prisma,
+      OWNER_ID,
+      (chunk) => {
+        json += chunk;
+      },
+      {
+        purpose: "disaster-recovery",
+        exportedAt: new Date("2026-08-01T00:00:00.000Z"),
+      },
+    );
+    // Nothing but setting columns reaches the file, and no secret at all.
+    const section = (JSON.parse(json) as { accountSettings: object })
+      .accountSettings;
+    expect(
+      Object.keys(section).filter(
+        (key) => !settings.has(key) && key !== "insuranceNumber",
+      ),
+    ).toEqual([]);
+
+    // A fresh account under the same id, the way an operator recreates one
+    // on a new host, given credentials of its own that must survive.
+    await prisma.user.delete({ where: { id: OWNER_ID } });
+    await createOwner(prisma);
+    await prisma.user.update({
+      where: { id: OWNER_ID },
+      data: {
+        passwordHash: "target-account-password-hash",
+        aiOpenaiKeyEncrypted: encrypt("target account key"),
+        totpSecretEncrypted: encrypt("target account totp"),
+      },
+    });
+    const target = (await prisma.user.findUniqueOrThrow({
+      where: { id: OWNER_ID },
+    })) as unknown as Record<string, unknown>;
+
+    const backup = await prisma.dataBackup.create({
+      data: {
+        userId: OWNER_ID,
+        type: "ACCOUNT_SETTINGS_ROUND_TRIP",
+        data: await legacyStreamedBlobFrom(async (write) => {
+          await write(json);
+        }),
+      },
+    });
+    const response = await POST(
+      new Request(`http://localhost/api/admin/backups/${backup.id}/restore`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: "RESTORE" }),
+      }) as never,
+      { params: Promise.resolve({ id: backup.id }) },
+    );
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    const refused = (
+      body.data.skipped.catalogueKeys as Array<{ catalogue: string }>
+    ).filter((entry) => entry.catalogue === "accountSetting");
+    expect(refused, "the restore refused a setting the fixture set").toEqual(
+      [],
+    );
+
+    const after = (await prisma.user.findUniqueOrThrow({
+      where: { id: OWNER_ID },
+    })) as unknown as Record<string, unknown>;
+
+    const lost = [...settings].filter(
+      (name) => opened(after[name]) !== opened(source[name]),
+    );
+    expect(
+      lost,
+      "these settings left with a value and came back without it",
+    ).toEqual([]);
+    expect(settings.size).toBeGreaterThanOrEqual(55);
+
+    const overwritten = userModel.columns
+      .map((column) => column.name)
+      .filter(
+        (name) =>
+          classes[name] !== "SETTING" && !Object.hasOwn(USER_ROW_STAMPED, name),
+      )
+      .filter((name) => opened(after[name]) !== opened(target[name]));
+    expect(
+      overwritten,
+      "the restore changed these identity, credential or bookkeeping columns " +
+        "on the account it restored into",
+    ).toEqual([]);
   });
 });

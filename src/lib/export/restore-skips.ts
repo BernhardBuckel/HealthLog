@@ -139,6 +139,13 @@
  * one rather than left to assume it worked. It is filed when a delegate files
  * a visit against a preventive-care checkup their grant does not reach — the
  * visit saves, the checkup stays due, and the response says so.
+ *
+ * The fourteenth, `accountSetting`, names one of the account's own settings
+ * the file carried and this host would not write: an AI endpoint on a private
+ * address this host has not allowed, a language or unit this release does not
+ * know, a threshold out of range, an avatar the upload would refuse. Its key
+ * is the column (or `column.part` for one band or one site), never the value.
+ * The account keeps what it had for that setting; everything else comes back.
  */
 export type SkippedCatalogue =
   | "cycleSymptom"
@@ -157,7 +164,8 @@ export type SkippedCatalogue =
   | "ecgReference"
   | "medicationTarget"
   | "scheduleRevisionLink"
-  | "checkupClosure";
+  | "checkupClosure"
+  | "accountSetting";
 
 /** One key this instance does not know, and the links it cost. */
 export interface SkippedCatalogueKey {

@@ -7343,6 +7343,7 @@
         "restoreSkippedEcgReference": "Provenienza di un tracciato ECG",
         "restoreSkippedMedicationTarget": "Analita obiettivo di un farmaco",
         "restoreSkippedScheduleRevisionLink": "Successione dei periodi di schema",
+        "restoreSkippedAccountSetting": "Impostazione dell'account",
         "restoreMissingTitle": "Ripristino rifiutato — il file è incompleto",
         "restoreMissingDescription": "Il manifesto del file dichiara di contenere la sezione qui sotto, e non la contiene. Non è stato modificato nulla: un ripristino sostituisce un'intera classe di record, quindi una sezione assente l'avrebbe svuotata.",
         "restoreMissingRemedy": "Usa uno snapshot di disaster recovery, oppure esporta di nuovo l'account e carica il file nuovo. Una sezione che il manifesto dichiara omessa è un'altra cosa e si ripristina normalmente.",
