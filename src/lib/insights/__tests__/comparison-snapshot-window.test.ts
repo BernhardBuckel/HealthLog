@@ -263,4 +263,42 @@ describe("buildComparisonSnapshotForUser — output-equivalence to the raw-avera
     expect(measurementAggregate).not.toHaveBeenCalled();
     expect(measurementFindMany).not.toHaveBeenCalled();
   });
+
+  it("states weight in the reader's mass unit and labels sleep in minutes", async () => {
+    findUnique.mockResolvedValue({
+      dashboardWidgetsJson: {
+        version: 1,
+        widgets: [],
+        comparisonBaseline: "lastMonth",
+      },
+      unitPreference: "imperial",
+    });
+    measurementAggregate.mockImplementation(
+      async (args: { where: { type: string; measuredAt: { lte?: Date } } }) =>
+        args.where.type === "WEIGHT"
+          ? { _avg: { value: args.where.measuredAt.lte ? 82 : 80 } }
+          : { _avg: { value: null } },
+    );
+    // Seven-hour nights, stored in minutes.
+    measurementFindMany.mockResolvedValue(
+      Array.from({ length: 5 }, (_, i) => ({
+        measuredAt: new Date(Date.now() - (i + 2) * DAY),
+        value: 420,
+        sleepStage: null,
+        source: "APPLE_HEALTH",
+        deviceType: null,
+      })),
+    );
+    const snapshot = await buildComparisonSnapshotForUser("u1");
+    const sleep = snapshot!.metrics.find((m) => m.type === "sleep");
+    expect(sleep).toMatchObject({ unit: "min", currentAvg: 420 });
+    const weight = snapshot!.metrics.find((m) => m.type === "weight");
+    expect(weight).toMatchObject({
+      unit: "lb",
+      currentAvg: 176.4,
+      baselineAvg: 180.8,
+      delta: -4.4,
+      deltaPercent: -2.4,
+    });
+  });
 });

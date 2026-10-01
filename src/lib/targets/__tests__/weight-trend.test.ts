@@ -111,3 +111,30 @@ describe("buildWeightTargetFeature", () => {
     ).toBeNull();
   });
 });
+
+describe("buildWeightTargetFeature — the reader's mass unit", () => {
+  it("quotes the band in pounds for an imperial reader and judges it in kilograms", () => {
+    const feature = buildWeightTargetFeature(
+      { min: 65, max: 70 },
+      { avg7: 66, latest: 66 },
+      "imperial",
+    );
+    expect(feature).toMatchObject({
+      min: 143.3,
+      max: 154.3,
+      unit: "lb",
+      position: "inside",
+    });
+    expect(feature?.reading).toContain("143.3–154.3 lb");
+    expect(feature?.reading).not.toContain("kg");
+  });
+
+  it("keeps kilograms for a metric reader", () => {
+    const feature = buildWeightTargetFeature(
+      { min: 65, max: 70 },
+      { avg7: 72, latest: 72 },
+    );
+    expect(feature).toMatchObject({ min: 65, max: 70, unit: "kg" });
+    expect(feature?.reading).toContain("65–70 kg");
+  });
+});

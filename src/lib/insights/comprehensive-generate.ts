@@ -41,6 +41,13 @@ import {
   buildBriefingIllnessCyclePrompt,
 } from "@/lib/insights/illness-cycle-briefing";
 import { compactSections } from "@/lib/ai/prompts/compact-sections";
+import { featuresInReaderUnits } from "@/lib/insights/features-units";
+import {
+  applyDisplayTransform,
+  applyDisplayTransformDelta,
+  getReadingTransform,
+  resolveUnitPreferences,
+} from "@/lib/measurements/display-transform";
 import {
   detectGlp1Plateau,
   buildGlp1PlateauPrompt,
@@ -324,7 +331,11 @@ export async function buildComparisonSnapshotForUser(
 ): Promise<ComparisonSnapshot | null> {
   const row = await prisma.user.findUnique({
     where: { id: userId },
-    select: { dashboardWidgetsJson: true },
+    select: {
+      dashboardWidgetsJson: true,
+      unitPreference: true,
+      glucoseUnit: true,
+    },
   });
   const layout = resolveDashboardLayout(row?.dashboardWidgetsJson);
   const baseline: ComparisonBaseline = layout.comparisonBaseline ?? "none";
@@ -339,15 +350,23 @@ export async function buildComparisonSnapshotForUser(
     SLEEP_DURATION: "sleep",
     ACTIVITY_STEPS: "steps",
   };
+  // Weight is converted into the reader's mass unit below; the rest read the
+  // same for everyone. Sleep comes off the night reconstruction in minutes.
   const typeUnits: Record<string, string> = {
-    WEIGHT: "kg",
     BLOOD_PRESSURE_SYS: "mmHg",
     BLOOD_PRESSURE_DIA: "mmHg",
     PULSE: "bpm",
     BODY_FAT: "%",
-    SLEEP_DURATION: "h",
+    SLEEP_DURATION: "min",
     ACTIVITY_STEPS: "",
   };
+  const mass = getReadingTransform(
+    "WEIGHT",
+    resolveUnitPreferences({
+      unitPreference: row?.unitPreference,
+      glucoseUnit: row?.glucoseUnit,
+    }),
+  );
   const types = Object.keys(typeToSnapshotKey) as MeasurementType[];
 
   // The snapshot only ever reads two of summarize()'s means per call: avg30
@@ -460,6 +479,23 @@ export async function buildComparisonSnapshotForUser(
           delta !== null && baselineAvg !== null && baselineAvg !== 0
             ? Math.round((delta / Math.abs(baselineAvg)) * 100 * 10) / 10
             : null;
+        if (type === "WEIGHT") {
+          return {
+            type: typeToSnapshotKey[type],
+            currentAvg:
+              currentAvg === null
+                ? null
+                : applyDisplayTransform(currentAvg, mass),
+            baselineAvg:
+              baselineAvg === null
+                ? null
+                : applyDisplayTransform(baselineAvg, mass),
+            delta:
+              delta === null ? null : applyDisplayTransformDelta(delta, mass),
+            deltaPercent,
+            unit: mass.displayUnit,
+          };
+        }
         return {
           type: typeToSnapshotKey[type] ?? type,
           currentAvg,
@@ -646,6 +682,10 @@ export async function generateComprehensiveInsight(
       // provider call below so a raised value for a slow self-hosted backend
       // actually applies to the briefing, not just to Coach.
       aiResponseTimeoutSeconds: true,
+      // The reader's units: the feature set is converted into them before it
+      // is hashed and serialised, so a unit switch regenerates the briefing.
+      unitPreference: true,
+      glucoseUnit: true,
     },
   });
 
@@ -800,6 +840,14 @@ export async function generateComprehensiveInsight(
     displayName: dbUser?.displayName ?? null,
   };
   features = applyInsightsExcludeFilter(features, excludeList);
+  // Every figure below the canonical arithmetic is stated in the reader's
+  // units: the prompt, the content hash and the grounding check all read the
+  // converted set, so they agree with each other and with the reader.
+  const units = resolveUnitPreferences({
+    unitPreference: dbUser?.unitPreference,
+    glucoseUnit: dbUser?.glucoseUnit,
+  });
+  features = featuresInReaderUnits(features, units);
   const compactFeatures = compactSections(
     features as unknown as Record<string, unknown>,
   );
@@ -863,7 +911,7 @@ export async function generateComprehensiveInsight(
     comparisonSnapshot ?? undefined,
   );
   if (plateauContext) {
-    userPrompt += buildGlp1PlateauPrompt(plateauContext, locale);
+    userPrompt += buildGlp1PlateauPrompt(plateauContext, locale, units.system);
   }
   if (aboutMe) {
     userPrompt += buildAboutMeInsightBlock(aboutMe, locale);

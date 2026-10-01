@@ -12,7 +12,7 @@
  *   - 429 from the provider → 429 (passthrough, not 5xx)
  *   - any other status → 422 (generic provider-connection failure)
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, onTestFinished } from "vitest";
 
 // Mocks must be hoisted before importing the route.
 vi.mock("@/lib/api-handler", () => ({
@@ -171,6 +171,7 @@ import {
   FeaturesPayloadTooLargeError,
 } from "@/lib/insights/features";
 import { annotate } from "@/lib/logging/context";
+import { buildUserPrompt } from "@/lib/ai/prompts/insight-system-prompt";
 import { AiUnavailableError } from "@/lib/ai/capabilities/refusal";
 
 beforeEach(() => {
@@ -458,6 +459,44 @@ describe("POST /api/insights/generate — cache write (v1.16.8)", () => {
     // The cache row records the language it was written in, so a reader
     // in another language is never served this text.
     expect(args.data.insightsCachedLocale).toBe("en");
+  });
+
+  it("serialises the feature set in the reader's units", async () => {
+    makeWorkingProvider();
+    const user = {
+      insightsPrivacyMode: "aggregated",
+      insightsCachedAt: null,
+      insightsCachedText: null,
+      locale: "en",
+      unitPreference: "imperial",
+      glucoseUnit: "mmol/L",
+    };
+    const findUnique = vi.mocked(prisma.user.findUnique);
+    const original = findUnique.getMockImplementation();
+    findUnique.mockResolvedValue(user as never);
+    onTestFinished(() => {
+      findUnique.mockImplementation(original!);
+    });
+    vi.mocked(extractFeatures).mockResolvedValueOnce({
+      weight: { latest: 80, avg7: 80.5 },
+      glucose: { latest: 126, avg30: 99 },
+    } as never);
+
+    const res = await POST(jsonRequest({ force: true }) as never);
+    expect(res.status).toBe(200);
+
+    const featuresJson = vi.mocked(buildUserPrompt).mock.calls[0][0];
+    const features = JSON.parse(featuresJson);
+    expect(features.weight).toMatchObject({
+      unit: "lb",
+      latest: 176.4,
+      avg7: 177.5,
+    });
+    expect(features.glucose).toMatchObject({
+      unit: "mmol/L",
+      latest: 7,
+      avg30: 5.5,
+    });
   });
 
   it("refuses a stale cache write when AI profile inclusion changes during generation", async () => {

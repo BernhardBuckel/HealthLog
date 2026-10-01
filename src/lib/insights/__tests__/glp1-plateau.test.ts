@@ -215,6 +215,23 @@ describe("glp1-plateau", () => {
       expect(prompt).toContain("GRUNDREGEL 13");
     });
 
+    it("states the weight change in pounds for an imperial reader", () => {
+      const ctx = {
+        drug: "Mounjaro",
+        doseValue: 7.5,
+        doseUnit: "mg",
+        doseSince: "2026-04-01",
+        daysOnDose: 30,
+        weightDeltaKg: -0.4,
+        readingsCount: 9,
+      };
+      const en = buildGlp1PlateauPrompt(ctx, "en", "imperial");
+      expect(en).toContain("shifted by -0.9 lb");
+      expect(en).not.toMatch(/\bkg\b/);
+      const de = buildGlp1PlateauPrompt(ctx, "de", "imperial");
+      expect(de).toContain("nur um -0.9 lb verändert");
+    });
+
     it("computes week number from days on dose", () => {
       const prompt = buildGlp1PlateauPrompt(
         {
