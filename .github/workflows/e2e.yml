@@ -18,16 +18,19 @@ jobs:
   # The suite outgrew the runner the same way the integration suite did: the
   # single job passed at ~18 minutes against a 20-minute cap, and the settings
   # geometry measurements pushed it over. Same remedy, split rather than raise:
-  # two Playwright shards, each with its own database and production build, and
+  # Playwright shards, each with its own database and production build, and
   # a gate job below that carries the exact name branch protection requires.
+  # Two shards grew to 14–19 minutes against the 20-minute cap once the
+  # mobile route sweep landed, and a slow runner tipped them over; three
+  # shards with a 30-minute cap leave room for both.
   shard:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-    name: e2e shard ${{ matrix.shard }}/2
+        shard: [1, 2, 3]
+    name: e2e shard ${{ matrix.shard }}/3
     services:
       postgres:
         image: postgres:16-alpine
@@ -97,7 +100,7 @@ jobs:
       # chart-runtime boundary (a duplicated ~92 KB gz recharts chunk).
       - run: pnpm bundle-check
 
-      - run: pnpm exec playwright test --shard=${{ matrix.shard }}/2
+      - run: pnpm exec playwright test --shard=${{ matrix.shard }}/3
         env:
           E2E_BASE_URL: http://localhost:3000
 
