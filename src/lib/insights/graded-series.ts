@@ -599,6 +599,35 @@ export function scaleGradedSeries(
 }
 
 /**
+ * Re-express a canonical graded series in a display unit: absolute bucket
+ * values (`min / max / mean`) take the full affine conversion, the yearly
+ * slope — a rate, not a level — takes the factor alone, exactly as
+ * `applyDisplayTransformDelta` treats a delta. Bucket keys and counts are
+ * untouched. Used where a series is narrated in the reader's unit; the
+ * series it is built from stays canonical.
+ */
+export function convertGradedSeries(
+  series: GradedSeries,
+  conversion: { factor: number; offset?: number },
+  digits = 2,
+): GradedSeries {
+  const offset = conversion.offset ?? 0;
+  const abs = (v: number) => round(v * conversion.factor + offset, digits);
+  const bucket = <T extends { min: number; max: number; mean: number }>(
+    b: T,
+  ): T => ({ ...b, min: abs(b.min), max: abs(b.max), mean: abs(b.mean) });
+  return {
+    recent: series.recent.map(bucket),
+    weekly: series.weekly.map(bucket),
+    monthly: series.monthly.map(bucket),
+    yearly: series.yearly.map((b) => ({
+      ...bucket(b),
+      slope: b.slope === null ? null : round(b.slope * conversion.factor, 4),
+    })),
+  };
+}
+
+/**
  * Assembled-snapshot soft char cap, mirroring the Coach's
  * `MAX_SNAPSHOT_CHARS` (~24 000 chars ≈ ~6 000 tokens against the
  * pretty-printed form). The status snapshots had no cap at all; a

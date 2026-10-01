@@ -38,6 +38,7 @@ import { prisma } from "@/lib/db";
 import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { resolveGlucoseUnit, type GlucoseUnit } from "@/lib/glucose";
 import { glucoseUnitPatchSchema } from "@/lib/validations/user-prefs";
+import { refreshTextsAfterUnitChange } from "@/lib/insights/unit-change-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,12 @@ export const PATCH = apiHandler(async (req: Request) => {
       next,
     },
   });
+
+  // The status notes and narratives quote glucose in this unit; re-warm
+  // them so today's stored text does not keep the old one.
+  if (resolveGlucoseUnit(previous?.glucoseUnit) !== next) {
+    void refreshTextsAfterUnitChange(user.id);
+  }
 
   annotate({
     action: { name: "auth.me.glucose-unit.patch" },

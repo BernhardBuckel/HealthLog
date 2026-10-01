@@ -41,6 +41,7 @@ import {
   parseNotificationPrefs,
   resolveNotificationPrefs,
 } from "@/lib/validations/notification-prefs";
+import { refreshTextsAfterUnitChange } from "@/lib/insights/unit-change-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -230,6 +231,9 @@ export const PATCH = apiHandler(
             },
           });
           invalidateUserProfile(access.recordId);
+          if (patch.unitPreference !== undefined) {
+            void refreshTextsAfterUnitChange(access.recordId);
+          }
           if (patch.timezone !== undefined) {
             invalidateUserMedications(access.recordId, { evict: true });
           }
