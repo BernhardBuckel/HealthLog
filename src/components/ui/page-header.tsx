@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
  * `wrap-break-word` floor covers a word the hyphenation dictionary does not.
  */
 const HEADING_CLASS =
-  "text-2xl font-bold tracking-tight hyphens-auto wrap-break-word";
+  "min-w-0 text-2xl font-bold tracking-tight hyphens-auto wrap-break-word";
 
 export function PageHeader({
   title,
@@ -91,7 +91,7 @@ export function PageHeader({
           actions && stackActionsOnPhone && "max-sm:grid-cols-1",
         )}
       >
-        <div className="min-w-0">{heading}</div>
+        {heading}
         {actions ? (
           <div
             className={cn(
