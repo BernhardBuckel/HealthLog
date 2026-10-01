@@ -207,6 +207,42 @@ describe("POST /api/workouts/batch — which credentials it admits", () => {
   });
 });
 
+describe("POST /api/workouts/batch — rate limit buckets", () => {
+  function lastBucket(): string {
+    const calls = vi.mocked(checkRateLimit).mock.calls;
+    return calls[calls.length - 1][0] as string;
+  }
+
+  it("counts a workouts:write token apart from the phone", async () => {
+    armToken([WORKOUTS_WRITE_SCOPE]);
+    await POST(makeRequest({ workouts: [workout("s-1")] }));
+    const bridge = lastBucket();
+
+    armToken(["*"]);
+    await POST(
+      makeRequest({ workouts: [workout("s-2", { source: "APPLE_HEALTH" })] }),
+    );
+    const phone = lastBucket();
+
+    expect(bridge).not.toBe(phone);
+    expect(bridge).toContain(USER.id);
+    expect(phone).toContain(USER.id);
+  });
+
+  it("keeps a session and a wildcard token in the same bucket", async () => {
+    armSession();
+    await POST(
+      makeRequest({ workouts: [workout("s-1", { source: "APPLE_HEALTH" })] }),
+    );
+    const session = lastBucket();
+    armToken(["*"]);
+    await POST(
+      makeRequest({ workouts: [workout("s-2", { source: "APPLE_HEALTH" })] }),
+    );
+    expect(lastBucket()).toBe(session);
+  });
+});
+
 describe("POST /api/workouts/batch — what a scoped caller writes", () => {
   it("attributes its rows to EXTERNAL", async () => {
     armToken([WORKOUTS_WRITE_SCOPE]);

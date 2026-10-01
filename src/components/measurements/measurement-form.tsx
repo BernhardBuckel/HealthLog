@@ -67,6 +67,14 @@ export const MEASUREMENT_TYPES = [
     unit: "bpm",
     placeholder: "72",
   },
+  // The resting heart rate has its own chart and series; a value read off a
+  // watch or taken on waking belongs there rather than among spot pulses.
+  {
+    value: "RESTING_HEART_RATE",
+    labelKey: "measurements.typeRestingHeartRate",
+    unit: "bpm",
+    placeholder: "58",
+  },
   {
     value: "BODY_FAT",
     labelKey: "measurements.typeBodyFat",
