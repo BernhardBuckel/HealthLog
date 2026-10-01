@@ -318,6 +318,7 @@ function scoreInput(healthScoreConfigJson: unknown) {
       timezone: "UTC",
       sourcePriorityJson: null,
       thresholdsJson: null,
+      glucoseUnit: "mg/dL" as const,
     },
     modules: {
       glucose: true,

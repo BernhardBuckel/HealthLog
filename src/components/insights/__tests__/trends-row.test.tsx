@@ -21,12 +21,38 @@ import { I18nProvider } from "@/lib/i18n/context";
 
 vi.mock("next/dynamic", () => ({
   default: () => {
-    const Stub = ({ title }: { title?: string }) => (
-      <div data-slot="trends-row-chart-stub">{title ?? "chart"}</div>
+    const Stub = ({
+      title,
+      unit,
+      valueScale,
+      valueOffset,
+    }: {
+      title?: string;
+      unit?: string;
+      valueScale?: number;
+      valueOffset?: number;
+    }) => (
+      <div
+        data-slot="trends-row-chart-stub"
+        data-unit={unit}
+        data-scale={valueScale}
+        data-offset={valueOffset}
+      >
+        {title ?? "chart"}
+      </div>
     );
     Stub.displayName = "TrendsRowChartStub";
     return Stub;
   },
+}));
+
+const account = vi.hoisted(() => ({
+  user: null as Record<string, unknown> | null,
+}));
+vi.mock("@/hooks/use-auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-auth")>()),
+  useAuth: () => ({ user: account.user, isAuthenticated: true }),
+  useAccountOnceMounted: () => account.user,
 }));
 
 import { TrendsRow } from "../trends-row";
@@ -305,5 +331,28 @@ describe("<TrendsRow>", () => {
     const html = render(<TrendsRow briefing={briefing(["steps"])} />);
     expect(html).toMatch(/data-metric="steps"/);
     expect(html).toContain('href="/insights/steps"');
+  });
+
+  it("plots a transformed slot in the reader's unit, scale and offset included", () => {
+    account.user = { unitPreference: "imperial", glucoseUnit: null };
+    try {
+      const html = render(
+        <TrendsRow briefing={briefing(["weight", "distance", "body_temp"])} />,
+      );
+      expect(html).toContain('data-unit="lb"');
+      expect(html).toContain('data-unit="mi"');
+      expect(html).toContain('data-unit="°F"');
+      expect(html).toContain('data-offset="32"');
+      expect(html).not.toContain('data-unit="kg"');
+      expect(html).not.toContain('data-unit="km"');
+    } finally {
+      account.user = null;
+    }
+  });
+
+  it("plots distance in kilometres, scaled from metres, for a metric reader", () => {
+    const html = render(<TrendsRow briefing={briefing(["distance"])} />);
+    expect(html).toContain('data-unit="km"');
+    expect(html).toContain('data-scale="0.001"');
   });
 });

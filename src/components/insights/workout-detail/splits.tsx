@@ -70,7 +70,7 @@ export function WorkoutDetailSplits({ workout }: WorkoutDetailSplitsProps) {
                       : "py-1.5 text-right tabular-nums"
                   }
                 >
-                  {formatPaceSeconds(s.paceSecPerKm)}
+                  {formatPaceSeconds(s.paceSecPerKm, "km")}
                 </td>
               </tr>
             ))}

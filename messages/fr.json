@@ -8167,6 +8167,7 @@
     "medications": "Médicaments et observance",
     "bmi": "Indice de masse corporelle (IMC)",
     "statSummary": "dernier {latest} (moy. {avg}, plage {min}–{max})",
+    "statSummaryWithUnit": "dernier {latest} {unit} (moy. {avg} {unit}, plage {min}–{max} {unit})",
     "adherence": "{rate} d'observance",
     "noAdherence": "—",
     "glucose": {
@@ -9404,7 +9405,7 @@
       "severity": "Intensité {severity}",
       "noSymptoms": "Aucun symptôme enregistré.",
       "impact": "Votre forme : {impact}",
-      "fever": "Température : {value} °C",
+      "fever": "Température : {value} {unit}",
       "empty": "Aucun jour enregistré pour l’instant."
     },
     "loadError": "Impossible de charger cet épisode.",

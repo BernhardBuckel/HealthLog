@@ -233,6 +233,7 @@ const live = {
   source: "live" as const,
   readFailed: false,
   timezone: "Europe/Berlin",
+  glucoseUnit: "mg/dL" as const,
 };
 
 function days(count: number, value: number) {

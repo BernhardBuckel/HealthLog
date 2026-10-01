@@ -8,6 +8,7 @@ import type {
 // runtime cycle. The tier's definition belongs beside the rule that
 // produces it; its NAME belongs here, where the wire shape is declared.
 import type { ScoreBreadthTier } from "./breadth";
+import type { GlucoseUnit } from "@/lib/glucose";
 
 /**
  * The scoring method's identity.
@@ -346,6 +347,12 @@ export interface GlucoseReading {
 
 export interface GlycaemiaPillarInput extends DomainReadState {
   asOf: Date;
+  /**
+   * The unit the fasting-glucose labels are written in. The scored value,
+   * its `unit` and the reference band stay canonical mg/dL; only the two
+   * human-readable labels follow the reader.
+   */
+  glucoseUnit: GlucoseUnit;
   hba1cReadFailed?: boolean;
   fastingReadFailed?: boolean;
   hba1c: HbA1cReading[];

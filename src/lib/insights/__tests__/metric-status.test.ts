@@ -507,3 +507,134 @@ describe("generateMetricStatus — generation path", () => {
     expect(result.text).toContain("Steady.");
   });
 });
+
+describe("generateMetricStatus — the note is written in the reader's units", () => {
+  function seed(values: (day: number) => number, days = 120) {
+    const now = new Date();
+    const records: Array<{ value: number; measuredAt: Date }> = [];
+    for (let day = 0; day < days; day++) {
+      records.push({
+        value: values(day),
+        measuredAt: new Date(now.getTime() - day * dayMs),
+      });
+    }
+    vi.mocked(prisma.measurement.count).mockResolvedValue(days as never);
+    vi.mocked(prisma.measurement.findMany).mockResolvedValue(records as never);
+  }
+
+  function snapshotOf(userPrompt: string) {
+    return JSON.parse(userPrompt.match(/\{[\s\S]*\}/)![0]);
+  }
+
+  it("states glucose, its band and its series in mmol/L for an mmol/L reader", async () => {
+    seed((day) => 99 + (day % 4) * 3);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      dateOfBirth: null,
+      gender: null,
+      unitPreference: "metric",
+      glucoseUnit: "mmol/L",
+    } as never);
+    const captured = { systemPrompt: null, userPrompt: null } as {
+      systemPrompt: string | null;
+      userPrompt: string | null;
+    };
+    stubCompletion('{"summary":"Steady."}', captured);
+
+    await generateMetricStatus({
+      metric: "BLOOD_GLUCOSE",
+      userId: "user-1",
+      locale: "en",
+    });
+
+    expect(captured.systemPrompt).toContain("unit: mmol/L");
+    // 70–140 mg/dL is 3.9–7.8 mmol/L.
+    expect(captured.systemPrompt).toContain("3.9–7.8 mmol/L");
+    // The shared safety contract quotes its own fixed thresholds; the metric
+    // block itself must not carry the canonical band.
+    expect(captured.systemPrompt).not.toContain("70–140 mg/dL");
+    const snapshot = snapshotOf(captured.userPrompt!);
+    expect(snapshot.metric.unit).toBe("mmol/L");
+    expect(snapshot.metric.normalRange).toMatchObject({ low: 3.9, high: 7.8 });
+    const recentMeans = snapshot.BLOOD_GLUCOSE.series.recent.map(
+      (b: { mean: number }) => b.mean,
+    );
+    expect(recentMeans.length).toBeGreaterThan(0);
+    for (const mean of recentMeans) {
+      expect(mean).toBeGreaterThan(5);
+      expect(mean).toBeLessThan(6.5);
+    }
+    expect(captured.userPrompt).not.toContain("mg/dL");
+  });
+
+  it("states body temperature in °F for an imperial reader, guideline band included", async () => {
+    seed((day) => 36.6 + (day % 3) * 0.1);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      dateOfBirth: null,
+      gender: null,
+      unitPreference: "imperial",
+      glucoseUnit: null,
+    } as never);
+    const captured = { systemPrompt: null, userPrompt: null } as {
+      systemPrompt: string | null;
+      userPrompt: string | null;
+    };
+    stubCompletion('{"summary":"Steady."}', captured);
+
+    await generateMetricStatus({
+      metric: "BODY_TEMPERATURE",
+      userId: "user-1",
+      locale: "en",
+    });
+
+    expect(captured.systemPrompt).toContain("unit: °F");
+    expect(captured.systemPrompt).not.toContain("36.1–37.2 °C");
+    // The interpretation block classifies in °C but prints in °F.
+    expect(captured.userPrompt).toContain("INTERPRETATION CONTEXT");
+    expect(captured.userPrompt).not.toContain("°C");
+    expect(snapshotOf(captured.userPrompt!).metric.unit).toBe("°F");
+  });
+
+  it("writes the no-provider floor in the reader's glucose unit", async () => {
+    seed((day) => 99 + (day % 4) * 3);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      dateOfBirth: null,
+      gender: null,
+      unitPreference: "metric",
+      glucoseUnit: "mmol/L",
+    } as never);
+    vi.mocked(runStatusCompletion).mockResolvedValue({ kind: "none" } as never);
+
+    const result = await generateMetricStatus({
+      metric: "BLOOD_GLUCOSE",
+      userId: "user-1",
+      locale: "en",
+    });
+
+    expect(result.text).toMatch(/\d\.\d mmol\/L/);
+    expect(result.text).not.toContain("mg/dL");
+  });
+
+  it("leaves a metric reader on the default units byte-identical", async () => {
+    seed((day) => 99 + (day % 4) * 3);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      dateOfBirth: null,
+      gender: null,
+      unitPreference: null,
+      glucoseUnit: null,
+    } as never);
+    const captured = { systemPrompt: null, userPrompt: null } as {
+      systemPrompt: string | null;
+      userPrompt: string | null;
+    };
+    stubCompletion('{"summary":"Steady."}', captured);
+
+    await generateMetricStatus({
+      metric: "BLOOD_GLUCOSE",
+      userId: "user-1",
+      locale: "en",
+    });
+
+    expect(captured.systemPrompt).toContain("70–140 mg/dL");
+    expect(snapshotOf(captured.userPrompt!).metric.unit).toBe("mg/dL");
+  });
+});

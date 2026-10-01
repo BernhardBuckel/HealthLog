@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import { METRIC_BOUNDS } from "@/lib/analytics/effective-range";
 import { resolveTargetUnitAdapter } from "../target-unit-display";
+import { toCanonicalMgdl } from "@/lib/glucose";
 
 /**
  * v1.32.27 — the target/threshold unit adapter.
@@ -18,7 +19,7 @@ const KG_PER_LB = 0.45359237;
 
 describe("resolveTargetUnitAdapter — metric account (identity)", () => {
   it("leaves a weight threshold bit-for-bit untouched", () => {
-    const units = resolveTargetUnitAdapter("WEIGHT", "kg", "metric");
+    const units = resolveTargetUnitAdapter("WEIGHT", "kg", "metric", "mg/dL");
     expect(units.rescales).toBe(false);
     expect(units.unit).toBe("kg");
     // Not "close to" — exactly the same double, in both directions.
@@ -37,6 +38,7 @@ describe("resolveTargetUnitAdapter — metric account (identity)", () => {
         "BLOOD_PRESSURE_SYS",
         "mmHg",
         preference,
+        "mg/dL",
       );
       expect(units.rescales).toBe(false);
       expect(units.unit).toBe("mmHg");
@@ -51,11 +53,14 @@ describe("resolveTargetUnitAdapter — metric account (identity)", () => {
 
   it("is inert for the keys the edit sheet passes on its non-metric paths", () => {
     // A derived card (BMI, mood, medication compliance) has no editable
-    // threshold and the sheet resolves the adapter with an empty key;
-    // glucose keeps its own mg/dL ↔ mmol/L dialect and must never pick
-    // up a second conversion on top.
-    for (const key of ["", "BMI", "BLOOD_GLUCOSE_FASTING"]) {
-      const units = resolveTargetUnitAdapter(key, "mmol/L", "imperial");
+    // threshold and the sheet resolves the adapter with an empty key.
+    for (const key of ["", "BMI"]) {
+      const units = resolveTargetUnitAdapter(
+        key,
+        "mmol/L",
+        "imperial",
+        "mg/dL",
+      );
       expect(units.rescales).toBe(false);
       expect(units.unit).toBe("mmol/L");
       expect(units.toDisplay(5.5)).toBe(5.5);
@@ -66,14 +71,15 @@ describe("resolveTargetUnitAdapter — metric account (identity)", () => {
   it("keeps the whole-hundred step for a step-count target", () => {
     for (const preference of ["metric", "imperial"] as const) {
       expect(
-        resolveTargetUnitAdapter("ACTIVITY_STEPS", "steps", preference).step,
+        resolveTargetUnitAdapter("ACTIVITY_STEPS", "steps", preference, "mg/dL")
+          .step,
       ).toBe(100);
     }
   });
 });
 
 describe("resolveTargetUnitAdapter — imperial weight class", () => {
-  const units = resolveTargetUnitAdapter("WEIGHT", "kg", "imperial");
+  const units = resolveTargetUnitAdapter("WEIGHT", "kg", "imperial", "mg/dL");
 
   it("announces pounds and a one-decimal step", () => {
     expect(units.rescales).toBe(true);
@@ -145,7 +151,12 @@ describe("resolveTargetUnitAdapter — imperial weight class", () => {
 
   it("carries the same treatment across the whole weight class", () => {
     for (const metric of ["TOTAL_BODY_WATER", "BONE_MASS"] as const) {
-      const adapter = resolveTargetUnitAdapter(metric, "kg", "imperial");
+      const adapter = resolveTargetUnitAdapter(
+        metric,
+        "kg",
+        "imperial",
+        "mg/dL",
+      );
       expect(adapter.unit).toBe("lb");
       const bounds = adapter.bounds(METRIC_BOUNDS[metric]);
       expect(adapter.toCanonical(bounds.min)).toBeGreaterThanOrEqual(
@@ -169,6 +180,7 @@ describe("resolveTargetUnitAdapter — temperature (the affine one)", () => {
     "BODY_TEMPERATURE",
     "celsius",
     "imperial",
+    "mg/dL",
   );
 
   it("shifts absolute readings but never a difference", () => {
@@ -208,6 +220,7 @@ describe("resolveTargetUnitAdapter — temperature (the affine one)", () => {
       "BODY_TEMPERATURE",
       "celsius",
       "metric",
+      "mg/dL",
     );
     expect(metricUnits.rescales).toBe(false);
     expect(metricUnits.toDisplay(37)).toBe(37);
@@ -222,5 +235,75 @@ describe("resolveTargetUnitAdapter — temperature (the affine one)", () => {
     expect(bounds).toEqual({ min: 86, max: 113 });
     expect(units.toCanonical(bounds.min)).toBeGreaterThanOrEqual(30);
     expect(units.toCanonical(bounds.max)).toBeLessThanOrEqual(45);
+  });
+});
+
+describe("resolveTargetUnitAdapter — glucose thresholds follow the glucose unit", () => {
+  const contexts = [
+    "BLOOD_GLUCOSE_FASTING",
+    "BLOOD_GLUCOSE_POSTPRANDIAL",
+    "BLOOD_GLUCOSE_RANDOM",
+    "BLOOD_GLUCOSE_BEDTIME",
+  ] as const;
+
+  it("reads mmol/L for an mmol/L reader, whatever the metric/imperial branch", () => {
+    for (const metric of contexts) {
+      for (const preference of ["metric", "imperial"] as const) {
+        const units = resolveTargetUnitAdapter(
+          metric,
+          "mg/dL",
+          preference,
+          "mmol/L",
+        );
+        expect(units.unit).toBe("mmol/L");
+        expect(units.rescales).toBe(true);
+        expect(units.step).toBe(0.1);
+        // The 70–99 mg/dL fasting default reads 3.9–5.5.
+        expect(units.toDisplay(70)).toBe(3.9);
+        expect(units.toDisplay(99)).toBe(5.5);
+      }
+    }
+  });
+
+  it("round-trips a typed mmol/L value to whole mg/dL and back", () => {
+    const units = resolveTargetUnitAdapter(
+      "BLOOD_GLUCOSE_FASTING",
+      "mg/dL",
+      "metric",
+      "mmol/L",
+    );
+    expect(units.toCanonical(5.5)).toBe(99);
+    expect(units.toDisplay(units.toCanonical(5.5))).toBe(5.5);
+    expect(units.toCanonical(3.9)).toBe(toCanonicalMgdl(3.9, "mmol/L"));
+  });
+
+  it("rounds the canonical 40–400 mg/dL guardrail inward", () => {
+    const units = resolveTargetUnitAdapter(
+      "BLOOD_GLUCOSE_FASTING",
+      "mg/dL",
+      "metric",
+      "mmol/L",
+    );
+    const bounds = units.bounds(METRIC_BOUNDS.BLOOD_GLUCOSE_FASTING);
+    expect(bounds).toEqual({ min: 2.3, max: 22.1 });
+    expect(units.toCanonical(bounds.min)).toBeGreaterThanOrEqual(
+      METRIC_BOUNDS.BLOOD_GLUCOSE_FASTING.min,
+    );
+    expect(units.toCanonical(bounds.max)).toBeLessThanOrEqual(
+      METRIC_BOUNDS.BLOOD_GLUCOSE_FASTING.max,
+    );
+  });
+
+  it("stays the exact identity for an mg/dL reader", () => {
+    const units = resolveTargetUnitAdapter(
+      "BLOOD_GLUCOSE_FASTING",
+      "mg/dL",
+      "imperial",
+      "mg/dL",
+    );
+    expect(units.unit).toBe("mg/dL");
+    expect(units.rescales).toBe(false);
+    expect(units.toDisplay(99)).toBe(99);
+    expect(units.toCanonical(99)).toBe(99);
   });
 });

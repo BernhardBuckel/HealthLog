@@ -13,6 +13,8 @@ import {
 import { iconForSport } from "@/lib/workouts/sport-icons";
 import type { WorkoutListEntry } from "@/hooks/use-workouts";
 import { Button } from "@/components/ui/button";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
+import { formatDistance } from "@/components/insights/workout-detail/format";
 
 /**
  * v1.4.32 — workout list row primitive.
@@ -31,14 +33,6 @@ function formatDuration(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0) return `${h}h ${m.toString().padStart(2, "0")}m`;
   return `${m}m`;
-}
-
-function formatDistanceKm(meters: number, locale: string): string {
-  const km = meters / 1000;
-  return getNumberFormat(locale, {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: km < 10 ? 2 : 1,
-  }).format(km);
 }
 
 function formatEnergy(kcal: number, locale: string): string {
@@ -86,6 +80,7 @@ export function WorkoutList({
 }: WorkoutListProps) {
   const { t, locale } = useTranslations();
   const timeFormat = useTimeFormatPreference();
+  const { preference } = useUnitDisplay();
 
   return (
     <ul
@@ -150,7 +145,7 @@ export function WorkoutList({
                 <span className="text-muted-foreground flex flex-wrap justify-end gap-x-2 tabular-nums">
                   {workout.distanceM != null ? (
                     <span data-slot="workout-list-distance">
-                      {formatDistanceKm(workout.distanceM, locale)} km
+                      {formatDistance(workout.distanceM, locale, preference)}
                     </span>
                   ) : null}
                   {workout.activeEnergyKcal != null ? (

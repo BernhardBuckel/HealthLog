@@ -1,9 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider } from "@/lib/i18n/context";
 import { WorkoutList } from "../workout-list";
 import type { WorkoutListEntry } from "@/hooks/use-workouts";
+
+// The unit preference comes from the account payload; a mutable stub lets a
+// test switch the reader to imperial.
+const account = vi.hoisted(() => ({
+  user: { unitPreference: "metric", glucoseUnit: null } as Record<
+    string,
+    unknown
+  >,
+}));
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: account.user, isAuthenticated: true }),
+  useAccountOnceMounted: () => account.user,
+}));
 
 /**
  * v1.4.32 — `<WorkoutList>` unit tests.
@@ -45,6 +58,18 @@ describe("<WorkoutList>", () => {
     const html = render(<WorkoutList workouts={[ROW]} />);
     expect(html).toContain("5.20 km");
     expect(html).toContain("320 kcal");
+  });
+
+  it("states the distance in miles for an imperial reader", () => {
+    account.user = { unitPreference: "imperial", glucoseUnit: null };
+    try {
+      const html = render(<WorkoutList workouts={[ROW]} />);
+      // 5200 m = 3.23 mi.
+      expect(html).toContain("3.23 mi");
+      expect(html).not.toContain(" km");
+    } finally {
+      account.user = { unitPreference: "metric", glucoseUnit: null };
+    }
   });
 
   it("renders aggregate average HR without claiming an HR series", () => {

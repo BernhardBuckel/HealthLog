@@ -55791,11 +55791,14 @@ components:
                   properties:
                     value:
                       type: number
+                      description: The scored value in its canonical unit (fasting glucose in mg/dL).
                     unit:
                       type: string
+                      description: The canonical unit of `value`.
                     label:
                       type: string
-                      description: The complete display value, paired or panel values included.
+                      description: The complete display value, paired or panel values included, written in the reader's units (fasting glucose
+                        in the account's glucose unit).
                     asOf:
                       type: string
                       format: date-time
@@ -55824,12 +55827,15 @@ components:
                       anyOf:
                         - type: number
                         - type: "null"
+                      description: Lower band edge, canonical unit.
                     high:
                       anyOf:
                         - type: number
                         - type: "null"
+                      description: Upper band edge, canonical unit.
                     label:
                       type: string
+                      description: The band as display text, in the reader's units.
                     source:
                       type: string
                   required:

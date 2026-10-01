@@ -9,6 +9,29 @@ import { describe, expect, it } from "vitest";
 import { buildInterpretationBlock } from "../interpretation-block";
 
 describe("buildInterpretationBlock", () => {
+  it("classifies on the canonical value but prints in the reader's unit", () => {
+    const toF = (c: number) => Math.round((c * 1.8 + 32) * 10) / 10;
+    const block = buildInterpretationBlock({
+      metricKey: "BODY_TEMPERATURE",
+      value: 36.8,
+      sex: null,
+      locale: "en",
+      display: { unit: "°F", convert: toF },
+    });
+    expect(block).toBeDefined();
+    expect(block).toContain("Current value 98.2 °F");
+    expect(block).not.toContain("°C");
+    // Same band as the canonical block names.
+    const canonical = buildInterpretationBlock({
+      metricKey: "BODY_TEMPERATURE",
+      value: 36.8,
+      sex: null,
+      locale: "en",
+    })!;
+    const band = (text: string) => text.match(/is in the "([^"]+)" band/)![1];
+    expect(band(block!)).toBe(band(canonical));
+  });
+
   it("renders the band position for visceral fat 2.7 (the headline case)", () => {
     const en = buildInterpretationBlock({
       metricKey: "VISCERAL_FAT",

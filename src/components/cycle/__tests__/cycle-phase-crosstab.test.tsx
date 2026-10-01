@@ -6,12 +6,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 // QueryClient, so mock the hook to a real metric-preference implementation —
 // metric is the identity on values and yields the canonical display symbols,
 // so the assertions below (kg, °C, unchanged numbers) hold.
+const reader = vi.hoisted(() => ({
+  glucoseUnit: "mg/dL" as "mg/dL" | "mmol/L",
+}));
+
 vi.mock("@/hooks/use-unit-display", async () => {
   const dt = await import("@/lib/measurements/display-transform");
   const forType = (t: string) => dt.getDisplayTransform(t, "metric");
   return {
     useUnitDisplay: () => ({
       preference: "metric" as const,
+      glucoseUnit: reader.glucoseUnit,
       transformFor: forType,
       toDisplay: (t: string, v: number) =>
         dt.applyDisplayTransform(v, forType(t)),
@@ -106,5 +111,27 @@ describe("<CyclePhaseCrosstab>", () => {
     // trimmed away in markup), never the literal "undefined".
     const html = render(<CyclePhaseCrosstab rows={[unknown]} />);
     expect(html).not.toContain("undefined");
+  });
+
+  it("states a glucose row in mmol/L for an mmol/L reader", () => {
+    reader.glucoseUnit = "mmol/L";
+    try {
+      const glucose: CyclePhaseCrosstabRow = {
+        ...row("bloodGlucose", "glucose"),
+        lutealAvg: 108,
+        follicularAvg: 90,
+        delta: 18,
+      };
+      const html = render(<CyclePhaseCrosstab rows={[glucose]} />);
+      // 18 mg/dL is 1.0 mmol/L; 108 / 90 mg/dL are 6.0 / 5.0 mmol/L.
+      expect(html).toContain("+1.0 mmol/L");
+      expect(html).toContain("6.0");
+      expect(html).not.toContain("mg/dL");
+      expect(render(<CyclePhaseHeadline headline={glucose} />)).toContain(
+        "mmol/L",
+      );
+    } finally {
+      reader.glucoseUnit = "mg/dL";
+    }
   });
 });

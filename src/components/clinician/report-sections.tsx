@@ -15,6 +15,11 @@
  */
 import type { MeasurementType } from "@/generated/prisma/client";
 import type { DoctorReportData } from "@/lib/doctor-report-data";
+import {
+  reportStatUnit,
+  reportStatValue,
+} from "@/lib/doctor-report/stat-display";
+import { convertGlucose, resolveGlucoseUnit } from "@/lib/glucose";
 import { MEASUREMENT_TYPE_LABEL_KEYS } from "@/lib/measurements/type-label-keys";
 import {
   isReportLeafId,
@@ -212,6 +217,13 @@ export function MeasurementGroups({
 
   if (groups.length === 0) return null;
 
+  // The same unit and the same number the PDF prints for the row: SI for
+  // mass, length and temperature, the owner's unit for glucose, hours for
+  // sleep. A clinician must never read a figure without knowing its unit.
+  const glucoseUnit = resolveGlucoseUnit(report.glucoseUnit ?? null);
+  const show = (type: string, value: number) =>
+    fmtNum(reportStatValue(type, value, glucoseUnit));
+
   return (
     <>
       {groups.map((group) => (
@@ -224,11 +236,11 @@ export function MeasurementGroups({
             <StatRow
               key={type}
               label={t(MEASUREMENT_TYPE_LABEL_KEYS[type])}
-              value={t("clinicianView.statSummary", {
-                latest: fmtNum(stat!.latest),
-                avg: fmtNum(stat!.avg),
-                min: fmtNum(stat!.min),
-                max: fmtNum(stat!.max),
+              value={statSummary(t, reportStatUnit(type, glucoseUnit, t), {
+                latest: show(type, stat!.latest),
+                avg: show(type, stat!.avg),
+                min: show(type, stat!.min),
+                max: show(type, stat!.max),
               })}
             />
           ))}
@@ -236,6 +248,20 @@ export function MeasurementGroups({
       ))}
     </>
   );
+}
+
+/**
+ * "latest 79 kg (avg 80 kg, range 78–82 kg)". A type with no unit (a score, a
+ * count) keeps the unit-less sentence rather than printing a dangling space.
+ */
+function statSummary(
+  t: Translate,
+  unit: string,
+  values: { latest: number; avg: number; min: number; max: number },
+): string {
+  return unit
+    ? t("clinicianView.statSummaryWithUnit", { ...values, unit })
+    : t("clinicianView.statSummary", values);
 }
 
 /**
@@ -258,6 +284,9 @@ export function GlucoseSection({
   const entries = Object.entries(report.glucoseStats).filter(
     ([, s]) => s.count > 0,
   );
+  // Stored in mg/dL; shown in the record owner's unit, as the PDF shows it.
+  const glucoseUnit = resolveGlucoseUnit(report.glucoseUnit ?? null);
+  const show = (value: number) => fmtNum(convertGlucose(value, glucoseUnit));
   return (
     <LeafSection
       t={t}
@@ -270,11 +299,11 @@ export function GlucoseSection({
         <StatRow
           key={ctx}
           label={t(`clinicianView.glucose.${ctx}`)}
-          value={t("clinicianView.statSummary", {
-            latest: fmtNum(s.latest),
-            avg: fmtNum(s.avg),
-            min: fmtNum(s.min),
-            max: fmtNum(s.max),
+          value={statSummary(t, glucoseUnit, {
+            latest: show(s.latest),
+            avg: show(s.avg),
+            min: show(s.min),
+            max: show(s.max),
           })}
         />
       ))}
