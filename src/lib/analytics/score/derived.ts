@@ -5,6 +5,7 @@ import { getBpTargets } from "@/lib/analytics/bp-targets";
 import { resolveModuleMap } from "@/lib/modules/gate";
 import { loadUserSourcePriority } from "@/lib/rollups/measurement-read";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import { resolveGlucoseUnit } from "@/lib/glucose";
 
 import { computeAndRecordUserHealthScore } from "./record";
 import type { CompositeValue } from "./types";
@@ -23,6 +24,7 @@ export async function computeHealthScoreDerived(
       timezone: true,
       thresholdsJson: true,
       healthScoreConfigJson: true,
+      glucoseUnit: true,
     },
   });
   const now = new Date();
@@ -59,6 +61,7 @@ export async function computeHealthScoreDerived(
       timezone,
       sourcePriorityJson,
       thresholdsJson: user.thresholdsJson,
+      glucoseUnit: resolveGlucoseUnit(user.glucoseUnit),
     },
     modules: {
       glucose: modules.glucose !== false,
