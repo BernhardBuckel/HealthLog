@@ -906,6 +906,7 @@ export async function runOffhostBackup(
   }
   const s3 = s3Override ?? (await getS3Client(cfg));
   const runStartedAt = options.runStartedAt;
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: off-host object key date, the name the restore drill and the purge look up
   const dateKey = (runStartedAt ?? now).toISOString().slice(0, 10);
 
   const users = await prisma.user.findMany({

@@ -123,6 +123,7 @@ import {
   isFullyCovered,
   probeRollupCoverage,
 } from "@/lib/rollups/measurement-coverage";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /**
  * Heavy aggregate row — count/min/max/mean alongside the non-composable
@@ -939,7 +940,7 @@ function buildDailyByType(
       // `bucketStart` is the UTC midnight of the bucketed day — the
       // same boundary Postgres' `date_trunc('day', ...)` would pick
       // when the session timezone is UTC (the container default).
-      day: b.day.toISOString().slice(0, 10),
+      day: dateOnlyKey(b.day),
       // Match the legacy `ROUND(AVG, 2)::double precision` semantics
       // so correlation thresholds tuned against the v1.4.34 output
       // don't drift on the third decimal.

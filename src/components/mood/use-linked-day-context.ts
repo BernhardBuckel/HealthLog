@@ -30,6 +30,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api/api-fetch";
 import { queryKeys } from "@/lib/query-keys";
 import type { LinkedDayContext } from "@/lib/mood/linked-context";
+import { userDayKey } from "@/lib/tz/format";
 
 /**
  * The browser's own zone — the right answer for an entry that does not exist
@@ -42,9 +43,7 @@ export function browserTimezone(): string {
 /** `YYYY-MM-DD` for a `datetime-local` value, or today when it is empty. */
 export function dayOfLocalInput(value: string): string {
   if (value.length >= 10) return value.slice(0, 10);
-  const now = new Date();
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60 * 1000);
-  return local.toISOString().slice(0, 10);
+  return userDayKey(new Date(), browserTimezone());
 }
 
 /**

@@ -35,6 +35,7 @@ import {
 import type { MeasurementType } from "@/generated/prisma/client";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import { dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 
 type Severity = "alert" | "caution" | "info" | "good";
 
@@ -135,7 +136,7 @@ export const GET = apiHandler(async () => {
     rollupCoverage,
   );
   const pulseData: DataPoint[] = pulseDayMeans.map((p) => ({
-    date: new Date(`${p.day}T00:00:00.000Z`),
+    date: dayKeyAsUtcMidnight(p.day),
     value: p.mean,
   }));
 

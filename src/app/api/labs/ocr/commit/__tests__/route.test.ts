@@ -21,6 +21,11 @@ vi.mock("@/lib/db", () => ({
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getSession: vi.fn() }));
+const tzMock = vi.hoisted(() => ({ zone: "UTC" }));
+vi.mock("@/lib/tz/resolver", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/tz/resolver")>()),
+  resolveUserTimezone: vi.fn(async () => tzMock.zone),
+}));
 vi.mock("@/lib/auth/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
@@ -84,6 +89,7 @@ function postReq(body: unknown): NextRequest {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  tzMock.zone = "UTC";
   vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
   vi.mocked(enqueueReminderSatisfy).mockResolvedValue(undefined as never);
   vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
@@ -131,5 +137,64 @@ describe("POST /api/labs/ocr/commit dedup", () => {
     expect(prisma.labResult.create).toHaveBeenCalledTimes(2);
     expect(body.data.inserted).toHaveLength(2);
     expect(body.data.skipped).toHaveLength(0);
+  });
+});
+
+describe("POST /api/labs/ocr/commit dedup across the user's day", () => {
+  /**
+   * A database stand-in that honours the `takenAt` range the route asks for,
+   * so the test sees what the real query would return.
+   */
+  function liveReadings(rows: Array<{ value: number; takenAt: Date }>) {
+    vi.mocked(prisma.labResult.findMany).mockImplementation(((args: {
+      where: { takenAt: { gte?: Date; lt?: Date; lte?: Date } };
+    }) => {
+      const { gte, lt, lte } = args.where.takenAt;
+      return Promise.resolve(
+        rows
+          .filter(
+            (r) =>
+              (!gte || r.takenAt >= gte) &&
+              (!lt || r.takenAt < lt) &&
+              (!lte || r.takenAt <= lte),
+          )
+          .map((r) => ({ ...r, valueText: null })),
+      );
+    }) as never);
+  }
+
+  it("skips a scanned reading already entered by hand on the same local day east of UTC", async () => {
+    tzMock.zone = "Asia/Tokyo";
+    // Entered by hand: 2026-06-10 08:00 in Tokyo, the 9th in UTC.
+    liveReadings([
+      { value: 95, takenAt: new Date("2026-06-09T23:00:00.000Z") },
+    ]);
+    // The scan of the same report states the 10th (stored at noon UTC).
+    const res = await POST(
+      postReq({
+        rows: [{ ...numericRow(95), takenAt: "2026-06-10T12:00:00.000Z" }],
+      }),
+    );
+    const body = (await res.json()) as {
+      data: { skipped: Array<{ reason: string }> };
+    };
+    expect(body.data.skipped).toEqual([
+      { analyte: "Glucose", reason: "duplicate" },
+    ]);
+    expect(prisma.labResult.create).not.toHaveBeenCalled();
+  });
+
+  it("writes a reading from the neighbouring local day", async () => {
+    tzMock.zone = "Asia/Tokyo";
+    // 2026-06-09 08:00 in Tokyo: a different day from the scanned 10th.
+    liveReadings([
+      { value: 95, takenAt: new Date("2026-06-08T23:00:00.000Z") },
+    ]);
+    await POST(
+      postReq({
+        rows: [{ ...numericRow(95), takenAt: "2026-06-10T12:00:00.000Z" }],
+      }),
+    );
+    expect(prisma.labResult.create).toHaveBeenCalledTimes(1);
   });
 });

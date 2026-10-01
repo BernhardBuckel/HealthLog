@@ -33,7 +33,7 @@ import { prisma } from "@/lib/db";
 import type { MeasurementType } from "@/generated/prisma/client";
 import type { Locale } from "@/lib/i18n/config";
 import { getServerTranslator } from "@/lib/i18n/server-translator";
-import { shiftDateKey, userDayKey } from "@/lib/tz/format";
+import { shiftDateKey, userDayKey, weekdayOfDateKey } from "@/lib/tz/format";
 import { startOfLocalDayKey } from "@/lib/tz/local-day";
 import {
   readDailySeries,
@@ -66,6 +66,7 @@ import type {
 
 import { aggregationKind } from "./chart-spec";
 import { RESULT_TABLE_MAX_ROWS } from "./project";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /**
  * Sources the table tool leaves to their own tools: glucose needs its
@@ -167,16 +168,14 @@ export function resolveTableRange(args: {
 
 // ── Period keys ─────────────────────────────────────────────────────────
 
-/** `YYYY-MM-DD` of a UTC-midnight bucket timestamp. */
+/** `YYYY-MM-DD` of a UTC-midnight bucket timestamp (a day label). */
 function dayKeyOfUtc(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+  return dateOnlyKey(new Date(ms));
 }
 
 /** Monday (`YYYY-MM-DD`) of the ISO week `dayKey` falls in. */
 function weekKeyOf(dayKey: string): string {
-  const ms = Date.parse(`${dayKey}T00:00:00Z`);
-  const dow = (new Date(ms).getUTCDay() + 6) % 7;
-  return dayKeyOfUtc(ms - dow * 86_400_000);
+  return shiftDateKey(dayKey, -((weekdayOfDateKey(dayKey) + 6) % 7));
 }
 
 function monthKeyOf(dayKey: string): string {
@@ -416,8 +415,12 @@ async function readMeasurementDays(args: {
   return { series: ordered, counts, suffixes };
 }
 
-/** `YYYY-MM-DD` of an instant in UTC. */
+/**
+ * `YYYY-MM-DD` of an instant in UTC. Only for the all-time month read: the
+ * MONTH rollup tier buckets UTC months, so its range edges are UTC days.
+ */
 function utcDayKey(date: Date): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the MONTH rollup tier buckets UTC months, so this read keys its edges on UTC days
   return date.toISOString().slice(0, 10);
 }
 

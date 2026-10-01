@@ -61,6 +61,7 @@ export function classifyBriefingFailure(args: {
 
 /** UTC YYYY-MM-DD calendar-day key for the marker payload. */
 function dateKey(at: Date = new Date()): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: internal once-per-day marker key, written and read by this module only, never shown
   return at.toISOString().slice(0, 10);
 }
 

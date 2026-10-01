@@ -235,6 +235,7 @@ export async function readDailySpend(
  * the local meter to the same boundary keeps reasoning trivial.
  */
 export function buildDateKey(at: Date = new Date()): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the spend meter follows the provider's UTC billing day (see the doc comment)
   return at.toISOString().slice(0, 10);
 }
 

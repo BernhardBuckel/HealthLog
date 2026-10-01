@@ -47,29 +47,37 @@ import {
   type OcrCommitRow,
   type OcrSkippedRowDto,
 } from "@/lib/validations/labs-ocr";
+import {
+  labReadingDay,
+  labReadingDaySearchRange,
+} from "@/lib/labs/reading-day";
+import { resolveUserTimezone } from "@/lib/tz/resolver";
 
 export const POST = apiHandler(withIdempotency<[NextRequest]>(commitOcrRows));
 
-/** True when a live reading already records this analyte+day+value. */
+/**
+ * True when a live reading already records this analyte+day+value. The day
+ * is the reading's calendar day (`labReadingDay`), not its UTC day: a
+ * hand-entered morning draw east of UTC sits on the previous UTC day, and the
+ * UTC window let the scan of the same report write it again.
+ */
 async function isDuplicate(
   userId: string,
   row: OcrCommitRow,
+  tz: string,
 ): Promise<boolean> {
-  const dayStart = new Date(row.takenAt);
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const dayEnd = new Date(row.takenAt);
-  dayEnd.setUTCHours(23, 59, 59, 999);
-
-  const candidates = await prisma.labResult.findMany({
+  const day = labReadingDay(new Date(row.takenAt), tz);
+  const rows = await prisma.labResult.findMany({
     where: {
       userId,
       deletedAt: null,
       analyte: { equals: row.analyte.trim(), mode: "insensitive" },
-      takenAt: { gte: dayStart, lte: dayEnd },
+      takenAt: labReadingDaySearchRange(day),
     },
-    select: { value: true, valueText: true },
-    take: 25,
+    select: { value: true, valueText: true, takenAt: true },
+    take: 100,
   });
+  const candidates = rows.filter((c) => labReadingDay(c.takenAt, tz) === day);
   for (const c of candidates) {
     if (row.value !== undefined && c.value !== null && c.value === row.value) {
       return true;
@@ -86,15 +94,15 @@ async function isDuplicate(
 }
 
 /**
- * Stable in-batch dedup key for a confirmed row: analyte (lower+trim) + UTC day
- * + the value dimension that `isDuplicate` matches on. Two rows in ONE document
+ * Stable in-batch dedup key for a confirmed row: analyte (lower+trim) + the
+ * reading's calendar day + the value dimension that `isDuplicate` matches on. Two rows in ONE document
  * that resolve to the same key are the same reading; only the first is written.
  * Mirrors the `isDuplicate` match semantics so in-batch dedup no longer depends
  * on a prior row autocommitting before the next row's live query runs.
  */
-function inBatchKey(row: OcrCommitRow): string {
+function inBatchKey(row: OcrCommitRow, tz: string): string {
   const analyte = row.analyte.trim().toLowerCase();
-  const dayKey = new Date(row.takenAt).toISOString().slice(0, 10);
+  const dayKey = labReadingDay(new Date(row.takenAt), tz);
   const valuePart =
     row.value !== undefined
       ? `n:${row.value}`
@@ -145,9 +153,10 @@ async function commitOcrRows(request: NextRequest) {
   // is benign and self-healing — the manual lab-write path mints the same way.
   const writtenInBatch = new Set<string>();
 
+  const tz = await resolveUserTimezone(user.id);
   for (const row of parsed.data.rows) {
-    const key = inBatchKey(row);
-    if (writtenInBatch.has(key) || (await isDuplicate(user.id, row))) {
+    const key = inBatchKey(row, tz);
+    if (writtenInBatch.has(key) || (await isDuplicate(user.id, row, tz))) {
       skipped.push({ analyte: row.analyte.trim(), reason: "duplicate" });
       continue;
     }

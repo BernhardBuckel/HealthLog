@@ -105,6 +105,7 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth/session";
 import { __resetAllCachesForTests } from "@/lib/cache/server-cache";
 import { buildMoodDailySeries } from "@/lib/analytics/mood-series";
+import { userDayKey } from "@/lib/tz/format";
 
 const SESSION_OK = {
   session: { id: "sess-1", expiresAt: new Date(Date.now() + 3_600_000) },
@@ -1167,7 +1168,32 @@ describe("GET /api/dashboard/summary — mood + BMI cards", () => {
     expect(mood?.allTimeCount).toBe(3);
     expect(mood?.titleKey).toBe("dashboard.metric.title.mood");
     expect(mood?.unitKey).toBe("dashboard.metric.unit.mood");
-    expect(mood?.lastSeenAt).toBe("2026-07-03T00:00:00.000Z");
+    // The day key is the account's local day (default zone, summer time):
+    // its first instant, not the key written out as UTC midnight.
+    expect(mood?.lastSeenAt).toBe("2026-07-02T22:00:00.000Z");
+    expect(mood?.updatedAt).toBe("2026-07-02T22:00:00.000Z");
+  });
+
+  it("puts the mood instant on the logged day for a zone west of UTC", async () => {
+    // The day key as UTC midnight is the previous evening in Los Angeles,
+    // so a client formatting the instant in its own zone showed today's
+    // entry as yesterday's.
+    vi.mocked(getSession).mockResolvedValue({
+      ...SESSION_OK,
+      user: { ...SESSION_OK.user, timezone: "America/Los_Angeles" },
+    } as never);
+    vi.mocked(buildMoodDailySeries).mockResolvedValue({
+      entries: [{ date: "2026-07-03", score: 4, samples: 1 }],
+      summary: null,
+      entryCount: 1,
+      source: "rollup",
+    } as never);
+
+    const res = await callGet(makeReq());
+    const mood = cardsOf(await res.json()).find((c) => c.kind === "mood");
+    const at = new Date(mood?.updatedAt as string);
+    expect(userDayKey(at, "America/Los_Angeles")).toBe("2026-07-03");
+    expect(mood?.updatedAt).toBe("2026-07-03T07:00:00.000Z");
   });
 
   it("omits the mood card when the account has never logged a mood", async () => {

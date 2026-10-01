@@ -16,6 +16,7 @@ export const LIPIDS_WINDOW_DAYS = 365;
 export const LIPIDS_MIN_PANELS = 1;
 
 function panelKey(row: LipidReading): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: grouping key only, never shown; the readings of one panel share one takenAt, so any consistent day partition groups them alike
   return `${row.at.toISOString().slice(0, 10)}|${row.panel ?? ""}`;
 }
 

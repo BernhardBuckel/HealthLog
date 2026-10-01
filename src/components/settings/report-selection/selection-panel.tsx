@@ -66,6 +66,13 @@ import { orderLeaves } from "@/lib/report-selection/selection";
 
 import { ReportScopePicker } from "./report-scope-picker";
 import { ScopeSummary } from "./scope-summary";
+import { startOfLocalDayKey } from "@/lib/tz/local-day";
+import {
+  DEFAULT_TIMEZONE,
+  detectBrowserTimezone,
+  shiftDateKey,
+  validTimezoneOr,
+} from "@/lib/tz/format";
 
 type ExportFormat = "pdf" | "fhir" | "package";
 
@@ -78,6 +85,12 @@ class ReportRequestError extends Error {}
 export function HealthRecordExportPanel() {
   const { t, locale } = useTranslations();
   const { user } = useAuth();
+  // The report reads its window in the profile zone (the server's
+  // `reportTz`), so the picked days are cut there too.
+  const reportTz = validTimezoneOr(
+    user?.timezone ?? detectBrowserTimezone(),
+    DEFAULT_TIMEZONE,
+  );
   const queryClient = useQueryClient();
 
   const [format, setFormat] = useState<ExportFormat>(
@@ -155,8 +168,15 @@ export function HealthRecordExportPanel() {
     const range =
       customRange && startDate && endDate
         ? {
-            startDate: new Date(`${startDate}T00:00:00Z`).toISOString(),
-            endDate: new Date(`${endDate}T23:59:59Z`).toISOString(),
+            // The picked days are the user's days: from the first instant
+            // of the first to the last instant of the last, in their zone.
+            // UTC midnight started the window the previous evening west of
+            // UTC, and the report read it as one day more.
+            startDate: startOfLocalDayKey(startDate, reportTz).toISOString(),
+            endDate: new Date(
+              startOfLocalDayKey(shiftDateKey(endDate, 1), reportTz).getTime() -
+                1,
+            ).toISOString(),
           }
         : { days };
     const res = await throwIfReproofRequired(
@@ -190,6 +210,7 @@ export function HealthRecordExportPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
+    // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: file name stamp, not a day shown or compared
     a.download = `healthlog-health-record-${new Date()
       .toISOString()
       .slice(0, 10)}.${ext}`;

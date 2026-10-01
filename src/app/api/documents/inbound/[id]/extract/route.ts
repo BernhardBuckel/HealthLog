@@ -76,6 +76,7 @@ import {
   inboundStoredExtractSchema,
   inboundTextExtractSchema,
 } from "@/lib/validations/inbound-documents";
+import { dateOnlyAtNoonUtc } from "@/lib/tz/date-only";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,7 @@ async function stageExtraction(
         status: "EXTRACTED",
         providerType: result.providerType,
         reportDate: result.reportDate
-          ? new Date(`${result.reportDate}T00:00:00.000Z`)
+          ? dateOnlyAtNoonUtc(result.reportDate)
           : null,
         facts: {
           create: result.facts.map((f) => ({

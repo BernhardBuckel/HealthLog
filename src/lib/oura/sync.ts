@@ -181,6 +181,7 @@ export async function recordOuraSyncFailure(
 }
 
 function ymd(d: Date): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: request window edge for the provider API, not a displayed day; rows carry their own dates
   return d.toISOString().slice(0, 10);
 }
 

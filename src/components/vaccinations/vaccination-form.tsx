@@ -35,6 +35,7 @@ import type { Practitioner } from "@/hooks/use-practitioners";
 import type { Vaccination, VaccinationWriteBody } from "./use-vaccinations";
 import { CatalogPicker } from "./catalog-picker";
 import { VaccinationDocumentPicker } from "./vaccination-document-picker";
+import { dayKeyAsUtcMidnight, isCalendarDateKey } from "@/lib/tz/date-only";
 
 /** The seven anatomical sites, mirroring the Prisma `VaccinationSite` enum. */
 export const VACCINATION_SITES = [
@@ -116,8 +117,10 @@ export function draftFromVaccination(row: Vaccination): VaccinationDraft {
 /** The day, at UTC midnight — an Impfpass carries dates, never times. */
 export function draftInstant(day: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
-  const parsed = new Date(`${day}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  if (!isCalendarDateKey(day)) return null;
+  // Stored at UTC midnight by the column's own convention; every reader
+  // takes the date part.
+  return dayKeyAsUtcMidnight(day).toISOString();
 }
 
 /** Does the draft carry at least one identity arm? */

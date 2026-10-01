@@ -32,6 +32,7 @@ import {
   type AllergyDTO,
   type FamilyHistoryEntryDTO,
 } from "@/lib/records/dto";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /** Disclosed in the payload manifest AND mirrored in the export UI copy. */
 export const DOCUMENTS_MANIFEST_NOTE =
@@ -543,10 +544,8 @@ export async function buildRecordsBackupSection(
       mimeType: d.mimeType,
       byteSize: d.byteSize,
       status: d.status,
-      reportDate: d.reportDate ? d.reportDate.toISOString().slice(0, 10) : null,
-      documentDate: d.documentDate
-        ? d.documentDate.toISOString().slice(0, 10)
-        : null,
+      reportDate: d.reportDate ? dateOnlyKey(d.reportDate) : null,
+      documentDate: d.documentDate ? dateOnlyKey(d.documentDate) : null,
       sourceSystem: d.sourceSystem,
       sourceId: d.sourceId,
       sourceInstance: d.sourceInstance,

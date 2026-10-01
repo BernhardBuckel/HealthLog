@@ -104,6 +104,7 @@ export async function handleMoodReminderCleanup(
     try {
       const cutoff = new Date();
       cutoff.setUTCDate(cutoff.getUTCDate() - MOOD_REMINDER_RETENTION_DAYS);
+      // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: retention cutoff; a day either way does not matter
       const cutoffIso = cutoff.toISOString().slice(0, 10);
       const deleted = await p.moodReminderDispatch.deleteMany({
         where: { date: { lt: cutoffIso } },

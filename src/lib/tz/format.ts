@@ -234,6 +234,27 @@ export function shiftDateKey(dateKey: string, deltaDays: number): string {
 }
 
 /**
+ * Whole calendar days from `fromKey` to `toKey` (negative when `toKey` is
+ * earlier). Pure key arithmetic like {@link shiftDateKey}: both keys are
+ * already resolved calendar dates, so no zone takes part. `NaN` when either
+ * key is malformed, so a caller decides what a bad key means.
+ */
+export function daysBetweenDateKeys(fromKey: string, toKey: string): number {
+  const a = Date.parse(`${fromKey}T00:00:00.000Z`);
+  const b = Date.parse(`${toKey}T00:00:00.000Z`);
+  return Math.round((b - a) / 86_400_000);
+}
+
+/**
+ * Weekday of a calendar date key, 0 = Sunday … 6 = Saturday (the
+ * `getDay()` / schedule `daysOfWeek` convention). A calendar date has the
+ * same weekday in every zone, so this needs none.
+ */
+export function weekdayOfDateKey(dateKey: string): number {
+  return new Date(`${dateKey}T00:00:00.000Z`).getUTCDay();
+}
+
+/**
  * Wall-clock hour (0–23) an observer in `tz` reads off the clock at
  * `date`. Used for the time-of-day greeting so a traveller whose device
  * clock differs from their configured HealthLog zone still sees the right

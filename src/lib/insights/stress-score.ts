@@ -133,6 +133,7 @@ async function readIntradaySdnn(
   now: Date,
 ): Promise<number[]> {
   const dayKey = stressDayKey(now);
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: UTC day window of the UTC-day score engines (scoreDayKey)
   const dayStart = new Date(`${dayKey}T00:00:00.000Z`);
   const dayEnd = new Date(dayStart.getTime() + MS_PER_DAY);
   const rows = await prisma.measurement.findMany({

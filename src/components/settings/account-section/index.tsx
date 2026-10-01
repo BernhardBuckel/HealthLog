@@ -33,7 +33,11 @@ import { TimeFormatSelect } from "@/components/settings/time-format-select";
 import { DateFormatSelect } from "@/components/settings/date-format-select";
 import { UnitPreferenceSelect } from "@/components/settings/unit-preference-select";
 import { GlucoseUnitSelect } from "@/components/settings/glucose-unit-select";
-import { detectBrowserTimezone, DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import {
+  detectBrowserTimezone,
+  DEFAULT_TIMEZONE,
+  userDayKey,
+} from "@/lib/tz/format";
 import { apiFetchRaw, apiGet } from "@/lib/api/api-fetch";
 import {
   recentProofErrorMessage,
@@ -53,6 +57,7 @@ import {
 } from "./account-section-utils";
 import { AvatarSection } from "./avatar-section";
 import { SetupCard } from "./setup-card";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 export { resolveInitialTimezone } from "./account-section-utils";
 
@@ -145,7 +150,7 @@ export function AccountSection() {
       email: user.email ?? "",
       height: heightAdapter.toDraft(user.heightCm),
       dateOfBirth: user.dateOfBirth
-        ? new Date(user.dateOfBirth).toISOString().slice(0, 10)
+        ? dateOnlyKey(new Date(user.dateOfBirth))
         : "",
       gender: user.gender ?? "",
       timezone: resolveInitialTimezone(user.timezone, detectBrowserTimezone()),
@@ -528,7 +533,7 @@ export function AccountSection() {
                   setDateOfBirth(next);
                   clearFieldError("dateOfBirth");
                 }}
-                max={new Date().toISOString().slice(0, 10)}
+                max={userDayKey(new Date(), detectBrowserTimezone())}
                 aria-invalid={fieldErrors.dateOfBirth ? true : undefined}
                 aria-describedby={
                   fieldErrors.dateOfBirth ? "dob-error" : undefined

@@ -84,6 +84,7 @@ const ABSENT: LabChangesSummary = {
 
 /** UTC calendar-day key (YYYY-MM-DD) for a sample instant. */
 function dayKey(d: Date): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: groups draws by UTC day; this summariser has no zone yet (labReadingDay is the target)
   return d.toISOString().slice(0, 10);
 }
 

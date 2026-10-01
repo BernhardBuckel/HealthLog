@@ -28,8 +28,8 @@ import {
   type DailyEnvironmentObservation,
 } from "@/lib/environment/open-meteo";
 import type { EnvironmentLocationSource } from "@/generated/prisma/client";
+import { shiftDateKey } from "@/lib/tz/format";
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Default lookback window (days) for the nightly fetch — absorbs the archive
  * settling lag and any days missed across worker reboots. */
 export const ENVIRONMENT_LOOKBACK_DAYS = 7;
@@ -63,19 +63,15 @@ interface TravelOverride {
 
 /** UTC YYYY-MM-DD for `date` (used to bound the default lookback window). */
 export function utcDayKey(date: Date): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the environment module keys homeSince and the backfill window on UTC days throughout, and the worker compares against the same keys
   return date.toISOString().slice(0, 10);
 }
 
 /** Inclusive list of YYYY-MM-DD keys from `start` to `end` (date arithmetic). */
 export function enumerateDays(start: string, end: string): string[] {
   const out: string[] = [];
-  const [sy, sm, sd] = start.split("-").map(Number);
-  const [ey, em, ed] = end.split("-").map(Number);
-  let cur = Date.UTC(sy, sm - 1, sd);
-  const last = Date.UTC(ey, em - 1, ed);
-  while (cur <= last) {
-    out.push(new Date(cur).toISOString().slice(0, 10));
-    cur += MS_PER_DAY;
+  for (let cur = start; cur <= end; cur = shiftDateKey(cur, 1)) {
+    out.push(cur);
   }
   return out;
 }

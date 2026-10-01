@@ -194,3 +194,20 @@ describe("adherence storyline ↔ dashboard-tile engine parity", () => {
     expect(story).toBeNull();
   });
 });
+
+describe("adherence storyline course window", () => {
+  it("keeps a course on its last day in the user's zone", async () => {
+    // 2026-06-21 20:00 in Los Angeles, already the 22nd in UTC. A course
+    // whose `endsOn` (a calendar date) is the 21st is still running.
+    const now = new Date("2026-06-22T03:00:00.000Z");
+    await buildAdherenceStoryline("user-1", "America/Los_Angeles", now);
+    const where = mocks.medicationFindMany.mock.calls[0]![0].where as {
+      OR: [unknown, { endsOn: { gte: Date } }];
+    };
+    const lastDay = new Date("2026-06-21T00:00:00.000Z"); // @db.Date value
+    expect(where.OR[1].endsOn.gte.getTime()).toBeLessThanOrEqual(
+      lastDay.getTime(),
+    );
+    expect(where.OR[1].endsOn.gte.toISOString()).toBe(lastDay.toISOString());
+  });
+});

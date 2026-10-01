@@ -236,6 +236,7 @@ function localDayWindow(day: string): { from: Date; to: Date } {
   // helper agrees belongs to this day. Cheaper and far safer than arithmetic
   // on `new Date(y, m, d)`, which slips by an hour twice a year and has
   // already been solved once in this codebase.
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: anchor of a superset window; rows are kept only when their own local day matches
   const naive = new Date(`${day}T00:00:00.000Z`);
   const from = new Date(naive.getTime() - 26 * 60 * 60 * 1000);
   const to = new Date(naive.getTime() + 50 * 60 * 60 * 1000);

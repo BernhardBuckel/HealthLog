@@ -52,6 +52,7 @@ import {
   type MedicationStatementFactData,
   type ObservationFactData,
 } from "@/lib/validations/inbound-documents";
+import { statedDateKey } from "@/lib/tz/date-only";
 
 const SYSTEM_PROMPT = `You transcribe a photograph, PDF, or scan of a CLINICAL DOCUMENT (a doctor's report or a hospital discharge letter) into structured facts.
 
@@ -103,11 +104,7 @@ NOTE: the document below was produced by automatic OCR, so it may contain garble
 /** A normalised ISO date string (YYYY-MM-DD) or null. */
 function normaliseDate(raw: string | null): string | null {
   if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  return statedDateKey(raw);
 }
 
 export class InboundExtractError extends Error {

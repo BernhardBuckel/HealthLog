@@ -35,6 +35,7 @@ import type {
   InboundDocumentKindValue,
   InboundFactType,
 } from "@/lib/validations/inbound-documents";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /**
  * The two storage codecs `InboundDocument.contentEncrypted` may carry,
@@ -226,12 +227,8 @@ export function serialiseDocument(
     byteSize: doc.byteSize,
     status: doc.status as InboundDocumentStatus,
     providerType: doc.providerType,
-    reportDate: doc.reportDate
-      ? doc.reportDate.toISOString().slice(0, 10)
-      : null,
-    documentDate: doc.documentDate
-      ? doc.documentDate.toISOString().slice(0, 10)
-      : null,
+    reportDate: doc.reportDate ? dateOnlyKey(doc.reportDate) : null,
+    documentDate: doc.documentDate ? dateOnlyKey(doc.documentDate) : null,
     errorReason: doc.errorReason,
     factCount: counts.factCount,
     pendingCount: counts.pendingCount,

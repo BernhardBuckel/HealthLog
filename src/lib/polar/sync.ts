@@ -140,6 +140,7 @@ function toUpsert(
     // A timed row keys on its instant's UTC date, as it always has.
     externalId:
       m.externalId ??
+      // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: timed rows keep their historical UTC-date externalId so re-syncs upsert (see the comment above)
       `${resourcePrefix}:${m.day ?? m.measuredAt.toISOString().slice(0, 10)}:${m.fieldTag}`,
     sleepStage: m.sleepStage ?? null,
   }));

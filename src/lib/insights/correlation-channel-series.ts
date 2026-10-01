@@ -60,6 +60,7 @@ import type {
   MeasurementType,
 } from "@/generated/prisma/client";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /**
  * v1.21.0 (FDREXTEND) — build the user's MEDICATION_COMPLIANCE daily series.
@@ -223,6 +224,7 @@ export async function fetchEnvironmentSeries(
   userId: string,
   since: Date,
 ): Promise<NamedSeries[]> {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: lower bound on stored environment day keys; a day either way at the far edge does not change the series
   const sinceKey = since.toISOString().slice(0, 10);
   const rows = await prisma.environmentContext.findMany({
     where: { userId, date: { gte: sinceKey } },
@@ -758,7 +760,7 @@ function composeRollupDailyMeans(
     // DAY buckets are minted at UTC midnight; the UTC date IS the bucket's
     // day key (the same convention graded-series and the derived baselines
     // read the tier under).
-    const day = r.bucketStart.toISOString().slice(0, 10);
+    const day = dateOnlyKey(r.bucketStart);
     const acc = byDay.get(day) ?? { sum: 0, count: 0 };
     acc.sum += sum;
     acc.count += r.count;

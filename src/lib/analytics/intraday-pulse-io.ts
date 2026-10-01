@@ -183,6 +183,7 @@ export async function loadIntradayPulse(
   dateKey: string,
 ): Promise<IntradayPulseResult> {
   const localOf = makeLocalResolver(timezone);
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: anchor of a superset read window; rows are cut to the exact local day afterwards
   const anchorMs = new Date(`${dateKey}T00:00:00.000Z`).getTime();
   const start = new Date(anchorMs - WINDOW_LEAD_MS);
   const end = new Date(anchorMs + WINDOW_TRAIL_MS);

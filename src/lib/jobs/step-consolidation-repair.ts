@@ -119,6 +119,7 @@ export async function runStepConsolidationRepairForUser(
   // in different UTC days, so both instants are tracked).
   const touchedByUtcDay = new Map<string, Date>();
   const markTouched = (instant: Date) => {
+    // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the rollup tier keys DAY buckets by UTC day (see the comment above)
     touchedByUtcDay.set(instant.toISOString().slice(0, 10), instant);
   };
 

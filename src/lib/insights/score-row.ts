@@ -34,6 +34,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * `YYYY-MM-DD`. Resolved in ONE place so all three engines agree.
  */
 export function scoreDayKey(now: Date): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the derived-score engines score UTC days, resolved here in one place (see the doc comment)
   return new Date(now.getTime() - MS_PER_DAY).toISOString().slice(0, 10);
 }
 

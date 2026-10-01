@@ -30,6 +30,7 @@
 import type { MeasurementType } from "@/generated/prisma/client";
 import type { ServerTranslator } from "@/lib/i18n/server-translator";
 import { MIN_IN_RUN, type StreakResult } from "@/lib/insights/streak-detector";
+import { shiftDateKey } from "@/lib/tz/format";
 
 /** Closed set of durable-state kinds. Grows by PR, never with a counter field. */
 export const MILESTONE_KINDS = [
@@ -101,7 +102,7 @@ function dayKeyToSerial(key: string): number {
 }
 
 function serialToDayKey(serial: number): string {
-  return new Date(serial * 86_400_000).toISOString().slice(0, 10);
+  return shiftDateKey("1970-01-01", serial);
 }
 
 /** Shift a UTC-ISO day key by a whole number of days. */

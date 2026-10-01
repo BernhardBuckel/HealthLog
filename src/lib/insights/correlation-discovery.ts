@@ -41,6 +41,7 @@
 import { pearson, MIN_PAIRED_N } from "@/lib/insights/correlations";
 import { type Locale } from "@/lib/i18n/config";
 import { getServerTranslator } from "@/lib/i18n/server-translator";
+import { shiftDateKey } from "@/lib/tz/format";
 
 /**
  * Locale-aware string builder — the same signature the server translator
@@ -238,10 +239,7 @@ export interface CorrelationDiscoveryResult {
 
 /** Add `lagDays` to a YYYY-MM-DD day key, returning the shifted key. */
 function shiftDay(day: string, lagDays: number): string {
-  const [y, m, d] = day.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + lagDays);
-  return dt.toISOString().slice(0, 10);
+  return shiftDateKey(day, lagDays);
 }
 
 /**

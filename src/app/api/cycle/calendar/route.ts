@@ -43,6 +43,7 @@ import { moodDateKey } from "@/lib/mood/date-key";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
 import { getServerTranslator } from "@/lib/i18n/server-translator";
 import { resolveServerLocale } from "@/lib/i18n/server-locale";
+import { startOfLocalDayKey } from "@/lib/tz/local-day";
 
 const DEFAULT_PAST_DAYS = 90;
 const DEFAULT_FORWARD_DAYS = 180;
@@ -148,7 +149,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
         deletedAt: null,
         type: "WRIST_TEMPERATURE",
         measuredAt: {
-          gte: new Date(Date.parse(`${addDays(today, -90)}T00:00:00Z`)),
+          gte: startOfLocalDayKey(addDays(today, -90), tz),
         },
       },
       orderBy: { measuredAt: "asc" },

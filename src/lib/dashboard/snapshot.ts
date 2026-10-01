@@ -120,6 +120,7 @@ import {
   toProfileSex,
   type ProfileSex,
 } from "@/lib/profile/sex";
+import { dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 
 /** Briefing freshness window — mirrors the 24 h TTL on the advisor cache. */
 const BRIEFING_TTL_MS = 24 * 60 * 60 * 1000;
@@ -602,6 +603,7 @@ async function buildNutrientWaterBlock(
   prisma: PrismaClient,
   userId: string,
 ): Promise<{ summary: DataSummary; lastSeenAt: string } | null> {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: 30-day lower bound on stored water day keys; a day either way at the far edge does not change the tile
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
@@ -617,7 +619,7 @@ async function buildNutrientWaterBlock(
   }
   const points: DataPoint[] = [...sumByDay.entries()]
     .map(([day, amount]) => ({
-      date: new Date(`${day}T00:00:00.000Z`),
+      date: dayKeyAsUtcMidnight(day),
       value: amount,
     }))
     .sort((a, b) => a.date.getTime() - b.date.getTime());

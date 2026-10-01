@@ -278,3 +278,57 @@ describe("buildGlp1SnapshotBlock side-effect tags across locales", () => {
     ]);
   });
 });
+
+/**
+ * Injection days are the user's calendar days. The snapshot used to cut
+ * them on UTC days and compare `getUTCDay()` with the schedule's local
+ * weekday, so an evening injection west of UTC was reported on the next
+ * day and the projection counted from the wrong day.
+ */
+describe("buildGlp1SnapshotBlock injection days in the user's zone", () => {
+  it("dates a Friday-evening injection in Los Angeles on Friday", async () => {
+    prismaMock.medication.findMany.mockResolvedValue([
+      fakeMedication({
+        schedules: [
+          { daysOfWeek: "5", windowStart: "19:00", windowEnd: "21:00" },
+        ],
+        // Friday 2026-09-25, 20:00 in Los Angeles — Saturday in UTC.
+        intakeEvents: [
+          {
+            takenAt: new Date("2026-09-26T03:00:00.000Z"),
+            injectionSite: null,
+          },
+        ],
+      }),
+    ]);
+    // Monday 2026-09-28, 11:00 in Los Angeles.
+    const now = new Date("2026-09-28T18:00:00.000Z");
+    const out = await buildGlp1SnapshotBlock(
+      "user-1",
+      now,
+      "America/Los_Angeles",
+    );
+    const med = out?.medications[0];
+    expect(med?.lastInjection?.date).toBe("2026-09-25");
+    expect(med?.nextInjection).toEqual({ date: "2026-10-02", daysAway: 4 });
+  });
+
+  it("names tomorrow from the local day east of UTC", async () => {
+    prismaMock.medication.findMany.mockResolvedValue([
+      fakeMedication({
+        schedules: [{ daysOfWeek: null, windowStart: null, windowEnd: null }],
+      }),
+    ]);
+    // 2026-09-28 12:00 UTC is already 2026-09-29 02:00 on Kiritimati.
+    const now = new Date("2026-09-28T12:00:00.000Z");
+    const out = await buildGlp1SnapshotBlock(
+      "user-1",
+      now,
+      "Pacific/Kiritimati",
+    );
+    expect(out?.medications[0].nextInjection).toEqual({
+      date: "2026-09-30",
+      daysAway: 1,
+    });
+  });
+});

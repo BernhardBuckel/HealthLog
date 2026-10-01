@@ -44,6 +44,7 @@ import { prefersReducedMotion } from "@/lib/charts/reduced-motion";
 import { cn } from "@/lib/utils";
 import type { CalendarDay, CervicalMucus, OvulationTest } from "./types";
 import { PHASE_HUE, OVULATION_HUE } from "./phase-tokens";
+import { shiftDateKey } from "@/lib/tz/format";
 
 /** Trailing fallback window (days) when no MENSTRUAL-anchored cycle is active. */
 const FALLBACK_WINDOW_DAYS = 35;
@@ -97,9 +98,7 @@ export function BbtChart({
   // recent temperatures.
   const fromDate = useMemo(() => {
     if (cycleStartDate) return cycleStartDate;
-    const fallback = new Date(ymdToMs(today));
-    fallback.setUTCDate(fallback.getUTCDate() - FALLBACK_WINDOW_DAYS);
-    return fallback.toISOString().slice(0, 10);
+    return shiftDateKey(today, -FALLBACK_WINDOW_DAYS);
   }, [cycleStartDate, today]);
 
   const points = useMemo<BbtPoint[]>(() => {
