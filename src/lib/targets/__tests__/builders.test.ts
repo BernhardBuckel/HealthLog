@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildGlucoseTargets } from "../glucose-builder";
+import { foldGlucoseTargetRows } from "../glucose-read";
 import { buildMedicationTarget } from "../medication-builder";
 import { buildMoodTargets } from "../mood-builder";
 import { buildSleepTarget } from "../sleep-builder";
@@ -8,11 +9,13 @@ import { buildVitalTargets } from "../vitals-builder";
 
 const NOW = new Date("2026-07-21T12:00:00.000Z");
 const TZ = "UTC";
+const RECENT = new Date(NOW.getTime() - 30 * 86_400_000);
 
 describe("target section builders", () => {
   it("keeps the vital target order and profile-gated cards on an empty profile", () => {
     const result = buildVitalTargets({
       recentMeasurements: [],
+      restingPulseProxy: [],
       latestByType: {},
       average30ByType: {},
       heightCm: null,
@@ -108,7 +111,7 @@ describe("target section builders", () => {
       },
     ];
     const targets = buildGlucoseTargets({
-      rows,
+      summaries: foldGlucoseTargetRows(rows, RECENT, TZ),
       profile: {
         heightCm: 180,
         dateOfBirth: new Date("1985-01-01T00:00:00.000Z"),
@@ -140,10 +143,14 @@ describe("target section builders", () => {
     // metadata, so every row arrives with a null context. Iterating the four
     // named contexts alone returned no glucose target at all.
     const targets = buildGlucoseTargets({
-      rows: [
-        { value: 112, measuredAt: NOW, glucoseContext: null },
-        { value: 104, measuredAt: NOW, glucoseContext: null },
-      ],
+      summaries: foldGlucoseTargetRows(
+        [
+          { value: 112, measuredAt: NOW, glucoseContext: null },
+          { value: 104, measuredAt: NOW, glucoseContext: null },
+        ],
+        RECENT,
+        TZ,
+      ),
       profile: {
         heightCm: 180,
         dateOfBirth: new Date("1985-01-01T00:00:00.000Z"),
@@ -173,11 +180,15 @@ describe("target section builders", () => {
 
   it("keeps the tagged breakdown and puts the untagged bucket last (#943)", () => {
     const targets = buildGlucoseTargets({
-      rows: [
-        { value: 130, measuredAt: NOW, glucoseContext: "RANDOM" as const },
-        { value: 90, measuredAt: NOW, glucoseContext: "FASTING" as const },
-        { value: 111, measuredAt: NOW, glucoseContext: null },
-      ],
+      summaries: foldGlucoseTargetRows(
+        [
+          { value: 130, measuredAt: NOW, glucoseContext: "RANDOM" as const },
+          { value: 90, measuredAt: NOW, glucoseContext: "FASTING" as const },
+          { value: 111, measuredAt: NOW, glucoseContext: null },
+        ],
+        RECENT,
+        TZ,
+      ),
       profile: {
         heightCm: 180,
         dateOfBirth: new Date("1985-01-01T00:00:00.000Z"),
@@ -235,6 +246,7 @@ describe("target section builders", () => {
 describe("buildVitalTargets — user weight target", () => {
   const base = {
     recentMeasurements: [],
+    restingPulseProxy: [],
     latestByType: {},
     average30ByType: {},
     heightCm: 178,
