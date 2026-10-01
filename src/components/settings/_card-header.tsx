@@ -89,7 +89,12 @@ export function SettingsCardHeader({
             {titleAccessory}
           </div>
           {status ? (
-            <div className="flex shrink-0 items-center gap-2">{status}</div>
+            // `max-w-full` caps the slot at the row once it wraps under the
+            // title, so a status line longer than a phone row wraps inside
+            // the card instead of widening the page.
+            <div className="flex max-w-full shrink-0 items-center gap-2">
+              {status}
+            </div>
           ) : null}
         </div>
         {/* One sentence, one text run. This slot deliberately carries no

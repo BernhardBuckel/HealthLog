@@ -193,8 +193,6 @@ export function MoodReminderCard({
               disabled={!isAuthenticated || saving}
               aria-label={t("notifications.moodReminder.toggleAria")}
             />
-            <p className="text-sm">{t("notifications.moodReminder.detail")}</p>
-
             <span className="text-muted-foreground text-xs">
               {enabled
                 ? t("notifications.moodReminder.statusOn")
@@ -203,6 +201,7 @@ export function MoodReminderCard({
           </label>
         }
       />
+      <p className="text-sm">{t("notifications.moodReminder.detail")}</p>
       {enabled && (
         <div className="flex min-h-11 items-center gap-3">
           <label htmlFor="mood-reminder-hour" className="text-sm font-medium">

@@ -869,7 +869,7 @@ function SortableWidgetRow({
       style={style}
       data-slot="widget-row"
       data-dragging={isDragging ? "true" : undefined}
-      className={`border-border bg-background/30 flex min-h-12 items-center gap-2 rounded-md border px-3 py-2 ${
+      className={`border-border bg-background/30 flex min-h-12 flex-wrap items-center gap-2 rounded-md border px-3 py-2 sm:flex-nowrap ${
         isDragging ? "ring-primary z-10 opacity-90 shadow-lg ring-2" : ""
       }`}
     >
@@ -898,7 +898,12 @@ function SortableWidgetRow({
       <span className="flex-1 truncate text-sm" title={labels.widgetLabel}>
         {labels.widgetLabel}
       </span>
-      <div className="flex w-12 justify-center">
+      {/* On a phone the two switches and two arrows (~250 px) left the name
+          five characters ("Gewic…"). Below `sm` the controls wrap onto a
+          second line, right-aligned under the column heads, and the name
+          keeps the first line to itself. */}
+      <span className="basis-full sm:hidden" aria-hidden="true" />
+      <div className="flex w-12 justify-center max-sm:ml-auto">
         <Switch
           checked={tileChecked}
           onCheckedChange={(v) => onToggleTile(widget.id, v)}

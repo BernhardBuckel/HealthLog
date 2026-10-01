@@ -33,6 +33,8 @@ import {
 } from "@playwright/test";
 import pg from "pg";
 
+import { seedMobileRoutesRecord } from "./mobile-routes-fixture";
+
 // Resolve relative to the project root rather than __dirname/import.meta.url —
 // Playwright's TS loader runs files as CJS without `"type":"module"`, and
 // loading either dirname helper at module scope crashes the test runner.
@@ -189,6 +191,27 @@ export const E2E_MODULES = {
 export const MODULES_STORAGE_STATE_PATH = resolve(
   process.cwd(),
   "e2e/setup/storageStateModules.json",
+);
+
+/**
+ * The phone-width route sweep's own account (`mobile-route-overflow.spec.ts`).
+ *
+ * It holds one or two of everything a route can render
+ * (`mobile-routes-fixture.ts`), because the sweep is only worth something
+ * against populated pages, and writing that much into the shared account would
+ * change what every other spec reads. An administrator, so the admin console
+ * is swept too; `FEMALE`, so the cycle surfaces render without a switch.
+ */
+export const E2E_MOBILE_ROUTES = {
+  email: "e2e-mobile-routes@healthlog.test",
+  username: "e2e-mobile-routes",
+  password: "Wd7!Kp3mTz9qRv2N",
+  role: "ADMIN",
+} as const;
+
+export const MOBILE_ROUTES_STORAGE_STATE_PATH = resolve(
+  process.cwd(),
+  "e2e/setup/storageStateMobileRoutes.json",
 );
 
 /**
@@ -823,6 +846,43 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       ],
     );
 
+    // The phone-width route sweep's account. Every opt-in module is on, so
+    // the sweep reaches the glucose, documents, wellbeing, nutrients and
+    // environment surfaces; its record is written after the login capture.
+    await pool.query(
+      `INSERT INTO users
+        (id, username, email, password_hash, role, created_at, updated_at,
+         height_cm, date_of_birth, gender,
+         onboarding_completed_at, onboarding_tour_completed,
+         module_preferences_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, 168, $7, 'FEMALE', $6, true,
+               $8::jsonb)
+       ON CONFLICT (username) DO UPDATE SET
+         email = EXCLUDED.email,
+         password_hash = EXCLUDED.password_hash,
+         role = EXCLUDED.role,
+         updated_at = EXCLUDED.updated_at,
+         onboarding_completed_at = EXCLUDED.onboarding_completed_at,
+         onboarding_tour_completed = EXCLUDED.onboarding_tour_completed,
+         module_preferences_json = EXCLUDED.module_preferences_json`,
+      [
+        cuid(),
+        E2E_MOBILE_ROUTES.username,
+        E2E_MOBILE_ROUTES.email,
+        await hashPassword(E2E_MOBILE_ROUTES.password),
+        E2E_MOBILE_ROUTES.role,
+        now,
+        new Date("1988-04-12T00:00:00.000Z"),
+        JSON.stringify({
+          glucose: true,
+          environment: true,
+          inboundDocuments: true,
+          mentalHealth: true,
+          nutrients: true,
+        }),
+      ],
+    );
+
     // The AI-optional journeys' account. Its provider, stored briefing,
     // consent and Coach rows are set by `e2e/setup/ai-optional-fixture.ts`
     // before each journey.
@@ -1440,6 +1500,11 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
 
     // The module-surfaces journey's jar — see `E2E_MODULES`.
     await capture(E2E_MODULES, MODULES_STORAGE_STATE_PATH);
+
+    // The phone-width route sweep's jar, then its record — see
+    // `E2E_MOBILE_ROUTES`.
+    await capture(E2E_MOBILE_ROUTES, MOBILE_ROUTES_STORAGE_STATE_PATH);
+    await seedMobileRoutesRecord(baseURL, MOBILE_ROUTES_STORAGE_STATE_PATH);
 
     // The AI-optional journeys' jar — see `E2E_AI_OPTIONAL`.
     await capture(E2E_AI_OPTIONAL, AI_OPTIONAL_STORAGE_STATE_PATH);
