@@ -559,6 +559,7 @@ const cycleSpanSchema = z
     tz: z.string().nullable().optional(),
     syncVersion: z.number().int().optional(),
     deletedAt: isoDateTime.nullable().optional(),
+    absorbedIntoId: z.string().min(1).nullable().optional(),
     createdAt: isoDateTime.optional(),
     updatedAt: isoDateTime.optional(),
   })
@@ -691,6 +692,9 @@ const nutrientDaySchema = z
     // Closed set in app code rather than a DB enum; kept as a string here so a
     // future source does not make an old file unparseable.
     source: z.string().min(1),
+    // Absent from files written before v1.39.7.
+    externalSourceVersion: z.string().nullable().optional(),
+    createdAt: isoDateTime.optional(),
   })
   .passthrough();
 
@@ -1641,6 +1645,7 @@ const workoutBackupSchema = z
     pauseDurationSec: z.number().int().nullable().optional(),
     source: z.enum(MeasurementSource),
     externalId: z.string().nullable().optional(),
+    externalSourceVersion: z.string().nullable().optional(),
     metadata: z.json().optional(),
     createdAt: isoDateTime.optional(),
     updatedAt: isoDateTime.optional(),

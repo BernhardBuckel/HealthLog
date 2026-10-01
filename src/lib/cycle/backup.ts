@@ -64,6 +64,12 @@ export interface CycleBackupSection {
     isPredicted?: boolean;
     syncVersion?: number;
     deletedAt?: string | null;
+    /**
+     * Disaster recovery only: the start that folded this one in. A bare id with
+     * no foreign key, meaningful only because the same file carries the ids of
+     * the starts it names.
+     */
+    absorbedIntoId?: string | null;
     createdAt?: string;
     updatedAt?: string;
   }>;
@@ -214,6 +220,7 @@ export async function buildCycleBackupSection(
             isPredicted: c.isPredicted,
             syncVersion: c.syncVersion,
             deletedAt: c.deletedAt?.toISOString() ?? null,
+            absorbedIntoId: c.absorbedIntoId,
             createdAt: c.createdAt.toISOString(),
             updatedAt: c.updatedAt.toISOString(),
           }
@@ -432,6 +439,12 @@ export async function restoreCycleData(
   // re-attach to their owning span.
   const cycleIdByStart = new Map<string, string>();
   const restoredCycleIds = new Set<string>();
+  // A folded start names the start that absorbed it. Kept only when that start
+  // is in the same file under the same id; a pointer at nothing would stop the
+  // folded row from ever coming back, which is what the column is for.
+  const carriedCycleIds = new Set(
+    payload.cycles.flatMap((c) => (c.id ? [c.id] : [])),
+  );
   for (const c of payload.cycles) {
     const created = await tx.menstrualCycle.create({
       data: {
@@ -447,6 +460,10 @@ export async function restoreCycleData(
         isPredicted: c.isPredicted ?? false,
         syncVersion: c.syncVersion ?? 0,
         deletedAt: c.deletedAt ? new Date(c.deletedAt) : null,
+        absorbedIntoId:
+          c.absorbedIntoId && carriedCycleIds.has(c.absorbedIntoId)
+            ? c.absorbedIntoId
+            : null,
         ...(c.createdAt ? { createdAt: new Date(c.createdAt) } : {}),
         ...(c.updatedAt ? { updatedAt: new Date(c.updatedAt) } : {}),
       },

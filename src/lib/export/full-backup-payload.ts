@@ -887,6 +887,9 @@ export async function buildFullBackupPayload(
     // `source` is part of the composite PK, so it has to ride along or a
     // restore cannot tell a manual water entry from a synced day total. The
     // table carries no tombstone, so both purposes read the same shape.
+    // `externalSourceVersion` is the source's own version marker, stored so
+    // the sync can replay it back unchanged; `createdAt` is when the day
+    // first arrived. Neither can be rebuilt after a restore.
     prisma.nutrientIntakeDay.findMany({
       where: { userId },
       select: {
@@ -895,6 +898,8 @@ export async function buildFullBackupPayload(
         amount: true,
         unit: true,
         source: true,
+        externalSourceVersion: true,
+        createdAt: true,
       },
       orderBy: [{ day: "desc" }, { nutrient: "asc" }],
     }),
@@ -1293,6 +1298,8 @@ export async function buildFullBackupPayload(
       amount: n.amount,
       unit: n.unit,
       source: n.source,
+      externalSourceVersion: n.externalSourceVersion,
+      createdAt: n.createdAt.toISOString(),
     })),
   };
 
