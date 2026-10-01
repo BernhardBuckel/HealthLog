@@ -232,8 +232,14 @@ async function postBatch(request: NextRequest): Promise<Response> {
   // database for every other user on the host. 60 batches/min/user is
   // generous for healthy iOS sync and tight enough that a misbehaving
   // client bottoms out within a minute.
+  //
+  // A scoped `workouts:write` token is a bridge, not the phone, so it counts
+  // in a bucket of its own: a bridge stuck in a retry loop must not use up
+  // the allowance the iPhone app needs to sync the same account's workouts.
+  // All bridge tokens of one account share that bucket, so minting more
+  // tokens does not multiply the allowance.
   const rl = await checkRateLimit(
-    `workouts:batch:${user.id}`,
+    scoped ? `workouts:batch:bridge:${user.id}` : `workouts:batch:${user.id}`,
     BATCH_RATE_LIMIT_MAX,
     BATCH_RATE_LIMIT_WINDOW_MS,
   );
