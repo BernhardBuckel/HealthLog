@@ -37,6 +37,9 @@ vi.mock("@/lib/cycle/phase-crosstab", async (importOriginal) => ({
     discoverPhaseCorrelations(args),
 }));
 
+vi.mock("@/lib/measurements/day-aggregates", () => ({
+  readSourceDayAggregates: vi.fn().mockResolvedValue([]),
+}));
 vi.mock("@/lib/db", () => ({
   prisma: {
     auditLog: { create: vi.fn() },

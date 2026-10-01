@@ -43,6 +43,7 @@ import {
   type SymptomDay,
 } from "@/lib/cycle/symptom-phase";
 import { addDays } from "@/lib/cycle/day-math";
+import { readSourceDayAggregates } from "@/lib/measurements/day-aggregates";
 import { moodDateKey } from "@/lib/mood/date-key";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
 
@@ -130,27 +131,19 @@ export const GET = apiHandler(async () => {
       orderBy: { measuredAt: "asc" },
       select: { measuredAt: true, value: true },
     }),
-    // The outcome metrics the phase contrast compares — soft-delete-scoped,
-    // canonical-source deduped per day inside `metricDayMap`. Skipped whole
-    // for a caller outside `measurements`.
+    // The outcome metrics the phase contrast compares, soft-delete-scoped.
+    // A year of steps, heart-rate variability and sensor glucose is far too
+    // many readings to hold as objects (#1023), and the crosstab uses only
+    // each day's sum and count after picking one source and device per day.
+    // So the fold runs in SQL, one row per type, local day, source and
+    // device, the read the coach's cycle snapshot already makes. Skipped
+    // whole for a caller outside `measurements`.
     seesMeasurements
-      ? prisma.measurement.findMany({
-          where: {
-            userId: user.id,
-            deletedAt: null,
-            type: { in: PHASE_CROSSTAB_METRIC_TYPES },
-            measuredAt: {
-              gte: new Date(Date.parse(`${from}T00:00:00Z`)),
-            },
-          },
-          orderBy: { measuredAt: "asc" },
-          select: {
-            type: true,
-            value: true,
-            measuredAt: true,
-            source: true,
-            deviceType: true,
-          },
+      ? readSourceDayAggregates({
+          userId: user.id,
+          types: PHASE_CROSSTAB_METRIC_TYPES,
+          since: new Date(Date.parse(`${from}T00:00:00Z`)),
+          timeZone: tz,
         })
       : [],
     prisma.user.findUnique({
@@ -200,10 +193,13 @@ export const GET = apiHandler(async () => {
     today,
   );
 
+  // Each row stands for its day's readings: `value` is their sum and
+  // `count` their number, so `metricDayMap` gets the raw readings' day mean.
   const measurements: CrossMetricMeasurement[] = measurementRows.map((m) => ({
     type: m.type,
-    value: m.value,
-    measuredAt: m.measuredAt,
+    value: m.sum,
+    count: m.n,
+    measuredAt: m.firstAt,
     source: m.source,
     deviceType: m.deviceType,
   }));
