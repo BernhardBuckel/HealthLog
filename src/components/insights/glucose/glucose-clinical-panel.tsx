@@ -82,7 +82,7 @@ export function GlucoseClinicalPanel() {
 
   const formatGlucoseValue = (mgdl: number): string => {
     const v = convertGlucose(mgdl, glucoseUnit);
-    return isMmol ? v.toFixed(1) : String(Math.round(v));
+    return fmt.number(v, isMmol ? 1 : 0);
   };
 
   // Learning state — calm, never asserting TIR / GMI off thin data.
@@ -189,7 +189,7 @@ export function GlucoseClinicalPanel() {
               icon={<Activity className="h-3.5 w-3.5" aria-hidden="true" />}
               label={t("insights.bloodGlucose.clinical.gmi.label")}
               help={t("insights.bloodGlucose.clinical.gmi.help")}
-              value={clinical.gmi.toFixed(1)}
+              value={fmt.number(clinical.gmi, 1)}
               unit="%"
             />
           ) : null}
@@ -198,7 +198,7 @@ export function GlucoseClinicalPanel() {
               icon={<TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />}
               label={t("insights.bloodGlucose.clinical.eA1c.label")}
               help={t("insights.bloodGlucose.clinical.eA1c.help")}
-              value={clinical.estimatedA1c.toFixed(1)}
+              value={fmt.number(clinical.estimatedA1c, 1)}
               unit="%"
             />
           ) : null}

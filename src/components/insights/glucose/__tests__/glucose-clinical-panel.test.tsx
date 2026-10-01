@@ -162,6 +162,11 @@ describe("<GlucoseClinicalPanel> asserted state", () => {
     const de = render(<GlucoseClinicalPanel />, "de");
     expect(de).toContain("(3,9–10,0 mmol/L ist das Ziel)");
     expect(de).not.toMatch(/mg\/dl/i);
+    // Mean, GMI and eA1C read with the German decimal comma.
+    expect(de).not.toMatch(/>\d+\.\d+</);
+    expect(de).toMatch(
+      />\d+,\d<\/span><span class="text-muted-foreground text-xs">mmol\/L/,
+    );
 
     authMock.mockReturnValue({
       user: { glucoseUnit: "mg/dL" },

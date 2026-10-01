@@ -13,12 +13,12 @@ import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiDelete, apiGet, apiPut } from "@/lib/api/api-fetch";
 import { formatReferenceRange } from "@/lib/labs/reference-range";
-import { formatLabValue } from "@/lib/labs/format-value";
 import { useTranslations } from "@/lib/i18n/context";
 import { queryKeys } from "@/lib/query-keys";
 
 import { BiomarkerForm } from "./biomarker-form";
 import type { BiomarkerDto, BiomarkerListResponse } from "./types";
+import { useLabNumber } from "./use-lab-format";
 
 /**
  * v1.18.1 — the Biomarker catalog manager. v1.22 — compact editable rows.
@@ -42,6 +42,7 @@ import type { BiomarkerDto, BiomarkerListResponse } from "./types";
  */
 export function BiomarkerManager() {
   const { t } = useTranslations();
+  const labNumber = useLabNumber();
   const queryClient = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<BiomarkerDto | null>(null);
@@ -101,7 +102,7 @@ export function BiomarkerManager() {
     const range = formatReferenceRange(
       marker.lowerBound,
       marker.upperBound,
-      formatLabValue,
+      labNumber,
     );
     return (
       <li

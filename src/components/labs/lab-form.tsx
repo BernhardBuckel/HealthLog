@@ -27,12 +27,12 @@ import {
   parseReferenceRange,
 } from "@/lib/labs/parse-reference-range";
 import { formatReferenceRange } from "@/lib/labs/reference-range";
-import { formatLabValue } from "@/lib/labs/format-value";
 import { EncounterSuggestionField } from "@/components/encounters/encounter-suggestion-field";
 import { useTranslations } from "@/lib/i18n/context";
 import { queryKeys } from "@/lib/query-keys";
 
 import { BiomarkerForm } from "./biomarker-form";
+import { useLabNumber } from "./use-lab-format";
 import type {
   BiomarkerDto,
   BiomarkerListResponse,
@@ -135,6 +135,7 @@ export function LabForm({
   footerSlot,
 }: LabFormProps) {
   const { t } = useTranslations();
+  const labNumber = useLabNumber();
   const recordName = useActiveRecordName();
   const queryClient = useQueryClient();
   const formId = useId();
@@ -325,11 +326,7 @@ export function LabForm({
   }
 
   const referenceText = selected
-    ? formatReferenceRange(
-        selected.lowerBound,
-        selected.upperBound,
-        formatLabValue,
-      )
+    ? formatReferenceRange(selected.lowerBound, selected.upperBound, labNumber)
     : "";
 
   // What the typed string resolved to, shown back so the user can see whether
@@ -342,7 +339,7 @@ export function LabForm({
       : `${formatReferenceRange(
           parsedSourceRange.low,
           parsedSourceRange.high,
-          formatLabValue,
+          labNumber,
         )} ${selected?.unit ?? ""}`.trim()
     : "";
 

@@ -11,9 +11,12 @@ import { EDGE_PADDING_PERCENT, RangeBar } from "../range-bar";
  * extraction is provably side-effect-free.
  */
 
-function render(props: Parameters<typeof RangeBar>[0]) {
+function render(
+  props: Parameters<typeof RangeBar>[0],
+  locale: "en" | "de" = "en",
+) {
   return renderToStaticMarkup(
-    <I18nProvider initialLocale="en">
+    <I18nProvider initialLocale={locale}>
       <RangeBar {...props} />
     </I18nProvider>,
   );
@@ -92,5 +95,18 @@ describe("<RangeBar>", () => {
     expect(html).toContain('tabindex="0"');
     expect(html).toContain('role="img"');
     expect(html).toContain('aria-label="Current: 72 bpm');
+  });
+
+  it("prints value, bounds and delta in the reader's number format", () => {
+    // A German reader saw "61.3 kg" under a German interface.
+    const html = render(
+      { value: 72.4, min: 50.5, max: 70.25, unit: "kg" },
+      "de",
+    );
+    expect(html).toContain("50,5 kg");
+    expect(html).toContain("70,25 kg");
+    expect(html).toContain("72,4 kg");
+    expect(html).toContain("2,2 kg");
+    expect(html).not.toMatch(/\d\.\d+ kg/);
   });
 });

@@ -6,7 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useTranslations } from "@/lib/i18n/context";
+import { useFormatters, useTranslations } from "@/lib/i18n/context";
 
 /**
  * A horizontal range bar with green/yellow/red zones showing where
@@ -28,6 +28,12 @@ export interface RangeBarProps {
   tone?: "target" | "lab";
   minLabel?: string | null;
   maxLabel?: string | null;
+  /**
+   * How a value or bound is printed. Defaults to the reader's locale number
+   * format; a surface with its own precision rule (lab values trim to two
+   * decimals) passes it here so the bar and the row beside it agree.
+   */
+  formatValue?: (value: number) => string;
 }
 
 /**
@@ -49,8 +55,13 @@ export function RangeBar({
   tone = "target",
   minLabel,
   maxLabel,
+  formatValue,
 }: RangeBarProps) {
   const { t } = useTranslations();
+  const fmt = useFormatters();
+  // Every printed number goes through the locale formatter: a German reader
+  // sees "61,3 kg", not "61.3 kg".
+  const show = formatValue ?? ((v: number) => fmt.number(v));
   const isLab = tone === "lab";
 
   const span = max - min;
@@ -132,8 +143,8 @@ export function RangeBar({
   const deltaText =
     delta > 0
       ? value < min
-        ? t("targets.belowTarget", { delta: delta.toFixed(1), unit })
-        : t("targets.aboveTarget", { delta: delta.toFixed(1), unit })
+        ? t("targets.belowTarget", { delta: fmt.number(delta, 1), unit })
+        : t("targets.aboveTarget", { delta: fmt.number(delta, 1), unit })
       : t("targets.inTarget");
 
   // 2026-07-17 a11y audit (M1) — the marker's value + range live only in a
@@ -142,8 +153,8 @@ export function RangeBar({
   // 1.1.1 (no separate copy to drift) — `tabIndex` below makes the trigger
   // focusable, which is all Radix needs to also open the tooltip on focus.
   const markerAriaLabel = [
-    t("targets.currentValue", { value: String(value), unit }),
-    t("targets.targetRangeValue", { min: String(min), max: String(max), unit }),
+    t("targets.currentValue", { value: show(value), unit }),
+    t("targets.targetRangeValue", { min: show(min), max: show(max), unit }),
     deltaText,
   ].join(". ");
 
@@ -218,12 +229,12 @@ export function RangeBar({
             </TooltipTrigger>
             <TooltipContent>
               <p className="text-xs font-medium">
-                {t("targets.currentValue", { value: String(value), unit })}
+                {t("targets.currentValue", { value: show(value), unit })}
               </p>
               <p className="text-xs">
                 {t("targets.targetRangeValue", {
-                  min: String(min),
-                  max: String(max),
+                  min: show(min),
+                  max: show(max),
                   unit,
                 })}
               </p>
@@ -241,13 +252,13 @@ export function RangeBar({
           className="absolute -translate-x-1/2 whitespace-nowrap"
           style={{ left: `${minLabelPosition}%` }}
         >
-          {minLabel === null ? null : (minLabel ?? `${min} ${unit}`)}
+          {minLabel === null ? null : (minLabel ?? `${show(min)} ${unit}`)}
         </span>
         <span
           className="absolute -translate-x-1/2 whitespace-nowrap"
           style={{ left: `${maxLabelPosition}%` }}
         >
-          {maxLabel === null ? null : (maxLabel ?? `${max} ${unit}`)}
+          {maxLabel === null ? null : (maxLabel ?? `${show(max)} ${unit}`)}
         </span>
       </div>
     </div>

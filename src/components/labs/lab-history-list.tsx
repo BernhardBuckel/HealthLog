@@ -38,6 +38,7 @@ import { ReferenceRangeBadge } from "./reference-range-badge";
 import { LabReferenceRangeBar } from "./lab-reference-range-bar";
 import { SourceRangeNote } from "./source-range-note";
 import type { LabResultDetailDto, LabResultDto } from "./types";
+import { useLabNumber } from "./use-lab-format";
 
 const NOTE_MAX_LENGTH = 2000;
 
@@ -77,6 +78,7 @@ function parseDecimal(raw: string): number | null {
  */
 export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
   const { t } = useTranslations();
+  const labNumber = useLabNumber();
   const { canManageDomain } = useRecordCapabilities();
   const canManageLabs = canManageDomain("labs");
   const queryClient = useQueryClient();
@@ -353,7 +355,7 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
           <li key={r.id} className="flex items-start gap-3 py-3">
             <div className="min-w-0 flex-1 space-y-2">
               <div className="font-semibold tabular-nums">
-                {formatLabReading(r)}
+                {formatLabReading(r, labNumber)}
               </div>
               <LabReferenceRangeBar
                 value={r.value}
@@ -421,7 +423,7 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
               <TableRow key={r.id}>
                 <TableCell className="font-semibold tabular-nums">
                   <div className="space-y-2">
-                    <span>{formatLabReading(r)}</span>
+                    <span>{formatLabReading(r, labNumber)}</span>
                     <LabReferenceRangeBar
                       value={r.value}
                       referenceLow={r.referenceLow}

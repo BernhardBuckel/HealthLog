@@ -5,11 +5,20 @@
  * lab reading the same way: whole numbers render bare, fractional values keep
  * up to two decimals (no trailing-zero noise). Centralised so the three
  * surfaces stay byte-identical.
+ *
+ * The digits themselves come from the caller's locale number formatter
+ * (`useFormatters().number`), so a German reader sees "1,8 mIU/L" where an
+ * English one sees "1.8 mIU/L". This module only decides the precision.
  */
-export function formatLabValue(value: number): string {
-  return Number.isInteger(value)
-    ? String(value)
-    : String(Number(value.toFixed(2)));
+export type LabNumberFormat = (value: number) => string;
+
+export function formatLabValue(
+  value: number,
+  formatNumber: LabNumberFormat,
+): string {
+  return formatNumber(
+    Number.isInteger(value) ? value : Number(value.toFixed(2)),
+  );
 }
 
 /**
@@ -18,13 +27,16 @@ export function formatLabValue(value: number): string {
  * formatted number plus its unit. One helper so the list card, the history
  * rows, and the detail header stay consistent.
  */
-export function formatLabReading(reading: {
-  value: number | null;
-  valueText: string | null;
-  unit: string;
-}): string {
+export function formatLabReading(
+  reading: {
+    value: number | null;
+    valueText: string | null;
+    unit: string;
+  },
+  formatNumber: LabNumberFormat,
+): string {
   if (reading.value === null) {
     return reading.valueText ?? "";
   }
-  return `${formatLabValue(reading.value)} ${reading.unit}`.trim();
+  return `${formatLabValue(reading.value, formatNumber)} ${reading.unit}`.trim();
 }
