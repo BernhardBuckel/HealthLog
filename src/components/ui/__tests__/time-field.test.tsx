@@ -105,6 +105,18 @@ describe("formatHhmm", () => {
 });
 
 describe("<TimeField> SSR", () => {
+  it("gives the clock button a 44 px touch target at its 32 px size", () => {
+    const html = render(<TimeField value="14:05" />, "de");
+    const button = /<button[^>]*data-slot="time-field-trigger"[^>]*>/.exec(
+      html,
+    )?.[0];
+    expect(button).toBeDefined();
+    expect(button).toContain("h-8 w-8");
+    expect(button).toContain("relative");
+    expect(button).toContain("before:-inset-1.5");
+    expect(button).toContain("before:absolute");
+  });
+
   it("paints the value in 24h under the de AUTO locale and exposes the picker affordance", () => {
     const html = render(<TimeField value="14:05" />, "de");
     expect(html).toContain('value="14:05"');

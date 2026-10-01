@@ -71,6 +71,7 @@ import {
   type MetricWindowStats,
 } from "@/lib/charts/window-stats";
 import { shouldFireDataReady } from "@/lib/charts/data-ready-latch";
+import { axisUnitSuffix } from "@/lib/charts/axis-unit";
 
 // The range tabs select a CALENDAR-DAY window ending now — `days: 7` is
 // "the last 7 days", not "the last 7 readings". The labels said "points"
@@ -1982,8 +1983,8 @@ export function HealthChart({
                         : String(value)
                     }
                     unit={
-                      showYAxisUnit && (yAxisUnit ?? unit)
-                        ? ` ${yAxisUnit ?? unit}`
+                      showYAxisUnit
+                        ? axisUnitSuffix(yAxisUnit ?? unit)
                         : undefined
                     }
                   />

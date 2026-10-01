@@ -26,6 +26,7 @@ import {
 } from "recharts";
 import { makeFormatters } from "@/lib/format-locale";
 import { useDateFormatPreference, useTranslations } from "@/lib/i18n/context";
+import { axisUnitSuffix } from "@/lib/charts/axis-unit";
 
 export interface EfficacyChartTarget {
   label: string;
@@ -169,7 +170,7 @@ export function EfficacyChart({
             tickLine={false}
             axisLine={false}
             width={40}
-            unit={unitSuffix ? ` ${unitSuffix}` : undefined}
+            unit={axisUnitSuffix(unitSuffix)}
           />
           <YAxis
             yAxisId="adherence"

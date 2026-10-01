@@ -24,6 +24,7 @@ import { TileHeader } from "@/components/insights/tile-header";
 import { Button } from "@/components/ui/button";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { axisUnitSuffix } from "@/lib/charts/axis-unit";
 import {
   BUCKET_MINUTES,
   type IntradayHrBucket,
@@ -300,7 +301,7 @@ export function IntradayPulseChart({
                 tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                 tickLine={false}
                 axisLine={false}
-                unit=" bpm"
+                unit={axisUnitSuffix("bpm")}
                 width={52}
               />
               <Tooltip

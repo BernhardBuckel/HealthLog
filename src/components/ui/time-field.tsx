@@ -189,7 +189,9 @@ export const TimeField = React.forwardRef<HTMLInputElement, TimeFieldProps>(
               tabIndex={-1}
               disabled={disabled}
               aria-label={t("common.openTimePicker")}
-              className="text-muted-foreground hover:text-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-50"
+              // The button paints at 32 px; the `::before` halo (6 px per edge)
+              // makes the touch target 44 px without changing the field.
+              className="text-muted-foreground hover:text-foreground relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md before:absolute before:-inset-1.5 before:content-[''] disabled:cursor-not-allowed disabled:opacity-50"
               data-slot="time-field-trigger"
             >
               <Clock className="h-4 w-4" aria-hidden="true" />
