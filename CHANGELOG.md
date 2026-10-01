@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.39.8] — 2026-10-02
+
+New ECGs from the iPhone get through, a resting heart rate can be logged by
+hand, and glucose ranges, decimals, calendar dates and chart axes follow the
+reader.
+
+### Fixed
+
+- **ECG ingest limit (#1060).** 600 recordings a minute instead of 60; the
+  app restarts a sweep after a 429, so a sweep larger than the limit never
+  finished and the newest recording never arrived.
+- **Glucose bands (#1067).** Time-in-range and band labels, the target line,
+  the glucose page description and the fasting explanation in the reader's
+  unit, from one set of thresholds with the guidelines' SI values; the unit
+  literal guard now reads the locale bundles.
+- **Decimal separators.** Range bars, lab values, reference ranges and the
+  glucose panel's indices use the language's number format.
+- **Calendar dates.** Date-only lab values and stated document dates show the
+  stated day in UTC+12..+14.
+- **Chart axes.** Unit-suffixed ticks no longer wrap (no-break space); date
+  field buttons have a 44 px hit area.
+- **Bridge rate limit (#1054).** `workouts:write` batches count in their own
+  per-account bucket.
+
+### Added
+
+- **Resting heart rate in the entry form (#1079).** Gated on the Recovery
+  module like its chart; the surface map carries its summary key, page, trend
+  slot and correlation channel.
+
 ## [1.39.7] — 2026-10-02
 
 The units a person chose, the day they are in, the phone they hold and the
