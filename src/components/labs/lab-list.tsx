@@ -13,15 +13,15 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api/api-fetch";
-import { formatDate } from "@/lib/format";
 import { formatReferenceRange } from "@/lib/labs/reference-range";
-import { formatLabReading, formatLabValue } from "@/lib/labs/format-value";
+import { formatLabReading } from "@/lib/labs/format-value";
 import { useTranslations } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { applyOrder, useModuleListPrefs } from "@/lib/module-list-prefs";
 
 import { LabTrendSparkline } from "./lab-trend-sparkline";
+import { useLabDate, useLabNumber } from "./use-lab-format";
 import { LabReferenceRangeBar } from "./lab-reference-range-bar";
 import { ReferenceRangeBadge } from "./reference-range-badge";
 import { SourceRangeNote } from "./source-range-note";
@@ -122,6 +122,8 @@ const MOBILE_CELL = {
 
 export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
   const { t } = useTranslations();
+  const labNumber = useLabNumber();
+  const labDate = useLabDate();
   const { canWriteDomain } = useRecordCapabilities();
   const canAddLab = canWriteDomain("labs");
   const { prefs } = useModuleListPrefs("labs");
@@ -255,9 +257,9 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                   </div>
                   <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
                     <span className="text-foreground font-semibold tabular-nums">
-                      {formatLabReading(group.latest)}
+                      {formatLabReading(group.latest, labNumber)}
                     </span>
-                    <span>{formatDate(group.latest.takenAt)}</span>
+                    <span>{labDate(group.latest.takenAt)}</span>
                   </div>
                 </div>
               );
@@ -373,7 +375,7 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                 <div className="flex items-end justify-between gap-3">
                   <div className="text-muted-foreground flex min-w-0 flex-1 flex-wrap items-center gap-x-2 text-sm">
                     <span className="text-foreground font-semibold tabular-nums">
-                      {formatLabReading(group.latest)}
+                      {formatLabReading(group.latest, labNumber)}
                     </span>
                     {group.latest.value !== null &&
                     (group.latest.referenceLow !== null ||
@@ -383,7 +385,7 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                         {formatReferenceRange(
                           group.latest.referenceLow,
                           group.latest.referenceHigh,
-                          formatLabValue,
+                          labNumber,
                         )}
                       </span>
                     ) : null}
@@ -392,7 +394,7 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                       className="text-xs"
                     />
                     <span className="text-xs">
-                      {formatDate(group.latest.takenAt)}
+                      {labDate(group.latest.takenAt)}
                     </span>
                     {group.readings.length > 1 ? (
                       <span className="text-xs">

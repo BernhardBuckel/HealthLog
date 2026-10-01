@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider } from "@/lib/i18n/context";
+import { glucoseBandParams } from "@/lib/glucose";
+import { makeFormatters } from "@/lib/format-locale";
 import { SubPageShell } from "../sub-page-shell";
 
 vi.mock("next/navigation", () => ({
@@ -66,6 +68,27 @@ describe("<SubPageShell>", () => {
     expect(html).toContain(
       "Blood pressure is the force your blood exerts on the artery walls",
     );
+  });
+
+  it("fills the explainer's figures from the explainer parameters", () => {
+    // The glucose definition names the fasting cut-points; a reader on
+    // mmol/L reads them in mmol/L, never a fixed "100 mg/dL".
+    const html = render(
+      <SubPageShell
+        title="Blood glucose"
+        explainerMetric="bloodGlucose"
+        explainerParams={glucoseBandParams(
+          "mmol/L",
+          makeFormatters("en", "UTC", "AUTO", "AUTO").number,
+        )}
+      >
+        <span />
+      </SubPageShell>,
+    );
+    expect(html).toContain(
+      "a fasting reading under 5.6 mmol/L is normal, 5.6–6.9 is prediabetes, and 7.0 or above",
+    );
+    expect(html).not.toContain("{");
   });
 
   it("no longer paints the round `?` explainer trigger next to the heading", () => {

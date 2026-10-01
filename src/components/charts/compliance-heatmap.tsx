@@ -1,11 +1,8 @@
 "use client";
 
+import { useCalendarDate } from "@/hooks/use-calendar-date";
 import { useState, useMemo, useEffect, useRef } from "react";
-import {
-  useDisplayTimezone,
-  useFormatters,
-  useTranslations,
-} from "@/lib/i18n/context";
+import { useDisplayTimezone, useTranslations } from "@/lib/i18n/context";
 import { heatmapDays } from "@/lib/charts/heatmap-days";
 
 interface DailyData {
@@ -83,12 +80,11 @@ export function ComplianceHeatmap({
   stretch = false,
 }: ComplianceHeatmapProps) {
   const { t } = useTranslations();
-  const fmt = useFormatters();
   const timeZone = useDisplayTimezone();
-  // Day keys are UTC-anchored "YYYY-MM-DD"; format at noon UTC so the
-  // locale-aware renderer never lands a day off in either direction.
-  const formatDay = (dateKey: string) =>
-    fmt.date(new Date(`${dateKey}T12:00:00Z`));
+  // Day keys are calendar dates ("YYYY-MM-DD"), read as such in every zone.
+  // A noon-UTC instant formatted in the reader's zone was a day late from
+  // UTC+12 to UTC+14.
+  const formatDay = useCalendarDate();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [tooltip, setTooltip] = useState<{

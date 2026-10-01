@@ -16,12 +16,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { CHART_HEIGHT_PX } from "@/lib/charts/constants";
 import { prefersReducedMotion } from "@/lib/charts/reduced-motion";
-import { formatLabValue } from "@/lib/labs/format-value";
 import { formatReferenceRange } from "@/lib/labs/reference-range";
 import { useTranslations, useFormatters } from "@/lib/i18n/context";
 
 import { RichChartTooltip, type RichTooltipRow } from "../charts/chart-tooltip";
 import type { LabResultDto } from "./types";
+import { useLabNumber } from "./use-lab-format";
 
 /**
  * v1.18.1 — per-biomarker trend chart, in the dashboard's visual language.
@@ -91,6 +91,7 @@ export function LabBiomarkerChart({
   upperBound: number | null;
 }) {
   const { t } = useTranslations();
+  const labNumber = useLabNumber();
   const fmt = useFormatters();
   const [range, setRange] = useState<RangeKey>("365");
   // Capture "now" once at mount so the recency filter stays pure across
@@ -224,7 +225,7 @@ export function LabBiomarkerChart({
                 tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                 stroke="var(--border)"
                 width={44}
-                tickFormatter={(v: number) => formatLabValue(v)}
+                tickFormatter={(v: number) => labNumber(v)}
               />
               {/* Reference window — muted band + dashed bounds. No alarm
                   colour: the in/out verdict is shown by the neutral badge,
@@ -302,7 +303,7 @@ export function LabBiomarkerChart({
                   const rows: RichTooltipRow[] = [
                     {
                       name: t("labs.chart.valueLabel"),
-                      value: `${formatLabValue(point.value)} ${unit}`,
+                      value: `${labNumber(point.value)} ${unit}`,
                       color: primary,
                     },
                   ];
@@ -317,7 +318,7 @@ export function LabBiomarkerChart({
                         `${formatReferenceRange(
                           point.referenceLow,
                           point.referenceHigh,
-                          formatLabValue,
+                          labNumber,
                         )} ${unit}`.trim(),
                       color: secondary,
                     });

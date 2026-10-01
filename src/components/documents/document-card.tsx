@@ -16,6 +16,7 @@
  * whole card is clickable through an invisible overlay button; the checkbox
  * floats above it.
  */
+import { useDocumentDate } from "@/components/documents/use-document-date";
 import { Check, Download, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -24,14 +25,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useFencedObjectUrl } from "@/hooks/use-fenced-object-url";
-import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import { useTranslations } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import type { InboundDocumentDto } from "@/lib/validations/inbound-documents";
 import { DOCUMENT_KIND_ICONS } from "./document-kind-meta";
 import type { UploadQueueItem } from "./use-document-upload";
 import {
   documentCardKeyAction,
-  documentDateKey,
   formatBytes,
   isDocumentProcessing,
 } from "./vault-utils";
@@ -71,7 +71,7 @@ export function DocumentCard({
   onPrefetch?: (id: string) => void;
 }) {
   const { t, locale } = useTranslations();
-  const format = useFormatters();
+  const documentDate = useDocumentDate();
 
   // A preview thumbnail that fails to load (still rendering, decrypt error,
   // 404) falls back to the kind icon — never a broken image.
@@ -101,7 +101,7 @@ export function DocumentCard({
   const title =
     document.title ?? document.filename ?? t("documents.card.untitled");
   const Icon = DOCUMENT_KIND_ICONS[document.kind];
-  const date = format.date(`${documentDateKey(document)}T12:00:00.000Z`);
+  const date = documentDate(document);
   const size = formatBytes(document.byteSize, locale);
   const showFilename =
     document.filename !== null && document.filename !== title;

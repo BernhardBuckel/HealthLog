@@ -594,6 +594,30 @@ describe("doctor-report clinical glucose panel", () => {
     expect(text).toContain("Glucose Management Indicator");
   });
 
+  it("labels the time-in-range bands in the owner's glucose unit", async () => {
+    // The band labels used to read "Low (< 70 mg/dL)" in a report whose
+    // values were all in mmol/L.
+    const data = makeData({
+      glucoseUnit: "mmol/L",
+      glucoseClinical: computeGlucoseClinicalMetrics(denseReadings(), {
+        now: FIXED_NOW,
+        windowDays: 90,
+      }),
+    });
+    const bytes = renderDoctorReportPdfBytes(data, {
+      timeFormat: "AUTO",
+      dateFormat: "AUTO",
+      t: getServerTranslator("de").t,
+      locale: "de",
+      now: FIXED_NOW,
+    });
+    const text = await extractText(bytes);
+    expect(text).toContain("Zeit im Zielbereich (3,9–10,0 mmol/L)");
+    expect(text).toContain("Sehr niedrig (< 3,0 mmol/L)");
+    expect(text).toContain("Sehr hoch (> 13,9 mmol/L)");
+    expect(text).not.toMatch(/mg\/dl/i);
+  });
+
   it("omits the clinical panel when there are no glucose readings", async () => {
     const data = makeData(); // empty (zero-reading) glucose panel
     const bytes = renderDoctorReportPdfBytes(data, {

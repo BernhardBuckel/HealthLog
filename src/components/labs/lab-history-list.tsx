@@ -28,7 +28,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api/api-fetch";
 import { localizedApiError } from "@/lib/api/localized-error";
-import { formatDateShort } from "@/lib/format";
 import { formatLabReading } from "@/lib/labs/format-value";
 import { resolveNoteForUpdate } from "@/lib/labs/note-update";
 import { useTranslations } from "@/lib/i18n/context";
@@ -38,6 +37,7 @@ import { ReferenceRangeBadge } from "./reference-range-badge";
 import { LabReferenceRangeBar } from "./lab-reference-range-bar";
 import { SourceRangeNote } from "./source-range-note";
 import type { LabResultDetailDto, LabResultDto } from "./types";
+import { useLabDate, useLabNumber } from "./use-lab-format";
 
 const NOTE_MAX_LENGTH = 2000;
 
@@ -77,6 +77,8 @@ function parseDecimal(raw: string): number | null {
  */
 export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
   const { t } = useTranslations();
+  const labNumber = useLabNumber();
+  const labDate = useLabDate();
   const { canManageDomain } = useRecordCapabilities();
   const canManageLabs = canManageDomain("labs");
   const queryClient = useQueryClient();
@@ -353,7 +355,7 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
           <li key={r.id} className="flex items-start gap-3 py-3">
             <div className="min-w-0 flex-1 space-y-2">
               <div className="font-semibold tabular-nums">
-                {formatLabReading(r)}
+                {formatLabReading(r, labNumber)}
               </div>
               <LabReferenceRangeBar
                 value={r.value}
@@ -362,9 +364,7 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
                 unit={r.unit}
               />
               <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <span className="whitespace-nowrap">
-                  {formatDateShort(r.takenAt, true)}
-                </span>
+                <span className="whitespace-nowrap">{labDate(r.takenAt)}</span>
                 <ReferenceRangeBadge status={r.rangeStatus} />
                 {r.hasNote ? (
                   <span className="text-xs">{t("labs.hasNote")}</span>
@@ -421,7 +421,7 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
               <TableRow key={r.id}>
                 <TableCell className="font-semibold tabular-nums">
                   <div className="space-y-2">
-                    <span>{formatLabReading(r)}</span>
+                    <span>{formatLabReading(r, labNumber)}</span>
                     <LabReferenceRangeBar
                       value={r.value}
                       referenceLow={r.referenceLow}
@@ -431,7 +431,7 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
                   </div>
                 </TableCell>
                 <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                  {formatDateShort(r.takenAt, true)}
+                  {labDate(r.takenAt)}
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col items-start gap-1">

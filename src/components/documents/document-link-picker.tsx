@@ -12,6 +12,7 @@
  * Shows one page (50) of matches — the search input is the way to reach an
  * older document, mirroring the vault's own recall model.
  */
+import { useDocumentDate } from "@/components/documents/use-document-date";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -22,7 +23,7 @@ import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryErrorRow } from "@/components/ui/query-error-row";
 import { apiGet, apiPost } from "@/lib/api/api-fetch";
-import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import { useTranslations } from "@/lib/i18n/context";
 import { invalidateKeys, queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import type {
@@ -30,7 +31,6 @@ import type {
   InboundDocumentDto,
 } from "@/lib/validations/inbound-documents";
 import { DOCUMENT_KIND_ICONS } from "./document-kind-meta";
-import { documentDateKey } from "./vault-utils";
 
 interface ListPage {
   documents: InboundDocumentDto[];
@@ -47,7 +47,7 @@ export function DocumentLinkPicker({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslations();
-  const format = useFormatters();
+  const documentDate = useDocumentDate();
   const queryClient = useQueryClient();
 
   const [searchDraft, setSearchDraft] = useState("");
@@ -174,7 +174,7 @@ export function DocumentLinkPicker({
                         {title}
                       </span>
                       <span className="text-muted-foreground block text-xs">
-                        {format.date(`${documentDateKey(doc)}T12:00:00.000Z`)}
+                        {documentDate(doc)}
                       </span>
                     </span>
                     <Check

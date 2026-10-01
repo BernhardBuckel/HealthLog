@@ -93,6 +93,19 @@ describe("<DateField>", () => {
     expect(html).toContain("sm:h-10");
   });
 
+  it("gives the calendar button a 44 px touch target at its 32 px size", () => {
+    const html = render(<DateField value="2026-02-19" />);
+    const button = /<button[^>]*aria-label="Open date picker"[^>]*>/.exec(
+      html,
+    )?.[0];
+    expect(button).toBeDefined();
+    // Painted size unchanged; the ::before halo adds 6 px per edge.
+    expect(button).toContain("h-8 w-8");
+    expect(button).toContain("relative");
+    expect(button).toContain("before:-inset-1.5");
+    expect(button).toContain("before:absolute");
+  });
+
   it("exposes a labelled calendar picker affordance", () => {
     const html = render(<DateField value="2026-02-19" />);
     expect(html).toContain('aria-label="Open date picker"');

@@ -1,10 +1,10 @@
 "use client";
 
-import { formatLabValue } from "@/lib/labs/format-value";
 import { formatReferenceRange } from "@/lib/labs/reference-range";
 import { useTranslations } from "@/lib/i18n/context";
 
 import type { LabResultDto } from "./types";
+import { useLabNumber } from "./use-lab-format";
 
 /**
  * The reference window a reading's own report printed, shown wherever that
@@ -40,6 +40,7 @@ export function SourceRangeNote({
   className?: string;
 }) {
   const { t } = useTranslations();
+  const labNumber = useLabNumber();
   if (reading.referenceOrigin !== "source") return null;
 
   const printed =
@@ -47,13 +48,13 @@ export function SourceRangeNote({
     `${formatReferenceRange(
       reading.referenceLow,
       reading.referenceHigh,
-      formatLabValue,
+      labNumber,
     )} ${reading.unit}`.trim();
 
   const catalog = formatReferenceRange(
     reading.catalogReferenceLow,
     reading.catalogReferenceHigh,
-    formatLabValue,
+    labNumber,
   );
 
   return (

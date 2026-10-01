@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isNoonUtcAnchor,
   dateOnlyAtNoonUtc,
   dateOnlyKey,
   dayKeyAsUtcMidnight,
@@ -48,5 +49,14 @@ describe("calendar key arithmetic", () => {
   it("names the weekday of a key", () => {
     expect(weekdayOfDateKey("2026-10-01")).toBe(4); // Thursday
     expect(weekdayOfDateKey("2026-10-04")).toBe(0); // Sunday
+  });
+});
+
+describe("isNoonUtcAnchor", () => {
+  it("recognises the stored anchor of a date-only value and nothing else", () => {
+    expect(isNoonUtcAnchor(dateOnlyAtNoonUtc("2025-10-04"))).toBe(true);
+    expect(isNoonUtcAnchor(new Date("2025-10-04T12:00:01.000Z"))).toBe(false);
+    expect(isNoonUtcAnchor(new Date("2025-10-04T00:00:00.000Z"))).toBe(false);
+    expect(isNoonUtcAnchor(new Date("2025-10-04T20:30:00.000Z"))).toBe(false);
   });
 });

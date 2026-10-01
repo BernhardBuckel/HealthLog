@@ -9,7 +9,11 @@ import {
   glucoseContextBucket,
   groupByGlucoseContext,
   GLUCOSE_CONTEXT_UNSPECIFIED,
+  GLUCOSE_FASTING_CUT_POINTS,
+  GLUCOSE_TIR_CUT_POINTS,
+  glucoseBandParams,
 } from "../glucose";
+import { makeFormatters } from "../format-locale";
 
 describe("glucose conversion", () => {
   it("converts mg/dL to mmol/L with 1 decimal", () => {
@@ -155,5 +159,47 @@ describe("glucose context buckets (#943)", () => {
     expect(thresholdMetricForContext(GLUCOSE_CONTEXT_UNSPECIFIED)).toBe(
       "BLOOD_GLUCOSE_RANDOM",
     );
+  });
+});
+
+describe("glucose band parameters", () => {
+  const de = makeFormatters("de", "UTC", "AUTO", "AUTO").number;
+  const en = makeFormatters("en", "UTC", "AUTO", "AUTO").number;
+
+  it("states the consensus bands in mg/dL as whole numbers", () => {
+    expect(glucoseBandParams("mg/dL", en)).toMatchObject({
+      unit: "mg/dL",
+      veryLow: "54",
+      low: "70",
+      high: "180",
+      veryHigh: "250",
+      prediabetesFrom: "100",
+      prediabetesTo: "125",
+      diabetesFrom: "126",
+    });
+  });
+
+  it("states them in mmol/L with the locale's decimal separator", () => {
+    expect(glucoseBandParams("mmol/L", de)).toMatchObject({
+      unit: "mmol/L",
+      veryLow: "3,0",
+      low: "3,9",
+      high: "10,0",
+      veryHigh: "13,9",
+      prediabetesFrom: "5,6",
+      prediabetesTo: "6,9",
+      diabetesFrom: "7,0",
+    });
+  });
+
+  it("carries SI figures that agree with the conversion", () => {
+    // The consensus bands convert exactly; the ADA cut-points are within
+    // one rounding step of it (100 mg/dL is printed as 5.6, converts to 5.5).
+    for (const point of Object.values(GLUCOSE_TIR_CUT_POINTS)) {
+      expect(point.mmol).toBe(mgdlToMmol(point.mgdl));
+    }
+    for (const point of Object.values(GLUCOSE_FASTING_CUT_POINTS)) {
+      expect(Math.abs(point.mmol - point.mgdl / 18.0182)).toBeLessThan(0.1);
+    }
   });
 });

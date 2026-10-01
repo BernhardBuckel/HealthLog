@@ -12,8 +12,12 @@ import { LearnMoreLink } from "@/components/ui/learn-more-link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useAnalyticsQuery } from "@/lib/queries/use-analytics-query";
-import { useTranslations } from "@/lib/i18n/context";
-import { convertGlucose, resolveGlucoseUnit } from "@/lib/glucose";
+import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import {
+  convertGlucose,
+  glucoseBandParams,
+  resolveGlucoseUnit,
+} from "@/lib/glucose";
 import type { DataSummary } from "@/lib/analytics/trends";
 import { GlucoseTirBar } from "./glucose-tir-bar";
 import { GlucoseAdvancedDisclosure } from "./glucose-advanced-disclosure";
@@ -41,6 +45,7 @@ import { GlucoseAdvancedDisclosure } from "./glucose-advanced-disclosure";
 export function GlucoseClinicalPanel() {
   const { user, isAuthenticated } = useAuth();
   const { t } = useTranslations();
+  const fmt = useFormatters();
   const query = useAnalyticsQuery({});
 
   const glucoseUnit = resolveGlucoseUnit(user?.glucoseUnit ?? null);
@@ -77,7 +82,7 @@ export function GlucoseClinicalPanel() {
 
   const formatGlucoseValue = (mgdl: number): string => {
     const v = convertGlucose(mgdl, glucoseUnit);
-    return isMmol ? v.toFixed(1) : String(Math.round(v));
+    return fmt.number(v, isMmol ? 1 : 0);
   };
 
   // Learning state — calm, never asserting TIR / GMI off thin data.
@@ -158,7 +163,10 @@ export function GlucoseClinicalPanel() {
             </div>
             <GlucoseTirBar distribution={dist} />
             <p className="text-muted-foreground text-xs">
-              {t("insights.bloodGlucose.clinical.tir.caption")}
+              {t(
+                "insights.bloodGlucose.clinical.tir.caption",
+                glucoseBandParams(glucoseUnit, fmt.number),
+              )}
             </p>
           </section>
         ) : null}
@@ -181,7 +189,7 @@ export function GlucoseClinicalPanel() {
               icon={<Activity className="h-3.5 w-3.5" aria-hidden="true" />}
               label={t("insights.bloodGlucose.clinical.gmi.label")}
               help={t("insights.bloodGlucose.clinical.gmi.help")}
-              value={clinical.gmi.toFixed(1)}
+              value={fmt.number(clinical.gmi, 1)}
               unit="%"
             />
           ) : null}
@@ -190,7 +198,7 @@ export function GlucoseClinicalPanel() {
               icon={<TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />}
               label={t("insights.bloodGlucose.clinical.eA1c.label")}
               help={t("insights.bloodGlucose.clinical.eA1c.help")}
-              value={clinical.estimatedA1c.toFixed(1)}
+              value={fmt.number(clinical.estimatedA1c, 1)}
               unit="%"
             />
           ) : null}

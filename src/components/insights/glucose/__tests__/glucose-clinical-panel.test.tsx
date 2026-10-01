@@ -148,6 +148,35 @@ describe("<GlucoseClinicalPanel> asserted state", () => {
     expect(html).toContain("J-index");
   });
 
+  it("states the target band in the reader's unit and number format", () => {
+    // The caption used to print "70–180 mg/dL" to every reader, beside
+    // values the panel had already converted to mmol/L.
+    authMock.mockReturnValue({
+      user: { glucoseUnit: "mmol/L" },
+      isAuthenticated: true,
+    });
+    analyticsMock.mockReturnValue({
+      isLoading: false,
+      data: { glucoseClinical: assertedClinical(), glucoseByContext: {} },
+    });
+    const de = render(<GlucoseClinicalPanel />, "de");
+    expect(de).toContain("(3,9–10,0 mmol/L ist das Ziel)");
+    expect(de).not.toMatch(/mg\/dl/i);
+    // Mean, GMI and eA1C read with the German decimal comma.
+    expect(de).not.toMatch(/>\d+\.\d+</);
+    expect(de).toMatch(
+      />\d+,\d<\/span><span class="text-muted-foreground text-xs">mmol\/L/,
+    );
+
+    authMock.mockReturnValue({
+      user: { glucoseUnit: "mg/dL" },
+      isAuthenticated: true,
+    });
+    expect(render(<GlucoseClinicalPanel />)).toContain(
+      "(70–180 mg/dL is the target)",
+    );
+  });
+
   it("flags the CV badge unstable at CV% >= 36", () => {
     // wide spread → CV well above 36
     const values = Array.from({ length: 20 }, (_, i) =>

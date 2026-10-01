@@ -71,6 +71,11 @@ export interface SubPageShellProps {
    */
   explainerMetric?: string;
   /**
+   * Interpolation values for the explainer sentence, for a definition that
+   * names figures in the reader's own unit (the glucose cut-points).
+   */
+  explainerParams?: Record<string, string>;
+  /**
    * v1.4.27 MB7 / CF-35 — opt-in programmatic focus on mount.
    *
    * The legacy default-on `focus()` call moved screen-reader focus to
@@ -155,6 +160,7 @@ export function SubPageShell({
   badge,
   description,
   explainerMetric,
+  explainerParams,
   focusOnMount = false,
   statStrip,
   coachReadStrip,
@@ -385,7 +391,10 @@ export function SubPageShell({
               data-slot="metric-explainer-inline"
               className="text-foreground text-sm leading-relaxed"
             >
-              {t(`insights.subPage.explainer.${explainerMetric}Body`)}
+              {t(
+                `insights.subPage.explainer.${explainerMetric}Body`,
+                explainerParams,
+              )}
             </p>
           ) : null}
           {description && !explainerMetric ? (

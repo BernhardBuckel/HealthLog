@@ -13,6 +13,7 @@
  * the central factory; reads unwrap `(await res.json()).data` via `apiGet`.
  * No write happens here — attaching is the create mutation's job.
  */
+import { useDocumentDate } from "@/components/documents/use-document-date";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -23,9 +24,8 @@ import { QueryErrorRow } from "@/components/ui/query-error-row";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DOCUMENT_KIND_ICONS } from "@/components/documents/document-kind-meta";
-import { documentDateKey } from "@/components/documents/vault-utils";
 import { apiGet } from "@/lib/api/api-fetch";
-import { useFormatters, useTranslations } from "@/lib/i18n/context";
+import { useTranslations } from "@/lib/i18n/context";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import type { InboundDocumentDto } from "@/lib/validations/inbound-documents";
@@ -55,7 +55,7 @@ export function ShareDocumentPicker({
   max: number;
 }) {
   const { t } = useTranslations();
-  const format = useFormatters();
+  const documentDate = useDocumentDate();
 
   const [searchDraft, setSearchDraft] = useState("");
   const [query, setQuery] = useState("");
@@ -195,7 +195,7 @@ export function ShareDocumentPicker({
                         {title}
                       </span>
                       <span className="text-muted-foreground block text-xs">
-                        {format.date(`${documentDateKey(doc)}T12:00:00.000Z`)}
+                        {documentDate(doc)}
                       </span>
                     </span>
                     <Check

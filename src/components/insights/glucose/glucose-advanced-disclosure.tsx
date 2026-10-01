@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { InfoPopover } from "@/components/ui/info-popover";
-import { useTranslations } from "@/lib/i18n/context";
+import { useFormatters, useTranslations } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import type { GlucoseClinicalMetrics } from "@/lib/analytics/glucose-metrics";
 import type { DataSummary } from "@/lib/analytics/trends";
@@ -49,11 +49,12 @@ export function GlucoseAdvancedDisclosure({
   fractionDigits = 1,
 }: GlucoseAdvancedDisclosureProps) {
   const { t } = useTranslations();
+  const number = useFormatters().number;
   const [open, setOpen] = useState(false);
   const regionId = useId();
 
   const fmt = (v: number | null) =>
-    v === null ? "—" : v.toFixed(fractionDigits);
+    v === null ? "—" : number(v, fractionDigits);
 
   const contexts = Object.entries(byContext ?? {}).filter(
     ([, s]) => s && s.count > 0,

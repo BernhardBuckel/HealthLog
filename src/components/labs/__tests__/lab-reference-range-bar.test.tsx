@@ -7,9 +7,10 @@ import { LabReferenceRangeBar } from "../lab-reference-range-bar";
 
 function render(
   props: Partial<React.ComponentProps<typeof LabReferenceRangeBar>> = {},
+  locale: "en" | "de" = "en",
 ) {
   return renderToStaticMarkup(
-    <I18nProvider initialLocale="en">
+    <I18nProvider initialLocale={locale}>
       <LabReferenceRangeBar
         value={72}
         referenceLow={60}
@@ -44,5 +45,16 @@ describe("<LabReferenceRangeBar>", () => {
   it("renders one-sided upper and lower reference limits", () => {
     expect(render({ referenceLow: null })).toContain('aria-label="≤100 bpm"');
     expect(render({ referenceHigh: null })).toContain('aria-label="≥60 bpm"');
+  });
+
+  it("prints the reading and its range in the reader's number format", () => {
+    const html = render(
+      { value: 1.8333, referenceLow: 0.4, referenceHigh: 4.05, unit: "mIU/L" },
+      "de",
+    );
+    expect(html).toContain('aria-label="0,4–4,05 mIU/L"');
+    // Lab precision: at most two decimals, then the locale's separator.
+    expect(html).toContain("1,83 mIU/L");
+    expect(html).not.toMatch(/\d\.\d+ mIU\/L/);
   });
 });
