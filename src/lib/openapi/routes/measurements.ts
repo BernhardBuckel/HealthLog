@@ -696,7 +696,7 @@ const seriesPointSchema = z.object({
   id: z
     .string()
     .describe(
-      "Measurement row id; `sleep:<wake-day>` for a sleep night; `day:<local-day>` for a day bucket (`pulse` / `glucose` beyond 90 days); `hour:<ISO start>` for an hour bucket (`pulse` / `glucose` within 90 days when the window holds more than 10 000 readings).",
+      "Measurement row id; `sleep:<wake-day>` for a sleep night; `day:<local-day>` for a day bucket (`pulse`, `glucose`, `heartRateVariability`, `oxygenSaturation` beyond 90 days); `hour:<ISO start>` for an hour bucket (the same kinds within 90 days when the window holds more than 10 000 readings).",
     ),
   at: z.iso.datetime({ offset: true }).describe("Point timestamp (ISO-8601)."),
   value: z.number().describe("Primary value in the top-level `unit`."),
@@ -751,7 +751,7 @@ const seriesResponse = z
   .meta({
     id: "MeasurementsSeriesResponse",
     description:
-      "iOS-friendly per-kind time series: one point per reading (or per reconstructed night for `sleep`), an explicit `unit` token, and a summary `stats` block. Sample-dense kinds are bucketed server-side: `pulse` and `glucose` beyond 90 days per local day, and `pulse` / `glucose` within 90 days per local hour when the window holds more than 10 000 readings (a continuous glucose sensor, a watch recording heart rate every minute; a cuff or fingerstick meter stays raw). A bucket carries the mean as `value`; a `pulse` bucket also carries its range as `valueMin` / `valueMax`, and a `glucose` bucket is converted to the user's unit like a raw reading. `stats` is always computed over the underlying readings, never over the buckets.",
+      "iOS-friendly per-kind time series: one point per reading (or per reconstructed night for `sleep`), an explicit `unit` token, and a summary `stats` block. Sample-dense kinds (`pulse`, `glucose`, `heartRateVariability`, `oxygenSaturation`) are bucketed server-side: beyond 90 days per local day, and within 90 days per local hour when the window holds more than 10 000 readings (a continuous glucose sensor, a watch or ring recording every minute; a cuff, a fingerstick meter or a few readings a night stay raw). A bucket carries the mean as `value` and otherwise has the shape of a reading of its kind; a `pulse` bucket also carries its range as `valueMin` / `valueMax`, and a `glucose` bucket is converted to the user's unit like a raw reading. `stats` is always computed over the underlying readings, never over the buckets.",
   });
 
 // ── Batched daily series (v1.18.6 dashboard fetch coalescing) ────────
