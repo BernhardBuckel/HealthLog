@@ -113,6 +113,7 @@ describe("buildDeterministicNarrative", () => {
         bandTransitions: [
           {
             type: "BLOOD_PRESSURE_SYS",
+            unit: "mmHg",
             center: 140,
             bandLow: 110,
             bandHigh: 130,

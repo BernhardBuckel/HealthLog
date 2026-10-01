@@ -56,6 +56,13 @@ import { VITALS_BASELINE_TYPES } from "@/lib/insights/derived/registry";
 import { assembleDiscoveryMatrix } from "@/lib/insights/discovery-matrix";
 import { resolveModuleMap } from "@/lib/modules/gate";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import {
+  applyDisplayTransformUnrounded,
+  getReadingTransform,
+  isUnitSensitiveType,
+  resolveUnitPreferences,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -74,19 +81,77 @@ export const MIN_COVERED_DAYS_PER_METRIC = 3;
 /** A band must rest on at least this many prior-period days to be trusted. */
 export const MIN_BASELINE_DAYS = 7;
 
-/** The metrics the period-delta beat scans, with their display unit. */
-const DELTA_METRICS: Array<{ type: MeasurementType; unit: string }> = [
-  { type: "WEIGHT", unit: "kg" },
-  { type: "BLOOD_PRESSURE_SYS", unit: "mmHg" },
-  { type: "BLOOD_PRESSURE_DIA", unit: "mmHg" },
-  { type: "PULSE", unit: "bpm" },
-  { type: "RESTING_HEART_RATE", unit: "bpm" },
-  { type: "HEART_RATE_VARIABILITY", unit: "ms" },
-  { type: "SLEEP_DURATION", unit: "h" },
-  { type: "ACTIVITY_STEPS", unit: "" },
-  { type: "BODY_FAT", unit: "%" },
-  { type: "BLOOD_GLUCOSE", unit: "mg/dL" },
+/**
+ * The metrics the period-delta beat scans. Their unit is not listed here: a
+ * reading is narrated in the reader's unit (see `narratedUnit`), and the list
+ * used to pin kilograms and mg/dL for everyone.
+ */
+const DELTA_METRICS: MeasurementType[] = [
+  "WEIGHT",
+  "BLOOD_PRESSURE_SYS",
+  "BLOOD_PRESSURE_DIA",
+  "PULSE",
+  "RESTING_HEART_RATE",
+  "HEART_RATE_VARIABILITY",
+  "SLEEP_DURATION",
+  "ACTIVITY_STEPS",
+  "BODY_FAT",
+  "BLOOD_GLUCOSE",
 ];
+
+/**
+ * Unit symbols of the narrated types whose unit no preference changes. The
+ * sleep channel is a per-night total in minutes and is narrated in hours.
+ */
+const FIXED_NARRATED_UNITS: Partial<Record<MeasurementType, string>> = {
+  BLOOD_PRESSURE_SYS: "mmHg",
+  BLOOD_PRESSURE_DIA: "mmHg",
+  PULSE: "bpm",
+  RESTING_HEART_RATE: "bpm",
+  HEART_RATE_VARIABILITY: "ms",
+  RESPIRATORY_RATE: "breaths/min",
+  OXYGEN_SATURATION: "%",
+  SLEEP_DURATION: "h",
+  ACTIVITY_STEPS: "",
+  BODY_FAT: "%",
+};
+
+/**
+ * How one narrated type is written for this reader: its unit symbol, the
+ * conversion of an absolute value (a mean, a band edge) and of a difference
+ * (a delta — factor only, never an affine offset). The computation itself
+ * stays canonical, so the personal-band floors and the percent change do not
+ * depend on the unit the reader chose.
+ */
+function narratedUnit(
+  type: MeasurementType,
+  units: UnitPreferences,
+): {
+  unit: string;
+  abs: (canonical: number) => number;
+  delta: (canonical: number) => number;
+} {
+  if (isUnitSensitiveType(type)) {
+    const transform = getReadingTransform(type, units);
+    return {
+      unit: transform.displayUnit,
+      abs: (v) => round2(applyDisplayTransformUnrounded(v, transform)),
+      delta: (v) => round2(v * transform.factor),
+    };
+  }
+  if (type === "SLEEP_DURATION") {
+    return {
+      unit: "h",
+      abs: (v) => round2(v / 60),
+      delta: (v) => round2(v / 60),
+    };
+  }
+  return {
+    unit: FIXED_NARRATED_UNITS[type] ?? "",
+    abs: round2,
+    delta: round2,
+  };
+}
 
 // ── context shape ───────────────────────────────────────────────────────
 
@@ -114,6 +179,8 @@ export interface MetricDelta {
  */
 export interface BandTransition {
   type: MeasurementType;
+  /** Unit of `center` / `bandLow` / `bandHigh`, in the reader's preference. */
+  unit: string;
   /** Current-period robust center (median of per-day means). */
   center: number;
   /** Prior-period band edges. */
@@ -243,6 +310,12 @@ export interface AssembleInput {
   locale: Locale;
   /** Compute time (ISO). */
   computedAt: string;
+  /**
+   * The reader's unit preferences. Required for the same reason the locale
+   * is: the context carries numbers a page and a prompt print verbatim, and a
+   * caller that stays quiet must not get kilograms and mg/dL by default.
+   */
+  units: UnitPreferences;
 }
 
 /**
@@ -262,12 +335,14 @@ export function assemblePeriodNarrativeContext(
     discoverySeries,
     locale,
     computedAt,
+    units,
   } = input;
 
   // ── metric deltas (current period vs prior period of equal length) ──────
   const metricDeltas: MetricDelta[] = [];
   const metricsWithCoverage: string[] = [];
-  for (const { type, unit } of DELTA_METRICS) {
+  for (const type of DELTA_METRICS) {
+    const shown = narratedUnit(type, units);
     const points = seriesByMetric.get(type) ?? [];
     const { current, prior } = splitByPeriod(points, currentFrom, priorFrom);
     const currentAvg = meanOrNull(current);
@@ -280,16 +355,21 @@ export function assemblePeriodNarrativeContext(
       currentAvg !== null && priorAvg !== null
         ? round2(currentAvg - priorAvg)
         : null;
+    // Percent on the canonical values: it is unit-free for a pure rescale,
+    // and the one affine unit (°F) would otherwise move it.
     const deltaPercent =
       delta !== null && priorAvg !== null && priorAvg !== 0
         ? Math.round((delta / Math.abs(priorAvg)) * 1000) / 10
         : null;
     metricDeltas.push({
       type,
-      unit,
-      current: currentAvg === null ? null : round2(currentAvg),
-      prior: priorAvg === null ? null : round2(priorAvg),
-      delta,
+      unit: shown.unit,
+      current: currentAvg === null ? null : shown.abs(currentAvg),
+      prior: priorAvg === null ? null : shown.abs(priorAvg),
+      delta:
+        currentAvg !== null && priorAvg !== null
+          ? shown.delta(currentAvg - priorAvg)
+          : null,
       deltaPercent,
       currentDays: current.length,
       priorDays: prior.length,
@@ -324,11 +404,13 @@ export function assemblePeriodNarrativeContext(
     const center = median(current);
     const above = center > band.high;
     const below = center < band.low;
+    const shown = narratedUnit(type, units);
     bandTransitions.push({
       type,
-      center: round2(center),
-      bandLow: round2(band.low),
-      bandHigh: round2(band.high),
+      unit: shown.unit,
+      center: shown.abs(center),
+      bandLow: shown.abs(band.low),
+      bandHigh: shown.abs(band.high),
       direction: above ? "above" : below ? "below" : "in",
       movedOut: above || below,
       baselineDays: prior.length,
@@ -479,9 +561,13 @@ export async function buildPeriodNarrativeContext(
 
   const profile = await prisma.user.findUnique({
     where: { id: userId },
-    select: { timezone: true },
+    select: { timezone: true, unitPreference: true, glucoseUnit: true },
   });
   const tz = profile?.timezone ?? DEFAULT_TIMEZONE;
+  const units = resolveUnitPreferences({
+    unitPreference: profile?.unitPreference,
+    glucoseUnit: profile?.glucoseUnit,
+  });
 
   const currentFrom = tzDayKey(
     new Date(now.getTime() - periodDays * MS_PER_DAY),
@@ -523,10 +609,7 @@ export async function buildPeriodNarrativeContext(
     // comment for why it is one and not four.
     includeMoodFactors: true,
     extraMeasurementTypes: Array.from(
-      new Set<MeasurementType>([
-        ...DELTA_METRICS.map((m) => m.type),
-        ...VITALS_BASELINE_TYPES,
-      ]),
+      new Set<MeasurementType>([...DELTA_METRICS, ...VITALS_BASELINE_TYPES]),
     ),
   });
 
@@ -553,5 +636,6 @@ export async function buildPeriodNarrativeContext(
     discoverySeries,
     locale: opts.locale,
     computedAt: now.toISOString(),
+    units,
   });
 }
