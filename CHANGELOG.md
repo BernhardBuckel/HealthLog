@@ -1,5 +1,66 @@
 # Changelog
 
+## [1.39.7] — 2026-10-02
+
+The units a person chose, the day they are in, the phone they hold and the
+backup they rely on are now right everywhere, and each kind of mistake that
+kept recurring has a check that fails when it comes back. Account settings
+travel in backups, ECGs from the iPhone are accepted again, and four columns
+that did not survive a restore now do.
+
+### Fixed
+
+- **Units everywhere (#1067).** The clinician share view prints every
+  statistic with its unit and glucose in the owner's unit. Metric status
+  notes, the period narrative, the glucose thresholds editor, the health
+  score glycaemia labels, workouts (distance, pace, elevation), the trends
+  row, fever entries and basal temperature follow the glucose unit and
+  metric/imperial preference. The briefing, weight status, Coach snapshot,
+  reference bands, cycle contrast, metric table and reaction line hand the
+  model figures in the reader's units; crisis floors are named in both units.
+  A unit change regenerates the stored texts. One server resolver
+  (`getReadingTransform`) serves both preferences.
+- **Days in the user's zone.** Dashboard summary mood instant, Coach GLP-1
+  injection days, document and lab dates (noon UTC for date-only values),
+  GLP-1 timeline side effects, the adherence storyline's last course day, the
+  lab OCR duplicate check and environment date defaults; 84 further UTC day
+  cuts replaced.
+- **Phone layouts.** The lab list, values table and add-value sheet fit a
+  phone; notification settings, admin app logs, AI settings, dashboard layout
+  settings, the health record scope picker and the page header no longer
+  overflow at 390 px; the lab chart axis starts at zero.
+- **ECG ingest (#1060).** `averageHeartRate` and `samplingFrequency` are
+  accepted as numbers and rounded before storage; a refused body logs the
+  refused fields (never values).
+- **Backups.** Account settings and the module selection are backed up and
+  restored column by column (`accountSettings` section; never credentials,
+  identity or operational state). `MenstrualCycle.absorbedIntoId`,
+  `Workout.externalSourceVersion`, `NutrientIntakeDay.externalSourceVersion`
+  and `NutrientIntakeDay.createdAt` now survive a restore.
+- **Served, not re-derived.** Blood pressure target zones come from the
+  server for the record being viewed and honour a custom target; log-intake
+  preselection uses `intakeActionable`; late/missed thresholds come from the
+  user's settings; Settings → Coach follows the record's module state.
+- **Nothing dropped silently.** Mood writes report `droppedTagKeys` /
+  `droppedFactorKeys`; OCR reports `pageCoverage`; unknown Google Health
+  sleep stages are counted.
+- **Dense reads.** Targets (glucose, pulse), cycle insights, HRV and SpO2
+  series, the doctor report's HRV and SpO2 and the sleep list fold or bound
+  their reads.
+- **Job queues.** Every queue declares its runtime; long passes hold an
+  advisory lock, an explicit expiry and a budget stop, so a retry after
+  expiry cannot run beside the original.
+
+### Checks
+
+- Unit literal sweep over display and AI code, a resolved-field consumer
+  guard, `healthlog/no-utc-day-key` lint rule with reasoned exceptions, a
+  time-zone harness (Los Angeles, Kiritimati), a dense-read guard over
+  request handlers and raw SQL, a queue runtime guard, a mobile overflow
+  sweep over every signed-in route, a full-column backup round-trip over 69
+  models plus the `User` row, and a meta-test requiring every guard to assert
+  a non-zero match floor.
+
 ## [1.39.6] — 2026-10-01
 
 A critical security fix for the web framework, a workout token for devices
