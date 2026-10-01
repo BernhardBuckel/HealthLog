@@ -137,6 +137,7 @@ describe("score reader bounds and source parity", () => {
         timezone: "Europe/Berlin",
         sourcePriorityJson: null,
         thresholdsJson: null,
+        glucoseUnit: "mg/dL" as const,
       },
       modules: {
         glucose: true,

@@ -102,11 +102,16 @@ import {
 } from "@/lib/jobs/insight-status-generate";
 import { withBackgroundEvent } from "@/lib/logging/background";
 import { jobDone, type JobOutcome } from "@/lib/jobs/job-outcome";
+import { jobBudget } from "@/lib/jobs/job-budget";
+import { lockedPass, WHOLE_PASS } from "@/lib/jobs/long-pass";
+import { INSIGHT_PREGENERATE_EXPIRE_SECONDS } from "@/lib/jobs/insight-pregenerate-shared";
+import { PERIOD_NARRATIVE_EXPIRE_SECONDS } from "@/lib/jobs/period-narrative-shared";
 import { getWorkerPrisma, workerLog } from "./shared";
 import {
   createAndSchedule,
   createAndWork,
   insightRetryOptions,
+  nightlyInsightPassOptions,
   type QueuePolicyTable,
   type ScheduleEntry,
 } from "./registrar-shared";
@@ -232,25 +237,32 @@ const allQueues = [
 ];
 
 const schedules: ScheduleEntry[] = [
-  [GENERAL_STATUS_QUEUE, GENERAL_STATUS_CRON, insightRetryOptions],
+  [GENERAL_STATUS_QUEUE, GENERAL_STATUS_CRON, nightlyInsightPassOptions],
   [
     BLOOD_PRESSURE_STATUS_QUEUE,
     BLOOD_PRESSURE_STATUS_CRON,
-    insightRetryOptions,
+    nightlyInsightPassOptions,
   ],
-  [WEIGHT_STATUS_QUEUE, WEIGHT_STATUS_CRON, insightRetryOptions],
-  [PULSE_STATUS_QUEUE, PULSE_STATUS_CRON, insightRetryOptions],
-  [BMI_STATUS_QUEUE, BMI_STATUS_CRON, insightRetryOptions],
+  [WEIGHT_STATUS_QUEUE, WEIGHT_STATUS_CRON, nightlyInsightPassOptions],
+  [PULSE_STATUS_QUEUE, PULSE_STATUS_CRON, nightlyInsightPassOptions],
+  [BMI_STATUS_QUEUE, BMI_STATUS_CRON, nightlyInsightPassOptions],
   // v1.15.20 — mood status nightly, continuing the 02:xx ladder.
-  [MOOD_STATUS_QUEUE, MOOD_STATUS_CRON, insightRetryOptions],
+  [MOOD_STATUS_QUEUE, MOOD_STATUS_CRON, nightlyInsightPassOptions],
   [
     MEDICATION_COMPLIANCE_STATUS_QUEUE,
     MEDICATION_COMPLIANCE_STATUS_CRON,
-    insightRetryOptions,
+    nightlyInsightPassOptions,
   ],
   // v1.7.0 — nightly 04:30 Europe/Berlin comprehensive-insight
   // pre-generation. Budget-gated per user inside the handler.
-  [INSIGHT_PREGENERATE_QUEUE, INSIGHT_PREGENERATE_CRON, insightRetryOptions],
+  [
+    INSIGHT_PREGENERATE_QUEUE,
+    INSIGHT_PREGENERATE_CRON,
+    {
+      ...insightRetryOptions,
+      expireInSeconds: INSIGHT_PREGENERATE_EXPIRE_SECONDS,
+    },
+  ],
   // v1.10.0 — computed scores (WX-C). Nightly 04:45 Europe/Berlin
   // Recovery-score compute + store, after the rollup-feeding consolidation
   // + drain so the signals it reads are already folded.
@@ -266,7 +278,14 @@ const schedules: ScheduleEntry[] = [
   // v1.11.0 — nightly 05:05 Europe/Berlin period-narrative warm. The
   // handler only fans out on a week (Mon) / month (1st) boundary; every
   // other night is a cheap no-op. Budget-gated per user inside the runner.
-  [PERIOD_NARRATIVE_QUEUE, PERIOD_NARRATIVE_CRON, insightRetryOptions],
+  [
+    PERIOD_NARRATIVE_QUEUE,
+    PERIOD_NARRATIVE_CRON,
+    {
+      ...insightRetryOptions,
+      expireInSeconds: PERIOD_NARRATIVE_EXPIRE_SECONDS,
+    },
+  ],
   // v1.15.20 — daily 05:15 Europe/Berlin proactive Coach nudge, after
   // the 04:45–04:55 score crons so the recovery-score trigger reads
   // settled rows. Deterministic triggers only — no AI call on this path.
@@ -369,43 +388,59 @@ export async function registerStatusQueues(
     boss,
     GENERAL_STATUS_QUEUE,
     { localConcurrency: 1 },
-    handleGeneralStatusGenerate,
+    lockedPass(
+      GENERAL_STATUS_QUEUE,
+      () => WHOLE_PASS,
+      handleGeneralStatusGenerate,
+    ),
   );
   await createAndWork<BloodPressureStatusPayload>(
     boss,
     BLOOD_PRESSURE_STATUS_QUEUE,
     { localConcurrency: 1 },
-    handleBloodPressureStatusGenerate,
+    lockedPass(
+      BLOOD_PRESSURE_STATUS_QUEUE,
+      () => WHOLE_PASS,
+      handleBloodPressureStatusGenerate,
+    ),
   );
   await createAndWork<WeightStatusPayload>(
     boss,
     WEIGHT_STATUS_QUEUE,
     { localConcurrency: 1 },
-    handleWeightStatusGenerate,
+    lockedPass(
+      WEIGHT_STATUS_QUEUE,
+      () => WHOLE_PASS,
+      handleWeightStatusGenerate,
+    ),
   );
   await createAndWork<PulseStatusPayload>(
     boss,
     PULSE_STATUS_QUEUE,
     { localConcurrency: 1 },
-    handlePulseStatusGenerate,
+    lockedPass(PULSE_STATUS_QUEUE, () => WHOLE_PASS, handlePulseStatusGenerate),
   );
   await createAndWork<BmiStatusPayload>(
     boss,
     BMI_STATUS_QUEUE,
     { localConcurrency: 1 },
-    handleBmiStatusGenerate,
+    lockedPass(BMI_STATUS_QUEUE, () => WHOLE_PASS, handleBmiStatusGenerate),
   );
   await createAndWork<MoodStatusPayload>(
     boss,
     MOOD_STATUS_QUEUE,
     { localConcurrency: 1 },
-    handleMoodStatusGenerate,
+    lockedPass(MOOD_STATUS_QUEUE, () => WHOLE_PASS, handleMoodStatusGenerate),
   );
   await createAndWork<MedicationComplianceStatusPayload>(
     boss,
     MEDICATION_COMPLIANCE_STATUS_QUEUE,
     { localConcurrency: 1 },
-    handleMedicationComplianceStatusGenerate,
+    lockedPass(
+      MEDICATION_COMPLIANCE_STATUS_QUEUE,
+      () => WHOLE_PASS,
+      handleMedicationComplianceStatusGenerate,
+    ),
   );
   // v1.7.0 — nightly comprehensive-insight pre-generation.
   //
@@ -422,7 +457,16 @@ export async function registerStatusQueues(
     boss,
     INSIGHT_PREGENERATE_QUEUE,
     { localConcurrency: 2 },
-    handleInsightPregenerateJob,
+    // The cohort walk is one pass at a time; a forced warm is one per
+    // account, so it never waits behind the walk.
+    lockedPass(
+      INSIGHT_PREGENERATE_QUEUE,
+      (job) =>
+        job.data?.force && job.data.userId
+          ? `user:${job.data.userId}`
+          : WHOLE_PASS,
+      handleInsightPregenerateJob,
+    ),
   );
   // S4 — event-driven morning digest refresh. One forced comprehensive
   // regeneration per user per local morning, enqueued by the sleep-arrival
@@ -749,44 +793,53 @@ export async function registerStatusQueues(
     boss,
     PERIOD_NARRATIVE_QUEUE,
     { localConcurrency: 1 },
-    async (jobs): Promise<JobOutcome> => {
-      // Two modes on one queue, so the outcome counts them separately: a
-      // non-boundary night is a scheduled pass that generated nothing, which
-      // is a success with zero counts, not an idle queue.
-      let singleUser = 0;
-      let scheduled = 0;
-      let generated = 0;
-      let failed = 0;
-      for (const job of jobs) {
-        try {
-          if (job.data?.userId) {
-            await warmOneNarrative(job.data);
-            singleUser++;
-          } else {
-            const summary = await runPeriodNarrativeWarm(getWorkerPrisma());
-            scheduled++;
-            generated += summary.generated;
-            failed += summary.failed;
-            workerLog(
-              "info",
-              `[period-narrative] periods=${summary.periods.join(",") || "none"} total=${summary.total} generated=${summary.generated} cached=${summary.cached} skipped=${summary.skipped} insufficient=${summary.insufficient} failed=${summary.failed} budget=${summary.budgetBlocked}`,
-            );
+    lockedPass(
+      PERIOD_NARRATIVE_QUEUE,
+      (job) => (job.data?.userId ? `user:${job.data.userId}` : WHOLE_PASS),
+      async (jobs): Promise<JobOutcome> => {
+        // Two modes on one queue, so the outcome counts them separately: a
+        // non-boundary night is a scheduled pass that generated nothing, which
+        // is a success with zero counts, not an idle queue.
+        let singleUser = 0;
+        let scheduled = 0;
+        let generated = 0;
+        let failed = 0;
+        let stoppedEarly = false;
+        for (const job of jobs) {
+          try {
+            if (job.data?.userId) {
+              await warmOneNarrative(job.data);
+              singleUser++;
+            } else {
+              const summary = await runPeriodNarrativeWarm(getWorkerPrisma(), {
+                shouldStop: jobBudget(jobs),
+              });
+              scheduled++;
+              generated += summary.generated;
+              failed += summary.failed;
+              stoppedEarly ||= summary.stoppedEarly;
+              workerLog(
+                "info",
+                `[period-narrative] periods=${summary.periods.join(",") || "none"} total=${summary.total} generated=${summary.generated} cached=${summary.cached} skipped=${summary.skipped} insufficient=${summary.insufficient} failed=${summary.failed} budget=${summary.budgetBlocked}`,
+              );
+            }
+          } catch (err) {
+            recordError();
+            await reportWorkerError(PERIOD_NARRATIVE_QUEUE, err, {
+              mode: job.data?.userId ? "single-user" : "scheduled",
+            });
+            throw err;
           }
-        } catch (err) {
-          recordError();
-          await reportWorkerError(PERIOD_NARRATIVE_QUEUE, err, {
-            mode: job.data?.userId ? "single-user" : "scheduled",
-          });
-          throw err;
         }
-      }
-      return jobDone({
-        single_user: singleUser,
-        scheduled,
-        generated,
-        failed,
-      });
-    },
+        return jobDone({
+          single_user: singleUser,
+          scheduled,
+          generated,
+          failed,
+          stopped_early: stoppedEarly,
+        });
+      },
+    ),
   );
   // v1.11.1 — combined Coach memory refresh: rolling conversation summary +
   // durable fact extraction for one long conversation. localConcurrency 1 so a

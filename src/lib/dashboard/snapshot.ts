@@ -49,7 +49,7 @@ import {
   GLUCOSE_PANEL_WINDOW_DAYS,
   type GlucoseClinicalMetrics,
 } from "@/lib/analytics/glucose-metrics";
-import { groupByGlucoseContext } from "@/lib/glucose";
+import { groupByGlucoseContext, resolveGlucoseUnit } from "@/lib/glucose";
 import {
   computeBpInTargetFastPath,
   type BpInTargetEnvelope,
@@ -790,6 +790,7 @@ async function buildExtras(
         timezone: userTz,
         sourcePriorityJson: scoreSourcePriority,
         thresholdsJson: user.thresholdsJson,
+        glucoseUnit: resolveGlucoseUnit(user.glucoseUnit),
       },
       modules: {
         glucose: modules.glucose !== false,

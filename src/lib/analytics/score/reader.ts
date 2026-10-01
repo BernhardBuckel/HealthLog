@@ -42,6 +42,7 @@ import type { HealthScoreReport, PillarInputs, ScorePillarId } from "./types";
 import { computeWeightGoal } from "./weight-goal";
 import { DAY_MS, uniqueSources } from "./shared";
 import type { DerivedProvenanceSource } from "@/lib/insights/derived/types";
+import type { GlucoseUnit } from "@/lib/glucose";
 
 const HISTORY_OFFSET_DAYS = 14;
 const SCORE_READ_DAYS = 365 + HISTORY_OFFSET_DAYS;
@@ -52,6 +53,12 @@ export interface ScoreReaderProfile {
   timezone: string;
   sourcePriorityJson: unknown;
   thresholdsJson: unknown;
+  /**
+   * The record's glucose unit, for the glycaemia pillar's display labels.
+   * Required: those labels are served as finished text (the app prints them
+   * verbatim), and a caller that forgets the unit must not get mg/dL.
+   */
+  glucoseUnit: GlucoseUnit;
 }
 
 export interface UserHealthScoreInput {
@@ -513,6 +520,7 @@ function scoreInputsFor(args: {
     },
     GLYCAEMIA: {
       source: "live",
+      glucoseUnit: input.profile.glucoseUnit,
       readFailed:
         (!input.modules.glucose || !args.glucose.ok) &&
         (!input.modules.labs || !args.labs.ok),

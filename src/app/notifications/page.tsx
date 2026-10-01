@@ -201,6 +201,7 @@ export default function NotificationsPage() {
           title={t("notifications.title")}
           description={t("notifications.subtitle")}
           actions={headerActions}
+          stackActionsOnPhone
         />
         <EmptyState
           className="max-w-2xl"
@@ -227,6 +228,7 @@ export default function NotificationsPage() {
         title={t("notifications.title")}
         description={t("notifications.subtitle")}
         actions={headerActions}
+        stackActionsOnPhone
       />
 
       {/* Desktop: table layout */}

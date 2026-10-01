@@ -13,7 +13,10 @@ import {
   classifyPulseByTarget,
   getPersonalizedPulseTarget,
 } from "@/lib/analytics/pulse-targets";
-import { resolveRestingPulseSeries } from "@/lib/analytics/resting-pulse";
+import {
+  mergeRestingWithProxy,
+  type PulseSample,
+} from "@/lib/analytics/resting-pulse";
 import { getBodyFatTargetRange } from "@/lib/analytics/value-bands";
 import { binaryReferenceSex, type ProfileSex } from "@/lib/profile/sex";
 import { userDayKey } from "@/lib/tz/resolver";
@@ -38,7 +41,15 @@ export interface BloodPressureTargetRange {
 }
 
 interface VitalTargetsInput {
+  /** The last thirty days of every vital type except `PULSE`. */
   recentMeasurements: TargetMeasurement[];
+  /**
+   * The resting-pulse proxy over the same thirty days, one point per local
+   * day, folded from raw `PULSE` in Postgres (`readRestingPulseProxy`). Raw
+   * heart rate is never read here: a watch that records it once a minute puts
+   * 43 000 readings in thirty days, and the card needs one figure per day.
+   */
+  restingPulseProxy: PulseSample[];
   latestByType: TargetValueByType;
   average30ByType: TargetValueByType;
   heightCm: number | null;
@@ -140,6 +151,7 @@ function buildBpPairsByDay(
 
 export function buildVitalTargets({
   recentMeasurements,
+  restingPulseProxy,
   latestByType,
   average30ByType,
   heightCm,
@@ -273,19 +285,14 @@ export function buildVitalTargets({
   }
 
   const pulseTarget = getPersonalizedPulseTarget(age, referenceSex);
-  const restingResolved = resolveRestingPulseSeries({
+  const restingResolved = mergeRestingWithProxy({
     restingSamples: recentMeasurements
       .filter((measurement) => measurement.type === "RESTING_HEART_RATE")
       .map((measurement) => ({
         measuredAt: measurement.measuredAt,
         value: measurement.value,
       })),
-    pulseSamples: recentMeasurements
-      .filter((measurement) => measurement.type === "PULSE")
-      .map((measurement) => ({
-        measuredAt: measurement.measuredAt,
-        value: measurement.value,
-      })),
+    proxySamples: restingPulseProxy,
     dayKeyOf: (date) => userDayKey(date, timezone),
   });
   const restingEvents = restingResolved.series;

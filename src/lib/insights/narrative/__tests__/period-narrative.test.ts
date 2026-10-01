@@ -9,6 +9,9 @@ import type {
   DailySeriesPoint,
   NamedSeries,
 } from "@/lib/insights/correlation-discovery";
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
+import { buildDeterministicNarrative } from "../period-narrative-deterministic";
+import { buildNarrativeUserPrompt } from "../period-narrative-generate";
 
 /**
  * Build a contiguous daily series ending at `endDay` (YYYY-MM-DD), one point
@@ -42,6 +45,7 @@ function monthInput(
     discoverySeries,
     locale: "en",
     computedAt: "2026-04-30T12:00:00.000Z",
+    units: DEFAULT_UNIT_PREFERENCES,
   };
 }
 
@@ -119,6 +123,119 @@ describe("assemblePeriodNarrativeContext — metric deltas", () => {
     expect(w.delta).toBeNull();
     expect(w.deltaPercent).toBeNull();
     expect(w.current).not.toBeNull();
+  });
+});
+
+describe("assemblePeriodNarrativeContext — the reader's units", () => {
+  function glucoseAndWeight() {
+    const m = new Map<string, DailySeriesPoint[]>();
+    // Prior 30 days at 90 mg/dL / 80 kg, current 30 at 108 mg/dL / 82 kg.
+    m.set(
+      "BLOOD_GLUCOSE",
+      seriesEndingAt(
+        [...Array(30).fill(90), ...Array(30).fill(108)],
+        "2026-04-30",
+      ),
+    );
+    m.set(
+      "WEIGHT",
+      seriesEndingAt(
+        [...Array(30).fill(80), ...Array(30).fill(82)],
+        "2026-04-30",
+      ),
+    );
+    return m;
+  }
+
+  it("narrates glucose in mmol/L and weight in pounds when the reader chose them", () => {
+    const ctx = assertReady(
+      assemblePeriodNarrativeContext({
+        ...monthInput(glucoseAndWeight()),
+        units: { system: "imperial", glucoseUnit: "mmol/L" },
+      }),
+    );
+    const g = ctx.metricDeltas.find((d) => d.type === "BLOOD_GLUCOSE")!;
+    expect(g.unit).toBe("mmol/L");
+    expect(g.current).toBe(6);
+    expect(g.prior).toBe(5);
+    expect(g.delta).toBe(1);
+    // Percent is unit-free.
+    expect(g.deltaPercent).toBe(20);
+    const w = ctx.metricDeltas.find((d) => d.type === "WEIGHT")!;
+    expect(w.unit).toBe("lb");
+    expect(w.current).toBe(180.8);
+    expect(w.delta).toBe(4.4);
+
+    const prose = buildDeterministicNarrative(ctx, "en");
+    expect(prose).toContain("mmol/L");
+    expect(prose).toContain("lb");
+    expect(prose).not.toContain("mg/dL");
+    expect(prose).not.toContain("kg");
+    const prompt = buildNarrativeUserPrompt(ctx, "en");
+    expect(prompt).toContain("BLOOD_GLUCOSE: 6 mmol/L");
+    expect(prompt).not.toContain("mg/dL");
+  });
+
+  it("keeps mg/dL and kilograms on the default preferences", () => {
+    const ctx = assertReady(
+      assemblePeriodNarrativeContext(monthInput(glucoseAndWeight())),
+    );
+    const g = ctx.metricDeltas.find((d) => d.type === "BLOOD_GLUCOSE")!;
+    expect(g.unit).toBe("mg/dL");
+    expect(g.current).toBe(108);
+    expect(ctx.metricDeltas.find((d) => d.type === "WEIGHT")!.unit).toBe("kg");
+  });
+
+  it("narrates sleep minutes as hours, the unit it always claimed", () => {
+    const m = new Map<string, DailySeriesPoint[]>();
+    m.set(
+      "SLEEP_DURATION",
+      seriesEndingAt(
+        [...Array(30).fill(420), ...Array(30).fill(450)],
+        "2026-04-30",
+      ),
+    );
+    m.set(
+      "WEIGHT",
+      seriesEndingAt(
+        [...Array(30).fill(80), ...Array(30).fill(82)],
+        "2026-04-30",
+      ),
+    );
+    const ctx = assertReady(assemblePeriodNarrativeContext(monthInput(m)));
+    const s = ctx.metricDeltas.find((d) => d.type === "SLEEP_DURATION")!;
+    expect(s.unit).toBe("h");
+    expect(s.current).toBe(7.5);
+    expect(s.delta).toBe(0.5);
+  });
+
+  it("states a band transition with its unit, converted", () => {
+    const m = new Map<string, DailySeriesPoint[]>();
+    const prior = Array.from({ length: 30 }, (_, i) => 90 + (i % 3));
+    m.set(
+      "BLOOD_GLUCOSE",
+      seriesEndingAt([...prior, ...Array(30).fill(140)], "2026-04-30"),
+    );
+    m.set(
+      "WEIGHT",
+      seriesEndingAt(
+        [...Array(30).fill(80), ...Array(30).fill(82)],
+        "2026-04-30",
+      ),
+    );
+    const ctx = assertReady(
+      assemblePeriodNarrativeContext({
+        ...monthInput(m),
+        units: { system: "metric", glucoseUnit: "mmol/L" },
+      }),
+    );
+    const t = ctx.bandTransitions.find((b) => b.type === "BLOOD_GLUCOSE")!;
+    expect(t.unit).toBe("mmol/L");
+    expect(t.center).toBe(7.8);
+    expect(t.movedOut).toBe(true);
+    expect(buildNarrativeUserPrompt(ctx, "en")).toContain(
+      "BLOOD_GLUCOSE: 7.8 mmol/L",
+    );
   });
 });
 

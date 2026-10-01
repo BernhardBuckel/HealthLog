@@ -8167,6 +8167,7 @@
     "medications": "Medications & adherence",
     "bmi": "Body mass index (BMI)",
     "statSummary": "latest {latest} (avg {avg}, range {min}–{max})",
+    "statSummaryWithUnit": "latest {latest} {unit} (avg {avg} {unit}, range {min}–{max} {unit})",
     "adherence": "{rate} adherence",
     "noAdherence": "—",
     "glucose": {
@@ -9404,7 +9405,7 @@
       "severity": "Severity {severity}",
       "noSymptoms": "No symptoms logged.",
       "impact": "How you functioned: {impact}",
-      "fever": "Temperature: {value} °C",
+      "fever": "Temperature: {value} {unit}",
       "empty": "No days logged yet."
     },
     "loadError": "Could not load this episode.",

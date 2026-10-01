@@ -8,7 +8,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useUnitDisplay } from "@/hooks/use-unit-display";
 import { queryKeys } from "@/lib/query-keys";
 import { useTranslations } from "@/lib/i18n/context";
-import { convertGlucose, resolveGlucoseUnit } from "@/lib/glucose";
 import { resolveTargetUnitAdapter } from "@/lib/targets/target-unit-display";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { RangeBar } from "@/components/targets/range-bar";
@@ -18,6 +17,7 @@ import { TileHeader } from "@/components/insights/tile-header";
 import { useTargetAdjust } from "@/lib/insights/target-adjust-context";
 import { getTargetSourceLink } from "@/lib/targets/source-link";
 import { apiGet } from "@/lib/api/api-fetch";
+import { resolveGlucoseUnit, type GlucoseUnit } from "@/lib/glucose";
 
 /**
  * v1.8.0 → v1.8.5 — surface the per-metric target reference panel on each
@@ -152,28 +152,17 @@ export function MetricTargetSummary({ slug }: MetricTargetSummaryProps) {
   // mg/dL values to the user's display unit. The route's per-context
   // labels are i18n keys, so resolve them.
   if (isGlucose) {
-    const displayUnit = resolveGlucoseUnit(data.profile?.glucoseUnit ?? null);
-    const convert = (v: number | null) =>
-      v == null ? null : convertGlucose(v, displayUnit);
+    // The payload stays canonical mg/dL here; each panel converts through
+    // the shared target adapter, which owns the glucose unit as it owns
+    // pounds, so the panel and its edit sheet cannot convert twice.
+    const glucoseUnit = resolveGlucoseUnit(data.profile?.glucoseUnit ?? null);
     const panels = GLUCOSE_TARGET_TYPES.map((type) =>
       data.targets.find((entry) => entry.type === type),
     )
       .filter(
         (entry): entry is TargetItem => entry != null && entry.range != null,
       )
-      .map((entry) => ({
-        ...entry,
-        label: t(entry.label),
-        unit: displayUnit,
-        current: convert(entry.current),
-        average30: convert(entry.average30),
-        range: entry.range
-          ? {
-              min: convertGlucose(entry.range.min, displayUnit),
-              max: convertGlucose(entry.range.max, displayUnit),
-            }
-          : null,
-      }));
+      .map((entry) => ({ ...entry, label: t(entry.label) }));
 
     if (panels.length === 0) return null;
 
@@ -188,6 +177,7 @@ export function MetricTargetSummary({ slug }: MetricTargetSummaryProps) {
             key={panel.type}
             target={panel}
             heading={panel.label}
+            glucoseUnit={glucoseUnit}
           />
         ))}
       </div>
@@ -212,6 +202,12 @@ interface TargetReferencePanelProps {
   bpDiastolic?: TargetsResponse["bpDiastolic"];
   /** Optional sub-heading shown above the panel (used for glucose contexts). */
   heading?: string;
+  /**
+   * The record's glucose unit as the targets payload resolved it. The
+   * glucose panels pass it so the band reads in the unit the server
+   * resolved for this record; every other panel leaves it to the hook.
+   */
+  glucoseUnit?: GlucoseUnit;
 }
 
 /**
@@ -232,21 +228,26 @@ function TargetReferencePanel({
   target,
   bpDiastolic,
   heading,
+  glucoseUnit: payloadGlucoseUnit,
 }: TargetReferencePanelProps) {
   const { t } = useTranslations();
   const adjust = useTargetAdjust();
-  const { preference } = useUnitDisplay();
+  const { preference, glucoseUnit: accountGlucoseUnit } = useUnitDisplay();
+  const glucoseUnit = payloadGlucoseUnit ?? accountGlucoseUnit;
 
   // v1.32.27 — the panel renders in the user's preferred unit. The
   // `/api/insights/targets` payload is canonical (kg for weight); the
   // adapter converts it once, here, and everything downstream — the
   // range bar, the status pill, the 30-day average, and the edit
-  // sheet's seed — consumes the converted pair. Glucose contexts are
-  // pre-converted by the caller above and carry no display transform,
-  // so they take the adapter's identity path and are never scaled
-  // twice. For a metric account the adapter is the exact identity, so
-  // this panel is byte-identical to the previous release.
-  const units = resolveTargetUnitAdapter(target.type, target.unit, preference);
+  // sheet's seed — consumes the converted pair. The glucose contexts
+  // arrive canonical too and convert here to the reader's glucose unit.
+  // On the default preferences the adapter is the exact identity.
+  const units = resolveTargetUnitAdapter(
+    target.type,
+    target.unit,
+    preference,
+    glucoseUnit,
+  );
   const unit = units.unit;
   const range = target.range
     ? {

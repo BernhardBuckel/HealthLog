@@ -140,8 +140,18 @@ export function computeTrendDescriptor(
  * dedicated copy rather than the numeric `{delta} {unit}` template.
  */
 export interface TrendSlotDescriptorMeta {
-  /** Display unit interpolated into the numeric descriptor template. */
-  unit: string;
+  /**
+   * Display unit interpolated into the numeric descriptor template, for a
+   * metric no preference changes.
+   */
+  unit?: string;
+  /**
+   * For a metric whose unit follows the reader's preference: the
+   * measurement type the caller resolves the unit of (and converts the
+   * series and the noise floor through) before describing it. Such a slot
+   * declares its `absoluteFloor` in the CANONICAL unit (kg, m, °C).
+   */
+  unitType?: string;
   config: TrendDescriptorConfig;
 }
 
@@ -154,7 +164,7 @@ export const TREND_SLOT_DESCRIPTOR_META: Record<
     config: { absoluteFloor: 2, relativeFloor: 0.02, decimals: 0 },
   },
   weight: {
-    unit: "kg",
+    unitType: "WEIGHT",
     config: { absoluteFloor: 0.3, relativeFloor: 0.01, decimals: 1 },
   },
   pulse: {
@@ -186,15 +196,16 @@ export const TREND_SLOT_DESCRIPTOR_META: Record<
     config: { absoluteFloor: 1, relativeFloor: 0.1, decimals: 0 },
   },
   distance: {
-    unit: "km",
-    config: { absoluteFloor: 0.3, relativeFloor: 0.05, decimals: 1 },
+    unitType: "WALKING_RUNNING_DISTANCE",
+    // 300 m — canonical metres, converted to the reader's km or mi.
+    config: { absoluteFloor: 300, relativeFloor: 0.05, decimals: 1 },
   },
   vo2_max: {
     unit: "",
     config: { absoluteFloor: 0.5, relativeFloor: 0.02, decimals: 1 },
   },
   body_temp: {
-    unit: "°C",
+    unitType: "BODY_TEMPERATURE",
     config: { absoluteFloor: 0.2, relativeFloor: 0.005, decimals: 1 },
   },
 };
@@ -231,9 +242,12 @@ export interface TrendDescriptorCopy {
 export function numericDescriptorCopy(
   metric: string,
   descriptor: TrendDescriptor,
+  /** Resolves a `unitType` slot's unit under the reader's preference. */
+  unitFor: (type: string) => string,
 ): TrendDescriptorCopy | null {
   const meta = TREND_SLOT_DESCRIPTOR_META[metric];
   if (!meta) return null;
+  const unit = meta.unitType ? unitFor(meta.unitType) : (meta.unit ?? "");
 
   // Signed, formatted magnitude (e.g. "+8", "-1.4"). `stable` still
   // carries its small delta so the caption can read "stable (±0 …)" if a
@@ -255,7 +269,7 @@ export function numericDescriptorCopy(
       // reads "({delta}{unit})" → "(+8 mmHg)" with a unit, "(+1200)"
       // without one — no dangling space inside the parens for unit-less
       // metrics (steps, flights).
-      unit: meta.unit ? ` ${meta.unit}` : "",
+      unit: unit ? ` ${unit}` : "",
     },
   };
 }

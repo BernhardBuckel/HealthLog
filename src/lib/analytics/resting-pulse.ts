@@ -140,6 +140,26 @@ export function resolveRestingPulseSeries(input: {
   /** Day key for the proxy buckets: the user's own day. */
   dayKeyOf: (d: Date) => string;
 }): { series: PulseSample[]; which: "resting" | "proxy" | "none" } {
+  return mergeRestingWithProxy({
+    restingSamples: input.restingSamples,
+    proxySamples: deriveRestingProxyFromPulse(
+      input.pulseSamples,
+      input.dayKeyOf,
+    ),
+    dayKeyOf: input.dayKeyOf,
+  });
+}
+
+/**
+ * {@link resolveRestingPulseSeries} for a caller that already holds the
+ * proxy, one point per day, as `readRestingPulseProxy` folds it in Postgres.
+ * The per-day merge and the label are the same.
+ */
+export function mergeRestingWithProxy(input: {
+  restingSamples: ReadonlyArray<PulseSample>;
+  proxySamples: ReadonlyArray<PulseSample>;
+  dayKeyOf: (d: Date) => string;
+}): { series: PulseSample[]; which: "resting" | "proxy" | "none" } {
   const dayKeyOf = input.dayKeyOf;
   const byTime = (a: PulseSample, b: PulseSample) =>
     a.measuredAt.getTime() - b.measuredAt.getTime();
@@ -148,14 +168,13 @@ export function resolveRestingPulseSeries(input: {
   // Days already covered by a real resting row — the proxy must not
   // second-guess them.
   const restingDays = new Set(resting.map((s) => dayKeyOf(s.measuredAt)));
-  const proxy = deriveRestingProxyFromPulse(
-    input.pulseSamples,
-    dayKeyOf,
-  ).filter((p) => !restingDays.has(dayKeyOf(p.measuredAt)));
+  const proxy = input.proxySamples.filter(
+    (p) => !restingDays.has(dayKeyOf(p.measuredAt)),
+  );
 
   if (resting.length === 0) {
     return proxy.length > 0
-      ? { series: proxy, which: "proxy" }
+      ? { series: [...proxy], which: "proxy" }
       : { series: [], which: "none" };
   }
   if (proxy.length === 0) return { series: resting, which: "resting" };

@@ -112,8 +112,11 @@ export function ReportScopePicker({
       {/* The one-click way to a complete report. An inline action row
           (UI-STANDARDS §11): the sentence wraps, the action stays beside it.
           It is offered, never applied — and it stays offered so a person can
-          come back to the standard set after experimenting. */}
-      <div className="flex items-start justify-between gap-3">
+          come back to the standard set after experimenting. On a phone the
+          action's own label is wider than half the row, so beside it the
+          sentence shrank to a one-word column and the button ran past the
+          card edge: there the action drops under the sentence instead. */}
+      <div className="flex items-start justify-between gap-3 max-sm:flex-col">
         <p
           id={hintId}
           className="text-muted-foreground min-w-0 flex-1 text-xs"

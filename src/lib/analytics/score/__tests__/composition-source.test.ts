@@ -240,6 +240,7 @@ function score(args: {
       timezone: "UTC",
       sourcePriorityJson: null,
       thresholdsJson: null,
+      glucoseUnit: "mg/dL" as const,
     },
     modules: args.modules,
     healthScoreConfigJson: args.healthScoreConfigJson,

@@ -78,8 +78,21 @@ import { dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 const DENSE_REPORT_RAW_WINDOW_DAYS = 90;
 
 /**
- * #1023 — inside the raw window, pulse takes the per-day path anyway once the
- * window holds more readings than this.
+ * The types a device writes at sampling rate whose report sections are
+ * statistics and a series and nothing else: the figures the day path keeps
+ * exactly (count, mean, minimum, maximum, latest) plus one point per local
+ * day. Glucose is dense too but has its own rule below, because its clinical
+ * panel needs the per-reading counts the bucket query carries.
+ */
+const DENSE_STAT_TYPES = [
+  "PULSE",
+  "HEART_RATE_VARIABILITY",
+  "OXYGEN_SATURATION",
+] as const satisfies readonly MeasurementType[];
+
+/**
+ * #1023 — inside the raw window, a dense statistics type takes the per-day
+ * path anyway once the window holds more of its readings than this.
  *
  * A watch that records heart rate once a minute puts 130 000 readings in a
  * 90-day report. Read raw, every one of them became an object, went through
@@ -171,22 +184,38 @@ export async function collectDoctorReportData(
   const lastDay = dayKeyAsUtcMidnight(userDayKey(end, reportTz));
 
   const aggregateDenseTypes = days > DENSE_REPORT_RAW_WINDOW_DAYS;
-  const densePulse =
-    !excluded.includes("PULSE") &&
-    (aggregateDenseTypes ||
-      (await prisma.measurement.count({
-        where: {
-          userId,
-          type: "PULSE",
-          measuredAt: { gte: start, lte: end },
-          deletedAt: null,
-        },
-      })) > DENSE_REPORT_RAW_ROW_CAP);
+  const includedDenseStatTypes = DENSE_STAT_TYPES.filter(
+    (type) => !excluded.includes(type),
+  );
+  // Inside the raw window, one grouped count decides each type on its own:
+  // a watch's minute-by-minute heart rate folds while a few blood-oxygen
+  // readings a night beside it stay raw.
+  const denseStatCounts =
+    aggregateDenseTypes || includedDenseStatTypes.length === 0
+      ? null
+      : new Map(
+          (
+            await prisma.measurement.groupBy({
+              by: ["type"],
+              where: {
+                userId,
+                type: { in: [...includedDenseStatTypes] },
+                measuredAt: { gte: start, lte: end },
+                deletedAt: null,
+              },
+              _count: { _all: true },
+            })
+          ).map((row) => [row.type, row._count._all]),
+        );
+  const denseTypes: MeasurementType[] = includedDenseStatTypes.filter(
+    (type) =>
+      denseStatCounts === null ||
+      (denseStatCounts.get(type) ?? 0) > DENSE_REPORT_RAW_ROW_CAP,
+  );
   const denseGlucose =
     aggregateDenseTypes && !excluded.includes("BLOOD_GLUCOSE");
-  const rawExcluded = [...excluded];
-  if (densePulse) rawExcluded.push("PULSE");
-  if (denseGlucose) rawExcluded.push("BLOOD_GLUCOSE");
+  if (denseGlucose) denseTypes.push("BLOOD_GLUCOSE");
+  const rawExcluded = [...excluded, ...denseTypes];
 
   const wantsMedications = MEDICATION_LEAVES.some((leaf) => gate.admits(leaf));
   const wantsIntakeEvents =
@@ -319,8 +348,7 @@ export async function collectDoctorReportData(
         start,
         end,
         reportTz,
-        densePulse,
-        denseGlucose,
+        denseTypes,
       }),
     ]);
 

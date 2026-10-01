@@ -51,7 +51,12 @@ export interface TrendChartConfig {
   types: string[];
   /** Recharts stroke colours, positionally matched to `types`. */
   colors: string[];
-  /** Display unit (chart legend / tooltip). */
+  /**
+   * Display unit (chart legend / tooltip) for a metric no preference
+   * changes. A single-series slot whose type has a display transform
+   * (weight, distance, body temperature) carries none: the renderer takes
+   * the unit, scale and offset from the reader's preference instead.
+   */
   unit?: string;
   /** Y-axis unit label when it differs from the value unit. */
   yAxisUnit?: string;
@@ -114,7 +119,6 @@ export const TREND_CHART_CONFIG: Record<
     kind: "health-chart",
     types: ["WEIGHT"],
     colors: ["var(--chart-1)"],
-    unit: "kg",
     titleKey: "charts.weight",
     captionKey: "insights.trendsRow.caption.weight",
     annotationKey: "weight",
@@ -212,8 +216,6 @@ export const TREND_CHART_CONFIG: Record<
     kind: "health-chart",
     types: ["WALKING_RUNNING_DISTANCE"],
     colors: ["var(--chart-4)"],
-    unit: "km",
-    yAxisUnit: "km",
     titleKey: "charts.distance",
     captionKey: "insights.trendsRow.caption.distance",
     detailHref: "/insights/walking-distance",
@@ -234,8 +236,6 @@ export const TREND_CHART_CONFIG: Record<
     kind: "health-chart",
     types: ["BODY_TEMPERATURE"],
     colors: ["var(--destructive)"],
-    unit: "°C",
-    yAxisUnit: "°C",
     titleKey: "charts.bodyTemperature",
     captionKey: "insights.trendsRow.caption.body_temp",
     detailHref: "/insights/body-temperature",

@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "@/lib/i18n/context";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
 
 import { ILLNESS_SYMPTOM_CATALOG } from "./symptom-catalog";
 import { useIllnessDayLog, useUpsertDayLog } from "./use-illness";
@@ -140,6 +141,10 @@ export function LogDaySheet({
   onsetDate,
 }: LogDaySheetProps) {
   const { t } = useTranslations();
+  // The fever is stored in °C and typed in the reader's temperature unit:
+  // seeded through the transform, inverted on save.
+  const { toDisplay, fromDisplay, unitFor } = useUnitDisplay();
+  const feverUnit = unitFor("BODY_TEMPERATURE");
 
   // The day being logged — seeded from `date` (today), but the picker lets the
   // user backdate within [onset, today] for the retrospective journal.
@@ -178,7 +183,11 @@ export function LogDaySheet({
       new Map((dto?.symptoms ?? []).map((s) => [s.key, s.severity ?? null])),
     );
     setFunctionalImpact(dto?.functionalImpact ?? null);
-    setFever(dto?.feverC != null ? String(dto.feverC) : "");
+    setFever(
+      dto?.feverC != null
+        ? String(toDisplay("BODY_TEMPERATURE", dto.feverC))
+        : "",
+    );
     setNote(dto?.note ?? "");
   } else if (!open && lastFormKey !== null) {
     setLastFormKey(null);
@@ -213,7 +222,10 @@ export function LogDaySheet({
     const input: IllnessDayLogInput = {
       date: selectedDate,
       functionalImpact,
-      feverC: feverValue,
+      feverC:
+        feverValue == null
+          ? null
+          : Math.round(fromDisplay("BODY_TEMPERATURE", feverValue) * 100) / 100,
       symptoms: Array.from(symptoms.entries()).map(([key, severity]) => ({
         key,
         severity: severity ?? undefined,
@@ -333,7 +345,7 @@ export function LogDaySheet({
           summary={
             feverValue != null ? (
               <span className="text-muted-foreground text-xs">
-                {feverValue.toFixed(1)} °C
+                {feverValue.toFixed(1)} {feverUnit}
               </span>
             ) : null
           }
@@ -345,7 +357,7 @@ export function LogDaySheet({
             <Input
               id="illness-fever"
               inputMode="decimal"
-              placeholder="37.0"
+              placeholder={toDisplay("BODY_TEMPERATURE", 37).toFixed(1)}
               value={fever}
               onChange={(e) => setFever(e.target.value)}
               className="max-w-32"

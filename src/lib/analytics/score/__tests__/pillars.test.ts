@@ -14,6 +14,7 @@ const live = {
   source: "live" as const,
   readFailed: false,
   timezone: "Europe/Berlin",
+  glucoseUnit: "mg/dL" as const,
 };
 
 function days(count: number, value: number) {
@@ -158,6 +159,41 @@ describe("reference-score pillars", () => {
       })),
     });
     expect(eligible.status).toBe("ok");
+  });
+
+  it("writes the fasting labels in the reader's glucose unit, value and band canonical", () => {
+    const fasting = days(8, 99).map((point) => ({
+      value: point.value,
+      at: new Date(`${point.day}T08:00:00Z`),
+      source: "APPLE_HEALTH",
+    }));
+    const mmol = computeGlycaemiaPillar({
+      ...live,
+      glucoseUnit: "mmol/L",
+      asOf: NOW,
+      hba1c: [],
+      fastingGlucose: fasting,
+    });
+    const mgdl = computeGlycaemiaPillar({
+      ...live,
+      asOf: NOW,
+      hba1c: [],
+      fastingGlucose: fasting,
+    });
+    expect(mmol.status).toBe("ok");
+    expect(mgdl.status).toBe("ok");
+    if (mmol.status !== "ok" || mgdl.status !== "ok") return;
+    // These labels reach the app as finished text.
+    expect(mmol.value.observed.label).toBe("Fasting median 5.5 mmol/L");
+    expect(mmol.value.reference.label).toBe("3.9–5.5 mmol/L fasting");
+    expect(mgdl.value.observed.label).toBe("Fasting median 99 mg/dL");
+    expect(mgdl.value.reference.label).toBe("70–99 mg/dL fasting");
+    // The score and the numbers the web converts from do not move.
+    expect(mmol.value.observed.value).toBe(99);
+    expect(mmol.value.observed.unit).toBe("mg/dL");
+    expect(mmol.value.reference.low).toBe(70);
+    expect(mmol.value.reference.high).toBe(99);
+    expect(mmol.value.score).toBe(mgdl.value.score);
   });
 
   it("does not use fasting fallback when the preferred lab read failed", () => {

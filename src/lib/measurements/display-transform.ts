@@ -61,11 +61,53 @@
  */
 import type { MeasurementType } from "@/generated/prisma/client";
 
+import {
+  MGDL_PER_MMOL,
+  resolveGlucoseUnit,
+  type GlucoseUnit,
+} from "@/lib/glucose";
 import { getUnitForType } from "@/lib/validations/measurement";
 
 export type UnitPreference = "metric" | "imperial";
 
 export const DEFAULT_UNIT_PREFERENCE: UnitPreference = "metric";
+
+/** The stored preference column resolved to a branch; anything unknown is metric. */
+export function resolveUnitPreference(
+  raw: string | null | undefined,
+): UnitPreference {
+  return raw === "imperial" ? "imperial" : DEFAULT_UNIT_PREFERENCE;
+}
+
+/**
+ * Both unit choices a person makes, together. They are separate columns
+ * because they are separate questions — metric versus imperial is about mass,
+ * length and temperature, mg/dL versus mmol/L is the clinical convention of
+ * the country the record lives in — but a surface that renders a reading
+ * needs both, and taking them as one value is what keeps a server-side text
+ * producer from honouring one and forgetting the other.
+ */
+export interface UnitPreferences {
+  system: UnitPreference;
+  glucoseUnit: GlucoseUnit;
+}
+
+/** Resolve both stored columns at once (each falls back to its default). */
+export function resolveUnitPreferences(row: {
+  unitPreference?: string | null;
+  glucoseUnit?: string | null;
+}): UnitPreferences {
+  return {
+    system: resolveUnitPreference(row.unitPreference),
+    glucoseUnit: resolveGlucoseUnit(row.glucoseUnit),
+  };
+}
+
+/** The defaults: metric, mg/dL. */
+export const DEFAULT_UNIT_PREFERENCES: UnitPreferences = {
+  system: DEFAULT_UNIT_PREFERENCE,
+  glucoseUnit: "mg/dL",
+};
 
 export interface DisplayTransform {
   /** Multiplier applied to the raw canonical value for display. */
@@ -155,6 +197,95 @@ const TRANSFORMS: Partial<
     imperial: { factor: 0.000621371192237, displayUnit: "mi", decimals: 2 },
   },
 };
+
+/**
+ * Blood glucose, stored in mg/dL, read in either clinical unit. Keyed by the
+ * glucose preference rather than metric/imperial. The mmol/L branch rounds to
+ * one decimal through `applyDisplayTransform`, which is exactly what
+ * `mgdlToMmol` does, so a server-side text and a screen built on
+ * `convertGlucose` print the same figure.
+ */
+const GLUCOSE_TRANSFORM: Record<GlucoseUnit, DisplayTransform> = {
+  "mg/dL": { factor: 1, displayUnit: "mg/dL", decimals: 0 },
+  "mmol/L": { factor: 1 / MGDL_PER_MMOL, displayUnit: "mmol/L", decimals: 1 },
+};
+
+/**
+ * The transform for a reading of `type` under BOTH unit preferences — the
+ * one resolver a server-side text producer (a status note, a narrative, a
+ * prompt) takes its numbers and unit symbols from.
+ *
+ * The client surfaces keep `getDisplayTransform` through `useUnitDisplay`
+ * and convert glucose through `convertGlucose` at the few places that render
+ * it; folding glucose into that path would convert it a second time on the
+ * screens that already do. Text built on the server has no such history, so
+ * it starts from the complete answer.
+ */
+export function getReadingTransform(
+  type: string,
+  preferences: UnitPreferences,
+): DisplayTransform {
+  if (type === "BLOOD_GLUCOSE")
+    return GLUCOSE_TRANSFORM[preferences.glucoseUnit];
+  return getDisplayTransform(type, preferences.system);
+}
+
+/**
+ * Every measurement type whose displayed number or unit depends on a unit
+ * preference: the metric/imperial set plus glucose. Text that quoted one of
+ * these was written in a unit, and goes stale when the preference changes.
+ */
+export function isUnitSensitiveType(type: string): boolean {
+  return type === "BLOOD_GLUCOSE" || TRANSFORMED_TYPES.has(type);
+}
+
+/**
+ * Quantities that are not a stored measurement type but are read in a unit
+ * system all the same: a workout's distance and its elevation gain, both
+ * stored in metres. Same rules as the type registry — the metric distance
+ * branch reads kilometres, which is a rescale, so it rounds; the metric
+ * elevation branch is the identity.
+ */
+export type QuantityKind = "distance" | "elevation";
+
+// 1 m = 3.28083989501 ft.
+const M_TO_FT = 3.28083989501;
+
+const QUANTITY_TRANSFORMS: Record<
+  QuantityKind,
+  Record<UnitPreference, DisplayTransform>
+> = {
+  distance: {
+    metric: { factor: 0.001, displayUnit: "km", decimals: 2 },
+    imperial: { factor: 0.000621371192237, displayUnit: "mi", decimals: 2 },
+  },
+  elevation: {
+    metric: { factor: 1, displayUnit: "m", decimals: 1 },
+    imperial: { factor: M_TO_FT, displayUnit: "ft", decimals: 1 },
+  },
+};
+
+/** The transform for a metre-valued quantity under a metric/imperial preference. */
+export function getQuantityTransform(
+  kind: QuantityKind,
+  preference: UnitPreference,
+): DisplayTransform {
+  return QUANTITY_TRANSFORMS[kind][preference];
+}
+
+/**
+ * Seconds per displayed distance unit (per km, or per mile) from a duration
+ * and a distance in metres. A pace is a rate in the inverse direction of a
+ * distance, so it divides by the factor instead of multiplying.
+ */
+export function paceSecondsPerDistanceUnit(
+  durationSec: number,
+  meters: number,
+  preference: UnitPreference,
+): number {
+  const { factor } = QUANTITY_TRANSFORMS.distance[preference];
+  return durationSec / (meters * factor);
+}
 
 /**
  * Every type with a registered transform. The structural guard test uses

@@ -1,4 +1,5 @@
 import type { Derived } from "@/lib/insights/derived/types";
+import { convertGlucose } from "@/lib/glucose";
 
 import type { GlycaemiaPillarInput, PillarValue } from "./types";
 import {
@@ -153,10 +154,13 @@ export function computeGlycaemiaPillar(
         FASTING_GLUCOSE_REFERENCE.low,
         FASTING_GLUCOSE_REFERENCE.high,
       ),
+      // `value`, `unit` and the band stay canonical: the score is computed on
+      // them and the web converts from them. The labels are finished text a
+      // client prints as-is, so they are written in the reader's unit.
       observed: {
         value: observed,
         unit: "mg/dL",
-        label: `Fasting median ${Math.round(observed)} mg/dL`,
+        label: `Fasting median ${convertGlucose(observed, input.glucoseUnit)} ${input.glucoseUnit}`,
         asOf: fasting.at(-1)!.at.toISOString(),
         sources: uniqueSources(fasting.map((row) => row.source)),
       },
@@ -164,7 +168,7 @@ export function computeGlycaemiaPillar(
         kind: "clinical-threshold",
         low: FASTING_GLUCOSE_REFERENCE.low,
         high: FASTING_GLUCOSE_REFERENCE.high,
-        label: `${FASTING_GLUCOSE_REFERENCE.low}–${FASTING_GLUCOSE_REFERENCE.high} mg/dL fasting`,
+        label: `${convertGlucose(FASTING_GLUCOSE_REFERENCE.low, input.glucoseUnit)}–${convertGlucose(FASTING_GLUCOSE_REFERENCE.high, input.glucoseUnit)} ${input.glucoseUnit} fasting`,
         source: "ADA 2025; Selvin 2010",
       },
       noiseFloor: Math.max(1, Math.abs(ceilingScore - floorScore)),

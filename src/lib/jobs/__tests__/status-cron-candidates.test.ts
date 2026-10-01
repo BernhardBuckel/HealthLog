@@ -190,9 +190,9 @@ describe("mood-status queue registration (dead-queue guard)", () => {
     expect(match![1]).toMatch(/\bMOOD_STATUS_QUEUE\b/);
   });
 
-  it("schedules the 02:30 cron with the insight retry policy", () => {
+  it("schedules the 02:30 cron with the nightly pass options (retries and expiry)", () => {
     expect(workerSrc).toMatch(
-      /\[\s*MOOD_STATUS_QUEUE\s*,\s*MOOD_STATUS_CRON\s*,\s*insightRetryOptions\s*\]/,
+      /\[\s*MOOD_STATUS_QUEUE\s*,\s*MOOD_STATUS_CRON\s*,\s*nightlyInsightPassOptions\s*\]/,
     );
     expect(workerSrc).toMatch(/MOOD_STATUS_CRON\s*=\s*"30 2 \* \* \*"/);
   });

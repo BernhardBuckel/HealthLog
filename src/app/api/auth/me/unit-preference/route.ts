@@ -38,6 +38,7 @@ import { prisma } from "@/lib/db";
 import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { DEFAULT_UNIT_PREFERENCE } from "@/lib/measurements/display-transform";
 import { unitPreferencePatchSchema } from "@/lib/validations/user-prefs";
+import { refreshTextsAfterUnitChange } from "@/lib/insights/unit-change-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +118,12 @@ export const PATCH = apiHandler(async (req: Request) => {
       next,
     },
   });
+
+  // The status notes and narratives quote mass, length and temperature in
+  // this branch; re-warm them so today's stored text follows the switch.
+  if (resolve(previous?.unitPreference) !== next) {
+    void refreshTextsAfterUnitChange(user.id);
+  }
 
   annotate({
     action: { name: "auth.me.unit-preference.patch" },

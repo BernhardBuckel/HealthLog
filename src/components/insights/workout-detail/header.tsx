@@ -3,8 +3,9 @@
 import { useTranslations, useTimeFormatPreference } from "@/lib/i18n/context";
 import { iconForSport } from "@/lib/workouts/sport-icons";
 import type { WorkoutDetailPayload } from "@/hooks/use-workouts";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
 
-import { formatDuration, formatDistanceKm, formatDateRange } from "./format";
+import { formatDuration, formatDistance, formatDateRange } from "./format";
 
 /**
  * Hero header — the at-a-glance verdict row. Sport icon badge, source
@@ -30,6 +31,7 @@ function renderSportIconBadge(sportType: string) {
 export function WorkoutDetailHeader({ workout }: WorkoutDetailHeaderProps) {
   const { t, locale } = useTranslations();
   const timeFormat = useTimeFormatPreference();
+  const { preference } = useUnitDisplay();
   const sportLabelKey = `insights.workouts.sport.${workout.sportType}`;
   const sportLabel = t(sportLabelKey);
   const sportName =
@@ -67,7 +69,7 @@ export function WorkoutDetailHeader({ workout }: WorkoutDetailHeaderProps) {
         </span>
         {workout.distanceM != null ? (
           <span className="text-muted-foreground text-xs tabular-nums">
-            {formatDistanceKm(workout.distanceM, locale)} km
+            {formatDistance(workout.distanceM, locale, preference)}
           </span>
         ) : null}
       </div>

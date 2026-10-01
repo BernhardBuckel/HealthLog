@@ -80,7 +80,7 @@ function groupReadings(results: LabResultDto[]): MarkerGroup[] {
 
 function LabRangeBarSlot({ reading }: { reading: LabResultDto }) {
   return (
-    <div className="w-48">
+    <div className={cn("w-full lg:w-48", MOBILE_CELL.rangeBar)}>
       <LabReferenceRangeBar
         value={reading.value}
         referenceLow={reading.referenceLow}
@@ -90,6 +90,35 @@ function LabRangeBarSlot({ reading }: { reading: LabResultDto }) {
     </div>
   );
 }
+
+/**
+ * The compact list is a five-column table from `lg` up: name and reading, range
+ * badge, range bar, trend, chevron. Below that the same five cells fold into
+ * two lines per row, because the fixed columns alone (badge + 12rem bar + 72px
+ * trend + gaps) are wider than a phone, and the only flexible column — the
+ * name — was the one that gave way: it collapsed to nothing and the row
+ * panned sideways off the card.
+ *
+ * Phone layout, per row:
+ *
+ *     name / reading · date      badge   ›
+ *     range bar                  trend
+ *
+ * The placement classes are all `max-lg:` so the desktop table keeps exactly
+ * the subgrid it had.
+ */
+const ROW_CLASS =
+  "grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-2 px-4 py-2.5 lg:col-span-full lg:grid-cols-subgrid lg:gap-y-0";
+
+const MOBILE_CELL = {
+  reading: "max-lg:col-start-1 max-lg:row-start-1",
+  badge: "max-lg:col-start-2 max-lg:row-start-1 max-lg:justify-self-end",
+  rangeBar: "max-lg:col-start-1 max-lg:row-start-2 max-lg:empty:hidden",
+  trend:
+    "max-lg:col-start-2 max-lg:row-start-2 max-lg:justify-self-end max-lg:empty:hidden",
+  end: "max-lg:col-start-3 max-lg:row-start-1",
+  notLinked: "max-lg:col-span-full max-lg:row-start-3",
+} as const;
 
 export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
   const { t } = useTranslations();
@@ -212,12 +241,15 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
           </p>
         ) : null}
         <Card>
-          <CardContent className="divide-border grid grid-cols-[minmax(0,1fr)_max-content_12rem_72px_auto] gap-x-3 divide-y p-0">
+          <CardContent className="divide-border grid grid-cols-1 divide-y p-0 lg:grid-cols-[minmax(0,1fr)_max-content_12rem_72px_auto] lg:gap-x-3">
             {groups.map((group) => {
               const inner = (
-                <div className="min-w-0 flex-1">
+                <div className={cn("min-w-0 flex-1", MOBILE_CELL.reading)}>
                   <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
-                    <span className="truncate font-medium">
+                    <span
+                      data-slot="lab-list-analyte"
+                      className="truncate font-medium"
+                    >
                       {group.analyte}
                     </span>
                   </div>
@@ -234,47 +266,57 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                 <Link
                   key={group.key}
                   href={`/labs/${group.biomarkerId}`}
-                  className="hover:bg-muted/40 col-span-full grid min-w-0 grid-cols-subgrid items-center px-4 py-2.5 transition-colors"
+                  className={cn(
+                    ROW_CLASS,
+                    "hover:bg-muted/40 transition-colors",
+                  )}
                 >
                   {inner}
                   <ReferenceRangeBadge
                     status={group.latest.rangeStatus}
                     compact
-                    className="w-full"
+                    className={cn("lg:w-full", MOBILE_CELL.badge)}
                   />
                   <LabRangeBarSlot reading={group.latest} />
-                  <div className="w-[72px]">
+                  <div className={cn("w-[72px]", MOBILE_CELL.trend)}>
                     <LabTrendSparkline
                       values={group.readings.map((reading) => reading.value)}
                       referenceLow={group.latest.referenceLow}
                       referenceHigh={group.latest.referenceHigh}
                     />
                   </div>
-                  <ChevronRight className="text-muted-foreground h-4 w-4 shrink-0" />
+                  <ChevronRight
+                    className={cn(
+                      "text-muted-foreground h-4 w-4 shrink-0",
+                      MOBILE_CELL.end,
+                    )}
+                  />
                 </Link>
               ) : (
                 // Un-linked group (not backfilled to a catalog biomarker):
                 // render inert but say so, so it doesn't read as a broken
                 // link next to its clickable neighbours.
-                <div
-                  key={group.key}
-                  className="col-span-full grid min-w-0 grid-cols-subgrid items-center px-4 py-2.5"
-                >
+                <div key={group.key} className={ROW_CLASS}>
                   {inner}
                   <ReferenceRangeBadge
                     status={group.latest.rangeStatus}
                     compact
-                    className="w-full"
+                    className={cn("lg:w-full", MOBILE_CELL.badge)}
                   />
                   <LabRangeBarSlot reading={group.latest} />
-                  <div className="w-[72px]">
+                  <div className={cn("w-[72px]", MOBILE_CELL.trend)}>
                     <LabTrendSparkline
                       values={group.readings.map((reading) => reading.value)}
                       referenceLow={group.latest.referenceLow}
                       referenceHigh={group.latest.referenceHigh}
                     />
                   </div>
-                  <span className="text-muted-foreground shrink-0 text-xs italic">
+                  <span
+                    className={cn(
+                      "text-muted-foreground shrink-0 text-xs italic",
+                      MOBILE_CELL.notLinked,
+                    )}
+                  >
                     {t("labs.notLinkedYet")}
                   </span>
                 </div>
