@@ -43,6 +43,7 @@ import { addDays } from "@/lib/cycle/day-math";
 import { readSourceDayAggregates } from "@/lib/measurements/day-aggregates";
 import { moodDateKey } from "@/lib/mood/date-key";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import { startOfLocalDayKey } from "@/lib/tz/local-day";
 
 /** Trailing window the phase contrast walks (days). Mirrors the read route. */
 const WINDOW_DAYS = 365;
@@ -191,7 +192,7 @@ export async function buildCycleSnapshotBlock(
           deletedAt: null,
           type: "WRIST_TEMPERATURE",
           measuredAt: {
-            gte: new Date(Date.parse(`${addDays(today, -90)}T00:00:00Z`)),
+            gte: startOfLocalDayKey(addDays(today, -90), tz),
           },
         },
         orderBy: { measuredAt: "asc" },
@@ -206,7 +207,7 @@ export async function buildCycleSnapshotBlock(
       readSourceDayAggregates({
         userId,
         types: PHASE_CROSSTAB_METRIC_TYPES,
-        since: new Date(Date.parse(`${from}T00:00:00Z`)),
+        since: startOfLocalDayKey(from, tz),
         timeZone: tz,
       }),
       prisma.user.findUnique({

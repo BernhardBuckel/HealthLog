@@ -1,3 +1,4 @@
+import { daysBetweenDateKeys } from "@/lib/tz/format";
 /**
  * How old a reading may be before "today" stops being true about it.
  *
@@ -50,8 +51,6 @@ export function isCurrentForTodayClaim(
  * answers `null` rather than a fabricated distance.
  */
 export function dayKeyAgeInDays(then: string, today: string): number | null {
-  const a = Date.parse(`${then}T00:00:00.000Z`);
-  const b = Date.parse(`${today}T00:00:00.000Z`);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-  return Math.round((b - a) / 86_400_000);
+  const days = daysBetweenDateKeys(then, today);
+  return Number.isFinite(days) ? days : null;
 }

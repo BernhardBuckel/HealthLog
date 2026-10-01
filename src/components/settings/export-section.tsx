@@ -246,6 +246,7 @@ function CsvCard({
         since: since || undefined,
         until: until || undefined,
       });
+      // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: file name stamp, not a day shown or compared
       const stamp = new Date().toISOString().slice(0, 10);
       const filename = `${filenamePrefix}-${stamp}.csv`;
       await downloadFromUrl(`${endpoint}${query}`, filename);
@@ -329,6 +330,7 @@ function MedicationsCsvCard() {
         until: until || undefined,
         intake: includeIntake ? "true" : "false",
       });
+      // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: file name stamp, not a day shown or compared
       const stamp = new Date().toISOString().slice(0, 10);
       await downloadFromUrl(
         `/api/export/medications${query}`,
@@ -447,6 +449,7 @@ function FullBackupCard() {
   }
 
   async function downloadOnce() {
+    // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: file name stamp, not a day shown or compared
     const stamp = new Date().toISOString().slice(0, 10);
     if (encrypt) {
       const res = await throwIfReproofRequired(

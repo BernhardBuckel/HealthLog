@@ -198,7 +198,11 @@ function DoseRow({
             ) : null}
           </div>
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-            <span>{format.date(record.occurredAt)}</span>
+            <span>
+              {/* A date, stored at UTC midnight: render its date part, not
+                  the instant (the previous evening west of UTC). */}
+              {format.date(`${record.occurredAt.slice(0, 10)}T12:00:00.000Z`)}
+            </span>
             {record.lotNumber ? (
               <span data-slot="vaccination-lot">
                 {t("vaccinations.row.lot", { lot: record.lotNumber })}

@@ -172,6 +172,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
     },
   );
 
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: file name stamp, not a day shown or compared
   const stamp = new Date().toISOString().slice(0, 10);
   // Return the raw binary archive (NOT the apiSuccess envelope). The file is a
   // self-contained `.hlx` archive openable with the user's passphrase via

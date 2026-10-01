@@ -45,6 +45,7 @@ import {
 import { addDays } from "@/lib/cycle/day-math";
 import { moodDateKey } from "@/lib/mood/date-key";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import { startOfLocalDayKey } from "@/lib/tz/local-day";
 
 /** Trailing window the phase-contrast walks (days). */
 const WINDOW_DAYS = 365;
@@ -124,7 +125,7 @@ export const GET = apiHandler(async () => {
         deletedAt: null,
         type: "WRIST_TEMPERATURE",
         measuredAt: {
-          gte: new Date(Date.parse(`${addDays(today, -90)}T00:00:00Z`)),
+          gte: startOfLocalDayKey(addDays(today, -90), tz),
         },
       },
       orderBy: { measuredAt: "asc" },
@@ -140,7 +141,7 @@ export const GET = apiHandler(async () => {
             deletedAt: null,
             type: { in: PHASE_CROSSTAB_METRIC_TYPES },
             measuredAt: {
-              gte: new Date(Date.parse(`${from}T00:00:00Z`)),
+              gte: startOfLocalDayKey(from, tz),
             },
           },
           orderBy: { measuredAt: "asc" },
@@ -166,7 +167,7 @@ export const GET = apiHandler(async () => {
           where: {
             userId: user.id,
             deletedAt: null,
-            moodLoggedAt: { gte: new Date(Date.parse(`${from}T00:00:00Z`)) },
+            moodLoggedAt: { gte: startOfLocalDayKey(from, tz) },
           },
           orderBy: { moodLoggedAt: "asc" },
           select: { score: true, moodLoggedAt: true },

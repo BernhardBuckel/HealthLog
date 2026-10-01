@@ -39,6 +39,7 @@ import {
 import { loadUserSourcePriority } from "@/lib/rollups/measurement-read";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
 import { requireModuleEnabled } from "@/lib/modules/gate";
+import { isCalendarDateKey } from "@/lib/tz/date-only";
 
 /** Sleep is read row-per-stage, so the window is bounded to one year. */
 const SLEEP_NIGHT_MAX_DAYS = 365;
@@ -48,11 +49,7 @@ const querySchema = z.object({
   date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD")
-    .refine((s) => {
-      const parsed = new Date(`${s}T00:00:00Z`);
-      if (Number.isNaN(parsed.getTime())) return false;
-      return s === parsed.toISOString().slice(0, 10);
-    }, "date must be a real calendar date (YYYY-MM-DD)")
+    .refine(isCalendarDateKey, "date must be a real calendar date (YYYY-MM-DD)")
     .optional(),
 });
 

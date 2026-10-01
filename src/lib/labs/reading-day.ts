@@ -9,7 +9,7 @@
  * put a morning draw east of UTC on the previous day, so a scan of the same
  * report wrote the reading a second time.
  */
-import { dateOnlyKey, dbDate } from "@/lib/tz/date-only";
+import { dateOnlyKey, dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 import { shiftDateKey, userDayKey } from "@/lib/tz/format";
 
 const DAY_MS = 86_400_000;
@@ -31,7 +31,7 @@ export function labReadingDaySearchRange(day: string): {
   lt: Date;
 } {
   return {
-    gte: dbDate(shiftDateKey(day, -1)),
-    lt: dbDate(shiftDateKey(day, 2)),
+    gte: dayKeyAsUtcMidnight(shiftDateKey(day, -1)),
+    lt: dayKeyAsUtcMidnight(shiftDateKey(day, 2)),
   };
 }

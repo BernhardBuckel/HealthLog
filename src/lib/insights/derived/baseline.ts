@@ -54,6 +54,7 @@ import {
   type Derived,
   type DerivedProvenanceSource,
 } from "./types";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /** k for the median ± k·MAD band — ≈3σ-equivalent for normal data. */
 const DEFAULT_MAD_K = 3;
@@ -255,7 +256,7 @@ export async function readDayMeanSeries(
       const points = resolved.rows
         .filter((row) => isPlausibleMetricValue(type, row.mean))
         .map((row) => ({
-          day: row.bucketStart.toISOString().slice(0, 10),
+          day: dateOnlyKey(row.bucketStart),
           mean: row.mean,
         }));
       if (points.length > 0) return { points, source: "DAY" };

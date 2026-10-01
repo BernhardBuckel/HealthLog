@@ -191,6 +191,7 @@ export interface WithingsSleepSegment {
  * fetch derives from the same `start` / `now` Dates.
  */
 function ymdUtc(d: Date): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: day-grained summary window matching the unix-second segment window (see the doc comment)
   return d.toISOString().slice(0, 10);
 }
 

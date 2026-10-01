@@ -297,10 +297,12 @@ export function buildDailyBpRows(
 export function bpBandFromRows(
   rows: ReadonlyArray<{ measuredAt: Date; value: number }>,
   type: "BLOOD_PRESSURE_SYS" | "BLOOD_PRESSURE_DIA",
+  tz: string,
 ): { low: number; high: number } | null {
   const byDay = new Map<string, { sum: number; count: number }>();
   for (const r of rows) {
-    const day = r.measuredAt.toISOString().slice(0, 10);
+    // The user's day, like every other day mean in the snapshot.
+    const day = tzDayKey(r.measuredAt, tz);
     const acc = byDay.get(day) ?? { sum: 0, count: 0 };
     acc.sum += r.value;
     acc.count += 1;

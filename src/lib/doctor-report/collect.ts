@@ -73,6 +73,7 @@ import {
   loadSurgicalHistory,
   loadLabResults,
 } from "./clinical-records";
+import { dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 
 const DENSE_REPORT_RAW_WINDOW_DAYS = 90;
 
@@ -166,8 +167,8 @@ export async function collectDoctorReportData(
   // they compare against the window's first and last day in the report zone,
   // not its instants: west of UTC the window starts hours after UTC midnight,
   // and a course that ended on the first day read as over before it began.
-  const firstDay = new Date(`${userDayKey(start, reportTz)}T00:00:00.000Z`);
-  const lastDay = new Date(`${userDayKey(end, reportTz)}T00:00:00.000Z`);
+  const firstDay = dayKeyAsUtcMidnight(userDayKey(start, reportTz));
+  const lastDay = dayKeyAsUtcMidnight(userDayKey(end, reportTz));
 
   const aggregateDenseTypes = days > DENSE_REPORT_RAW_WINDOW_DAYS;
   const densePulse =
@@ -579,7 +580,7 @@ export async function collectDoctorReportData(
     emergency,
   ] = await Promise.all([
     gate.admits("CYCLE")
-      ? buildCycleExportSummary(userId, end.toISOString().slice(0, 10))
+      ? buildCycleExportSummary(userId, userDayKey(end, reportTz))
       : Promise.resolve(null),
     gate.admits("LAB_RESULTS")
       ? loadLabResults(userId, start, end)

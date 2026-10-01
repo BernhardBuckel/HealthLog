@@ -17,6 +17,7 @@ import { toManagedProfileView } from "@/lib/managed-profiles/lifecycle";
 import { annotate } from "@/lib/logging/context";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createManagedProfileSchema } from "@/lib/validations/managed-profiles";
+import { dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 
 /**
  * The same ceiling its guardian sibling carries, and for the same reason.
@@ -59,7 +60,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
     creatorId: user.id,
     displayName: parsed.data.displayName,
     dateOfBirth: parsed.data.dateOfBirth
-      ? new Date(`${parsed.data.dateOfBirth}T00:00:00.000Z`)
+      ? dayKeyAsUtcMidnight(parsed.data.dateOfBirth)
       : null,
     locale: parsed.data.locale,
     timezone: parsed.data.timezone,

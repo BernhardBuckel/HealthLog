@@ -16,5 +16,6 @@
  */
 export function maxAcceptableNutrientDay(now: Date): string {
   const limit = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: upper sanity bound with two days of slack for every real zone (see the doc comment)
   return limit.toISOString().slice(0, 10);
 }

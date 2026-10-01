@@ -42,6 +42,7 @@ import {
   LIVE_ERA_REVISION_ARGS,
   liveEraStart,
 } from "@/lib/medications/scheduling/live-era";
+import { dayKeyForScheduledFor } from "@/lib/rollups/medication-compliance-rollups";
 
 export interface ProjectTodayIntakesResult {
   projected: number;
@@ -238,7 +239,9 @@ export async function projectTodayIntakesAndRecompute(input: {
   const seenDayKeys = new Set<string>();
   const recomputeJobs: Array<Promise<void>> = [];
   for (const m of missing) {
-    const key = `${m.medicationId}|${m.scheduledFor.toISOString().slice(0, 10)}`;
+    // The compliance rollup's own day for the slot: two slots on different
+    // local days that share a UTC date must each get their recompute.
+    const key = `${m.medicationId}|${dayKeyForScheduledFor(m.scheduledFor, userTz)}`;
     if (seenDayKeys.has(key)) continue;
     seenDayKeys.add(key);
     recomputeJobs.push(

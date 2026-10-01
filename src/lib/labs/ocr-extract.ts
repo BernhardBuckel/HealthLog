@@ -41,6 +41,7 @@ import {
   labReadingDaySearchRange,
 } from "@/lib/labs/reading-day";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
+import { statedDateKey } from "@/lib/tz/date-only";
 
 const SYSTEM_PROMPT = `You transcribe a photograph or PDF of a laboratory test report into structured data.
 
@@ -95,12 +96,8 @@ Respond ONLY with a JSON object of this exact shape:
 /** A normalised ISO date string (YYYY-MM-DD) or null. */
 function normaliseDate(raw: string | null): string | null {
   if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return null;
   // Keep only the calendar day — the lab reports a date, not an instant.
-  return parsed.toISOString().slice(0, 10);
+  return statedDateKey(raw);
 }
 
 /**

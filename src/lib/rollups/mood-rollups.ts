@@ -55,6 +55,7 @@ import type {
   PrismaClient,
   RollupGranularity,
 } from "@/generated/prisma/client";
+import { dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 
 /** Granularities that recompute asynchronously via pg-boss. */
 const ASYNC_GRANULARITIES: RollupGranularity[] = ["WEEK", "MONTH", "YEAR"];
@@ -250,7 +251,7 @@ export async function recomputeMoodBucketsForEntry(
   // on `entry.date`) and puts a late-evening / after-midnight local
   // mood on the calendar day the user logged it in their own timezone.
   // `bucket_start` encodes the label as its UTC midnight instant.
-  const bucketStart = new Date(`${dateLabel}T00:00:00.000Z`);
+  const bucketStart = dayKeyAsUtcMidnight(dateLabel);
   await client.$executeRaw`
     WITH aggregate AS (
       SELECT
@@ -718,7 +719,7 @@ function bucketSpan(
 ): { from: Date; to: Date } {
   // Anchor at the label's UTC midnight; its UTC calendar parts ARE the
   // label's parts, so the existing UTC date math below is exact.
-  const anchor = new Date(`${dateLabel}T00:00:00.000Z`);
+  const anchor = dayKeyAsUtcMidnight(dateLabel);
   switch (granularity) {
     case "DAY": {
       return {

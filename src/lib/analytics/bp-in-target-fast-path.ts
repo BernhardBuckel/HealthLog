@@ -468,6 +468,7 @@ function bucketWindow(
  * safe for every code path that reaches this helper.
  */
 function bucketDayKey(d: Date): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: rollup bucketStart key; non-near-UTC users are routed to the live path (see the doc comment)
   return d.toISOString().slice(0, 10);
 }
 

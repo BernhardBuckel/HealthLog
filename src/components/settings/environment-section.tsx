@@ -227,7 +227,10 @@ export function EnvironmentSection() {
   // user can still type an earlier start, but pre-home days resolve to SKIP on
   // the server — to fill the deep past they add an explicit location period.
   const effectiveBackfillStart =
-    backfillStart || (home?.since ? userDayKey(new Date(home.since), tz) : "");
+    // `since` stays on the server's day for the home (a UTC day key in the
+    // environment module), so the default start matches what the worker
+    // compares against.
+    backfillStart || home?.since?.slice(0, 10) || "";
 
   return (
     <div className="space-y-6">

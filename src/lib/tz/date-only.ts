@@ -21,6 +21,38 @@ export function isDateOnlyKey(value: string): boolean {
   return DATE_ONLY_RE.test(value);
 }
 
+/**
+ * True for a `YYYY-MM-DD` string that names a real calendar date.
+ * `2026-02-30` passes the shape check but overflows to 2 March when parsed,
+ * so a reader would return a different day than the one asked for.
+ */
+export function isCalendarDateKey(value: string): boolean {
+  if (!DATE_ONLY_RE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value)
+  );
+}
+
+/**
+ * The calendar date a free-form date string states, or `null`. An ISO string
+ * (`2026-06-10`, `2026-06-10T08:00:00+09:00`) states the date it starts with.
+ * Anything else (`June 10, 2026`) is parsed the way `Date` parses it, as local
+ * time in the process zone, so the date is read back in that same zone;
+ * reading it as UTC put it on the previous day for a process east of UTC.
+ */
+export function statedDateKey(raw: string): string | null {
+  const trimmed = raw.trim();
+  const isoPrefix = /^(\d{4}-\d{2}-\d{2})(?:$|T|\s)/u.exec(trimmed);
+  if (isoPrefix) {
+    return isCalendarDateKey(isoPrefix[1]) ? isoPrefix[1] : null;
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${String(parsed.getFullYear()).padStart(4, "0")}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+}
+
 /** The instant a date-only value is stored as: 12:00 UTC on that date. */
 export function dateOnlyAtNoonUtc(key: string): Date {
   return new Date(`${key}T12:00:00.000Z`);
@@ -36,11 +68,15 @@ export function dateOnlyKey(value: Date): string {
 }
 
 /**
- * The value a `@db.Date` column holds for calendar date `key` (Prisma reads
- * and writes those columns as UTC midnight). Use it to compare such a column
- * with a day: `endsOn >= dbDate(todayKey)` keeps a course through its last
- * day, where comparing against the instant `now` dropped that day.
+ * Calendar date `key` as UTC midnight. A LABEL, never the instant the day
+ * began for anyone: it is how a `@db.Date` column holds a date (Prisma reads
+ * and writes those as UTC midnight), how the day rollups key `bucketStart`,
+ * and how a day-keyed series places a point on a time axis. Use it to compare
+ * such a column with a day (`endsOn >= dayKeyAsUtcMidnight(todayKey)` keeps a
+ * course through its last day, where comparing with the instant `now` dropped
+ * it) or to build such a label. The first instant of a person's day is
+ * `startOfLocalDayKey(key, tz)`.
  */
-export function dbDate(key: string): Date {
+export function dayKeyAsUtcMidnight(key: string): Date {
   return new Date(`${key}T00:00:00.000Z`);
 }

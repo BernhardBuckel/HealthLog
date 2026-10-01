@@ -30,6 +30,7 @@
  */
 import type { MeasurementType } from "@/generated/prisma/client";
 import { buildBaselineBand } from "@/lib/insights/derived/baseline";
+import { daysBetweenDateKeys } from "@/lib/tz/format";
 
 /** One DAY-bucket point: a calendar day key (YYYY-MM-DD) + that day's mean. */
 export interface StreakPoint {
@@ -220,8 +221,6 @@ function buildBandFromSeries(
 
 /** Whole-day gap between two YYYY-MM-DD keys (>=1; 1 = adjacent). */
 function dayGap(earlier: string, later: string): number {
-  const a = Date.parse(`${earlier}T00:00:00Z`);
-  const b = Date.parse(`${later}T00:00:00Z`);
-  if (Number.isNaN(a) || Number.isNaN(b)) return Number.POSITIVE_INFINITY;
-  return Math.round((b - a) / (24 * 60 * 60 * 1000));
+  const gap = daysBetweenDateKeys(earlier, later);
+  return Number.isNaN(gap) ? Number.POSITIVE_INFINITY : gap;
 }

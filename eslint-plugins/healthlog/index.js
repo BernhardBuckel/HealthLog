@@ -12,6 +12,8 @@
  *                              whose handler returns a JobOutcome.
  *   - `no-default-zone-literal` — the default zone is DEFAULT_TIMEZONE from
  *                              src/lib/tz/format, never written out.
+ *   - `no-utc-day-key`       — a day is cut through the tz module, not by
+ *                              slicing an ISO string or parsing UTC midnight.
  */
 
 "use strict";
@@ -23,6 +25,7 @@ const noRawPaletteColor = require("./no-raw-palette-color.js");
 const spacingScale = require("./spacing-scale.js");
 const jobHandlerOutcome = require("./job-handler-outcome.js");
 const noDefaultZoneLiteral = require("./no-default-zone-literal.js");
+const noUtcDayKey = require("./no-utc-day-key.js");
 
 module.exports = {
   rules: {
@@ -38,5 +41,6 @@ module.exports = {
     "no-dracula-utility": noRawPaletteColor,
     "job-handler-outcome": jobHandlerOutcome,
     "no-default-zone-literal": noDefaultZoneLiteral,
+    "no-utc-day-key": noUtcDayKey,
   },
 };

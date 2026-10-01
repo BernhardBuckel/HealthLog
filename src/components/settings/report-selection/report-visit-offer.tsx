@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { useEncounters } from "@/hooks/use-encounters";
 import { useFormatters, useTranslations } from "@/lib/i18n/context";
 import type { EncounterKind } from "@/generated/prisma/client";
+import { detectBrowserTimezone, userDayKey } from "@/lib/tz/format";
 
 /**
  * How far ahead a booked visit is treated as the reason for this report.
@@ -36,9 +37,7 @@ export const REPORT_VISIT_HORIZON_DAYS = 14;
 
 /** The local `yyyy-MM-dd` a `DateField` takes, in the reader's own day. */
 function localDay(iso: string): string {
-  const at = new Date(iso);
-  const offset = at.getTimezoneOffset();
-  return new Date(at.getTime() - offset * 60_000).toISOString().slice(0, 10);
+  return userDayKey(new Date(iso), detectBrowserTimezone());
 }
 
 export function ReportVisitOffer({

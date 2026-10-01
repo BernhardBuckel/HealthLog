@@ -211,7 +211,8 @@ export async function processOffhostPurges(
     const subject = request.subjectId;
     const day =
       request.reason === "data_wiped" && live.has(subject)
-        ? request.requestedAt.toISOString().slice(0, 10)
+        ? // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: matches the UTC dates in the off-host object keys
+          request.requestedAt.toISOString().slice(0, 10)
         : null;
     const prior = lastDayToDelete.get(subject);
     if (prior === undefined) lastDayToDelete.set(subject, day);

@@ -44,6 +44,7 @@ import {
   nowProvenanceTimestamp,
 } from "@/lib/insights/derived/coverage";
 import type { Derived } from "@/lib/insights/derived/types";
+import { daysBetweenDateKeys } from "@/lib/tz/format";
 
 /* ── tunables (documented invariants) ────────────────────────────────── */
 
@@ -1050,7 +1051,5 @@ function runFlag(
 
 /** Whole-day signed difference `to − from` for two `YYYY-MM-DD` keys. */
 export function dayDiff(from: string, to: string): number {
-  const a = Date.parse(`${from}T00:00:00Z`);
-  const b = Date.parse(`${to}T00:00:00Z`);
-  return Math.round((b - a) / (24 * 60 * 60 * 1000));
+  return daysBetweenDateKeys(from, to);
 }

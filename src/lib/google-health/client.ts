@@ -646,6 +646,7 @@ export function incrementalFilter(
     case "date":
       return {
         field: `${dateStyle === "camel" ? dataType.key : dataType.filter}.date`,
+        // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: request window edge for the provider API, not a displayed day; rows carry their own dates
         bound: start.toISOString().slice(0, 10),
       };
     case "rollup":

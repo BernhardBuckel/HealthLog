@@ -28,6 +28,7 @@ import {
   resolveSlotForWriteByBand,
 } from "@/lib/medications/scheduling/slot-upsert";
 import { NextRequest } from "next/server";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 type RouteParams = { params: Promise<{ id: string; eventId: string }> };
 
@@ -100,7 +101,7 @@ export const PUT = apiHandler(
       });
       if (medication?.startsOn) {
         const takenDay = dayKeyForUserTz(data.takenAt, user.timezone);
-        const startsOnDay = medication.startsOn.toISOString().slice(0, 10);
+        const startsOnDay = dateOnlyKey(medication.startsOn);
         if (takenDay < startsOnDay) {
           annotate({
             action: {

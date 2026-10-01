@@ -60,6 +60,7 @@ export const MAX_PROGNOSIS_ROWS = 5000;
 
 /** `YYYY-MM-DD`, this many days before the given instant, in UTC terms. */
 export function dayKeyBefore(now: Date, days: number): string {
+  // eslint-disable-next-line healthlog/no-utc-day-key -- baseline: far edge of the fit window on stored day keys; a day either way does not change the fit
   return new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10);
 }
 

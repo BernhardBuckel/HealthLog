@@ -23,6 +23,7 @@ import type { StrainAnchor } from "@/lib/insights/strain-score";
 import { computeReadiness, type ReadinessComponent } from "./readiness";
 import { resolveCanonicalRecovery } from "./recovery-resolve";
 import { SPARKLINE_MAX_POINTS, type Derived } from "./types";
+import { dateOnlyKey } from "@/lib/tz/date-only";
 
 /** A 0–100 wellness score band. Higher is better for recovery; for stress a
  *  higher score is worse, so the band direction flips (see `WELLNESS_DIR`). */
@@ -207,7 +208,7 @@ export async function computeWellnessScore(
   // truth is the cache row, not a re-derivation here.
   let anchor: StrainAnchor | null = null;
   if (type === "STRAIN_SCORE") {
-    const day = latest.measuredAt.toISOString().slice(0, 10);
+    const day = dateOnlyKey(latest.measuredAt);
     const cache = await prisma.strainTrimpCache.findUnique({
       where: { userId_day: { userId, day } },
       select: { anchor: true },

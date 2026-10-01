@@ -58,7 +58,7 @@ import type {
   DocumentSourceSystemValue,
   InboundDocumentKindValue,
 } from "@/lib/validations/inbound-documents";
-import { dateOnlyAtNoonUtc } from "@/lib/tz/date-only";
+import { dateOnlyAtNoonUtc, dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 import { userDayKey } from "@/lib/tz/format";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
 
@@ -84,7 +84,7 @@ export function personalUploadBucket(userId: string): string {
  * a stored date goes through `dateOnlyAtNoonUtc`.
  */
 export function isoDateToUtc(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+  return dayKeyAsUtcMidnight(value);
 }
 
 export interface IngestInput {

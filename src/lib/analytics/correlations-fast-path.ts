@@ -66,6 +66,7 @@ import { wallClockInTz } from "@/lib/tz/wall-clock";
 import { defaultLocale, type Locale } from "@/lib/i18n/config";
 import { getServerTranslator } from "@/lib/i18n/server-translator";
 import { TRACKED_INTAKE_EVENT_WHERE } from "@/lib/medications/intake-tracking";
+import { dayKeyAsUtcMidnight } from "@/lib/tz/date-only";
 
 /**
  * v1.4.37 W2 — cold-path correlation window. Trim from 30 to 28 days
@@ -413,7 +414,7 @@ async function fetchSeriesChunked(
 }
 
 function dateFromDayKey(key: string): Date {
-  return new Date(`${key}T00:00:00.000Z`);
+  return dayKeyAsUtcMidnight(key);
 }
 
 function isoWeekdayInTz(d: Date, timeZone: string): number {

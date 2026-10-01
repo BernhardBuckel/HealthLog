@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { EXTERNAL_SOURCE } from "@/lib/measurements/external-source";
 import { validateEntryInstant } from "./entry-instant";
+import { isCalendarDateKey } from "@/lib/tz/date-only";
 
 export const measurementTypeEnum = z.enum([
   "WEIGHT",
@@ -869,11 +870,10 @@ export const listMeasurementsSchema = z
       // the admin drain route, so a malformed CLI invocation has the
       // same blast radius. Reject the impossible shapes at the
       // validator instead.
-      .refine((s) => {
-        const parsed = new Date(`${s}T00:00:00Z`);
-        if (Number.isNaN(parsed.getTime())) return false;
-        return s === parsed.toISOString().slice(0, 10);
-      }, "dayKey must be a real calendar date (YYYY-MM-DD)")
+      .refine(
+        isCalendarDateKey,
+        "dayKey must be a real calendar date (YYYY-MM-DD)",
+      )
       .optional(),
   })
   .refine(

@@ -27,6 +27,7 @@ import { addDays } from "@/lib/cycle/day-math";
 import { BBT_WINDOW } from "@/lib/cycle/types";
 import { moodDateKey } from "@/lib/mood/date-key";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import { startOfLocalDayKey } from "@/lib/tz/local-day";
 
 /** Day-log lookback: the calendar's default past span or the symptothermal
  *  window, whichever reaches further back. */
@@ -97,10 +98,9 @@ export async function refreshPredictionCacheForUser(
         deletedAt: null,
         type: "WRIST_TEMPERATURE",
         measuredAt: {
-          gte: new Date(
-            Date.parse(
-              `${addDays(today, -TEMPERATURE_LOOKBACK_DAYS)}T00:00:00Z`,
-            ),
+          gte: startOfLocalDayKey(
+            addDays(today, -TEMPERATURE_LOOKBACK_DAYS),
+            tz,
           ),
         },
       },

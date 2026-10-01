@@ -708,6 +708,7 @@ export async function runDenseIntradayRetention(
             // The fold's canonical timestamp is local-noon of the day; reuse
             // its UTC date for the resting row's `stats:` key so a re-run
             // upserts the same row instead of minting a sibling.
+            // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: stable stats: externalId key; changing it would mint a sibling row on re-run
             canonicalTimestamp.toISOString().slice(0, 10),
           );
           await pc.measurement.upsert({

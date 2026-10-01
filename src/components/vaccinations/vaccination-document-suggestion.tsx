@@ -60,7 +60,8 @@ export function VaccinationDocumentSuggestion({
     const name = candidate.antigenSlug
       ? t(`vaccinations.catalog.${candidate.antigenSlug}`)
       : (candidate.vaccineName ?? t("vaccinations.suggestion.unnamed"));
-    return `${name} · ${format.date(candidate.occurredAt)}`;
+    // A date stored at UTC midnight: render the date, not the instant.
+    return `${name} · ${format.date(`${candidate.occurredAt.slice(0, 10)}T12:00:00.000Z`)}`;
   };
 
   const onPick = (candidate: VaccinationSuggestion) => {

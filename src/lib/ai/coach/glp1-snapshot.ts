@@ -25,7 +25,13 @@ import { matchGlp1SideEffectTags } from "@/lib/medications/glp1-side-effect-tag-
 import type { Glp1SideEffectTag } from "@/lib/medications/glp1-side-effect-tags";
 import { isRecordOnly } from "@/lib/medications/intake-tracking";
 import { floorWhole } from "@/lib/medications/units-per-dose";
-import { DEFAULT_TIMEZONE, shiftDateKey, userDayKey } from "@/lib/tz/format";
+import {
+  DEFAULT_TIMEZONE,
+  daysBetweenDateKeys,
+  shiftDateKey,
+  userDayKey,
+  weekdayOfDateKey,
+} from "@/lib/tz/format";
 
 /**
  * Recommended generic name for the canonical GLP-1 drug brand. The Coach
@@ -160,11 +166,6 @@ function weeksBetween(from: Date, to: Date): number {
   return Math.max(0, Math.round(ms / (7 * 24 * 60 * 60 * 1000)));
 }
 
-/** Midnight UTC of a calendar-day key: a label for day arithmetic only. */
-function keyEpochDays(key: string): number {
-  return Math.round(Date.parse(`${key}T00:00:00.000Z`) / 86_400_000);
-}
-
 /**
  * Predict next injection from cadence + last intake.
  *
@@ -191,17 +192,12 @@ function predictNextInjection(
   if (schedule.cadence === "weekly" && schedule.daysOfWeek.length > 0) {
     const targetDow = schedule.daysOfWeek[0];
     // Project forward from the anchor (lastInjection if known, otherwise
-    // today) until we land on the target weekday. The weekday of a
-    // calendar date does not depend on any zone, so the key's UTC label
-    // answers it.
+    // today) until we land on the target weekday.
     const anchorKey = lastInjection ? lastInjection.date : todayKey;
     for (let i = 1; i <= 14; i += 1) {
       const key = shiftDateKey(anchorKey, i);
-      if (new Date(`${key}T00:00:00.000Z`).getUTCDay() === targetDow) {
-        const daysAway = Math.max(
-          0,
-          keyEpochDays(key) - keyEpochDays(todayKey),
-        );
+      if (weekdayOfDateKey(key) === targetDow) {
+        const daysAway = Math.max(0, daysBetweenDateKeys(todayKey, key));
         return { date: key, daysAway };
       }
     }
