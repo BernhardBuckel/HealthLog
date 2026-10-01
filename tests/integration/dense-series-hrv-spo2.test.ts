@@ -9,12 +9,19 @@
  * per local hour. A sparse account inside 90 days keeps its raw readings,
  * byte for byte, and a bucket has the shape of a reading of its kind (no
  * `valueMin` / `valueMax`, which only pulse carries).
+ *
+ * The doctor report applies the same rule to both: their sections are a
+ * statistics row and a series, so a dense window takes the per-day path pulse
+ * already takes, with exact count, minimum, maximum and latest reading.
  */
 import { NextRequest } from "next/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { cookieJar } from "./mock-next-headers";
 import { getPrismaClient, truncateAllTables } from "./setup";
+import { collectDoctorReportData } from "@/lib/doctor-report-data";
+import { latestReading } from "@/lib/fhir/resources/common";
+import { selectionFromLeaves } from "@/lib/report-selection/selection";
 import { invalidateUserTimezone } from "@/lib/tz/resolver";
 
 vi.mock("next/headers", async () => {
@@ -171,5 +178,63 @@ describe.each(KINDS)("$kind series", ({ kind, type, unit }) => {
         secondary: null,
       })),
     );
+  });
+});
+
+describe.each(KINDS)("doctor report $type", ({ type }) => {
+  async function report(userId: string, days: number) {
+    const end = new Date();
+    const start = new Date(end.getTime() - days * 86_400_000);
+    return collectDoctorReportData(
+      userId,
+      { start, end, days },
+      selectionFromLeaves([type]),
+    );
+  }
+
+  it("folds a dense window to one point per day, statistics exact", async () => {
+    const data = await report(DENSE, 30);
+    const points = data.measurements[type] ?? [];
+    expect(points.length).toBeLessThanOrEqual(14);
+    expect(points.length).toBeGreaterThanOrEqual(12);
+    const agg = await prisma.measurement.aggregate({
+      where: { userId: DENSE, type },
+      _count: true,
+      _avg: { value: true },
+      _min: { value: true },
+      _max: { value: true },
+    });
+    expect(data.stats[type]?.count).toBe(agg._count);
+    expect(data.stats[type]?.min).toBe(agg._min.value);
+    expect(data.stats[type]?.max).toBe(agg._max.value);
+    expect(data.stats[type]?.avg).toBeCloseTo(agg._avg.value ?? 0, 9);
+    const newest = await prisma.measurement.findFirstOrThrow({
+      where: { userId: DENSE, type },
+      orderBy: { measuredAt: "desc" },
+      select: { value: true, measuredAt: true },
+    });
+    expect(latestReading(data, type)).toEqual({
+      value: newest.value,
+      measuredAt: newest.measuredAt.toISOString(),
+    });
+  });
+
+  it("keeps a sparse window raw", async () => {
+    const data = await report(SPARSE, 30);
+    const count = await prisma.measurement.count({
+      where: {
+        userId: SPARSE,
+        type,
+        measuredAt: { gte: new Date(Date.now() - 30 * 86_400_000) },
+      },
+    });
+    expect(data.measurements[type]).toHaveLength(count);
+    expect(data.stats[type]?.count).toBe(count);
+  });
+
+  it("folds a window longer than 90 days per day", async () => {
+    const data = await report(SPARSE, 120);
+    expect(data.stats[type]?.count).toBe(45 * 3);
+    expect((data.measurements[type] ?? []).length).toBeLessThanOrEqual(46);
   });
 });
