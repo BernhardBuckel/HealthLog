@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslations, useFormatters } from "@/lib/i18n/context";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
 
 import { ILLNESS_SYMPTOM_CATALOG } from "./symptom-catalog";
 import { useIllnessDayLogList } from "./use-illness";
@@ -32,6 +33,7 @@ function symptomLabelKey(key: string): string | null {
 function DayLogRow({ log }: { log: IllnessDayLogDTO }) {
   const { t } = useTranslations();
   const fmt = useFormatters();
+  const { toDisplay, unitFor } = useUnitDisplay();
 
   return (
     <div className="border-border/60 space-y-2 border-l-2 pl-3">
@@ -72,7 +74,10 @@ function DayLogRow({ log }: { log: IllnessDayLogDTO }) {
 
       {log.feverC !== null ? (
         <p className="text-foreground text-sm">
-          {t("illness.timeline.fever", { value: fmt.number(log.feverC, 1) })}
+          {t("illness.timeline.fever", {
+            value: fmt.number(toDisplay("BODY_TEMPERATURE", log.feverC), 1),
+            unit: unitFor("BODY_TEMPERATURE"),
+          })}
         </p>
       ) : null}
 

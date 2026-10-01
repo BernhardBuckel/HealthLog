@@ -8168,6 +8168,7 @@
     "medications": "Medicamentos y adherencia",
     "bmi": "Índice de masa corporal (IMC)",
     "statSummary": "último {latest} (prom. {avg}, rango {min}–{max})",
+    "statSummaryWithUnit": "último {latest} {unit} (prom. {avg} {unit}, rango {min}–{max} {unit})",
     "adherence": "{rate} de adherencia",
     "noAdherence": "—",
     "glucose": {
@@ -9406,7 +9407,7 @@
       "severity": "Intensidad {severity}",
       "noSymptoms": "Sin síntomas registrados.",
       "impact": "Cómo funcionaste: {impact}",
-      "fever": "Temperatura: {value} °C",
+      "fever": "Temperatura: {value} {unit}",
       "empty": "Todavía no hay días registrados."
     },
     "loadError": "No se pudo cargar este episodio.",

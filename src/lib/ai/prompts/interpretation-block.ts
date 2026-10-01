@@ -130,9 +130,17 @@ function proximityPhrase(
  */
 export function buildInterpretationBlock(args: {
   metricKey: string;
+  /** The value in the guideline's own (canonical) unit — what is classified. */
   value: number;
   sex: "MALE" | "FEMALE" | null | undefined;
   locale: Locale;
+  /**
+   * Print the block in the reader's unit. Classification always runs on the
+   * canonical value against the canonical bands; only the printed numbers and
+   * the unit symbol are converted, so a prompt whose snapshot reads °F does
+   * not carry a band table in °C beside it.
+   */
+  display?: { unit: string; convert: (canonical: number) => number };
 }): string | undefined {
   const resolved = resolveInterpretation(args.metricKey, args.sex ?? null);
   if (!resolved) return undefined;
@@ -140,22 +148,24 @@ export function buildInterpretationBlock(args: {
   const loc: "en" | "de" = instructionLocale(args.locale);
   const pos = classifyBandPosition(args.value, resolved.bands);
 
-  const rows = resolved.bands
+  const show = (n: number) => (args.display ? args.display.convert(n) : n);
+  const unit = args.display ? args.display.unit : resolved.unit;
+  const shownBands = resolved.bands.map((band) => ({
+    ...band,
+    upTo: band.upTo === null ? null : show(band.upTo),
+  }));
+
+  const rows = shownBands
     .map((band, i) =>
-      bandRow(
-        band,
-        i > 0 ? resolved.bands[i - 1].upTo : null,
-        resolved.unit,
-        loc,
-      ),
+      bandRow(band, i > 0 ? shownBands[i - 1].upTo : null, unit, loc),
     )
     .map((r) => `  - ${r}`)
     .join("\n");
 
   const proximity = proximityPhrase(
     pos.proximity,
-    pos.nearestEdge,
-    resolved.unit,
+    pos.nearestEdge === null ? null : show(pos.nearestEdge),
+    unit,
     loc,
   );
   const valence = valencePhrase(pos.band.valence, loc);
@@ -164,14 +174,14 @@ export function buildInterpretationBlock(args: {
 
   if (loc === "en") {
     return `INTERPRETATION CONTEXT (guideline bands — computed server-side; state, do NOT recompute):
-- Current value ${args.value} ${resolved.unit} is in the "${pos.band.label}" band, and ${proximity}.
+- Current value ${show(args.value)} ${unit} is in the "${pos.band.label}" band, and ${proximity}.
 - Guideline bands (${resolved.source}; ${direction}):
 ${rows}
 - Values in the "${pos.band.label}" band are considered ${valence} per these guidelines.${caveat}
 - Name where the value sits and what that band means in plain words. Judge any trend BY this position: a shift deep inside a favourable band is a footnote; the same shift approaching or crossing a boundary is the headline. Frame consequence without diagnosis ("values in this range are considered …", never "you have / are at risk of …").`;
   }
   return `EINORDNUNGS-KONTEXT (Leitlinien-Bänder — serverseitig berechnet; nennen, NICHT neu rechnen):
-- Der aktuelle Wert ${args.value} ${resolved.unit} liegt im Band "${pos.band.label}" und ${proximity}.
+- Der aktuelle Wert ${show(args.value)} ${unit} liegt im Band "${pos.band.label}" und ${proximity}.
 - Leitlinien-Bänder (${resolved.source}; ${direction}):
 ${rows}
 - Werte im Band "${pos.band.label}" gelten laut diesen Leitlinien als ${valence}.${caveat}

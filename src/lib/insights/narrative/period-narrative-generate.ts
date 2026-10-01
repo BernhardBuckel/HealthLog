@@ -259,8 +259,9 @@ export function buildNarrativeUserPrompt(
             : locale === "de"
               ? "im Bereich"
               : "in range";
+      const unit = b.unit ? ` ${b.unit}` : "";
       lines.push(
-        `- ${b.type}: ${b.center} (${b.bandLow}–${b.bandHigh}) → ${where}`,
+        `- ${b.type}: ${b.center}${unit} (${b.bandLow}–${b.bandHigh}${unit}) → ${where}`,
       );
     }
   }

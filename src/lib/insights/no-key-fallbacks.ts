@@ -439,6 +439,12 @@ const GENERIC_METRIC_POINTER: Localized<string> = {
 export function getNoKeyMetricStatusText(
   locale: InsightLocale,
   signal?: MetricSignal | null,
+  /**
+   * Decimals the signal's unit is read at (0 for mg/dL, 1 for mmol/L or
+   * pounds). Defaults to one, which was the only precision before the
+   * signal could arrive in the reader's unit.
+   */
+  digits = 1,
 ): string {
   const grounded =
     signal && Number.isFinite(signal.current)
@@ -449,7 +455,7 @@ export function getNoKeyMetricStatusText(
             // localised upstream, so it stands for every locale.
             label: { en: signal.metric },
             ...(signal.unit ? { unit: ` ${signal.unit}` } : {}),
-            digits: 1,
+            digits,
             pointer: GENERIC_METRIC_POINTER,
           },
           locale,

@@ -1,7 +1,12 @@
 "use client";
 
 import { useTranslations } from "@/lib/i18n/context";
-import { useUnitDisplay } from "@/hooks/use-unit-display";
+import { useUnitDisplay, type UnitDisplay } from "@/hooks/use-unit-display";
+import {
+  applyDisplayTransform,
+  applyDisplayTransformDelta,
+  getReadingTransform,
+} from "@/lib/measurements/display-transform";
 import { cn } from "@/lib/utils";
 
 /**
@@ -88,7 +93,46 @@ function fmt(value: number, display: CyclePhaseCrosstabDisplay): string {
 const DISPLAY_TO_TYPE: Partial<Record<CyclePhaseCrosstabDisplay, string>> = {
   kg: "WEIGHT",
   celsius: "BODY_TEMPERATURE",
+  glucose: "BLOOD_GLUCOSE",
 };
+
+/**
+ * Unit symbol and conversions for one row, from the reader's preferences.
+ * Glucose follows the glucose unit (it used to print the mg/dL label from
+ * the bundle beside raw mg/dL values for every reader); weight and
+ * temperature follow metric/imperial; every other display keeps its bundle
+ * label and its raw value.
+ */
+function rowUnits(
+  display: CyclePhaseCrosstabDisplay,
+  unitDisplay: UnitDisplay,
+  t: (key: string) => string,
+): {
+  unit: string;
+  abs: (v: number) => number;
+  delta: (v: number) => number;
+} {
+  const type = DISPLAY_TO_TYPE[display];
+  if (!type) {
+    // Defensive: an unmapped display must never pass undefined to `t`
+    // (whose resolver does `key.split(".")`). Empty unit on a miss.
+    const unitKey = UNIT_KEY[display];
+    return {
+      unit: unitKey ? t(unitKey) : "",
+      abs: (v) => v,
+      delta: (v) => v,
+    };
+  }
+  const transform = getReadingTransform(type, {
+    system: unitDisplay.preference,
+    glucoseUnit: unitDisplay.glucoseUnit,
+  });
+  return {
+    unit: transform.displayUnit,
+    abs: (v) => applyDisplayTransform(v, transform),
+    delta: (v) => applyDisplayTransformDelta(v, transform),
+  };
+}
 
 const HEADLINE_KEY: Record<string, string> = {
   restingHeartRate: "cycle.insights.headline.restingHeartRate",
@@ -120,11 +164,7 @@ export function CyclePhaseHeadline({
   const metricLabel = t(
     METRIC_LABEL_KEY[headline.metricKey] ?? headline.metricKey,
   );
-  // Defensive: an unmapped display must never pass undefined to `t` (whose
-  // resolver does `key.split(".")`). An empty unit is the honest degrade.
-  const mt = DISPLAY_TO_TYPE[headline.display];
-  const unitKey = UNIT_KEY[headline.display];
-  const unit = mt ? unitDisplay.unitFor(mt) : unitKey ? t(unitKey) : "";
+  const { unit, delta: deltaConv } = rowUnits(headline.display, unitDisplay, t);
   const up = headline.delta >= 0;
   const dir = t(
     up
@@ -134,12 +174,7 @@ export function CyclePhaseHeadline({
   const params = {
     metric: metricLabel,
     // A phase delta → factor-only conversion (no affine offset).
-    delta: fmt(
-      Math.abs(
-        mt ? unitDisplay.toDisplayDelta(mt, headline.delta) : headline.delta,
-      ),
-      headline.display,
-    ),
+    delta: fmt(Math.abs(deltaConv(headline.delta)), headline.display),
     unit,
     dir,
   };
@@ -175,15 +210,11 @@ export function CyclePhaseCrosstab({
           const metricLabel = t(
             METRIC_LABEL_KEY[row.metricKey] ?? row.metricKey,
           );
-          // Defensive: an unmapped display must never pass undefined to `t`
-          // (whose resolver does `key.split(".")`). Empty unit on a miss.
-          const mt = DISPLAY_TO_TYPE[row.display];
-          const unitKey = UNIT_KEY[row.display];
-          const unit = mt ? unitDisplay.unitFor(mt) : unitKey ? t(unitKey) : "";
-          const absConv = (v: number) =>
-            mt ? unitDisplay.toDisplay(mt, v) : v;
-          const deltaConv = (v: number) =>
-            mt ? unitDisplay.toDisplayDelta(mt, v) : v;
+          const {
+            unit,
+            abs: absConv,
+            delta: deltaConv,
+          } = rowUnits(row.display, unitDisplay, t);
           // `delta` = lutealAvg − follicularAvg: positive = the vital runs
           // higher in the luteal phase. The number stays NEUTRAL — higher is
           // good for steps but bad for resting HR, and this board is

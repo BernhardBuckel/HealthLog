@@ -237,7 +237,7 @@ function MetricRow({
 }: MetricRowProps) {
   const { t } = useTranslations();
   const fmt = useFormatters();
-  const { preference } = useUnitDisplay();
+  const { preference, glucoseUnit } = useUnitDisplay();
   const canonicalBounds = METRIC_BOUNDS[metric];
 
   // v1.32.27 — the row reads and writes in the user's preferred unit
@@ -246,12 +246,14 @@ function MetricRow({
   // canonical, so it converts on the way into the fields and inverts on
   // the way back out in `onSave`. Guardrails round inward so a value
   // typed at the displayed limit still passes the server's canonical
-  // check. Metrics without a transform — and every metric for a metric
-  // user — take the adapter's identity path untouched.
+  // check. The glucose thresholds read in the reader's glucose unit the
+  // same way. Metrics without a transform — and every metric on the default
+  // preferences — take the adapter's identity path untouched.
   const units = resolveTargetUnitAdapter(
     metric,
     canonicalBounds.unit,
     preference,
+    glucoseUnit,
   );
   const bounds = { ...units.bounds(canonicalBounds), unit: units.unit };
 

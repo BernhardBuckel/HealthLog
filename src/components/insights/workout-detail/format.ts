@@ -1,5 +1,11 @@
 import { getNumberFormat, getDateTimeFormat } from "@/lib/intl/formatter-cache";
 import {
+  applyDisplayTransform,
+  getQuantityTransform,
+  paceSecondsPerDistanceUnit,
+  type UnitPreference,
+} from "@/lib/measurements/display-transform";
+import {
   hourCycleOptions,
   type TimeFormatPreference,
 } from "@/lib/format-locale";
@@ -27,12 +33,38 @@ export function formatDurationMinutes(seconds: number, locale: string): string {
   return formatNumber(minutes, locale);
 }
 
-export function formatDistanceKm(meters: number, locale: string): string {
-  const km = meters / 1000;
-  return getNumberFormat(locale, {
+/**
+ * A workout distance in the reader's unit, with its symbol: "5.80 km" or
+ * "3.60 mi". The workout list, the detail header, the stat tile and the
+ * sport-average line all print through this, so none of them can keep
+ * kilometres for an imperial reader.
+ */
+export function formatDistance(
+  meters: number,
+  locale: string,
+  preference: UnitPreference,
+): string {
+  const transform = getQuantityTransform("distance", preference);
+  const value = applyDisplayTransform(meters, transform);
+  const formatted = getNumberFormat(locale, {
     maximumFractionDigits: 2,
-    minimumFractionDigits: km < 10 ? 2 : 1,
-  }).format(km);
+    minimumFractionDigits: value < 10 ? 2 : 1,
+  }).format(value);
+  return `${formatted} ${transform.displayUnit}`;
+}
+
+/** Elevation gain in the reader's unit with its symbol: "123.4 m" / "404.9 ft". */
+export function formatElevation(
+  meters: number,
+  locale: string,
+  preference: UnitPreference,
+): string {
+  const transform = getQuantityTransform("elevation", preference);
+  return `${formatNumber(
+    applyDisplayTransform(meters, transform),
+    locale,
+    transform.decimals,
+  )} ${transform.displayUnit}`;
 }
 
 export function formatNumber(
@@ -46,21 +78,36 @@ export function formatNumber(
   }).format(value);
 }
 
-export function formatPaceMinPerKm(
+/**
+ * Average pace per kilometre or per mile, by the reader's preference. Only
+ * meaningful for run / walk / hike / ride; the caller gates on distance +
+ * sport.
+ */
+export function formatPace(
   durationSec: number,
   meters: number,
+  preference: UnitPreference,
 ): string {
-  // Seconds-per-kilometre. Only meaningful for run / walk / hike / ride;
-  // the caller gates on distance + sport.
-  const secPerKm = (durationSec / meters) * 1000;
-  return formatPaceSeconds(secPerKm);
+  return formatPaceSeconds(
+    paceSecondsPerDistanceUnit(durationSec, meters, preference),
+    getQuantityTransform("distance", preference).displayUnit,
+  );
 }
 
-/** "m:ss /km" from a seconds-per-km value (used by pace + splits). */
-export function formatPaceSeconds(secPerKm: number): string {
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${s.toString().padStart(2, "0")} /km`;
+/**
+ * "m:ss /km" from a seconds-per-unit value. The splits table passes "km"
+ * explicitly: its rows are kilometre segments cut server-side, so their
+ * pace is per kilometre whatever the preference.
+ */
+export function formatPaceSeconds(secPerUnit: number, unit: string): string {
+  let m = Math.floor(secPerUnit / 60);
+  let s = Math.round(secPerUnit % 60);
+  // 359.6 s is 6:00, not 5:60.
+  if (s === 60) {
+    m += 1;
+    s = 0;
+  }
+  return `${m}:${s.toString().padStart(2, "0")} /${unit}`;
 }
 
 export function formatDateRange(

@@ -225,6 +225,49 @@ describe("<ClinicianView>", () => {
     expect(html).not.toContain(">WEIGHT<");
   });
 
+  it("prints every measurement group with its unit", () => {
+    const html = render(
+      makeReport({
+        stats: {
+          WEIGHT: { avg: 80, min: 78, max: 82, count: 12, latest: 79 },
+          // Per-night asleep minutes; the report reads them in hours.
+          SLEEP_DURATION: {
+            avg: 450,
+            min: 420,
+            max: 480,
+            count: 7,
+            latest: 450,
+          },
+        },
+      }),
+    );
+    expect(html).toContain("latest 79 kg (avg 80 kg, range 78–82 kg)");
+    expect(html).toContain("latest 7.5 h (avg 7.5 h, range 7–8 h)");
+  });
+
+  it("shows glucose in the record owner's unit, never raw mg/dL", () => {
+    const html = render(
+      makeReport({
+        glucoseUnit: "mmol/L",
+        stats: {
+          BLOOD_GLUCOSE: { avg: 108, min: 90, max: 126, count: 9, latest: 99 },
+        },
+        glucoseStats: {
+          FASTING: { avg: 99, min: 90, max: 108, count: 5, latest: 95 },
+        },
+      }),
+    );
+    // 99 mg/dL = 5.5 mmol/L, 108 = 6.0, 90 = 5.0, 126 = 7.0, 95 = 5.3.
+    expect(html).toContain(
+      "latest 5.5 mmol/L (avg 6 mmol/L, range 5–7 mmol/L)",
+    );
+    expect(html).toContain(
+      "latest 5.3 mmol/L (avg 5.5 mmol/L, range 5–6 mmol/L)",
+    );
+    expect(html).not.toContain("mg/dL");
+    expect(html).not.toContain("latest 99");
+  });
+
   it("omits the wellness card when there are no scores", () => {
     const html = render(makeReport({ wellnessScores: [] }));
     expect(html).not.toContain("Wellness scores");

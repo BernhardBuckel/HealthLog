@@ -11,6 +11,10 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/auth/session", () => ({ getSession: vi.fn() }));
 
+vi.mock("@/lib/insights/unit-change-refresh", () => ({
+  refreshTextsAfterUnitChange: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/lib/auth/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
@@ -43,6 +47,7 @@ import { GET, PATCH } from "../route";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth/session";
 import { auditLog } from "@/lib/auth/audit";
+import { refreshTextsAfterUnitChange } from "@/lib/insights/unit-change-refresh";
 
 const SESSION_OK = {
   session: { id: "sess-1", expiresAt: new Date(Date.now() + 3_600_000) },
@@ -195,5 +200,35 @@ describe("PATCH /api/auth/me/unit-preference", () => {
     const res = await (PATCH as (r: Request) => Promise<Response>)(req);
     expect(res.status).toBe(415);
     expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH re-warms the texts that quote the unit", () => {
+  it("re-warms the stored notes when the unit actually changes", async () => {
+    vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      unitPreference: null,
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+
+    const res = await (PATCH as (r: Request) => Promise<Response>)(
+      mkPatch({ unitPreference: "imperial" }),
+    );
+    expect(res.status).toBe(200);
+    expect(refreshTextsAfterUnitChange).toHaveBeenCalledWith("user-1");
+  });
+
+  it("leaves them alone when the same unit is saved again", async () => {
+    vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      unitPreference: "imperial",
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+
+    const res = await (PATCH as (r: Request) => Promise<Response>)(
+      mkPatch({ unitPreference: "imperial" }),
+    );
+    expect(res.status).toBe(200);
+    expect(refreshTextsAfterUnitChange).not.toHaveBeenCalled();
   });
 });

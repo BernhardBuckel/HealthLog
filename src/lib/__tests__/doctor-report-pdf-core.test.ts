@@ -227,6 +227,30 @@ describe("renderDoctorReportPdfBytes", () => {
     expect(text).not.toContain("450 h");
   });
 
+  it("prints the raw glucose row in the owner's unit, like the glucose panel", async () => {
+    // The measurement table used to take BLOOD_GLUCOSE's canonical unit and
+    // number, so an mmol/L account read "99.0 mg/dL" two lines above its own
+    // context rows in mmol/L.
+    const data = makeData({
+      glucoseUnit: "mmol/L",
+      stats: {
+        ...makeData().stats,
+        BLOOD_GLUCOSE: { avg: 108, min: 90, max: 126, count: 9, latest: 99 },
+      },
+    });
+    const bytes = renderDoctorReportPdfBytes(data, {
+      timeFormat: "AUTO",
+      dateFormat: "AUTO",
+      t: getServerTranslator("en").t,
+      locale: "en",
+      now: FIXED_NOW,
+    });
+    const text = await extractText(bytes);
+    expect(text).toContain("5.5 mmol/L");
+    expect(text).toContain("6.0 mmol/L");
+    expect(text).not.toContain("mg/dL");
+  });
+
   it("omits the sleep vitals row when there are no sleep stats", async () => {
     const bytes = renderDoctorReportPdfBytes(makeData(), {
       timeFormat: "AUTO",

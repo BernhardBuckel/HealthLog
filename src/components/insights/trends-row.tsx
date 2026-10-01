@@ -22,6 +22,7 @@ import {
   type TrendAnnotationConfidenceBand,
   type TrendAnnotationStatus,
 } from "./trend-annotation";
+import { useUnitDisplay } from "@/hooks/use-unit-display";
 
 /**
  * Trends row — a small chart per metric above a one-sentence
@@ -116,17 +117,29 @@ function MetricChart({
   title: string;
 }) {
   const { user } = useAuth();
+  const { transformFor, isTransformed } = useUnitDisplay();
   const userTimezone = user?.timezone;
   if (config.kind === "mood") {
     return <MoodChart title={title} mini />;
   }
+  // A single transformed series (weight, distance, temperature) plots in
+  // the reader's unit: the chart folds scale and offset in at its read
+  // boundary, exactly as the metric's own insights page does. Distance
+  // used to plot raw metres under a "km" label for every reader.
+  const primary = config.types[0] ?? "";
+  const transform =
+    config.types.length === 1 && isTransformed(primary)
+      ? transformFor(primary)
+      : null;
   return (
     <HealthChartDynamicMini
       types={config.types}
       title={title}
       colors={config.colors}
-      unit={config.unit}
-      yAxisUnit={config.yAxisUnit}
+      unit={transform ? transform.displayUnit : config.unit}
+      yAxisUnit={transform ? undefined : config.yAxisUnit}
+      valueScale={transform?.factor}
+      valueOffset={transform?.offset}
       mini
       userTimezone={userTimezone}
     />

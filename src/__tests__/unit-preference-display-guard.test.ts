@@ -13,7 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { walkSourceFiles } from "./helpers/source-files";
+import { stripComments, walkSourceFiles } from "./helpers/source-files";
 
 import { describe, it, expect } from "vitest";
 
@@ -205,5 +205,222 @@ describe("unit-preference display guard", () => {
       expect(Number.isFinite(metric.factor)).toBe(true);
       expect(Number.isFinite(imperial.factor)).toBe(true);
     }
+  });
+});
+
+/**
+ * The wide sweep (#1067). The block above guards the surfaces that were
+ * wired for metric/imperial; the class kept reappearing everywhere else — a
+ * clinician view without units, status notes and narratives pinned to mg/dL
+ * and kilograms, a glucose threshold editor in mg/dL for an mmol/L account,
+ * workout distances in kilometres for an imperial reader. Each one was a
+ * unit literal in a display string.
+ *
+ * So every display-bearing tree is swept for the literals a preference
+ * changes: the two glucose units anywhere in code, and kilograms,
+ * kilometres and degrees Celsius where they sit in a display string (a bare
+ * quoted unit, a unit after an interpolation or a number, a unit closing a
+ * string, a per-kilometre pace). Comments are stripped first. A file that
+ * legitimately carries one is listed below with the exact number of matching
+ * lines and the reason; any other file, or one more line in a listed file,
+ * fails. A listed file that drops a line fails too, so the budget follows
+ * the code down instead of leaving headroom for the next literal.
+ *
+ * The limit, stated: this is a line scanner. A unit spelled through a
+ * variable named after it, or a literal split across lines, passes. The
+ * message bundles are not swept either (the fever and cycle-glucose labels
+ * lived there).
+ */
+const WIDE_SWEEP_ROOTS = [
+  "components/",
+  "app/",
+  "lib/insights/",
+  "lib/doctor-report",
+  "lib/export",
+];
+
+const UNIT_LITERAL_PATTERNS: readonly RegExp[] = [
+  // Glucose, anywhere in code.
+  /mg\/dL|mmol\/L/,
+  // A bare quoted unit: "kg", 'km', `°C`.
+  /(["'`])\s*(?:kg|km|°C)\s*\1/,
+  // A unit after an interpolation: `${x} kg`, {value} km in JSX.
+  /\}\s?(?:kg|km|°C)(?![\w/²])/,
+  // A unit after a number: "75 kg", "37.0 °C".
+  /\d\s?(?:kg|km|°C)(?![\w/²])/,
+  // A unit closing a string or a JSX text run: " km<", " kg\"".
+  /\s(?:kg|km|°C)(?=["'`<])/,
+  // A per-kilometre pace.
+  /\/km\b/,
+];
+
+/**
+ * Files allowed to carry a unit literal, with the exact number of matching
+ * lines and why. `kg/m²` (BMI) never matches; every other hit is listed.
+ */
+const UNIT_LITERAL_ALLOWLIST: Record<
+  string,
+  { lines: number; reason: string }
+> = {
+  // ── The conversion and the choice themselves ──
+  "components/settings/glucose-unit-select.tsx": {
+    lines: 2,
+    reason: "the glucose unit picker: its options are the two units",
+  },
+  "components/onboarding/units-screen.tsx": {
+    lines: 3,
+    reason: "the onboarding unit picker: its options are the two units",
+  },
+  "components/measurements/measurement-form.tsx": {
+    lines: 11,
+    reason:
+      "input parsing: canonical units of the entry table, replaced by the transform's unit at render and inverted on save",
+  },
+  "components/measurements/measurement-list.tsx": {
+    lines: 2,
+    reason: "input parsing: the inline edit inverts an mmol/L entry to mg/dL",
+  },
+  "components/settings/import-panel/import-examples.ts": {
+    lines: 3,
+    reason: "input parsing: CSV examples showing the units an import accepts",
+  },
+  "components/onboarding/first-result-screen.tsx": {
+    lines: 1,
+    reason: "decimals chosen by the resolved glucose unit, not a label",
+  },
+  "app/insights/blood-glucose/page.tsx": {
+    lines: 1,
+    reason: "branches on the resolved glucose unit to scale the chart",
+  },
+  "components/insights/glucose/glucose-clinical-panel.tsx": {
+    lines: 1,
+    reason: "branches on the resolved glucose unit for its decimals",
+  },
+  "components/insights/health-score-pillar-detail.ts": {
+    lines: 2,
+    reason:
+      "branches on the canonical observed unit before converting to the reader's",
+  },
+  // ── Display-kind tags, converted through the preference at render ──
+  "components/cycle/cycle-phase-crosstab.tsx": {
+    lines: 1,
+    reason: "a display-kind tag; rows convert through getReadingTransform",
+  },
+  "lib/insights/mood-crosstab.ts": {
+    lines: 2,
+    reason: "a display-kind tag; the weight row converts through the hook",
+  },
+  "components/insights/mood/mood-factor-metric-crosstab.tsx": {
+    lines: 2,
+    reason: "a display-kind tag; the weight row converts through the hook",
+  },
+  // ── Canonical by contract ──
+  "lib/insights/metric-status-registry.ts": {
+    lines: 11,
+    reason:
+      "canonical registry units; metric-status.ts converts to the reader's before writing",
+  },
+  "lib/export.ts": {
+    lines: 1,
+    reason: "canonical default when an export caller passes no glucose unit",
+  },
+  "app/api/export/route.ts": {
+    lines: 1,
+    reason: "the legacy export endpoint's canonical storage-unit contract",
+  },
+  "app/api/measurements/series/route.ts": {
+    lines: 4,
+    reason:
+      "canonical wire units; glucose is overridden to the reader's unit per request",
+  },
+  "lib/doctor-report/stat-display.ts": {
+    lines: 3,
+    reason:
+      "SI by policy: the clinician artefacts keep mass in kg (glucose follows the owner)",
+  },
+  "components/insights/workout-detail/splits.tsx": {
+    lines: 1,
+    reason: "kilometre splits are cut server-side; their pace is per km",
+  },
+  "app/privacy/page.tsx": {
+    lines: 2,
+    reason: "prose naming both glucose units the app offers",
+  },
+  // ── Still canonical; the prompt-unit pass for these is open (#1067) ──
+  "lib/insights/comprehensive-generate.ts": {
+    lines: 1,
+    reason: "comprehensive prompt still states weight in kg",
+  },
+  "lib/insights/signals-of-day.ts": {
+    lines: 1,
+    reason: "briefing signal still states weight in kg",
+  },
+  "lib/insights/weight-status.ts": {
+    lines: 1,
+    reason: "weight status snapshot still states kg",
+  },
+  "lib/insights/glp1-plateau.ts": {
+    lines: 2,
+    reason: "GLP-1 plateau prompt context still states kg",
+  },
+};
+
+function unitLiteralLines(): Map<string, string[]> {
+  const files = walkSourceFiles(SRC, { floor: 1400 }).filter(
+    (rel) =>
+      WIDE_SWEEP_ROOTS.some((root) => rel.startsWith(root)) &&
+      !rel.includes("__tests__") &&
+      !/\.test\.tsx?$/.test(rel),
+  );
+  if (files.length < 1200) {
+    throw new Error(
+      `unit sweep narrowed to ${files.length} files; a sweep this small is a broken filter`,
+    );
+  }
+  const hits = new Map<string, string[]>();
+  for (const rel of files) {
+    const lines = stripComments(readFileSync(join(SRC, rel), "utf8"))
+      .split("\n")
+      .filter((line) => UNIT_LITERAL_PATTERNS.some((p) => p.test(line)))
+      .map((line) => line.trim());
+    if (lines.length > 0) hits.set(rel, lines);
+  }
+  return hits;
+}
+
+describe("unit-preference display guard — the wide sweep", () => {
+  const hits = unitLiteralLines();
+
+  it("finds the literals it is meant to find (a sweep that matches nothing proves nothing)", () => {
+    const total = [...hits.values()].reduce((n, l) => n + l.length, 0);
+    expect(total).toBeGreaterThanOrEqual(40);
+    expect(hits.size).toBeGreaterThanOrEqual(15);
+  });
+
+  it("no display surface carries a unit literal outside the allowlist", () => {
+    const offenders: string[] = [];
+    for (const [rel, lines] of hits) {
+      const allowed = UNIT_LITERAL_ALLOWLIST[rel];
+      if (!allowed) {
+        offenders.push(`${rel}: ${lines.join(" | ")}`);
+      } else if (lines.length > allowed.lines) {
+        offenders.push(
+          `${rel}: ${lines.length} unit-literal lines, allowlisted ${allowed.lines}: ${lines.join(" | ")}`,
+        );
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("every allowlist entry still matches exactly its budget, with a reason", () => {
+    const stale: string[] = [];
+    for (const [rel, allowed] of Object.entries(UNIT_LITERAL_ALLOWLIST)) {
+      expect(allowed.reason.length).toBeGreaterThan(10);
+      const found = hits.get(rel)?.length ?? 0;
+      if (found !== allowed.lines) {
+        stale.push(`${rel}: allowlisted ${allowed.lines}, found ${found}`);
+      }
+    }
+    expect(stale).toEqual([]);
   });
 });

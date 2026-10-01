@@ -52,7 +52,7 @@ const REGISTRY = "lib/measurements/display-transform.ts";
 const UNROUNDED_IMPORTERS = ["lib/targets/target-unit-display.ts"];
 
 /**
- * The surfaces allowed to read a transform's raw `factor` / `offset`. All four
+ * The surfaces allowed to read a transform's raw `factor` / `offset`. All five
  * do it for the same reason: the chart takes the multiplier as a prop, folds
  * it into its own series at the single read boundary, and formats the result
  * itself. Everything those files RENDER directly goes through the rounding
@@ -61,6 +61,9 @@ const UNROUNDED_IMPORTERS = ["lib/targets/target-unit-display.ts"];
  */
 const RAW_SCALE_SURFACES = [
   "app/page-client.tsx",
+  // The insights trends row: a single transformed series hands its scale
+  // and offset to the mini chart, which formats every value itself.
+  "components/insights/trends-row.tsx",
   "app/insights/weight/page.tsx",
   "components/insights/healthkit-metric-page.tsx",
   "components/insights/device-score-tile.tsx",

@@ -58,7 +58,9 @@ import { applyPayloadBudget } from "@/lib/insights/bucket-series";
 import {
   buildGradedSeriesFromPoints,
   buildGradedSeriesWithRollups,
+  convertGradedSeries,
   degradeStatusSnapshotToBudget,
+  type GradedSeries,
 } from "@/lib/insights/graded-series";
 import {
   type SupportedLocale,
@@ -84,6 +86,16 @@ import { hashInsightSnapshot } from "@/lib/insights/snapshot-hash";
 import { returnTimeoutFallback } from "@/lib/insights/timeout-fallback";
 import { annotate } from "@/lib/logging/context";
 import { binaryReferenceSex } from "@/lib/profile/sex";
+import {
+  applyDisplayTransform,
+  getReadingTransform,
+  invertDisplayTransform,
+  isUnitSensitiveType,
+  resolveUnitPreferences,
+  transformRescales,
+  type DisplayTransform,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 
 export interface MetricStatusResult {
   hasProvider: boolean;
@@ -222,8 +234,39 @@ export async function generateMetricStatus(args: {
 
   const user = await prisma.user.findUnique({
     where: { id: args.userId },
-    select: { dateOfBirth: true, gender: true },
+    select: {
+      dateOfBirth: true,
+      gender: true,
+      unitPreference: true,
+      glucoseUnit: true,
+    },
   });
+
+  // The note is written in the reader's units. The series, the reference band
+  // and the signal are converted once, here, before any of them reaches the
+  // prompt or the deterministic floor; the registry entry, the rollups and
+  // the guideline classification stay canonical. An untransformed metric (and
+  // every metric on the default preferences that does not rescale) passes
+  // through unchanged, so its snapshot hash does not move.
+  const reading = readingDisplay(
+    meta,
+    resolveUnitPreferences({
+      unitPreference: user?.unitPreference,
+      glucoseUnit: user?.glucoseUnit,
+    }),
+  );
+  const shownMeta: MetricStatusMeta = {
+    ...meta,
+    unit: reading.unit,
+    ...(meta.normalRange
+      ? {
+          normalRange: {
+            low: reading.toDisplay(meta.normalRange.low),
+            high: reading.toDisplay(meta.normalRange.high),
+          },
+        }
+      : {}),
+  };
 
   const now = new Date();
 
@@ -295,7 +338,10 @@ export async function generateMetricStatus(args: {
       })
       .then((r) => r.reverse());
     for (const m of rows) {
-      points.push({ measuredAt: m.measuredAt, value: m.value });
+      points.push({
+        measuredAt: m.measuredAt,
+        value: reading.toDisplay(m.value),
+      });
     }
     measurements = rows.map((m) => ({ measuredAt: m.measuredAt }));
   }
@@ -309,11 +355,13 @@ export async function generateMetricStatus(args: {
   // recent/weekly/monthly/yearly bucket is a night total, not a stage sum.
   const graded = isSleep
     ? buildGradedSeriesFromPoints(points, now, userTz)
-    : await buildGradedSeriesWithRollups(
-        args.userId,
-        meta.measurementType,
-        now,
-        userTz,
+    : reading.convertGraded(
+        await buildGradedSeriesWithRollups(
+          args.userId,
+          meta.measurementType,
+          now,
+          userTz,
+        ),
       );
   const summary = summarizeSeries(
     series.daily.map((bucket) => ({ value: bucket.value })),
@@ -344,7 +392,14 @@ export async function generateMetricStatus(args: {
   // metric + profile; otherwise keep the existing flat anchor (strictly
   // additive, never a regression). Age + sex only — no ancestry/region.
   const sharpenedRange = lookupNormalRange(meta.id, ageYears, sex);
-  const normalRange = sharpenedRange ?? meta.normalRange;
+  const canonicalRange = sharpenedRange ?? meta.normalRange;
+  const normalRange = canonicalRange
+    ? {
+        ...canonicalRange,
+        low: reading.toDisplay(canonicalRange.low),
+        high: reading.toDisplay(canonicalRange.high),
+      }
+    : canonicalRange;
 
   // v1.13.x — the SIGNAL block: the recent-vs-baseline comparison + the
   // normal-swing verdict, computed server-side so the model states it rather
@@ -353,7 +408,7 @@ export async function generateMetricStatus(args: {
   // when the recent window is empty, in which case it is omitted.
   const signal = buildMetricSignal({
     metric: meta.displayName,
-    unit: meta.unit,
+    unit: shownMeta.unit,
     direction: meta.direction,
     graded,
     normalRange: normalRange ?? null,
@@ -369,7 +424,7 @@ export async function generateMetricStatus(args: {
     metric: {
       id: meta.id,
       displayName: meta.displayName,
-      unit: meta.unit,
+      unit: shownMeta.unit,
       direction: meta.direction,
       ...(normalRange ? { normalRange } : {}),
       ...(sharpenedRange ? { normalRangeSource: "age-sex-adjusted" } : {}),
@@ -477,14 +532,24 @@ export async function generateMetricStatus(args: {
   // window exists); absent for uncovered metrics (fail-soft to personal-
   // relative). Sex-split bands (waist) resolve only when the profile carries a
   // sex.
+  // The guideline bands are canonical, so the band position is classified on
+  // the canonical value; the block then prints in the reader's unit.
   const interpretationValue = signal?.current ?? latest?.value ?? null;
   const interpretationBlock =
     interpretationValue !== null
       ? buildInterpretationBlock({
           metricKey: meta.id,
-          value: interpretationValue,
+          value: reading.toCanonical(interpretationValue),
           sex,
           locale,
+          ...(reading.converts
+            ? {
+                display: {
+                  unit: reading.unit,
+                  convert: reading.toDisplay,
+                },
+              }
+            : {}),
         })
       : undefined;
 
@@ -502,9 +567,9 @@ export async function generateMetricStatus(args: {
     userId: args.userId,
     cacheAction,
     capability: "statusText",
-    systemPrompt: getMetricArchetypeSystemPrompt(meta, locale),
+    systemPrompt: getMetricArchetypeSystemPrompt(shownMeta, locale),
     userPrompt: getMetricArchetypeUserPrompt(
-      meta,
+      shownMeta,
       snapshotJson,
       todayKey,
       locale,
@@ -526,7 +591,7 @@ export async function generateMetricStatus(args: {
   if (outcome.kind === "none") {
     return {
       hasProvider: false,
-      text: getNoKeyMetricStatusText(locale, signal),
+      text: getNoKeyMetricStatusText(locale, signal, reading.decimals),
       cached: true,
       updatedAt: null,
     };
@@ -537,7 +602,7 @@ export async function generateMetricStatus(args: {
       reason: outcome.kind,
       userId: args.userId,
       todayKey,
-      stubText: getNoKeyMetricStatusText(locale, signal),
+      stubText: getNoKeyMetricStatusText(locale, signal, reading.decimals),
     });
   }
 
@@ -553,7 +618,7 @@ export async function generateMetricStatus(args: {
       reason: "screened",
       userId: args.userId,
       todayKey,
-      stubText: getNoKeyMetricStatusText(locale, signal),
+      stubText: getNoKeyMetricStatusText(locale, signal, reading.decimals),
     });
   }
   const text = screened.text;
@@ -576,4 +641,52 @@ export function resolveMetricStatusLocale(
   locale: string | null | undefined,
 ): SupportedLocale {
   return normalizeLocale(locale);
+}
+
+/**
+ * How one metric's numbers are written for this reader: the unit symbol, the
+ * conversions in both directions, and the decimals a value is read at.
+ *
+ * Only a unit-sensitive type (`isUnitSensitiveType`: glucose and the
+ * metric/imperial set) converts; every other metric keeps its registry unit
+ * and its stored numbers. A transform that does not rescale (`converts`
+ * false) is the identity, so the default preferences leave a snapshot
+ * byte-identical for the metrics whose registry unit already is the display
+ * unit.
+ */
+function readingDisplay(
+  meta: MetricStatusMeta,
+  preferences: UnitPreferences,
+): {
+  unit: string;
+  decimals: number | undefined;
+  converts: boolean;
+  toDisplay: (canonical: number) => number;
+  toCanonical: (display: number) => number;
+  convertGraded: (series: GradedSeries) => GradedSeries;
+} {
+  if (!isUnitSensitiveType(meta.measurementType)) {
+    return {
+      unit: meta.unit,
+      decimals: undefined,
+      converts: false,
+      toDisplay: (v) => v,
+      toCanonical: (v) => v,
+      convertGraded: (series) => series,
+    };
+  }
+  const transform: DisplayTransform = getReadingTransform(
+    meta.measurementType,
+    preferences,
+  );
+  const converts = transformRescales(transform);
+  return {
+    unit: transform.displayUnit,
+    decimals: transform.decimals,
+    converts,
+    toDisplay: (v) => applyDisplayTransform(v, transform),
+    toCanonical: (v) => invertDisplayTransform(v, transform),
+    convertGraded: (series) =>
+      converts ? convertGradedSeries(series, transform) : series,
+  };
 }

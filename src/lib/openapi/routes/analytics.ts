@@ -239,11 +239,17 @@ const scorePillarIdEnum = z.enum(SCORE_PILLAR_IDS);
 const pillarValue = z.object({
   score: z.number(),
   observed: z.object({
-    value: z.number(),
-    unit: z.string(),
+    value: z
+      .number()
+      .describe(
+        "The scored value in its canonical unit (fasting glucose in mg/dL).",
+      ),
+    unit: z.string().describe("The canonical unit of `value`."),
     label: z
       .string()
-      .describe("The complete display value, paired or panel values included."),
+      .describe(
+        "The complete display value, paired or panel values included, written in the reader's units (fasting glucose in the account's glucose unit).",
+      ),
     asOf: z.iso.datetime({ offset: true }),
     sources: z.array(z.string()),
   }),
@@ -253,9 +259,11 @@ const pillarValue = z.object({
       "population-percentile",
       "guideline-band",
     ]),
-    low: z.number().nullable(),
-    high: z.number().nullable(),
-    label: z.string(),
+    low: z.number().nullable().describe("Lower band edge, canonical unit."),
+    high: z.number().nullable().describe("Upper band edge, canonical unit."),
+    label: z
+      .string()
+      .describe("The band as display text, in the reader's units."),
     source: z.string(),
   }),
   personalReference: z

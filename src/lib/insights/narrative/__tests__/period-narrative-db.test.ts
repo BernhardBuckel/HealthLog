@@ -225,9 +225,11 @@ describe("buildPeriodNarrativeContext — grain (QA F3)", () => {
     expect(sleepDelta).toBeDefined();
     // The pre-fix local `toDailyMeans` twin would have averaged the three
     // segment durations: (240 + 90 + 80) / 3 ≈ 137 — a number with no
-    // clinical meaning. The correct grain is the night's TOTAL (410).
-    expect(sleepDelta!.current).toBe(410);
-    expect(sleepDelta!.current).not.toBeCloseTo((240 + 90 + 80) / 3, 0);
+    // clinical meaning. The correct grain is the night's TOTAL (410 min),
+    // narrated in the hours its unit names: this used to read "410 h".
+    expect(sleepDelta!.unit).toBe("h");
+    expect(sleepDelta!.current).toBe(6.83);
+    expect(sleepDelta!.current).not.toBeCloseTo((240 + 90 + 80) / 3 / 60, 1);
   });
 
   it("orders the measurement read DESC + cap so the CURRENT period survives a capped window (QA F2)", async () => {

@@ -8168,6 +8168,7 @@
     "medications": "Leki i przestrzeganie zaleceń",
     "bmi": "Wskaźnik masy ciała (BMI)",
     "statSummary": "ostatnio {latest} (śr. {avg}, zakres {min}–{max})",
+    "statSummaryWithUnit": "ostatnio {latest} {unit} (śr. {avg} {unit}, zakres {min}–{max} {unit})",
     "adherence": "{rate} przestrzegania",
     "noAdherence": "—",
     "glucose": {
@@ -9406,7 +9407,7 @@
       "severity": "Nasilenie {severity}",
       "noSymptoms": "Nie zapisano objawów.",
       "impact": "Jak funkcjonowałeś: {impact}",
-      "fever": "Temperatura: {value} °C",
+      "fever": "Temperatura: {value} {unit}",
       "empty": "Nie zapisano jeszcze żadnych dni."
     },
     "loadError": "Nie udało się wczytać tego epizodu.",
