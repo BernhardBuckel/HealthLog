@@ -24,6 +24,8 @@ vi.mock("@/hooks/use-auth", () => ({
       role: "USER",
       timezone: "Europe/Berlin",
       disableCoach: authState.disableCoach,
+      // The server's module map mirrors the record's opt-out.
+      modules: { coach: !authState.disableCoach },
     },
     isAuthenticated: true,
     isLoading: false,

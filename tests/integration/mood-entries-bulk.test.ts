@@ -277,6 +277,70 @@ describe("POST /api/mood-entries/bulk (real Postgres)", () => {
     expect(linkCount).toBe(0);
   });
 
+  it("names the unknown and archived keys on the entry's result instead of reporting it whole", async () => {
+    const db = getPrismaClient();
+    const category = await db.moodTagCategory.findFirstOrThrow({
+      select: { id: true },
+    });
+    const archived = await db.moodTag.create({
+      data: {
+        categoryId: category.id,
+        key: "test_archived_tag",
+        labelKey: "mood.tags.test_archived_tag",
+        isActive: false,
+      },
+    });
+    try {
+      const { POST } = await import("@/app/api/mood-entries/bulk/route");
+      const res = await POST(
+        makeRequest({
+          entries: [
+            {
+              mood: "GUT",
+              moodLoggedAt: "2026-05-16T08:00:00.000Z",
+              tagKeys: ["movies", "test_archived_tag", "not_a_real_tag"],
+              ratedFactors: [
+                { key: "factor_work", rating: 4 },
+                { key: "factor_not_real", rating: 2 },
+              ],
+            },
+            {
+              mood: "OKAY",
+              moodLoggedAt: "2026-05-16T09:00:00.000Z",
+              tagKeys: ["movies"],
+            },
+          ],
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as {
+        data: { inserted: number; entries: Array<Record<string, unknown>> };
+      };
+      expect(json.data.inserted).toBe(2);
+      expect(json.data.entries[0]).toMatchObject({
+        status: "inserted",
+        droppedTagKeys: ["test_archived_tag", "not_a_real_tag"],
+        droppedFactorKeys: ["factor_not_real"],
+      });
+      expect(json.data.entries[1]).not.toHaveProperty("droppedTagKeys");
+      expect(json.data.entries[1]).not.toHaveProperty("droppedFactorKeys");
+
+      // What the result says is what is on disk.
+      const first = await db.moodEntry.findUniqueOrThrow({
+        where: { id: json.data.entries[0].id as string },
+        select: {
+          tagLinks: { select: { moodTag: { select: { key: true } } } },
+        },
+      });
+      expect(first.tagLinks.map((l) => l.moodTag.key).sort()).toEqual([
+        "factor_work",
+        "movies",
+      ]);
+    } finally {
+      await db.moodTag.delete({ where: { id: archived.id } });
+    }
+  });
+
   it("rejects an over-cap batch with 422 and the documented error code", async () => {
     const { POST } = await import("@/app/api/mood-entries/bulk/route");
     const entries = Array.from({ length: 501 }, (_, i) => ({

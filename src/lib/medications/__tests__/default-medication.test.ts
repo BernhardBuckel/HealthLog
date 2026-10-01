@@ -14,6 +14,7 @@ function medication(
     id,
     name: `Medication ${id}`,
     active: true,
+    intakeActionable: true,
     schedules: [],
     lastTakenAt: null,
     todayEventCount: 0,
@@ -61,6 +62,26 @@ describe("pickDefaultMedicationId", () => {
 
     expect(pickDefaultMedicationId(options, now)).toBe("r");
     expect(pickDefaultMedicationId([...options].reverse(), now)).toBe("r");
+  });
+
+  it("never preselects an ended course, even when it is the only active one", () => {
+    // Still active (not archived) but the course ended: the server answers
+    // `intakeActionable: false`, the list keeps it for back-filling, and the
+    // default lands on the medication that offers a dose today.
+    const options = [
+      medication("ended", {
+        name: "Amoxicillin",
+        active: true,
+        intakeActionable: false,
+      }),
+      medication("current", { name: "Ramipril" }),
+    ];
+    expect(pickDefaultMedicationId(options)).toBe("current");
+    expect(
+      pickDefaultMedicationId([
+        medication("ended", { active: true, intakeActionable: false }),
+      ]),
+    ).toBeNull();
   });
 });
 

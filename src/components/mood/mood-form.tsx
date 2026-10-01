@@ -63,6 +63,10 @@ import {
 import { dayOfLocalInput, useLinkedDayContext } from "./use-linked-day-context";
 import { MoodQuickTags } from "./mood-quick-tags";
 import { useRecentTags } from "./recent-tags";
+import {
+  droppedAnyLinkKeys,
+  type DroppedLinkKeysWire,
+} from "@/lib/mood/dropped-link-keys";
 import { moodFaceIcon } from "./mood-tag-icons";
 // One catalogue for the chip strip and for every server-side reader of what it
 // writes. Split apart, the write side gained a locale and the read side did
@@ -219,7 +223,7 @@ export function MoodForm({ onSuccess, onCancel, footerSlot }: MoodFormProps) {
 
       const trimmedNote = note.trim();
 
-      await apiPost("/api/mood-entries", {
+      const saved = await apiPost<DroppedLinkKeysWire>("/api/mood-entries", {
         mood,
         tags: tags.length > 0 ? tags : undefined,
         tagKeys: tagKeys.length > 0 ? tagKeys : undefined,
@@ -243,6 +247,9 @@ export function MoodForm({ onSuccess, onCancel, footerSlot }: MoodFormProps) {
       await invalidateKeys(queryClient, moodDependentKeys);
       await refetchInactiveDailyReads(queryClient);
       toast.success(t("common.saved"));
+      // The entry landed, but a tag picked here may have been archived or
+      // deleted elsewhere since the picker loaded; the server says so.
+      if (droppedAnyLinkKeys(saved)) toast.warning(t("mood.tagsNotSaved"));
       onSuccess?.();
     } catch (err) {
       setError(localizedApiError(err, t, "mood.saveError"));

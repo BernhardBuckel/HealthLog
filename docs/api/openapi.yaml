@@ -60094,6 +60094,19 @@ components:
         externalId:
           description: Echoed back when the entry carried one, for client mapping.
           type: string
+        droppedTagKeys:
+          description: "`tagKeys` from this request that were not stored: unknown to the catalog, archived, another account's
+            custom tag, or a rated factor sent as a binary key. Present only when non-empty; absent means every
+            submitted key landed. The entry itself was written."
+          type: array
+          items:
+            type: string
+        droppedFactorKeys:
+          description: "`ratedFactors` keys from this request that were not stored: unknown, archived, or not a rated factor.
+            Present only when non-empty; absent means every submitted factor landed."
+          type: array
+          items:
+            type: string
       required:
         - index
         - status
@@ -60735,6 +60748,19 @@ components:
             - $ref: "#/components/schemas/MoodContextOutput"
             - type: "null"
           description: The day's context, or null when the entry carries none. Null and an object of nulls are different answers.
+        droppedTagKeys:
+          description: "Create and edit responses only: `tagKeys` from the request that are not on the entry (unknown, archived,
+            another account's custom tag, or a rated factor sent as a binary key). Present only when non-empty. An
+            archived tag the edit preserved is on the entry and is not listed."
+          type: array
+          items:
+            type: string
+        droppedFactorKeys:
+          description: "Create and edit responses only: `ratedFactors` keys from the request that are not on the entry. Present
+            only when non-empty."
+          type: array
+          items:
+            type: string
       required:
         - id
         - userId
@@ -62999,6 +63025,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OcrExtractedRow"
+        pageCoverage:
+          description: "Present only when a PDF ran past the pages a scan reads: the rows come from the first `read` of `total`
+            pages. Absent when the whole document was read."
+          type: object
+          properties:
+            read:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            total:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+          required:
+            - read
+            - total
+          additionalProperties: false
       required:
         - reportDate
         - providerType

@@ -18,7 +18,7 @@ import { MetricStatStrip } from "@/components/insights/metric-stat-strip";
 import { CoachReadStrip } from "@/components/insights/derived/coach-read-strip";
 import { MetricTargetSummary } from "@/components/insights/metric-target-summary";
 import { SubPageShell } from "@/components/insights/sub-page-shell";
-import { getBpTargets } from "@/lib/analytics/bp-targets";
+import { useBpTargetBand } from "@/lib/queries/use-bp-target-band";
 
 /**
  * v1.4.25 W4 — `/insights/blood-pressure`.
@@ -26,7 +26,8 @@ import { getBpTargets } from "@/lib/analytics/bp-targets";
  * Routed Blood-Pressure sub-page. The mother page hosts the overview
  * (hero + briefing + advisor); this page concentrates on BP-only depth:
  * the BP chart with its chart-cog overlays, the per-section AI
- * assessment, and the chart's target zones tied to the user's age.
+ * assessment, and the chart's target zones — the band the server resolved
+ * for the record on screen (the user's own target, else the age default).
  *
  * v1.4.27 F17 — when the user has zero BP observations, the page
  * short-circuits to an empty-state CTA pointing at
@@ -57,6 +58,7 @@ export default function InsightsBlutdruckPage() {
   // series at once: the single chart reports per-type visible-range stats and
   // each strip column reads its own half.
   const { statsByType, onVisibleStats } = useChartDomainStats();
+  const bpTargets = useBpTargetBand();
 
   if (isEmpty) {
     return (
@@ -82,13 +84,11 @@ export default function InsightsBlutdruckPage() {
     );
   }
 
-  const bpTargets =
-    user?.dateOfBirth != null ? getBpTargets(new Date(user.dateOfBirth)) : null;
   const bpTargetZones = bpTargets
     ? [
         {
-          min: bpTargets.sysLow,
-          max: bpTargets.sysHigh,
+          min: bpTargets.systolic.min,
+          max: bpTargets.systolic.max,
           color: "var(--chart-3)",
           opacity: 0.21,
           label: t("charts.systolic"),
@@ -96,8 +96,8 @@ export default function InsightsBlutdruckPage() {
           lineOpacity: 0.24,
         },
         {
-          min: bpTargets.diaLow,
-          max: bpTargets.diaHigh,
+          min: bpTargets.diastolic.min,
+          max: bpTargets.diastolic.max,
           color: "var(--info)",
           opacity: 0.21,
           label: t("charts.diastolic"),

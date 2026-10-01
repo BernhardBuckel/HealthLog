@@ -372,6 +372,26 @@ export function resolveEffectiveBpTargets(
 }
 
 /**
+ * The user's own blood-pressure band, or `null` when they have not set one.
+ *
+ * `resolveEffectiveBpTargets` answers "which band applies" and falls back to
+ * the age default; this answers "did the person pick it", which is what a
+ * surface needs to label the band as their own rather than as the guideline.
+ * A one-sided override (systolic only) still counts: the other half is the
+ * age default, exactly as `resolveEffectiveBpTargets` fills it.
+ */
+export function resolveBpTargetOverride(
+  profile: UserProfileForRange,
+  thresholdsJson: unknown,
+): BpTargets | null {
+  const hasOverride =
+    resolveThresholdOverride(thresholdsJson, "BLOOD_PRESSURE_SYS") != null ||
+    resolveThresholdOverride(thresholdsJson, "BLOOD_PRESSURE_DIA") != null;
+  if (!hasOverride) return null;
+  return resolveEffectiveBpTargets(profile, thresholdsJson);
+}
+
+/**
  * Convenience: resolve every supported metric at once. Useful for /targets
  * and the insight generator.
  */

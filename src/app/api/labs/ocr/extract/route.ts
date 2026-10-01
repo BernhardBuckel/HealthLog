@@ -374,6 +374,7 @@ async function handleVisionExtract(
       dataBase64: string;
     }[];
     let documents: { mediaType: "application/pdf"; dataBase64: string }[];
+    let pageCoverage: { read: number; total: number } | undefined;
 
     if (mime === "application/pdf") {
       if (pick.pdfSupported) {
@@ -404,6 +405,20 @@ async function handleVisionExtract(
         }
         images = raster.images;
         documents = [];
+        // A PDF longer than the page cap is read from its first pages only.
+        // That used to live in the wide event alone; the person reviewing the
+        // rows is the one who needs to know the rest of the report was not
+        // read.
+        if (raster.pageCount > raster.images.length) {
+          pageCoverage = {
+            read: raster.images.length,
+            total: raster.pageCount,
+          };
+          annotate({
+            action: { name: "labs.ocr.pagesCapped" },
+            meta: { read: raster.images.length, total: raster.pageCount },
+          });
+        }
       }
     } else {
       images = [{ mediaType: mime, dataBase64: buffer.toString("base64") }];
@@ -431,7 +446,7 @@ async function handleVisionExtract(
         0,
         { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
       );
-      return apiSuccess(result);
+      return apiSuccess(pageCoverage ? { ...result, pageCoverage } : result);
     } catch (err) {
       // Provider/extraction failure — the call may still have burned tokens, so
       // reconcile against the reserved estimate rather than refunding in full.

@@ -401,6 +401,21 @@ const bulkMoodPayload = z
       "iOS SyncMode bulk mood backfill. 1–500 entries per call; per-entry UPSERT keyed by `externalId` so re-runs are idempotent.",
   });
 
+// The submitted keys a write did not store. Shared by the bulk result and the
+// single-entry write responses so the two surfaces name the same thing.
+const droppedTagKeysField = z
+  .array(z.string())
+  .optional()
+  .describe(
+    "`tagKeys` from this request that were not stored: unknown to the catalog, archived, another account's custom tag, or a rated factor sent as a binary key. Present only when non-empty; absent means every submitted key landed. The entry itself was written.",
+  );
+const droppedFactorKeysField = z
+  .array(z.string())
+  .optional()
+  .describe(
+    "`ratedFactors` keys from this request that were not stored: unknown, archived, or not a rated factor. Present only when non-empty; absent means every submitted factor landed.",
+  );
+
 const bulkMoodEntryResult = z
   .object({
     index: z.number().int().nonnegative(),
@@ -418,6 +433,8 @@ const bulkMoodEntryResult = z
       .string()
       .optional()
       .describe("Echoed back when the entry carried one, for client mapping."),
+    droppedTagKeys: droppedTagKeysField,
+    droppedFactorKeys: droppedFactorKeysField,
   })
   .meta({ id: "BulkMoodEntryResult" });
 
@@ -526,6 +543,12 @@ const moodEntryDto = z
       .describe(
         "The day's context, or null when the entry carries none. Null and an object of nulls are different answers.",
       ),
+    droppedTagKeys: droppedTagKeysField.describe(
+      "Create and edit responses only: `tagKeys` from the request that are not on the entry (unknown, archived, another account's custom tag, or a rated factor sent as a binary key). Present only when non-empty. An archived tag the edit preserved is on the entry and is not listed.",
+    ),
+    droppedFactorKeys: droppedFactorKeysField.describe(
+      "Create and edit responses only: `ratedFactors` keys from the request that are not on the entry. Present only when non-empty.",
+    ),
   })
   .meta({
     id: "MoodEntryDTO",

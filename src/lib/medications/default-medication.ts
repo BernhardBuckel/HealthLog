@@ -8,6 +8,13 @@ export interface DefaultMedicationOption {
   id: string;
   name: string;
   active: boolean;
+  /**
+   * The server's answer to "does this medication offer a dose today"
+   * (`src/lib/medications/intake-actionable.ts`): active, intake tracked,
+   * and the course includes today. The preselection reads it and never
+   * re-derives it from `active`, so an ended course is never the default.
+   */
+  intakeActionable: boolean;
   schedules: ScheduleWindowInput[];
   lastTakenAt: string | null;
   todayEventCount?: number | null;
@@ -27,8 +34,11 @@ const DEFAULT_THRESHOLDS: MedicationDueThresholds = {
 
 /**
  * Pick the medication that should be pre-selected when an intake form opens.
- * Current, late, and overdue schedule windows win; otherwise the fallback is
- * the single active medication or the first active name alphabetically.
+ * Only a medication that offers a dose today (`intakeActionable`) can be the
+ * default. Among those, current, late, and overdue schedule windows win;
+ * otherwise the fallback is the single candidate or the first name
+ * alphabetically. A list may still carry ended courses for back-filling a
+ * past dose; they stay pickable by hand but are never preselected.
  */
 export function pickDefaultMedicationId(
   options: DefaultMedicationOption[],
@@ -36,7 +46,7 @@ export function pickDefaultMedicationId(
   thresholds: MedicationDueThresholds = DEFAULT_THRESHOLDS,
   tz: string = DEFAULT_TIMEZONE,
 ): string | null {
-  const actives = options.filter((medication) => medication.active);
+  const actives = options.filter((medication) => medication.intakeActionable);
   if (actives.length === 0) return null;
   if (actives.length === 1) return actives[0].id;
 

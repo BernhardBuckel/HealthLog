@@ -17,8 +17,12 @@
  *   4. Coach memory      — durable-fact review + forget controls.
  *
  * The nav entry is module-gated on `coach`. The preference + nudge cards
- * keep their own content gate on `!user.disableCoach`: hiding the Coach hides
- * its tuning. The memory (facts, stored conversations and reminders) is never
+ * keep their own content gate on the same published module state
+ * (`user.modules.coach`, resolved by the server for the record on screen
+ * from that record's opt-out and the operator's switches): hiding the Coach
+ * hides its tuning. The raw `disableCoach` column is the signed-in person's
+ * own, so inside a managed or shared record it answered for the wrong
+ * person. The memory (facts, stored conversations and reminders) is never
  * gated: it is the person's own record, readable and deletable whatever the
  * Coach's state. The reminders card turns read-only while the Coach is
  * unavailable and, with the Coach hidden, shows only when rows exist.
@@ -39,6 +43,7 @@ import { CoachNudgeCard } from "@/components/settings/coach-nudge-card";
 import { CoachPrefsSection } from "@/components/settings/coach-prefs-section";
 import { useAuth } from "@/hooks/use-auth";
 import { useMounted } from "@/hooks/use-mounted";
+import { isSurfaceVisible } from "@/lib/modules/surface";
 
 export function CoachSection() {
   const { isAuthenticated, user } = useAuth();
@@ -47,11 +52,13 @@ export function CoachSection() {
   // `useMounted()` to keep the hydration render matching the SSR HTML.
   const mounted = useMounted();
   const authed = mounted && isAuthenticated;
-  // The preference + memory cards ride the same content gate as the rest
-  // of the Coach surface: when the user has hidden the Coach there is no
-  // assistant to tune or remember anything. (`mounted`-gated so the SSR +
-  // hydration renders agree.)
-  const coachEnabled = !mounted || !user?.disableCoach;
+  // The preference + nudge cards ride the same content gate as the rest of
+  // the Coach surface: when the record has the Coach hidden there is no
+  // assistant to tune. Read from the server's module map for the record,
+  // never recomputed from the account's own columns. (`mounted`-gated so the
+  // SSR + hydration renders agree.)
+  const coachEnabled =
+    !mounted || isSurfaceVisible("settings:coach", user?.modules);
 
   return (
     <div className="space-y-6">
