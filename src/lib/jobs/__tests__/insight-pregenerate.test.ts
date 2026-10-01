@@ -207,6 +207,31 @@ describe("findPregenerateCandidates", () => {
   });
 });
 
+describe("runInsightPregenerate — the job's time budget", () => {
+  it("stops between candidates once the budget is spent and says so", async () => {
+    capabilities = {
+      briefing: unavailable("user_disabled"),
+      statusText: unavailable("user_disabled"),
+    };
+    const { prisma } = makePrisma([
+      { id: "u1", locale: "de" },
+      { id: "u2", locale: "de" },
+      { id: "u3", locale: "de" },
+    ]);
+    let checks = 0;
+    const result = await runInsightPregenerate(prisma as never, {
+      generate: vi.fn(),
+      statusGenerators: [],
+      warmGenericMetrics: vi.fn().mockResolvedValue(0),
+      // Spent after the first candidate.
+      shouldStop: () => checks++ >= 1,
+    });
+
+    expect(result).toMatchObject({ total: 3, skipped: 1, stoppedEarly: true });
+    expect(aiCapabilityForJob).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("runInsightPregenerate — per-user capabilities", () => {
   it("skips a user with neither capability before any budget write or generation", async () => {
     capabilities = {
@@ -1337,7 +1362,7 @@ describe("queue registration", () => {
 
   it("schedules the cron in the schedules table (with retry policy)", () => {
     expect(workerSrc).toMatch(
-      /\[\s*INSIGHT_PREGENERATE_QUEUE\s*,\s*INSIGHT_PREGENERATE_CRON\s*,\s*insightRetryOptions\s*\]/,
+      /\[\s*INSIGHT_PREGENERATE_QUEUE\s*,\s*INSIGHT_PREGENERATE_CRON\s*,\s*\{\s*\.\.\.insightRetryOptions\s*,\s*expireInSeconds:\s*INSIGHT_PREGENERATE_EXPIRE_SECONDS\s*,?\s*\}\s*,?\s*\]/,
     );
   });
 

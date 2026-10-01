@@ -15,6 +15,16 @@ import { getGlobalBoss } from "@/lib/jobs/boss-instance";
 
 export const PR_DETECTION_QUEUE = "pr-detection";
 
+/**
+ * The job's expiry: twenty-five minutes. The fallback cron walks every
+ * account's whole history every thirty minutes, which on a large instance
+ * outlasts pg-boss's fifteen-minute default; past it pg-boss retried the pass
+ * beside itself. The pass stops at three quarters of this (`jobBudget`) and
+ * holds a lock (`lockedPass`), so it ends before the next tick and a retry or
+ * a late tick never runs beside it. The ingest sends carry the same expiry.
+ */
+export const PR_DETECTION_EXPIRE_SECONDS = 25 * 60;
+
 /** Concurrency budget for the worker process — five jobs in flight
  *  is enough to drain a multi-user backfill spike without crowding
  *  the reminder check or the daily insights workload that runs on the
@@ -62,6 +72,7 @@ export async function enqueuePrDetection(
     triggeredAt: new Date().toISOString(),
   };
   await boss.send(PR_DETECTION_QUEUE, payload, {
+    expireInSeconds: PR_DETECTION_EXPIRE_SECONDS,
     // Stagger retries gently — the detector is purely read-heavy on
     // the user's own data, but a stampede of failed jobs against a
     // briefly-flaky DB would compound the problem.

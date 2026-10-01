@@ -250,7 +250,7 @@ describe("queue registration", () => {
 
   it("schedules the cron in the schedules table (with retry policy)", () => {
     expect(workerSrc).toMatch(
-      /\[\s*PERIOD_NARRATIVE_QUEUE\s*,\s*PERIOD_NARRATIVE_CRON\s*,\s*insightRetryOptions\s*\]/,
+      /\[\s*PERIOD_NARRATIVE_QUEUE\s*,\s*PERIOD_NARRATIVE_CRON\s*,\s*\{\s*\.\.\.insightRetryOptions\s*,\s*expireInSeconds:\s*PERIOD_NARRATIVE_EXPIRE_SECONDS\s*,?\s*\}\s*,?\s*\]/,
     );
   });
 

@@ -121,16 +121,39 @@ export async function handleOffhostBackup(
   });
 }
 
+/**
+ * The weekly on-host copy of every account.
+ *
+ * The pass serialises each account's whole record, so on a large instance it
+ * can outlast its job. It walks the accounts whose weekly copy is oldest
+ * first and stops between accounts once the job's budget is spent
+ * (`jobBudget`), reporting `stopped_early`. The accounts it did not reach have
+ * the oldest copies, so they lead the next pass (the weekly cron or the
+ * admin's "run now"), and every pass makes progress where it matters most.
+ * The binding holds a lock (`lockedPass`), so a retry never runs beside it.
+ */
 export async function handleDataBackup(
   jobs: Job<DataBackupPayload>[],
 ): Promise<JobOutcome> {
-  void jobs;
+  const shouldStop = jobBudget(jobs);
   return withBackgroundEvent("job.data_backup", async (evt) => {
     const prisma = getWorkerPrisma();
     try {
-      const users = await prisma.user.findMany({
-        select: { id: true, username: true },
-      });
+      const [accounts, copies] = await Promise.all([
+        prisma.user.findMany({ select: { id: true, username: true } }),
+        prisma.dataBackup.findMany({
+          where: { type: "WEEKLY_AUTO" },
+          select: { userId: true, createdAt: true },
+        }),
+      ]);
+      const copiedAt = new Map(
+        copies.map((copy) => [copy.userId, copy.createdAt.getTime()]),
+      );
+      // No copy yet sorts first, then the oldest copy.
+      const users = [...accounts].sort(
+        (a, b) => (copiedAt.get(a.id) ?? -1) - (copiedAt.get(b.id) ?? -1),
+      );
+      let stoppedEarly = false;
 
       let backed = 0;
       let usersFailed = 0;
@@ -142,6 +165,10 @@ export async function handleDataBackup(
       // six weeks in.
       let lastError: unknown;
       for (const user of users) {
+        if (shouldStop()) {
+          stoppedEarly = true;
+          break;
+        }
         reportJobProgress({
           backup_user: user.id,
           backup_users_done: backed + usersFailed + skippedRestoring,
@@ -207,6 +234,7 @@ export async function handleDataBackup(
         users_failed: usersFailed,
         records_oversized: oversized,
         users_skipped_restoring: skippedRestoring,
+        stopped_early: stoppedEarly,
       };
 
       // A pass that wrote nothing for anybody protected nobody, and saying

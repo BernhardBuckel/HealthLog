@@ -4,6 +4,7 @@
  * Extracted from reminder-worker.ts, which owns the queue names, cron
  * schedules, and boss.work registrations.
  */
+import { jobBudget } from "@/lib/jobs/job-budget";
 import { type Job } from "pg-boss";
 import { runGeoBackfill } from "@/lib/jobs/geo-backfill";
 import { fetchGeoLite2Databases } from "@/lib/geo/geolite2-fetch";
@@ -223,6 +224,11 @@ export async function handlePrDetection(
   let insertedAcrossJobs = 0;
   let tiesAcrossJobs = 0;
   let usersFailed = 0;
+  let stoppedEarly = false;
+  // The cron pass walks every account's all-time history and ticks every
+  // thirty minutes. It stops between accounts once the job's budget is spent;
+  // the ingest jobs and the next tick carry the rest.
+  const shouldStop = jobBudget(jobs);
   for (const job of jobs) {
     await withBackgroundEvent("job.pr_detection", async (evt) => {
       const p = getWorkerPrisma();
@@ -241,6 +247,10 @@ export async function handlePrDetection(
       let insertedTotal = 0;
       let tiesTotal = 0;
       for (const userId of userIds) {
+        if (shouldStop()) {
+          stoppedEarly = true;
+          break;
+        }
         try {
           const result = await detectPersonalRecordsForUser(userId, {
             silent,
@@ -274,5 +284,6 @@ export async function handlePrDetection(
     pr_detection_inserted: insertedAcrossJobs,
     pr_detection_ties: tiesAcrossJobs,
     pr_detection_users_failed: usersFailed,
+    stopped_early: stoppedEarly,
   });
 }

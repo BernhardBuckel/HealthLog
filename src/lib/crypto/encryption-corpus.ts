@@ -390,19 +390,29 @@ export interface RotationResult {
   dropped: number;
 }
 
-/** Re-encrypt one column's stale rows to the active key. */
+/** Thrown out of a column walk when the caller's time budget is spent. */
+class RotationStopped extends Error {}
+
+/**
+ * Re-encrypt one column's stale rows to the active key. `shouldStop` is the
+ * caller's time budget, checked between rows; a stopped column reports
+ * `stopped` and the rows it did not reach stay on their old key for the next
+ * run, which skips every row already rotated.
+ */
 export async function rotateColumn(
   client: CorpusClient,
   col: EncryptedColumn,
-): Promise<RotationResult> {
+  shouldStop: () => boolean = () => false,
+): Promise<RotationResult & { stopped: boolean }> {
   const delegate = getDelegate(client, col.model);
-  const result: RotationResult = {
+  const result: RotationResult & { stopped: boolean } = {
     model: col.model,
     field: col.field,
     scanned: 0,
     rotated: 0,
     errors: 0,
     dropped: 0,
+    stopped: false,
   };
 
   /**
@@ -432,6 +442,10 @@ export async function rotateColumn(
     // (`convertSingleValueBackup`). A row converted, replaced or deleted since
     // it was listed is gone, not an error.
     for await (const id of singleValueIds(delegate)) {
+      if (shouldStop()) {
+        result.stopped = true;
+        break;
+      }
       result.scanned += 1;
       try {
         const outcome = await convertSingleValueBackup(
@@ -452,31 +466,37 @@ export async function rotateColumn(
   // Idempotent — rows already on the active key are skipped, so an
   // interrupted run resumes cleanly on the next invocation. `scanned` counts
   // the rows that hold ciphertext, whatever the column.
-  await walkColumn(delegate, col, async ({ id, value, codec }) => {
-    result.scanned += 1;
-    if (walkedKeyId(value, codec, col.kind) === getActiveKeyId()) return;
-    try {
-      // The plaintext is never inspected, only re-sealed, so every envelope
-      // a stored value can legitimately carry survives rotation untouched.
-      const next =
-        codec !== null
-          ? reencryptBlob(value as Uint8Array, codec, col.aad)
-          : fromCiphertext(
-              encrypt(decrypt(toCiphertext(value, col.kind)!)),
-              col.kind,
-            );
-      await delegate.update({
-        where: { [pkField(col)]: id },
-        data: { [col.field]: next },
-      });
-      result.rotated += 1;
-    } catch (err) {
-      // Deleted between the read and the write (a backup replacing its
-      // pieces, an account going): nothing is left to rotate.
-      if (isRowGone(err)) return;
-      await onUnreadable(id);
-    }
-  });
+  try {
+    await walkColumn(delegate, col, async ({ id, value, codec }) => {
+      if (shouldStop()) throw new RotationStopped();
+      result.scanned += 1;
+      if (walkedKeyId(value, codec, col.kind) === getActiveKeyId()) return;
+      try {
+        // The plaintext is never inspected, only re-sealed, so every envelope
+        // a stored value can legitimately carry survives rotation untouched.
+        const next =
+          codec !== null
+            ? reencryptBlob(value as Uint8Array, codec, col.aad)
+            : fromCiphertext(
+                encrypt(decrypt(toCiphertext(value, col.kind)!)),
+                col.kind,
+              );
+        await delegate.update({
+          where: { [pkField(col)]: id },
+          data: { [col.field]: next },
+        });
+        result.rotated += 1;
+      } catch (err) {
+        // Deleted between the read and the write (a backup replacing its
+        // pieces, an account going): nothing is left to rotate.
+        if (isRowGone(err)) return;
+        await onUnreadable(id);
+      }
+    });
+  } catch (err) {
+    if (!(err instanceof RotationStopped)) throw err;
+    result.stopped = true;
+  }
   return result;
 }
 
@@ -488,16 +508,31 @@ export interface CorpusRotation {
   totalErrors: number;
   /** Unreadable rows deleted from `disposable` columns. */
   totalDropped: number;
+  /**
+   * The time budget ran out before every column was walked. Running again
+   * finishes the job: rows already on the active key are skipped.
+   */
+  stoppedEarly: boolean;
 }
 
-/** Re-encrypt the whole corpus to the active key. Idempotent + active-key-only. */
+/**
+ * Re-encrypt the whole corpus to the active key. Idempotent + active-key-only.
+ * `shouldStop` is the caller's time budget (`jobBudget` in the worker).
+ */
 export async function rotateCorpus(
   client: CorpusClient,
+  shouldStop: () => boolean = () => false,
 ): Promise<CorpusRotation> {
   const activeKeyId = getActiveKeyId();
   const results: RotationResult[] = [];
+  let stoppedEarly = false;
   for (const col of ENCRYPTED_COLUMNS) {
-    results.push(await rotateColumn(client, col));
+    const { stopped, ...result } = await rotateColumn(client, col, shouldStop);
+    results.push(result);
+    if (stopped) {
+      stoppedEarly = true;
+      break;
+    }
   }
   let totalScanned = 0;
   let totalRotated = 0;
@@ -516,5 +551,6 @@ export async function rotateCorpus(
     totalRotated,
     totalErrors,
     totalDropped,
+    stoppedEarly,
   };
 }

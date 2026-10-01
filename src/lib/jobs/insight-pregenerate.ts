@@ -277,6 +277,8 @@ export interface PregenerateRunResult {
   skipped: number;
   failed: number;
   budgetBlocked: number;
+  /** The job's time budget ran out before every candidate was reached. */
+  stoppedEarly: boolean;
   /**
    * Count of per-metric assessment caches written warm across the whole
    * run. The comprehensive generator evicts the seven `*-status`
@@ -575,6 +577,12 @@ export async function runInsightPregenerate(
       userId: string;
       locale: SupportedLocale;
     }) => Promise<void>;
+    /**
+     * The job's time budget (`jobBudget`). Checked between candidates: a pass
+     * of 200 provider calls can outlast its job, and the candidates it does
+     * not reach are the stalest again tomorrow, so they lead the next pass.
+     */
+    shouldStop?: () => boolean;
   } = {},
 ): Promise<PregenerateRunResult> {
   const now = options.now ?? new Date();
@@ -606,6 +614,7 @@ export async function runInsightPregenerate(
     skipped: 0,
     failed: 0,
     budgetBlocked: 0,
+    stoppedEarly: false,
     assessmentsWarmed: 0,
     metricAssessmentsWarmed: 0,
   };
@@ -619,6 +628,10 @@ export async function runInsightPregenerate(
   result.total = candidates.length;
 
   for (const candidate of candidates) {
+    if (options.shouldStop?.()) {
+      result.stoppedEarly = true;
+      break;
+    }
     // v1.18.11 P3 — one feature-cache scope per candidate, so the
     // comprehensive briefing's bounded feature read is computed once and any
     // sibling consumer in this candidate's warm reuses it. Scoped per user so
@@ -819,6 +832,7 @@ export async function runInsightPregenerate(
       skipped: result.skipped,
       failed: result.failed,
       budget_blocked: result.budgetBlocked,
+      stopped_early: result.stoppedEarly,
       assessments_warmed: result.assessmentsWarmed,
       metric_assessments_warmed: result.metricAssessmentsWarmed,
     },
