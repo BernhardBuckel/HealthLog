@@ -17,8 +17,11 @@ import {
   type ThresholdMetric,
   type EffectiveRange,
 } from "@/lib/analytics/effective-range";
-import { convertGlucose, toCanonicalMgdl } from "@/lib/glucose";
-import { resolveTargetUnitAdapter } from "@/lib/targets/target-unit-display";
+import {
+  isGlucoseTargetMetric,
+  resolveTargetUnitAdapter,
+} from "@/lib/targets/target-unit-display";
+import { resolveGlucoseUnit } from "@/lib/glucose";
 import { useUnitDisplay } from "@/hooks/use-unit-display";
 import { apiDelete, apiGet, apiPut } from "@/lib/api/api-fetch";
 
@@ -129,49 +132,33 @@ function TargetEditSheetBody({
   const metric = TARGET_TYPE_TO_METRIC[targetType] ?? null;
   const isDerivedMetric = !isBp && metric == null;
 
-  // Glucose is the one metric whose display unit can differ from the
-  // canonical storage unit: HealthLog stores mg/dL, but a user on the
-  // mmol/L preference sees — and types — mmol/L. The parent already
-  // hands us `unit="mmol/L"` and a `initialRange` pre-converted to that
-  // unit. We must therefore (a) seed the mg/dL persisted override into
-  // the display unit, (b) validate the typed value against bounds
-  // expressed in the display unit, and (c) convert the typed value back
-  // to canonical mg/dL before the PUT — otherwise a `5.5 mmol/L` target
-  // is rejected by the 40–400 mg/dL bounds or stored verbatim as 5.5.
-  const isGlucoseMmol =
-    metric != null && metric.startsWith("BLOOD_GLUCOSE") && unit === "mmol/L";
-
-  // v1.32.27 — the same coupled treatment now covers the metric/imperial
-  // preference. Weight-class thresholds are stored in kg; an imperial
-  // user seeds, validates, and types in lb, and the adapter inverts the
-  // typed number back to kg before the PUT. Glucose keeps its own
-  // mg/dL ↔ mmol/L dialect (it carries no display transform, so the two
-  // never compose); every other metric takes the adapter's identity
-  // path and is numerically untouched.
-  const { preference } = useUnitDisplay();
+  // One adapter owns every direction of the unit conversion: an imperial
+  // user seeds, validates and types weight-class thresholds in pounds, an
+  // mmol/L user types glucose thresholds in mmol/L, and the typed number is
+  // inverted back to the canonical kg / mg/dL before the PUT. The parent
+  // hands `unit` and `initialRange` already in the display unit; the
+  // persisted override and `METRIC_BOUNDS` are canonical and go through the
+  // adapter. Every other metric takes the identity path.
+  // A glucose sheet speaks the unit its panel registered, so the sheet and
+  // the band it edits can never disagree.
+  const { preference, glucoseUnit: accountGlucoseUnit } = useUnitDisplay();
+  const adapterKey = isBp ? "BLOOD_PRESSURE_SYS" : (metric ?? "");
   const units = resolveTargetUnitAdapter(
-    isBp ? "BLOOD_PRESSURE_SYS" : (metric ?? ""),
+    adapterKey,
     unit,
     preference,
+    isGlucoseTargetMetric(adapterKey)
+      ? resolveGlucoseUnit(unit)
+      : accountGlucoseUnit,
   );
 
-  const toDisplay = (canonical: number) =>
-    isGlucoseMmol
-      ? convertGlucose(canonical, "mmol/L")
-      : units.toDisplay(canonical);
-  const toCanonical = (displayValue: number) =>
-    isGlucoseMmol
-      ? toCanonicalMgdl(displayValue, "mmol/L")
-      : units.toCanonical(displayValue);
-  // Guardrails the typed value is checked against, expressed in the
-  // display unit. Glucose projects its mg/dL window through the same
-  // conversion the fields use; every other metric rounds the window
-  // INWARD so a value typed at the display bound never inverts to a
-  // canonical value the server rejects.
+  const toDisplay = (canonical: number) => units.toDisplay(canonical);
+  const toCanonical = (displayValue: number) => units.toCanonical(displayValue);
+  // Guardrails the typed value is checked against, expressed in the display
+  // unit and rounded INWARD so a value typed at the display bound never
+  // inverts to a canonical value the server rejects.
   const toDisplayBounds = (canonical: { min: number; max: number }) =>
-    isGlucoseMmol
-      ? { min: toDisplay(canonical.min), max: toDisplay(canonical.max) }
-      : units.bounds(canonical);
+    units.bounds(canonical);
 
   // Lazy-load the thresholds payload so the dialog also catches any
   // already-persisted override even when the seeded `initialRange`

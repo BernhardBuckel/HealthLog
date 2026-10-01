@@ -48,6 +48,12 @@ import {
   transformRescales,
   type UnitPreference,
 } from "@/lib/measurements/display-transform";
+import {
+  MGDL_PER_MMOL,
+  convertGlucose,
+  toCanonicalMgdl,
+  type GlucoseUnit,
+} from "@/lib/glucose";
 
 /** Canonical decimals a converted threshold value persists with. */
 const CANONICAL_DECIMALS = 2;
@@ -120,6 +126,41 @@ function identityAdapter(metric: string, unit: string): TargetUnitAdapter {
 }
 
 /**
+ * The glucose thresholds (`BLOOD_GLUCOSE_FASTING` and its siblings) are
+ * stored in mg/dL and read in the reader's glucose unit. The settings editor
+ * used to take the identity path for them, so an mmol/L account was asked
+ * for mg/dL figures under a label that said nothing, against 40–400 bounds
+ * and a "default: 70–99" hint — while the insights sheet for the same
+ * threshold already spoke mmol/L.
+ *
+ * mmol/L reads at one decimal; the canonical write rounds to whole mg/dL
+ * (`toCanonicalMgdl`), the precision every glucose path stores. Guardrails
+ * round inward exactly like the imperial branch: 40 mg/dL is 2.22 mmol/L,
+ * shown as 2.3 so that the typed bound inverts to 41 mg/dL and passes.
+ */
+function glucoseAdapter(glucoseUnit: GlucoseUnit): TargetUnitAdapter {
+  if (glucoseUnit === "mg/dL") return identityAdapter("BLOOD_GLUCOSE", "mg/dL");
+  const toMmol = (mgdl: number) => mgdl / MGDL_PER_MMOL;
+  return {
+    unit: "mmol/L",
+    step: 0.1,
+    rescales: true,
+    toDisplay: (canonical) => convertGlucose(canonical, "mmol/L"),
+    toCanonical: (display) => toCanonicalMgdl(display, "mmol/L"),
+    toDisplayDelta: (canonicalDelta) => roundTo(toMmol(canonicalDelta), 1),
+    bounds: (canonical) => ({
+      min: ceilTo(toMmol(canonical.min), 1),
+      max: floorTo(toMmol(canonical.max), 1),
+    }),
+  };
+}
+
+/** True for a glucose threshold metric or target-card type. */
+export function isGlucoseTargetMetric(metric: string): boolean {
+  return metric === "BLOOD_GLUCOSE" || metric.startsWith("BLOOD_GLUCOSE_");
+}
+
+/**
  * Resolve the unit adapter for one threshold metric / target-card type.
  *
  * `metric` is the threshold-metric literal (`"WEIGHT"`,
@@ -128,13 +169,17 @@ function identityAdapter(metric: string, unit: string): TargetUnitAdapter {
  * on, so a metric participates exactly when it has a registered
  * transform. `canonicalUnit` is the unit the surface announced before
  * this release (`METRIC_BOUNDS[metric].unit` or the targets payload's
- * `unit`) and is what an untransformed metric keeps.
+ * `unit`) and is what an untransformed metric keeps. `glucoseUnit` is
+ * the reader's glucose preference; it decides the glucose thresholds and
+ * nothing else.
  */
 export function resolveTargetUnitAdapter(
   metric: string,
   canonicalUnit: string,
   preference: UnitPreference,
+  glucoseUnit: GlucoseUnit,
 ): TargetUnitAdapter {
+  if (isGlucoseTargetMetric(metric)) return glucoseAdapter(glucoseUnit);
   if (!hasDisplayTransform(metric))
     return identityAdapter(metric, canonicalUnit);
 
