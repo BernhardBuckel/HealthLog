@@ -368,6 +368,10 @@ export function LabForm({
           variant="outline"
           data-action="save-and-add-another"
           disabled={submitting}
+          // Three buttons do not fit one phone-width row: the secondary save
+          // takes a row of its own above Cancel + Save instead of pushing
+          // Cancel off the left edge of the sheet.
+          className="max-md:order-first max-md:w-full"
         >
           {pendingAction === "saveAndAddAnother" ? (
             <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
