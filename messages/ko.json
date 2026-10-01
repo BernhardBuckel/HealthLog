@@ -7322,6 +7322,7 @@
         "restoreSkippedEcgReference": "ECG 파형 출처",
         "restoreSkippedMedicationTarget": "약 목표 분석물",
         "restoreSkippedScheduleRevisionLink": "일정 개정 연결",
+        "restoreSkippedAccountSetting": "계정 설정",
         "restoreMissingTitle": "복원을 중단했어요 — 파일이 불완전해요",
         "restoreMissingDescription": "파일의 매니페스트에는 아래 항목이 들어 있다고 적혀 있는데 실제로는 없어요. 아무것도 바꾸지 않았어요. 복원은 해당 기록 전체를 갈아엎기 때문에, 파일에 없는 항목을 되돌리면 그 항목이 통째로 비워졌을 거예요.",
         "restoreMissingRemedy": "재해 복구용 스냅샷을 쓰거나, 계정을 다시 내보내서 새 파일을 업로드해 주세요. 매니페스트가 처음부터 '빠졌다'고 표시한 항목은 다른 경우라 정상적으로 복원돼요.",

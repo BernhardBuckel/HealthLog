@@ -7343,6 +7343,7 @@
         "restoreSkippedEcgReference": "Procedencia de un trazado de ECG",
         "restoreSkippedMedicationTarget": "Analito objetivo de un medicamento",
         "restoreSkippedScheduleRevisionLink": "Sucesión de periodos de pauta",
+        "restoreSkippedAccountSetting": "Ajuste de la cuenta",
         "restoreMissingTitle": "Restauración rechazada: el archivo está incompleto",
         "restoreMissingDescription": "El propio manifiesto del archivo dice que incluye la sección siguiente, y no la incluye. No se cambió nada: una restauración sustituye toda una clase de registros, así que una sección ausente la habría vaciado.",
         "restoreMissingRemedy": "Usa una copia de recuperación ante desastres, o vuelve a exportar la cuenta y sube el archivo nuevo. Una sección que el manifiesto declara omitida es otra cosa y se restaura con normalidad.",

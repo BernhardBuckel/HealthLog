@@ -34033,6 +34033,187 @@ components:
                 - documentQuotaBytes
               additionalProperties: {}
             - type: "null"
+        accountSettings:
+          default: null
+          anyOf:
+            - type: object
+              properties:
+                heightCm:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                dateOfBirth:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                gender:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                hasDiabetes:
+                  type: boolean
+                displayName:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                fullName:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                insurerName:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                insuranceNumber:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                insuranceNumberEncrypted:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                insurerIkNumber:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                lastReportPracticeName:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                avatarBytes:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                avatarContentType:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                avatarUpdatedAt:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                homeLat:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                homeLon:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                homeLabel:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                homeTimezone:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                homeSince:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                timezone:
+                  type: string
+                locale:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                unitPreference:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                glucoseUnit:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                timeFormat:
+                  type: string
+                dateFormat:
+                  type: string
+                modulePreferencesJson: {}
+                thresholdsJson: {}
+                healthScoreConfigJson: {}
+                sourcePriorityJson: {}
+                dashboardWidgetsJson: {}
+                insightsLayoutJson: {}
+                medicationListLayoutJson: {}
+                moodTagLayoutJson: {}
+                reportSelectionJson: {}
+                globalExcludedInjectionSites:
+                  type: array
+                  items:
+                    type: string
+                healthKitConfigJson: {}
+                notificationPrefs: {}
+                moodReminderEnabled:
+                  type: boolean
+                aiProvider:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                aiModel:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                aiBaseUrl:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                aiCompatBaseUrl:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                aiCompatModel:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                aiProviderChain: {}
+                aiResponseTimeoutSeconds:
+                  anyOf:
+                    - type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
+                    - type: "null"
+                useCentralCodex:
+                  type: boolean
+                insightsPrivacyMode:
+                  type: string
+                insightsExcludeMetrics:
+                  type: array
+                  items:
+                    type: string
+                disableCoach:
+                  type: boolean
+                coachPrefsJson: {}
+                documentsAutoAiRead:
+                  type: boolean
+                labsLocalOcrEnabled:
+                  type: boolean
+                onboardingCompletedAt:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                onboardingTourCompleted:
+                  type: boolean
+                onboardingTourProgressJson: {}
+                disclaimerAcknowledgedAt:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                disclaimerAcknowledgedVersion:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                passkeyUpgradeNudgeDismissed:
+                  type: boolean
+              additionalProperties: {}
+            - type: "null"
         measurements:
           default: []
           type: array
@@ -38434,6 +38615,7 @@ components:
         - exportedAt
         - userId
         - appSettings
+        - accountSettings
         - measurements
         - medications
         - intakeEvents

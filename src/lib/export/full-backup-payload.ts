@@ -118,6 +118,10 @@ import {
   type OnboardingBackupCounts,
   type OnboardingBackupSection,
 } from "@/lib/export/onboarding-backup";
+import {
+  buildAccountSettingsBackupSection,
+  type AccountSettingsBackupSection,
+} from "@/lib/export/account-settings-backup";
 import { getMedicationCategories } from "@/lib/medication-category";
 
 export interface FullBackupCounts
@@ -707,6 +711,7 @@ export async function buildFullBackupPayload(
     onboardingRecord,
     ecg,
     nutrientDays,
+    accountSettings,
   ] = await Promise.all([
     disasterRecovery
       ? prisma.appSettings.findUnique({ where: { id: "singleton" } })
@@ -903,6 +908,13 @@ export async function buildFullBackupPayload(
       },
       orderBy: [{ day: "desc" }, { nutrient: "asc" }],
     }),
+    // The account's own settings: units, language, modules, thresholds, the
+    // AI choices without the keys. Which columns those are is decided in
+    // `USER_COLUMN_BACKUP_CLASS`; both ends live in
+    // `src/lib/export/account-settings-backup.ts`.
+    buildAccountSettingsBackupSection(prisma, userId, {
+      purpose: disasterRecovery ? "disaster-recovery" : "portable-export",
+    }),
   ]);
 
   // Pinned to the section interfaces so the spreads below cannot quietly widen
@@ -927,6 +939,7 @@ export async function buildFullBackupPayload(
   const awardsSection: AwardsBackupSection = awards;
   const environmentSection: EnvironmentBackupSection = environment;
   const ecgSection: EcgBackupSection = ecg;
+  const accountSettingsSection: AccountSettingsBackupSection = accountSettings;
 
   // The three unbounded tables, either read into arrays or left as markers
   // the streaming writer will pull through. One place decides, so the payload
@@ -985,6 +998,7 @@ export async function buildFullBackupPayload(
             documentQuotaBytes: appSettings.documentQuotaBytes.toString(),
           }
         : null,
+    ...accountSettingsSection,
     measurements: bulk.measurements,
     medications: medications.map((m) => ({
       ...(disasterRecovery

@@ -7343,6 +7343,7 @@
         "restoreSkippedEcgReference": "Provenance d'un tracé ECG",
         "restoreSkippedMedicationTarget": "Analyte cible d'un médicament",
         "restoreSkippedScheduleRevisionLink": "Succession des périodes de schéma",
+        "restoreSkippedAccountSetting": "Réglage du compte",
         "restoreMissingTitle": "Restauration refusée — le fichier est incomplet",
         "restoreMissingDescription": "Le manifeste du fichier indique qu'il contient la section ci-dessous, et il ne la contient pas. Rien n'a été modifié : une restauration remplace toute une classe d'enregistrements, une section absente l'aurait donc vidée.",
         "restoreMissingRemedy": "Utilise une sauvegarde de reprise après sinistre, ou réexporte le compte et téléverse le nouveau fichier. Une section que le manifeste déclare omise est autre chose et se restaure normalement.",
