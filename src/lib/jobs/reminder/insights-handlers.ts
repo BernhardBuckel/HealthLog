@@ -21,6 +21,7 @@ import {
   runInsightStatusGenerate,
 } from "@/lib/jobs/insight-status-generate";
 import { jobDone, type JobOutcome } from "@/lib/jobs/job-outcome";
+import { jobBudget } from "@/lib/jobs/job-budget";
 import { withBackgroundEvent } from "@/lib/logging/background";
 import { generateBloodPressureStatusForUser } from "@/lib/insights/blood-pressure-status";
 import { generateWeightStatusForUser } from "@/lib/insights/weight-status";
@@ -77,6 +78,12 @@ export interface MedicationComplianceStatusPayload {
  * The pass is what succeeds or fails. One user whose generation threw is that
  * user's cold card, reported as the `failed` count; failing the job would
  * re-run the whole cohort over it.
+ *
+ * The pass walks every candidate with a provider call each, so on a large
+ * instance it can outlast its job. `shouldStop` is the job's time budget: the
+ * pass stops between users once it is spent and reports `stopped_early`. The
+ * users it did not reach keep yesterday's note until the next night or their
+ * next visit; nothing is retried beside a pass that is still running.
  */
 export async function runStatusCronGenerate(
   taskName: string,
@@ -84,6 +91,7 @@ export async function runStatusCronGenerate(
     userId: string,
     options: { locale: string | null; force: boolean },
   ) => Promise<unknown>,
+  shouldStop: () => boolean = () => false,
 ): Promise<JobOutcome> {
   return withBackgroundEvent(taskName, async (evt) => {
     const prisma = getWorkerPrisma();
@@ -96,8 +104,13 @@ export async function runStatusCronGenerate(
 
       let generated = 0;
       let failed = 0;
+      let stoppedEarly = false;
 
       for (const user of users) {
+        if (shouldStop()) {
+          stoppedEarly = true;
+          break;
+        }
         // The capability before the generator builds a snapshot. The batch
         // entry below checks for itself.
         const capability = await aiCapabilityForJob(user.id, "statusText");
@@ -124,9 +137,14 @@ export async function runStatusCronGenerate(
 
       evt.setBackground({
         task_name: taskName,
-        result: { generated, failed, total: users.length },
+        result: { generated, failed, total: users.length, stoppedEarly },
       });
-      return jobDone({ total: users.length, generated, failed });
+      return jobDone({
+        total: users.length,
+        generated,
+        failed,
+        stopped_early: stoppedEarly,
+      });
     } catch (err) {
       evt.setError(err);
       recordError();
@@ -153,7 +171,10 @@ export async function runStatusCronGenerate(
  * inside the batch itself). Net effect: the nightly ladder pays one call per
  * user instead of seven, with no queue/registry churn.
  */
-async function runStatusBatchCron(taskName: string): Promise<JobOutcome> {
+async function runStatusBatchCron(
+  taskName: string,
+  shouldStop: () => boolean,
+): Promise<JobOutcome> {
   return withBackgroundEvent(taskName, async (evt) => {
     const prisma = getWorkerPrisma();
     try {
@@ -166,7 +187,14 @@ async function runStatusBatchCron(taskName: string): Promise<JobOutcome> {
       let generated = 0;
       let served = 0;
       let failed = 0;
+      let stoppedEarly = false;
       for (const user of users) {
+        // Same budget as the per-metric passes: stop between users, and
+        // leave the rest to the later crons and the next night.
+        if (shouldStop()) {
+          stoppedEarly = true;
+          break;
+        }
         try {
           const result = await generateStatusBatchForUser(user.id, {
             // The stored locale, then the operator default — the prompt names
@@ -186,16 +214,34 @@ async function runStatusBatchCron(taskName: string): Promise<JobOutcome> {
 
       annotate({
         action: { name: "insights.status.batch.cron" },
-        meta: { generated, served, failed, total: users.length },
+        meta: {
+          generated,
+          served,
+          failed,
+          total: users.length,
+          stopped_early: stoppedEarly,
+        },
       });
       evt.setBackground({
         task_name: taskName,
-        result: { generated, served, failed, total: users.length },
+        result: {
+          generated,
+          served,
+          failed,
+          total: users.length,
+          stoppedEarly,
+        },
       });
       // A user whose batch call threw already fell back to the single-card
       // path inside the batch, and the six later per-metric crons cover what
       // is still cold. The batch pass ran, so it reports the count.
-      return jobDone({ total: users.length, generated, served, failed });
+      return jobDone({
+        total: users.length,
+        generated,
+        served,
+        failed,
+        stopped_early: stoppedEarly,
+      });
     } catch (err) {
       evt.setError(err);
       recordError();
@@ -208,61 +254,66 @@ async function runStatusBatchCron(taskName: string): Promise<JobOutcome> {
 export function handleGeneralStatusGenerate(
   jobs: Job<GeneralStatusPayload>[],
 ): Promise<JobOutcome> {
-  void jobs;
-  return runStatusBatchCron("job.insights.batch");
+  return runStatusBatchCron("job.insights.batch", jobBudget(jobs));
 }
 
 export function handleBloodPressureStatusGenerate(
   jobs: Job<BloodPressureStatusPayload>[],
 ): Promise<JobOutcome> {
-  void jobs;
   return runStatusCronGenerate(
     "job.insights.blood_pressure",
     generateBloodPressureStatusForUser,
+    jobBudget(jobs),
   );
 }
 
 export function handleWeightStatusGenerate(
   jobs: Job<WeightStatusPayload>[],
 ): Promise<JobOutcome> {
-  void jobs;
   return runStatusCronGenerate(
     "job.insights.weight",
     generateWeightStatusForUser,
+    jobBudget(jobs),
   );
 }
 
 export function handlePulseStatusGenerate(
   jobs: Job<PulseStatusPayload>[],
 ): Promise<JobOutcome> {
-  void jobs;
   return runStatusCronGenerate(
     "job.insights.pulse",
     generatePulseStatusForUser,
+    jobBudget(jobs),
   );
 }
 
 export function handleBmiStatusGenerate(
   jobs: Job<BmiStatusPayload>[],
 ): Promise<JobOutcome> {
-  void jobs;
-  return runStatusCronGenerate("job.insights.bmi", generateBmiStatusForUser);
+  return runStatusCronGenerate(
+    "job.insights.bmi",
+    generateBmiStatusForUser,
+    jobBudget(jobs),
+  );
 }
 
 export function handleMoodStatusGenerate(
   jobs: Job<MoodStatusPayload>[],
 ): Promise<JobOutcome> {
-  void jobs;
-  return runStatusCronGenerate("job.insights.mood", generateMoodStatusForUser);
+  return runStatusCronGenerate(
+    "job.insights.mood",
+    generateMoodStatusForUser,
+    jobBudget(jobs),
+  );
 }
 
 export function handleMedicationComplianceStatusGenerate(
   jobs: Job<MedicationComplianceStatusPayload>[],
 ): Promise<JobOutcome> {
-  void jobs;
   return runStatusCronGenerate(
     "job.insights.medication_compliance",
     generateMedicationComplianceStatusForUser,
+    jobBudget(jobs),
   );
 }
 
@@ -310,7 +361,9 @@ export async function handleInsightPregenerateJob(
       return jobDone({ forced: forced.length, scheduled: 0 });
     }
     try {
-      const summary = await runInsightPregenerate(getWorkerPrisma());
+      const summary = await runInsightPregenerate(getWorkerPrisma(), {
+        shouldStop: jobBudget(jobs),
+      });
       evt.setBackground({
         task_name: "job.insight_pregenerate",
         result: { ...summary },
@@ -325,6 +378,7 @@ export async function handleInsightPregenerateJob(
         skipped: summary.skipped,
         failed: summary.failed,
         budget_blocked: summary.budgetBlocked,
+        stopped_early: summary.stoppedEarly,
         assessments_warmed: summary.assessmentsWarmed,
         metric_assessments_warmed: summary.metricAssessmentsWarmed,
       });

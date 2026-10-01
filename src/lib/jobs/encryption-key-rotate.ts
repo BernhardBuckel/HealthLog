@@ -25,6 +25,7 @@
 import { type Job } from "pg-boss";
 import { withBackgroundEvent } from "@/lib/logging/background";
 import { jobDone, type JobOutcome } from "@/lib/jobs/job-outcome";
+import { jobBudget } from "@/lib/jobs/job-budget";
 import { auditLog } from "@/lib/auth/audit";
 import {
   rotateCorpus,
@@ -37,27 +38,40 @@ export const ENCRYPTION_KEY_ROTATE_CONCURRENCY = 1;
 /** Fixed key so duplicate admin triggers coalesce into one queued run. */
 export const ENCRYPTION_KEY_ROTATE_SINGLETON = "encryption-key-rotate";
 
+/**
+ * The job's expiry: twelve hours. The pass re-encrypts every encrypted column
+ * on the instance and outlasted pg-boss's fifteen-minute default, which
+ * retried it beside itself. The pass stops at three quarters of this
+ * (`jobBudget`) and holds a lock (`lockedPass`); the admin route's send
+ * carries it.
+ */
+export const ENCRYPTION_KEY_ROTATE_EXPIRE_SECONDS = 12 * 60 * 60;
+
 export interface EncryptionKeyRotatePayload {
   /** The admin who triggered the run (for the audit trail). */
   requestedByUserId?: string;
   enqueuedAt?: string;
 }
 
-export async function runEncryptionKeyRotation(): Promise<{
+export async function runEncryptionKeyRotation(
+  shouldStop: () => boolean = () => false,
+): Promise<{
   activeKeyId: string;
   totalScanned: number;
   totalRotated: number;
   totalErrors: number;
   totalDropped: number;
+  stoppedEarly: boolean;
 }> {
   const prisma = getWorkerPrisma();
-  const out = await rotateCorpus(prisma as unknown as CorpusClient);
+  const out = await rotateCorpus(prisma as unknown as CorpusClient, shouldStop);
   return {
     activeKeyId: out.activeKeyId,
     totalScanned: out.totalScanned,
     totalRotated: out.totalRotated,
     totalErrors: out.totalErrors,
     totalDropped: out.totalDropped,
+    stoppedEarly: out.stoppedEarly,
   };
 }
 
@@ -67,7 +81,10 @@ export async function handleEncryptionKeyRotate(
   return withBackgroundEvent("job.encryption_key_rotate", async (evt) => {
     const requestedBy = jobs[0]?.data?.requestedByUserId ?? null;
     try {
-      const result = await runEncryptionKeyRotation();
+      // A whole-corpus pass: it stops between rows once the job's budget is
+      // spent, and says so in the audit row, so the operator runs it again
+      // to finish (rows already rotated are skipped).
+      const result = await runEncryptionKeyRotation(jobBudget(jobs));
       evt.addMeta("rotate_active_key_id", result.activeKeyId);
       evt.addMeta("rotate_scanned", result.totalScanned);
       evt.addMeta("rotate_rotated", result.totalRotated);

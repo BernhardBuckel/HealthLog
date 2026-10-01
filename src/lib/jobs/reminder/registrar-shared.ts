@@ -169,6 +169,22 @@ export const insightRetryOptions = {
 } as const;
 
 /**
+ * Send options for a nightly AI pass over every account (the status crons).
+ *
+ * The retries of `insightRetryOptions`, plus a two-hour expiry. Each pass
+ * makes a provider call per account, and on a large instance that outlasted
+ * pg-boss's fifteen-minute default: the job was declared dead and retried
+ * beside the pass still running. The pass now stops itself at three quarters
+ * of this (`jobBudget`) and holds a lock (`lockedPass`). The options ride on
+ * the schedule because the cron is the only sender.
+ */
+export const NIGHTLY_INSIGHT_PASS_EXPIRE_SECONDS = 2 * 60 * 60;
+export const nightlyInsightPassOptions = {
+  ...insightRetryOptions,
+  expireInSeconds: NIGHTLY_INSIGHT_PASS_EXPIRE_SECONDS,
+} as const;
+
+/**
  * Retry policy for a cron-driven pass whose failure mode is deterministic.
  *
  * Handlers now return a `JobOutcome`, and the retention cleanups that used to

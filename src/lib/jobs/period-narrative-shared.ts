@@ -24,6 +24,15 @@ import type { Locale } from "@/lib/i18n/config";
 export const PERIOD_NARRATIVE_QUEUE = "period-narrative-warm";
 
 /**
+ * The job's expiry: three hours. On a boundary night the scheduled pass
+ * writes up to two narratives for each of 200 accounts, which can outlast
+ * pg-boss's fifteen-minute default. The pass stops itself at three quarters
+ * of this (`jobBudget`) and holds a lock (`lockedPass`); every send and the
+ * schedule carry it.
+ */
+export const PERIOD_NARRATIVE_EXPIRE_SECONDS = 3 * 60 * 60;
+
+/**
  * Nightly at 05:05 Europe/Berlin — inside the existing maintenance window,
  * after the comprehensive insight pre-generation (04:30) and the computed
  * scores (04:45–04:55) so the rollup signals it reads are already folded.
@@ -79,6 +88,7 @@ export async function enqueueNarrativeWarm(payload: {
       {
         singletonKey: `warm:${payload.userId}:${payload.period}:${payload.locale}`,
         singletonSeconds: 120,
+        expireInSeconds: PERIOD_NARRATIVE_EXPIRE_SECONDS,
         // Transient provider / pool failures retry with backoff instead
         // of leaving the narrative cold until the next boundary night.
         retryLimit: 3,

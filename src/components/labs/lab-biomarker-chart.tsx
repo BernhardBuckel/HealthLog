@@ -163,7 +163,10 @@ export function LabBiomarkerChart({
     const min = Math.min(...candidates);
     const max = Math.max(...candidates);
     const pad = (max - min || Math.abs(max) || 1) * 0.1;
-    return [min - pad, max + pad];
+    // A reference window that starts at 0 (LDL "0–130") must not drag the
+    // axis below zero: a concentration cannot be negative, and a "-13" tick
+    // reads as a value. The pad only stays below zero when the data already is.
+    return [min >= 0 ? Math.max(0, min - pad) : min - pad, max + pad];
   }, [points, lowerBound, upperBound, sourceBand]);
 
   const animate = !prefersReducedMotion();

@@ -129,9 +129,17 @@ export function OcrRowEditor({
           {fieldError("analyte", "labs.ocr.errorAnalyte")}
           <div className="flex flex-wrap items-center gap-1.5">
             {row.biomarkerMatch === "existing" ? (
-              <Badge variant="outline" className="text-muted-foreground">
+              // The chip repeats the analyte, so a long panel name ran past
+              // the row on a phone; it truncates inside the row instead.
+              <Badge
+                variant="outline"
+                className="text-muted-foreground max-w-full"
+                title={t("labs.ocr.linksExisting", { name: row.analyte })}
+              >
                 <Link2 aria-hidden />
-                {t("labs.ocr.linksExisting", { name: row.analyte })}
+                <span className="truncate">
+                  {t("labs.ocr.linksExisting", { name: row.analyte })}
+                </span>
               </Badge>
             ) : (
               <Badge variant="outline" className="text-muted-foreground">

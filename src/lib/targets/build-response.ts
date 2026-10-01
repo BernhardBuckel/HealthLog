@@ -27,7 +27,9 @@ import {
   ensureUserMoodRollupsFresh,
   readMoodDayRollups,
 } from "@/lib/rollups/mood-rollups";
+import { readRestingPulseProxy } from "@/lib/analytics/resting-pulse-read";
 import { buildGlucoseTargets } from "./glucose-builder";
+import { readGlucoseTargetSummaries } from "./glucose-read";
 import { buildMedicationTarget } from "./medication-builder";
 import { buildMoodTargets } from "./mood-builder";
 import { buildSleepTarget } from "./sleep-builder";
@@ -76,6 +78,10 @@ export async function buildTargetsResponse(user: AuthedUser) {
     "BODY_FAT",
     "ACTIVITY_STEPS",
   ];
+  // Heart rate is the one vital a device streams. Its thirty days reach the
+  // resting-pulse card as one proxy point per day, folded in SQL below; every
+  // other vital is written a few times a day and is read as rows.
+  const recentTypes = types.filter((type) => type !== "PULSE");
   const thirtyDaysAgo = new Date(queryNow.getTime() - 30 * 24 * 60 * 60 * 1000);
   const oneYearAgo = new Date(queryNow.getTime() - 365 * 24 * 60 * 60 * 1000);
   const moodSince = new Date(
@@ -96,7 +102,8 @@ export async function buildTargetsResponse(user: AuthedUser) {
     medicationBundle,
     moodRollups,
     latestMoodEntry,
-    glucoseRows,
+    glucoseSummaries,
+    restingPulseProxy,
   ] = await Promise.all([
     limit(() =>
       prisma.user.findUnique({
@@ -116,7 +123,7 @@ export async function buildTargetsResponse(user: AuthedUser) {
       prisma.measurement.findMany({
         where: {
           userId,
-          type: { in: types },
+          type: { in: recentTypes },
           measuredAt: { gte: thirtyDaysAgo },
           deletedAt: null,
         },
@@ -212,16 +219,22 @@ export async function buildTargetsResponse(user: AuthedUser) {
         select: { score: true, moodLoggedAt: true },
       }),
     ),
+    // A sensor reporting every five minutes writes 105 000 glucose readings
+    // a year. The cards need the newest per meal context and the last thirty
+    // days per local day, so both fold in SQL.
     limit(() =>
-      prisma.measurement.findMany({
-        where: {
-          userId,
-          type: "BLOOD_GLUCOSE",
-          measuredAt: { gte: oneYearAgo },
-          deletedAt: null,
-        },
-        orderBy: { measuredAt: "desc" },
-        select: { value: true, measuredAt: true, glucoseContext: true },
+      readGlucoseTargetSummaries({
+        userId,
+        since: oneYearAgo,
+        recentSince: thirtyDaysAgo,
+        timeZone: timezone,
+      }),
+    ),
+    limit(() =>
+      readRestingPulseProxy({
+        userId,
+        since: thirtyDaysAgo,
+        timeZone: timezone,
       }),
     ),
   ]);
@@ -252,6 +265,8 @@ export async function buildTargetsResponse(user: AuthedUser) {
   for (const type of types) {
     latestByType[type] =
       latestEverByType.find((row) => row.type === type)?.value ?? null;
+  }
+  for (const type of recentTypes) {
     const recent = recentMeasurements.filter(
       (measurement) => measurement.type === type,
     );
@@ -267,6 +282,7 @@ export async function buildTargetsResponse(user: AuthedUser) {
 
   const vitalSection = buildVitalTargets({
     recentMeasurements,
+    restingPulseProxy,
     latestByType,
     average30ByType,
     heightCm,
@@ -326,7 +342,7 @@ export async function buildTargetsResponse(user: AuthedUser) {
   const glucoseUnit = resolveGlucoseUnit(dbUser?.glucoseUnit ?? null);
   targets.push(
     ...buildGlucoseTargets({
-      rows: glucoseRows,
+      summaries: glucoseSummaries,
       profile: {
         heightCm,
         dateOfBirth: dbUser?.dateOfBirth ?? null,

@@ -311,103 +311,148 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
     });
   }, [readings, sortBy, sortDir]);
 
+  // One action pair per reading, shared by the phone list and the table.
+  const renderActions = (r: LabResultDto) => (
+    <div className="flex items-center justify-end gap-1">
+      {canManageLabs && (
+        <Button
+          size="icon"
+          variant="ghost"
+          // v1.18.10 (W10) — 44px touch target on mobile (WCAG
+          // 2.5.5), compact 36px on desktop.
+          className="size-11 sm:size-9"
+          onClick={() => void openEdit(r)}
+          aria-label={t("labs.editReading")}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+      )}
+      <DeleteButton
+        domain="labs"
+        onConfirm={() => deleteMutation.mutate(r.id)}
+        title={t("labs.deleteConfirmTitle")}
+        description={t("labs.deleteConfirmDescription")}
+        confirmLabel={t("labs.deleteReading")}
+        className="size-11 sm:size-9"
+        iconClassName="h-4 w-4"
+      />
+    </div>
+  );
+
   return (
     <>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <SortableHead
-              column="value"
-              label={t("labs.form.value")}
-              currentSort={sortBy}
-              currentDir={sortDir}
-              onSort={toggleSort}
-            />
-            <SortableHead
-              column="takenAt"
-              label={t("labs.form.takenAt")}
-              currentSort={sortBy}
-              currentDir={sortDir}
-              onSort={toggleSort}
-            />
-            <SortableHead
-              column="range"
-              label={t("labs.referenceLabel")}
-              currentSort={sortBy}
-              currentDir={sortDir}
-              onSort={toggleSort}
-            />
-            <SortableHead
-              column="note"
-              label={t("labs.hasNote")}
-              currentSort={sortBy}
-              currentDir={sortDir}
-              onSort={toggleSort}
-            />
-            <TableHead className="w-20 pr-4 text-right">
-              <span className="sr-only">{t("labs.editReading")}</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {ordered.map((r) => (
-            <TableRow key={r.id}>
-              <TableCell className="font-semibold tabular-nums">
-                <div className="space-y-2">
-                  <span>{formatLabReading(r)}</span>
-                  <LabReferenceRangeBar
-                    value={r.value}
-                    referenceLow={r.referenceLow}
-                    referenceHigh={r.referenceHigh}
-                    unit={r.unit}
-                  />
-                </div>
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                {formatDateShort(r.takenAt, true)}
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-col items-start gap-1">
-                  <ReferenceRangeBadge status={r.rangeStatus} />
-                  <SourceRangeNote
-                    reading={r}
-                    className="text-muted-foreground text-xs"
-                  />
-                </div>
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm">
-                {r.hasNote ? t("labs.hasNote") : ""}
-              </TableCell>
-              <TableCell className="pr-4 text-right">
-                <div className="flex items-center justify-end gap-1">
-                  {canManageLabs && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      // v1.18.10 (W10) — 44px touch target on mobile (WCAG
-                      // 2.5.5), compact 36px on desktop.
-                      className="size-11 sm:size-9"
-                      onClick={() => void openEdit(r)}
-                      aria-label={t("labs.editReading")}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  )}
-                  <DeleteButton
-                    domain="labs"
-                    onConfirm={() => deleteMutation.mutate(r.id)}
-                    title={t("labs.deleteConfirmTitle")}
-                    description={t("labs.deleteConfirmDescription")}
-                    confirmLabel={t("labs.deleteReading")}
-                    className="size-11 sm:size-9"
-                    iconClassName="h-4 w-4"
-                  />
-                </div>
-              </TableCell>
+      {/* Phones get one stacked row per reading. The table needs ~510 px for
+          its five columns, so on a phone it panned sideways inside its
+          container and parked the edit / delete buttons off-screen, while the
+          range bar's end labels were clipped by the same container. */}
+      <ul
+        data-slot="lab-history-mobile-list"
+        className="divide-border divide-y lg:hidden"
+      >
+        {ordered.map((r) => (
+          <li key={r.id} className="flex items-start gap-3 py-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="font-semibold tabular-nums">
+                {formatLabReading(r)}
+              </div>
+              <LabReferenceRangeBar
+                value={r.value}
+                referenceLow={r.referenceLow}
+                referenceHigh={r.referenceHigh}
+                unit={r.unit}
+              />
+              <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <span className="whitespace-nowrap">
+                  {formatDateShort(r.takenAt, true)}
+                </span>
+                <ReferenceRangeBadge status={r.rangeStatus} />
+                {r.hasNote ? (
+                  <span className="text-xs">{t("labs.hasNote")}</span>
+                ) : null}
+              </div>
+              <SourceRangeNote
+                reading={r}
+                className="text-muted-foreground text-xs"
+              />
+            </div>
+            {renderActions(r)}
+          </li>
+        ))}
+      </ul>
+      <div data-slot="lab-history-table" className="max-lg:hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <SortableHead
+                column="value"
+                label={t("labs.form.value")}
+                currentSort={sortBy}
+                currentDir={sortDir}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                column="takenAt"
+                label={t("labs.form.takenAt")}
+                currentSort={sortBy}
+                currentDir={sortDir}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                column="range"
+                label={t("labs.referenceLabel")}
+                currentSort={sortBy}
+                currentDir={sortDir}
+                onSort={toggleSort}
+              />
+              <SortableHead
+                column="note"
+                label={t("labs.hasNote")}
+                currentSort={sortBy}
+                currentDir={sortDir}
+                onSort={toggleSort}
+              />
+              <TableHead className="w-20 pr-4 text-right">
+                <span className="sr-only">{t("labs.editReading")}</span>
+              </TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {ordered.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell className="font-semibold tabular-nums">
+                  <div className="space-y-2">
+                    <span>{formatLabReading(r)}</span>
+                    <LabReferenceRangeBar
+                      value={r.value}
+                      referenceLow={r.referenceLow}
+                      referenceHigh={r.referenceHigh}
+                      unit={r.unit}
+                    />
+                  </div>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                  {formatDateShort(r.takenAt, true)}
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <ReferenceRangeBadge status={r.rangeStatus} />
+                    <SourceRangeNote
+                      reading={r}
+                      className="text-muted-foreground text-xs"
+                    />
+                  </div>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-sm">
+                  {r.hasNote ? t("labs.hasNote") : ""}
+                </TableCell>
+                <TableCell className="pr-4 text-right">
+                  {renderActions(r)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
 
       <ResponsiveSheet
         open={editingId !== null}

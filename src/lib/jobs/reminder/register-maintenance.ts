@@ -31,8 +31,12 @@ import {
   PR_DETECTION_QUEUE,
   PR_DETECTION_CONCURRENCY,
   PR_DETECTION_FALLBACK_CRON,
+  PR_DETECTION_EXPIRE_SECONDS,
   type PrDetectionPayload,
 } from "@/lib/jobs/pr-detection";
+import { jobBudget } from "@/lib/jobs/job-budget";
+import { lockedPass, WHOLE_PASS } from "@/lib/jobs/long-pass";
+import { OFFHOST_BACKUP_EXPIRE_SECONDS } from "@/lib/jobs/offhost-backup";
 import {
   MEDICATION_INVENTORY_EXPIRE_QUEUE,
   MEDICATION_INVENTORY_EXPIRE_CRON,
@@ -531,7 +535,11 @@ const schedules: ScheduleEntry[] = [
     STEP_UP_ELEVATION_CLEANUP_CRON,
     cronIsTheRetry,
   ],
-  [OFFHOST_BACKUP_QUEUE, OFFHOST_BACKUP_CRON],
+  [
+    OFFHOST_BACKUP_QUEUE,
+    OFFHOST_BACKUP_CRON,
+    { expireInSeconds: OFFHOST_BACKUP_EXPIRE_SECONDS },
+  ],
   [RESTORE_DRILL_QUEUE, RESTORE_DRILL_CRON],
   // Nightly backstop for the purge the deletion kicks straight away: a
   // request the bucket refused, or one written while the queue was down.
@@ -557,7 +565,11 @@ const schedules: ScheduleEntry[] = [
   // cron payload deliberately omits a `userId` so the handler iterates
   // every user; per-user push-suppression cannot apply on the cron
   // path (the silent flag is set by the ingest hooks).
-  [PR_DETECTION_QUEUE, PR_DETECTION_FALLBACK_CRON],
+  [
+    PR_DETECTION_QUEUE,
+    PR_DETECTION_FALLBACK_CRON,
+    { expireInSeconds: PR_DETECTION_EXPIRE_SECONDS },
+  ],
   // v1.4.25 W19b — daily expire-stale pass for the per-pen inventory
   // entities. Flips IN_USE rows whose 30-day clock has blown to
   // EXPIRED at 03:30 Europe/Berlin (in the existing 02:xx–03:xx
@@ -747,7 +759,7 @@ export async function registerMaintenanceQueues(
     boss,
     DATA_BACKUP_QUEUE,
     { localConcurrency: 1 },
-    handleDataBackup,
+    lockedPass(DATA_BACKUP_QUEUE, () => WHOLE_PASS, handleDataBackup),
   );
   await createAndWork<RateLimitCleanupPayload>(
     boss,
@@ -778,7 +790,7 @@ export async function registerMaintenanceQueues(
     boss,
     OFFHOST_BACKUP_QUEUE,
     { localConcurrency: 1, includeMetadata: true },
-    handleOffhostBackup,
+    lockedPass(OFFHOST_BACKUP_QUEUE, () => WHOLE_PASS, handleOffhostBackup),
   );
   await createAndWork(
     boss,
@@ -935,7 +947,16 @@ export async function registerMaintenanceQueues(
     boss,
     PR_DETECTION_QUEUE,
     { localConcurrency: PR_DETECTION_CONCURRENCY },
-    handlePrDetection,
+    // An ingest job is one account; the cron pass is every account, one run
+    // at a time.
+    lockedPass(
+      PR_DETECTION_QUEUE,
+      (job) => {
+        const userId = (job.data as PrDetectionPayload | undefined)?.userId;
+        return userId ? `user:${userId}` : WHOLE_PASS;
+      },
+      handlePrDetection,
+    ),
   );
   await createAndWork<MedicationInventoryExpirePayload>(
     boss,
@@ -1159,7 +1180,11 @@ export async function registerMaintenanceQueues(
     boss,
     ENCRYPTION_KEY_ROTATE_QUEUE,
     { localConcurrency: ENCRYPTION_KEY_ROTATE_CONCURRENCY },
-    handleEncryptionKeyRotate,
+    lockedPass(
+      ENCRYPTION_KEY_ROTATE_QUEUE,
+      () => WHOLE_PASS,
+      handleEncryptionKeyRotate,
+    ),
   );
 
   // v1.25 — medication-note encryption backfill worker. The boot enqueue
@@ -1318,56 +1343,65 @@ export async function registerMaintenanceQueues(
     boss,
     CONTENT_INDEX_BACKFILL_QUEUE,
     { localConcurrency: CONTENT_INDEX_BACKFILL_CONCURRENCY },
-    async (jobs) => {
-      let users = 0;
-      let skipped = 0;
-      let documentsIndexed = 0;
-      let documentsRetokenised = 0;
-      let documentsSkipped = 0;
-      let documentsFailed = 0;
-      for (const job of jobs) {
-        const { userId } = job.data;
-        if (!userId) {
-          skipped++;
-          continue;
+    lockedPass(
+      CONTENT_INDEX_BACKFILL_QUEUE,
+      (job) => `user:${job.data.userId ?? ""}`,
+      async (jobs) => {
+        let users = 0;
+        let stoppedEarly = false;
+        const shouldStop = jobBudget(jobs);
+        let skipped = 0;
+        let documentsIndexed = 0;
+        let documentsRetokenised = 0;
+        let documentsSkipped = 0;
+        let documentsFailed = 0;
+        for (const job of jobs) {
+          const { userId } = job.data;
+          if (!userId) {
+            skipped++;
+            continue;
+          }
+          try {
+            const {
+              indexed,
+              retokenised,
+              skipped: docsSkipped,
+              failed: docsFailed,
+              reason,
+              stoppedEarly: stopped,
+            } = await runContentIndexBackfillForUser(userId, shouldStop);
+            users++;
+            stoppedEarly ||= stopped === true;
+            documentsIndexed += indexed;
+            documentsRetokenised += retokenised;
+            documentsSkipped += docsSkipped;
+            documentsFailed += docsFailed;
+            workerLog(
+              "info",
+              `[document-content-index-backfill] user=${userId} indexed=${indexed} retokenised=${retokenised} skipped=${docsSkipped} failed=${docsFailed} reason=${reason}`,
+            );
+          } catch (err) {
+            recordError();
+            workerLog(
+              "error",
+              `[document-content-index-backfill] user=${userId} failed`,
+              err,
+            );
+            throw err;
+          }
         }
-        try {
-          const {
-            indexed,
-            retokenised,
-            skipped: docsSkipped,
-            failed: docsFailed,
-            reason,
-          } = await runContentIndexBackfillForUser(userId);
-          users++;
-          documentsIndexed += indexed;
-          documentsRetokenised += retokenised;
-          documentsSkipped += docsSkipped;
-          documentsFailed += docsFailed;
-          workerLog(
-            "info",
-            `[document-content-index-backfill] user=${userId} indexed=${indexed} retokenised=${retokenised} skipped=${docsSkipped} failed=${docsFailed} reason=${reason}`,
-          );
-        } catch (err) {
-          recordError();
-          workerLog(
-            "error",
-            `[document-content-index-backfill] user=${userId} failed`,
-            err,
-          );
-          throw err;
-        }
-      }
-      return jobDone({
-        jobs: jobs.length,
-        users,
-        skipped,
-        documents_indexed: documentsIndexed,
-        documents_retokenised: documentsRetokenised,
-        documents_skipped: documentsSkipped,
-        documents_failed: documentsFailed,
-      });
-    },
+        return jobDone({
+          jobs: jobs.length,
+          users,
+          skipped,
+          documents_indexed: documentsIndexed,
+          documents_retokenised: documentsRetokenised,
+          documents_skipped: documentsSkipped,
+          documents_failed: documentsFailed,
+          stopped_early: stoppedEarly,
+        });
+      },
+    ),
   );
 
   // Document AI — automatic per-document content indexing. Enqueued on upload

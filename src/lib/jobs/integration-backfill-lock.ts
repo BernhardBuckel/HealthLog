@@ -11,8 +11,9 @@
  * started beside it in the same worker, so the lane's "one at a time" did not
  * hold for the one case it exists for, an import too long for its expiry.
  *
- * So each run holds a session-level advisory lock keyed on the job's identity
- * (kind, provider where there is one, account) for as long as it runs. A
+ * So each run holds a session-level advisory lock (`withJobLock`) keyed on the
+ * job's identity (kind, provider where there is one, account) for as long as
+ * it runs. A
  * delivery that finds the lock taken does no work: the run that holds it is
  * still importing, and it either stamps its completion marker or leaves the
  * account for the next boot's discovery. The lock lives on a connection of its
@@ -24,47 +25,26 @@
  * One extra connection per running import; the lane admits one import per
  * process at a time, so that is one connection.
  */
-import { Client } from "pg";
+import { withJobLock, type GuardedRun } from "./job-lock";
 
 /** The lock key for one admission job's identity. */
 function integrationBackfillLockKey(identity: string): string {
   return `integration-backfill:${identity}`;
 }
 
-/** What a guarded run came to. */
-type GuardedRun<T> = { ran: true; result: T } | { ran: false };
-
 /**
  * Run `run` while holding the import lock for `identity`. Resolves
  * `{ ran: false }` at once, without calling `run`, when another run holds it.
  * Rejects exactly as `run` does otherwise.
  */
-export async function withIntegrationBackfillLock<T>(
+export function withIntegrationBackfillLock<T>(
   identity: string,
   run: () => Promise<T>,
   connectionString: string | undefined = process.env.DATABASE_URL,
 ): Promise<GuardedRun<T>> {
-  const client = new Client({ connectionString, keepAlive: true });
-  // An idle client whose server goes away emits `error`; unhandled, that
-  // takes the whole worker down. The run itself notices the database is
-  // gone through its own queries.
-  client.on("error", () => {});
-  await client.connect();
-  try {
-    const key = integrationBackfillLockKey(identity);
-    const { rows } = await client.query<{ held: boolean }>(
-      "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS held",
-      [key],
-    );
-    if (!rows[0]?.held) return { ran: false };
-    try {
-      return { ran: true, result: await run() };
-    } finally {
-      await client
-        .query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [key])
-        .catch(() => {});
-    }
-  } finally {
-    await client.end().catch(() => {});
-  }
+  return withJobLock(
+    integrationBackfillLockKey(identity),
+    run,
+    connectionString,
+  );
 }

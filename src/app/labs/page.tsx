@@ -192,7 +192,10 @@ export default function LabsPage() {
         title={t("labs.addResult")}
         description={t("labs.addDescription")}
         footer={
-          <div ref={setAddFooterEl} className="flex w-full justify-end gap-2" />
+          <div
+            ref={setAddFooterEl}
+            className="flex w-full flex-wrap justify-end gap-2"
+          />
         }
       >
         <LabForm

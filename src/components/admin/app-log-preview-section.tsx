@@ -125,7 +125,7 @@ export function AppLogPreviewSection() {
           <Button
             variant="outline"
             size="sm"
-            className="min-h-11 sm:min-h-9"
+            className="min-h-11 min-w-11 sm:min-h-9 sm:min-w-9"
             onClick={() => refetch()}
             disabled={isFetching}
             aria-label={t("admin.section.app-logs.refresh")}
@@ -133,12 +133,11 @@ export function AppLogPreviewSection() {
             <RefreshCw
               className={`h-4 w-4 ${isFetching ? "animate-spin" : ""} motion-reduce:animate-none`}
             />
-            <p className="text-sm">
-              {t("admin.section.app-logs.processDetail")}
-            </p>
           </Button>
         }
       />
+
+      <p className="text-sm">{t("admin.section.app-logs.processDetail")}</p>
 
       <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
         <Input

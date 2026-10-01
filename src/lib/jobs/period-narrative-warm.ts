@@ -63,6 +63,8 @@ export interface NarrativeWarmRunResult {
   insufficient: number;
   failed: number;
   budgetBlocked: number;
+  /** The job's time budget ran out before every candidate was reached. */
+  stoppedEarly: boolean;
 }
 
 /**
@@ -152,6 +154,12 @@ export async function runPeriodNarrativeWarm(
     cap?: number;
     /** Injected for the test — defaults to the real generator. */
     generate?: typeof generatePeriodNarrative;
+    /**
+     * The job's time budget (`jobBudget`), checked between candidates. The
+     * candidates are ordered least recently narrated first, so the ones a
+     * stopped pass did not reach lead the next one.
+     */
+    shouldStop?: () => boolean;
   } = {},
 ): Promise<NarrativeWarmRunResult> {
   const now = options.now ?? new Date();
@@ -167,6 +175,7 @@ export async function runPeriodNarrativeWarm(
     insufficient: 0,
     failed: 0,
     budgetBlocked: 0,
+    stoppedEarly: false,
   };
 
   const flags = await getAssistantFlags();
@@ -180,6 +189,10 @@ export async function runPeriodNarrativeWarm(
   result.total = candidates.length;
 
   for (const candidate of candidates) {
+    if (options.shouldStop?.()) {
+      result.stoppedEarly = true;
+      break;
+    }
     // The nightly pass exists for the model-written narrative. Unavailable,
     // it skips the user before the context build and the budget write; the
     // deterministic narrative is written on the next read instead (the
@@ -233,6 +246,7 @@ export async function runPeriodNarrativeWarm(
       insufficient: result.insufficient,
       failed: result.failed,
       budget_blocked: result.budgetBlocked,
+      stopped_early: result.stoppedEarly,
     },
   });
 

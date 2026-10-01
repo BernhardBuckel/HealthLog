@@ -33,6 +33,7 @@ import { getGlobalBoss } from "@/lib/jobs/boss-instance";
 import {
   ENCRYPTION_KEY_ROTATE_QUEUE,
   ENCRYPTION_KEY_ROTATE_SINGLETON,
+  ENCRYPTION_KEY_ROTATE_EXPIRE_SECONDS,
 } from "@/lib/jobs/encryption-key-rotate";
 import { getActiveKeyId } from "@/lib/crypto";
 import { NextRequest } from "next/server";
@@ -57,6 +58,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
       singletonKey: ENCRYPTION_KEY_ROTATE_SINGLETON,
       retryLimit: 2,
       retryDelay: 60,
+      expireInSeconds: ENCRYPTION_KEY_ROTATE_EXPIRE_SECONDS,
     },
   );
 
