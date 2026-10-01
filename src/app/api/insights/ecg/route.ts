@@ -92,13 +92,29 @@ const ecgIngestSchema = z
   .object({
     externalRecordingId: z.string().min(1).max(120),
     recordedAt: z.iso.datetime({ offset: true }),
-    samplingFrequency: z.number().int().min(1).max(10_000),
+    // HealthKit hands both of these over as doubles. A watch reports its
+    // average heart rate with a fraction (64.7) often enough that requiring
+    // an integer refused most new recordings while the old ones, synced when
+    // the value happened to be whole, went through (#1060). The columns are
+    // integers and the person reads whole beats per minute, so the server
+    // rounds once here rather than every client doing it.
+    samplingFrequency: z
+      .number()
+      .min(1)
+      .max(10_000)
+      .transform((v) => Math.round(v)),
     samples: z
       .array(z.number().int().min(-1_000_000).max(1_000_000))
       .min(1)
       .max(MAX_SAMPLES),
     lead: z.string().min(1).max(40).nullable().optional(),
-    averageHeartRate: z.number().int().min(1).max(300).nullable().optional(),
+    averageHeartRate: z
+      .number()
+      .min(1)
+      .max(300)
+      .transform((v) => Math.round(v))
+      .nullable()
+      .optional(),
     classification: ecgClassificationEnum.nullable().optional(),
     source: ingestSourceEnum,
   })
@@ -198,9 +214,17 @@ export const POST = apiHandler(async (request: NextRequest) => {
 
   const parsed = ecgIngestSchema.safeParse(rawBody);
   if (!parsed.success) {
+    // Which field was refused and why, never the value: without it a refused
+    // recording is a bare "invalid" in the log and the cause has to be guessed.
     annotate({
       action: { name: "insights.ecg.ingest" },
-      meta: { outcome: "invalid" },
+      meta: {
+        outcome: "invalid",
+        invalidFields: parsed.error.issues
+          .map((issue) => `${issue.path.join(".") || "(body)"}:${issue.code}`)
+          .slice(0, 8)
+          .join(","),
+      },
     });
     return returnAllZodIssues(parsed.error);
   }

@@ -26425,11 +26425,12 @@ components:
           description: "When the strip was recorded on-device, with offset. Part of the recording's identity — see `status:
             duplicate`."
         samplingFrequency:
-          type: integer
+          type: number
           minimum: 1
           maximum: 10000
-          description: Signal sampling rate in Hz (an Apple Watch ECG is 512). Part of the recording's identity, and the divisor
-            for the server-derived `durationSeconds`.
+          description: Signal sampling rate in Hz (an Apple Watch ECG is 512). A fractional value is accepted and rounded to the
+            nearest whole hertz before it is stored. Part of the recording's identity, and the divisor for the
+            server-derived `durationSeconds`.
         samples:
           minItems: 1
           maxItems: 32768
@@ -26449,9 +26450,10 @@ components:
               maxLength: 40
             - type: "null"
         averageHeartRate:
-          description: The device's average heart rate (BPM) for the strip.
+          description: The device's average heart rate (BPM) for the strip. HealthKit reports it with a fraction; it is accepted
+            as sent and rounded to whole beats per minute before it is stored.
           anyOf:
-            - type: integer
+            - type: number
               minimum: 1
               maximum: 300
             - type: "null"
