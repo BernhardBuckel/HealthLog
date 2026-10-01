@@ -4,6 +4,7 @@
  * structured `{ present: false }` for an absent domain — the hallucination
  * audit asserts the model can always tell "no data" from "data".
  */
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import type { CoachSnapshotResult } from "@/lib/ai/coach/snapshot";
@@ -86,6 +87,7 @@ function snapshot(
     sections,
     provenance: { windows: [], metrics: [] },
     referenceGrounding,
+    units: DEFAULT_UNIT_PREFERENCES,
   };
 }
 

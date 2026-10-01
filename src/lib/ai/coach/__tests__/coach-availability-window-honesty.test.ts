@@ -11,6 +11,7 @@
  * Dates are fixed and `now` is injected, so the fixture cannot slide out of its
  * window as the calendar moves.
  */
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -118,6 +119,7 @@ function snapshot(sections: Record<string, unknown>): CoachSnapshotResult {
     sections,
     provenance: { windows: [], metrics: [] },
     referenceGrounding: null,
+    units: DEFAULT_UNIT_PREFERENCES,
   };
 }
 

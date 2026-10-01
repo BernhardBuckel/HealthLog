@@ -4,6 +4,7 @@
  * render a compact, brand-free, grounding-honest block. The model reads this to
  * know what is fetchable so it never invents a metric.
  */
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import type { CoachSnapshotResult } from "@/lib/ai/coach/snapshot";
@@ -37,6 +38,7 @@ function snapshot(
       ...(counts ? { counts: counts as never } : {}),
     },
     referenceGrounding: null,
+    units: DEFAULT_UNIT_PREFERENCES,
   };
 }
 

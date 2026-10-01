@@ -8,6 +8,7 @@
  * Then pins that `show_result` reaches a stored table only inside the
  * conversation it was written to.
  */
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getPrismaClient, truncateAllTables } from "./setup";
@@ -106,6 +107,7 @@ describe("get_metric_table — the chart's numbers", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     expect(table).not.toBeNull();
@@ -162,6 +164,7 @@ describe("get_metric_table — the chart's numbers", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     });
     const range = resolveTableRange({
@@ -280,6 +283,7 @@ describe("get_metric_table — all time", () => {
       timeZone: WEST,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: WEST_NOW,
     });
 
@@ -338,6 +342,7 @@ describe("show_result — only within the conversation", () => {
       timeZone: TZ,
       locale: "en",
       ref: "r1",
+      units: DEFAULT_UNIT_PREFERENCES,
       now: NOW,
     })) as CoachResultTable;
     const {

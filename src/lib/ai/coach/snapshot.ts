@@ -23,7 +23,10 @@ import {
 } from "@/lib/validations/coach-prefs";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/resolver";
 import { locales, defaultLocale, type Locale } from "@/lib/i18n/config";
-import { resolveUnitPreferences } from "@/lib/measurements/display-transform";
+import {
+  resolveUnitPreferences,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 import type { SleepStageRow } from "@/lib/analytics/sleep-night";
 import { compactSections } from "@/lib/ai/prompts/compact-sections";
 import { annotate } from "@/lib/logging/context";
@@ -126,6 +129,12 @@ export interface CoachSnapshotResult {
    * from `src/lib/reference-ranges.ts`; carries no commercial brand name.
    */
   referenceGrounding: string | null;
+  /**
+   * The reader's unit choices the snapshot was written in. A tool that reads
+   * beyond the snapshot (the metric table) states its figures in the same
+   * units, so a reply never mixes the two.
+   */
+  units: UnitPreferences;
 }
 
 /**
@@ -1243,6 +1252,7 @@ async function buildCoachSnapshotImpl(
       counts: Object.keys(counts).length > 0 ? counts : undefined,
     },
     referenceGrounding,
+    units,
   };
 }
 

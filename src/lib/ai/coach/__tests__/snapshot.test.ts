@@ -660,6 +660,10 @@ describe("buildCoachSnapshot", () => {
             "timelineRecentDays": 14
           }
         }",
+          "units": {
+            "glucoseUnit": "mg/dL",
+            "system": "metric",
+          },
         }
       `);
     } finally {

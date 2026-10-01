@@ -191,3 +191,32 @@ describe("buildCycleSnapshotBlock", () => {
     );
   });
 });
+
+describe("buildCycleSnapshotBlock — the reader's units", () => {
+  it("states a weight contrast in pounds for an imperial reader", async () => {
+    prismaMock.cycleProfile.findUnique.mockResolvedValue(profile());
+    prismaMock.menstrualCycle.findMany.mockResolvedValue(cycles());
+    prismaMock.user.findUnique.mockResolvedValue({
+      sourcePriorityJson: null,
+      unitPreference: "imperial",
+    });
+    const weight = rhrMeasurements().map((row) => ({
+      ...row,
+      type: "WEIGHT",
+      value: (row.value as number) + 10,
+    }));
+    prismaMock.measurement.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(weight);
+    const block = await buildCycleSnapshotBlock("u1", "FEMALE", NOW);
+    const insight = block!.phaseInsight!;
+    expect(insight.metric).toBe("weight");
+    expect(insight.unit).toBe("lb");
+    // Luteal ~73 kg, follicular ~67 kg: both means and the gap in pounds.
+    expect(insight.lutealAvg).toBeGreaterThan(155);
+    expect(insight.follicularAvg).toBeGreaterThan(145);
+    expect(insight.delta).toBeGreaterThan(12);
+    expect(insight.interpretation).toMatch(/runs about [\d.]+ lb higher/);
+    expect(insight.interpretation).not.toContain("kg");
+  });
+});

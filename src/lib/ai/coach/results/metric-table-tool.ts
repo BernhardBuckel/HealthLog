@@ -48,6 +48,13 @@ import { annotate } from "@/lib/logging/context";
 import { bucketTimeSeries } from "@/lib/charts/bucket-time-series";
 import { reconstructSleepNights } from "@/lib/analytics/sleep-night";
 import { getUnitForType } from "@/lib/validations/measurement";
+import {
+  applyDisplayTransform,
+  getReadingTransform,
+  hasDisplayTransform,
+  type DisplayTransform,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 import { COACH_SOURCE_MEASUREMENT_TYPES } from "@/lib/ai/coach/source-measurement-types";
 import {
   COACH_RESULT_COLUMN_KEYS,
@@ -212,10 +219,16 @@ export function periodKeys(
 /** One value series of a table: its column and its values by day. */
 interface DaySeries {
   column: Omit<CoachResultColumn, "label">;
-  /** Local day key → the day's value. */
+  /** Local day key → the day's value, canonical. */
   byDay: Map<string, number>;
   /** How days fold into a week or month: a total sums, a level averages. */
   fold: "sum" | "mean";
+  /**
+   * The reader's-unit transform, applied once to each folded period value
+   * (the column's unit and decimals already name it). Absent for a series
+   * no preference touches.
+   */
+  transform?: DisplayTransform;
 }
 
 /** Per-day values and reading counts for a metric, before bucketing. */
@@ -227,7 +240,6 @@ interface MetricDays {
 
 const UNIT_TOKENS: Readonly<Record<string, string>> = {
   minutes: "min",
-  celsius: "°C",
 };
 
 /**
@@ -281,6 +293,7 @@ const SERIES_SUFFIX: Readonly<Partial<Record<MeasurementType, string>>> = {
 type MeasurementColumn = DaySeries["column"] & {
   type: MeasurementType;
   suffix?: string;
+  transform?: DisplayTransform;
 };
 
 /**
@@ -302,6 +315,7 @@ function measurementColumns(
   metric: CoachScopeSource,
   types: readonly MeasurementType[],
   granularity: CoachResultGranularity,
+  units: UnitPreferences,
 ): MeasurementColumn[] {
   if (metric === "bp") {
     return [
@@ -330,16 +344,24 @@ function measurementColumns(
         ? COACH_RESULT_COLUMN_KEYS.total
         : COACH_RESULT_COLUMN_KEYS.mean;
   return types.map((type) => {
-    const unit = unitTokenFor(type);
     const suffix = types.length > 1 ? (SERIES_SUFFIX[type] ?? type) : undefined;
+    // A mass, length, temperature, speed or distance is read in the
+    // reader's units, at the decimals that unit is read at.
+    const transform = hasDisplayTransform(type)
+      ? getReadingTransform(type, units)
+      : undefined;
+    const unit = transform ? transform.displayUnit : unitTokenFor(type);
     return {
       key: suffix ? suffix.toLowerCase() : "value",
       kind: "number" as const,
       labelKey,
       ...(unit ? { unit } : {}),
-      decimals: decimalsForType(type, unit ?? ""),
+      decimals: transform
+        ? transform.decimals
+        : decimalsForType(type, unit ?? ""),
       type,
       ...(suffix ? { suffix } : {}),
+      ...(transform ? { transform } : {}),
     };
   });
 }
@@ -374,10 +396,11 @@ async function readMeasurementDays(args: {
   granularity: CoachResultGranularity;
   range: TableRange;
   timeZone: string;
+  units: UnitPreferences;
 }): Promise<MetricDays & { suffixes: Map<string, string> }> {
-  const { userId, metric, granularity, range, timeZone } = args;
+  const { userId, metric, granularity, range, timeZone, units } = args;
   const types = COACH_SOURCE_MEASUREMENT_TYPES[metric];
-  const columns = measurementColumns(metric, types, granularity);
+  const columns = measurementColumns(metric, types, granularity, units);
   const priorityJson = await loadUserSourcePriority(userId);
   const rowsByType = await Promise.all(
     columns.map((column) =>
@@ -403,12 +426,13 @@ async function readMeasurementDays(args: {
       counts.set(day, (counts.get(day) ?? 0) + count);
     }
     if (column.suffix) suffixes.set(column.key, column.suffix);
-    const { type: _type, suffix: _suffix, ...rest } = column;
+    const { type: _type, suffix: _suffix, transform, ...rest } = column;
     return {
       column: rest,
       byDay,
       fold: total ? ("sum" as const) : ("mean" as const),
       counts,
+      ...(transform ? { transform } : {}),
     };
   });
   const { ordered, counts } = orderAndCount(metric, read);
@@ -443,14 +467,15 @@ async function readMeasurementMonths(args: {
   userId: string;
   metric: CoachScopeSource;
   range: TableRange;
+  units: UnitPreferences;
 }): Promise<{
   series: DaySeries[];
   periods: PeriodValues;
   suffixes: Map<string, string>;
 }> {
-  const { userId, metric, range } = args;
+  const { userId, metric, range, units } = args;
   const types = COACH_SOURCE_MEASUREMENT_TYPES[metric];
-  const columns = measurementColumns(metric, types, "month");
+  const columns = measurementColumns(metric, types, "month", units);
   const total = aggregationKind(metric) === "total";
   const priorityJson = await loadUserSourcePriority(userId);
   // The first whole UTC month of the range: a bucket that starts before
@@ -512,7 +537,7 @@ async function readMeasurementMonths(args: {
   const suffixes = new Map<string, string>();
   const read = columns.map((column, index) => {
     if (column.suffix) suffixes.set(column.key, column.suffix);
-    const { type: _type, suffix: _suffix, ...rest } = column;
+    const { type: _type, suffix: _suffix, transform, ...rest } = column;
     const byDay = new Map<string, number>();
     const counts = new Map<string, number>();
     for (const [month, { value, count }] of byType[index]) {
@@ -524,6 +549,7 @@ async function readMeasurementMonths(args: {
       byDay,
       fold: total ? ("sum" as const) : ("mean" as const),
       counts,
+      ...(transform ? { transform } : {}),
     };
   });
   const { ordered, counts } = orderAndCount(metric, read);
@@ -743,9 +769,14 @@ export async function readMetricTable(args: {
   timeZone: string;
   locale: Locale;
   ref: string;
+  /**
+   * The reader's units. The person sees the table and the model reads its
+   * summary, so a mass, temperature, speed or distance is stated in them.
+   */
+  units: UnitPreferences;
   now?: Date;
 }): Promise<CoachResultTable | null> {
-  const { userId, metric, window, timeZone, locale, ref } = args;
+  const { userId, metric, window, timeZone, locale, ref, units } = args;
   const now = args.now ?? new Date();
   const period = window === "allTime" ? "current" : args.period;
   const granularity = effectiveGranularity(window, args.granularity);
@@ -765,7 +796,7 @@ export async function readMetricTable(args: {
     series = days.series;
     folded = foldIntoPeriods({ days, granularity, timeZone });
   } else if (window === "allTime") {
-    const read = await readMeasurementMonths({ userId, metric, range });
+    const read = await readMeasurementMonths({ userId, metric, range, units });
     series = read.series;
     folded = read.periods;
     suffixes = read.suffixes;
@@ -777,6 +808,7 @@ export async function readMetricTable(args: {
       granularity,
       range,
       timeZone,
+      units,
     });
     series = read.series;
     folded = foldIntoPeriods({ days: read, granularity, timeZone });
@@ -826,9 +858,10 @@ export async function readMetricTable(args: {
     const cells = values.get(key);
     return [
       key,
-      ...series.map((_, index) => {
+      ...series.map((s, index) => {
         const value = cells?.[index];
-        return value === undefined || !Number.isFinite(value) ? null : value;
+        if (value === undefined || !Number.isFinite(value)) return null;
+        return s.transform ? applyDisplayTransform(value, s.transform) : value;
       }),
       cells ? (counts.get(key) ?? 0) : null,
     ];

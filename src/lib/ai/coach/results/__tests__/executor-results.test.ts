@@ -4,6 +4,7 @@
  * turn belongs to, the older tools' projections, and the table never in
  * what the model reads.
  */
+import { DEFAULT_UNIT_PREFERENCES } from "@/lib/measurements/display-transform";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CoachSnapshotResult } from "@/lib/ai/coach/snapshot";
@@ -59,6 +60,7 @@ function snapshot(sections: Record<string, unknown>): CoachSnapshotResult {
     sections,
     provenance: { windows: [], metrics: [] },
     referenceGrounding: null,
+    units: DEFAULT_UNIT_PREFERENCES,
   };
 }
 

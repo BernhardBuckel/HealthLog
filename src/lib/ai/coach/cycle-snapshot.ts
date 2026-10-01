@@ -21,6 +21,14 @@
  * day" claim.
  */
 import { prisma } from "@/lib/db";
+import {
+  applyDisplayTransform,
+  applyDisplayTransformDelta,
+  getReadingTransform,
+  isUnitSensitiveType,
+  resolveUnitPreferences,
+  type UnitPreferences,
+} from "@/lib/measurements/display-transform";
 import { predictCycle, type NightlyTempInput } from "@/lib/cycle";
 import { LUTEAL_DEFAULT, type CyclePhase } from "@/lib/cycle/types";
 import {
@@ -60,13 +68,16 @@ const METRIC_LABEL: Record<string, string> = {
   skinTemperature: "skin temperature",
 };
 
+/**
+ * Labels for the display kinds no preference changes. Weight, the
+ * temperatures and glucose are read in the reader's units instead, through
+ * the measurement type's transform (see `headlineInReaderUnits`).
+ */
 const UNIT_LABEL: Record<string, string> = {
   hours: "h",
   steps: "steps",
   bpm: "bpm",
   ms: "ms",
-  kg: "kg",
-  celsius: "°C",
 };
 
 interface PhaseInsightBlock {
@@ -108,12 +119,42 @@ export interface CycleSnapshotBlock {
   phaseInsight: PhaseInsightBlock | null;
 }
 
+/**
+ * The headline contrast's figures in the reader's units. The two means take
+ * the full transform, the difference the factor alone; a kind no preference
+ * touches keeps its numbers and its fixed label.
+ */
+function headlineInReaderUnits(
+  row: PhaseMetricCrosstabRow,
+  units: UnitPreferences,
+): { lutealAvg: number; follicularAvg: number; delta: number; unit: string } {
+  const type = PHASE_CROSSTAB_METRICS[row.metricKey].type;
+  if (!isUnitSensitiveType(type)) {
+    return {
+      lutealAvg: row.lutealAvg,
+      follicularAvg: row.follicularAvg,
+      delta: row.delta,
+      unit: UNIT_LABEL[row.display] ?? "",
+    };
+  }
+  const transform = getReadingTransform(type, units);
+  return {
+    lutealAvg: applyDisplayTransform(row.lutealAvg, transform),
+    follicularAvg: applyDisplayTransform(row.follicularAvg, transform),
+    delta: applyDisplayTransformDelta(row.delta, transform),
+    unit: transform.displayUnit,
+  };
+}
+
 /** Descriptive, never-causal interpretation of the headline contrast. */
-function interpretHeadline(row: PhaseMetricCrosstabRow): string {
+function interpretHeadline(
+  row: PhaseMetricCrosstabRow,
+  shown: { delta: number; unit: string },
+): string {
   const metric = METRIC_LABEL[row.metricKey] ?? row.metricKey;
-  const dir = row.delta >= 0 ? "higher" : "lower";
-  const mag = Math.abs(row.delta);
-  const unit = UNIT_LABEL[row.display] ?? "";
+  const dir = shown.delta >= 0 ? "higher" : "lower";
+  const mag = Math.abs(shown.delta);
+  const unit = shown.unit;
   return `Your ${metric} runs about ${mag}${unit ? " " + unit : ""} ${dir} on luteal-phase days than follicular-phase days in your own data — a descriptive pattern, not a cause.`;
 }
 
@@ -212,7 +253,11 @@ export async function buildCycleSnapshotBlock(
       }),
       prisma.user.findUnique({
         where: { id: userId },
-        select: { sourcePriorityJson: true },
+        select: {
+          sourcePriorityJson: true,
+          unitPreference: true,
+          glucoseUnit: true,
+        },
       }),
     ]);
 
@@ -301,18 +346,24 @@ export async function buildCycleSnapshotBlock(
 
   let phaseInsight: PhaseInsightBlock | null = null;
   if (headlineRow) {
-    const cfg = PHASE_CROSSTAB_METRICS[headlineRow.metricKey];
+    const shown = headlineInReaderUnits(
+      headlineRow,
+      resolveUnitPreferences({
+        unitPreference: userRow?.unitPreference,
+        glucoseUnit: userRow?.glucoseUnit,
+      }),
+    );
     phaseInsight = {
       metric: METRIC_LABEL[headlineRow.metricKey] ?? headlineRow.metricKey,
-      unit: UNIT_LABEL[cfg.display] ?? "",
-      lutealAvg: headlineRow.lutealAvg,
-      follicularAvg: headlineRow.follicularAvg,
-      delta: headlineRow.delta,
+      unit: shown.unit,
+      lutealAvg: shown.lutealAvg,
+      follicularAvg: shown.follicularAvg,
+      delta: shown.delta,
       confidence: headlineRow.confidence,
       qValue: headlineRow.qValue,
       lutealDays: headlineRow.lutealDays,
       follicularDays: headlineRow.follicularDays,
-      interpretation: interpretHeadline(headlineRow),
+      interpretation: interpretHeadline(headlineRow, shown),
     };
   }
 
