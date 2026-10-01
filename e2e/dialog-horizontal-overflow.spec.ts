@@ -97,6 +97,10 @@ const DIALOGS: DialogCase[] = [
 const VIEWPORTS = [
   { label: "desktop 1280", width: 1280, height: 800 },
   { label: "phone 390", width: 390, height: 844 },
+  // The narrowest common Android width. The labs sheet's three-button footer
+  // (Cancel, Save & add another, Save) fits 390 in English and pushed Cancel
+  // off the left edge in German; 360 is where English hits the same wall.
+  { label: "phone 360", width: 360, height: 780 },
 ];
 
 /**
