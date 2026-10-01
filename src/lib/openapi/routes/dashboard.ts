@@ -223,7 +223,7 @@ const dashboardMetricCard = z
       .datetime({ offset: true })
       .nullable()
       .describe(
-        "Instant behind `latestValue`, falling back to the metric's newest reading. For `mood` this is the day START of the latest daily bucket, not a reading time — the series pins a day, so inventing an instant would be a lie. For `bmi` it is the WEIGHT metadata, since BMI moves exactly when weight does.",
+        "Instant behind `latestValue`, falling back to the metric's newest reading. For `mood` this is the first instant of the latest daily bucket's day in the account's time zone, not a reading time (the series pins a local day, not an instant); formatted in that zone it always lands on the day the entry was logged. For `bmi` it is the WEIGHT metadata, since BMI moves exactly when weight does.",
       ),
     allTimeCount: z
       .number()

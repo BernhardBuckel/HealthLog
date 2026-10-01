@@ -65,6 +65,7 @@ import { type Locale } from "@/lib/i18n/config";
 import { resolveJobLocale } from "@/lib/i18n/job-locale";
 import { userDayKey, DEFAULT_TIMEZONE } from "@/lib/tz/resolver";
 import { validTimezoneOr } from "@/lib/tz/format";
+import { startOfLocalDayKey } from "@/lib/tz/local-day";
 import { cachedSwr, caches, type ServerCache } from "@/lib/cache/server-cache";
 import { buildMedsTodayBlock } from "@/lib/dashboard/meds-today";
 import { computeStreak } from "@/lib/dashboard/streak";
@@ -879,11 +880,14 @@ async function buildDashboardSummary(
   if (moodSeries.entryCount > 0) {
     const spark = moodSeries.entries.slice(-SPARK_DAYS).map((e) => e.score);
     const latestEntry = moodSeries.entries[moodSeries.entries.length - 1];
-    // The series carries UTC day labels, not timestamps — the entry's day is
-    // the only instant the source actually pins, so it is emitted as the
-    // day's start rather than inventing a reading time.
+    // The series carries the user's LOCAL day keys (`MoodEntry.date`), not
+    // timestamps, so the only honest instant is the first instant of that
+    // day in the user's zone. Writing the key as `T00:00Z` instead put the
+    // instant on the previous calendar day for anyone west of UTC, and a
+    // client formatting it in its own zone showed today's entry as
+    // yesterday's.
     const latestAt = latestEntry
-      ? new Date(`${latestEntry.date}T00:00:00.000Z`).toISOString()
+      ? startOfLocalDayKey(latestEntry.date, userTz).toISOString()
       : null;
     metrics.push({
       id: "mood",
