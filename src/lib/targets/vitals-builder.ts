@@ -54,6 +54,15 @@ interface VitalTargetsInput {
    * always treated a user override. `null` keeps the height-derived band.
    */
   weightTargetOverride: { min: number; max: number } | null;
+  /**
+   * The user's own blood-pressure band from `User.thresholdsJson`
+   * (`resolveBpTargetOverride`). When present it replaces the age-based ESH
+   * band on the card, its in-target share and its seven-day strip, and the
+   * source reads "Custom" — the same rule as the weight override above. The
+   * ESH classification of the latest reading stays guideline-derived: it
+   * names a category, not a goal. Absent or `null` keeps the age band.
+   */
+  bpTargetOverride?: BloodPressureTargetRange | null;
 }
 
 export interface VitalTargetsResult {
@@ -148,6 +157,7 @@ export function buildVitalTargets({
   timezone,
   now,
   weightTargetOverride,
+  bpTargetOverride = null,
 }: VitalTargetsInput): VitalTargetsResult {
   const targets: TargetItem[] = [];
   const consistencyClock = { timezone, now };
@@ -191,7 +201,9 @@ export function buildVitalTargets({
     }),
   });
 
-  const bpRange = age != null ? getBpTargetsByAge(age, referenceSex) : null;
+  const bpRange =
+    bpTargetOverride ??
+    (age != null ? getBpTargetsByAge(age, referenceSex) : null);
   const bpPairsByDay = buildBpPairsByDay(recentMeasurements, bpRange, timezone);
   let bpClassification: TargetItem["classification"] = null;
   if (
@@ -216,7 +228,7 @@ export function buildVitalTargets({
     unit: "mmHg",
     range: bpRange ? { min: bpRange.sysLow, max: bpRange.sysHigh } : null,
     classification: bpClassification,
-    source: "ESH 2023",
+    source: bpTargetOverride ? "Custom" : "ESH 2023",
     ...rollupFromDayMap({
       dayBandByKey: bpPairsByDay,
       ...consistencyClock,
