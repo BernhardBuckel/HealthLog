@@ -2,6 +2,7 @@ import type { jsPDF } from "jspdf";
 import { GLUCOSE_CONTEXT_BUCKETS } from "@/lib/glucose";
 import autoTable from "jspdf-autotable";
 import { convertGlucose, resolveGlucoseUnit } from "../glucose";
+import { reportStatValue } from "../doctor-report/stat-display";
 import type { MeasurementType } from "@/generated/prisma/client";
 import { MEASUREMENT_TYPE_LABEL_KEYS } from "../measurements/type-label-keys";
 import {
@@ -235,12 +236,9 @@ export function buildMeasurementsChartsSection(
       const s = data.stats[type];
       if (!s) continue;
       const unit = unitFor(type);
-      // SLEEP_DURATION stats are per-night asleep totals in MINUTES (the data
-      // layer reconstructs them for exactly this row); the vitals unit is
-      // hours (`h`), so convert to keep value and unit consistent — the same
-      // hours value the FHIR sleep Observation emits.
-      const conv =
-        type === "SLEEP_DURATION" ? (v: number) => v / 60 : (v: number) => v;
+      // Sleep minutes print as hours and glucose in the owner's unit; the
+      // clinician view reads the same helper, so the two cannot drift.
+      const conv = (v: number) => reportStatValue(type, v, glucoseUnit);
       groupRows.push([
         t(MEASUREMENT_TYPE_LABEL_KEYS[type as MeasurementType] ?? ""),
         `${num(conv(s.latest))} ${unit}`.trim(),

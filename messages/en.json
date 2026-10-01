@@ -8167,6 +8167,7 @@
     "medications": "Medications & adherence",
     "bmi": "Body mass index (BMI)",
     "statSummary": "latest {latest} (avg {avg}, range {min}–{max})",
+    "statSummaryWithUnit": "latest {latest} {unit} (avg {avg} {unit}, range {min}–{max} {unit})",
     "adherence": "{rate} adherence",
     "noAdherence": "—",
     "glucose": {

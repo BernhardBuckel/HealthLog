@@ -8167,6 +8167,7 @@
     "medications": "Médicaments et observance",
     "bmi": "Indice de masse corporelle (IMC)",
     "statSummary": "dernier {latest} (moy. {avg}, plage {min}–{max})",
+    "statSummaryWithUnit": "dernier {latest} {unit} (moy. {avg} {unit}, plage {min}–{max} {unit})",
     "adherence": "{rate} d'observance",
     "noAdherence": "—",
     "glucose": {

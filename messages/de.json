@@ -8167,6 +8167,7 @@
     "medications": "Medikamente & Therapietreue",
     "bmi": "Body-Mass-Index (BMI)",
     "statSummary": "zuletzt {latest} (Ø {avg}, Bereich {min}–{max})",
+    "statSummaryWithUnit": "zuletzt {latest} {unit} (Ø {avg} {unit}, Bereich {min}–{max} {unit})",
     "adherence": "{rate} Therapietreue",
     "noAdherence": "—",
     "glucose": {

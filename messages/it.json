@@ -8167,6 +8167,7 @@
     "medications": "Farmaci e aderenza",
     "bmi": "Indice di massa corporea (IMC)",
     "statSummary": "ultimo {latest} (media {avg}, intervallo {min}–{max})",
+    "statSummaryWithUnit": "ultimo {latest} {unit} (media {avg} {unit}, intervallo {min}–{max} {unit})",
     "adherence": "{rate} di aderenza",
     "noAdherence": "—",
     "glucose": {

@@ -19,7 +19,11 @@ import {
   REPORT_GROUPS,
 } from "./report-selection/catalogue";
 
-import { getUnitForType } from "./validations/measurement";
+import {
+  DOCTOR_REPORT_TYPE_UNIT_KEYS,
+  reportStatUnit,
+} from "./doctor-report/stat-display";
+import { resolveGlucoseUnit } from "./glucose";
 import {
   makeFormatters,
   type DateFormatPreference,
@@ -175,18 +179,9 @@ export interface DoctorReportRenderOptions {
   includeCharts?: boolean;
 }
 
-export const DOCTOR_REPORT_TYPE_UNIT_KEYS: Record<string, string | null> = {
-  WEIGHT: "kg",
-  BLOOD_PRESSURE_SYS: "mmHg",
-  BLOOD_PRESSURE_DIA: "mmHg",
-  PULSE: "bpm",
-  BODY_FAT: "%",
-  SLEEP_DURATION: "h",
-  ACTIVITY_STEPS: null, // translated unit
-  TOTAL_BODY_WATER: "kg",
-  BONE_MASS: "kg",
-  OXYGEN_SATURATION: "%",
-};
+// The unit map moved beside the clinician view's reader of it; re-exported so
+// the enum-coverage test keeps one import.
+export { DOCTOR_REPORT_TYPE_UNIT_KEYS };
 
 /**
  * The measurement table is driven by the selection, not by a whitelist.
@@ -238,18 +233,9 @@ export function buildDoctorReportPdfDocument(
   const footerTz =
     userTz && isValidTimezone(userTz) ? userTz : DEFAULT_TIMEZONE;
 
-  const unitFor = (type: string): string => {
-    const staticUnit = DOCTOR_REPORT_TYPE_UNIT_KEYS[type];
-    if (staticUnit === null && type === "ACTIVITY_STEPS") {
-      return t("doctorReport.unitSteps");
-    }
-    if (staticUnit !== undefined && staticUnit !== null) return staticUnit;
-    // Every other type falls back to the canonical unit the measurement
-    // validation layer already records. A type with no recorded unit prints
-    // none — an absent unit is absent, not a guessed symbol.
-    const canonical = getUnitForType(type);
-    return canonical === "unknown" ? "" : canonical;
-  };
+  const glucoseUnit = resolveGlucoseUnit(data.glucoseUnit ?? null);
+  const unitFor = (type: string): string =>
+    reportStatUnit(type, glucoseUnit, t);
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   patchPdfTextSanitiser(doc);

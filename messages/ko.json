@@ -8167,6 +8167,7 @@
     "medications": "복약 및 복약 순응도",
     "bmi": "체질량지수(BMI)",
     "statSummary": "최근 {latest} (평균 {avg}, 범위 {min}–{max})",
+    "statSummaryWithUnit": "최근 {latest} {unit} (평균 {avg} {unit}, 범위 {min}–{max} {unit})",
     "adherence": "복약 순응도 {rate}",
     "noAdherence": "—",
     "glucose": {
