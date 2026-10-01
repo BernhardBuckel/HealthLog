@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { requireFloor } from "@/__tests__/helpers/source-files";
+
 const ROOT = join(__dirname, "../../..");
 const MESSAGES_DIR = join(ROOT, "messages");
 const EN_PATH = join(MESSAGES_DIR, "en.json");
@@ -20,7 +22,9 @@ function discoverLocales(): Array<{ locale: string; path: string }> {
     }));
 }
 
-const ALL_LOCALES = discoverLocales();
+// Every parity check below iterates this list, so an empty discovery would
+// run none of them and pass. Seven bundles ship today.
+const ALL_LOCALES = requireFloor("message bundles", discoverLocales(), 7);
 const NON_EN_LOCALES = ALL_LOCALES.filter((l) => l.locale !== "en");
 
 // JSON.parse silently keeps the last value when an object has duplicate keys,

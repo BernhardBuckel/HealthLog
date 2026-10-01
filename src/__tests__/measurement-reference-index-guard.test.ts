@@ -64,6 +64,7 @@ describe("columns that point into measurements are indexed", () => {
   const refs = measurementReferences();
 
   it("finds the references (a matcher that finds none proves nothing)", () => {
+    expect(refs.length).toBeGreaterThanOrEqual(2);
     expect(refs).toEqual(
       expect.arrayContaining([
         "ecg_recordings.measurement_id",

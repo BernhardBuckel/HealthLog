@@ -35293,6 +35293,11 @@ components:
                   - type: string
                     minLength: 1
                   - type: "null"
+              absorbedIntoId:
+                anyOf:
+                  - type: string
+                    minLength: 1
+                  - type: "null"
               createdAt:
                 type: string
                 minLength: 1
@@ -36145,6 +36150,10 @@ components:
                 anyOf:
                   - type: string
                   - type: "null"
+              externalSourceVersion:
+                anyOf:
+                  - type: string
+                  - type: "null"
               metadata:
                 $ref: "#/components/schemas/__schema0"
               createdAt:
@@ -36396,6 +36405,13 @@ components:
                 type: string
                 minLength: 1
               source:
+                type: string
+                minLength: 1
+              externalSourceVersion:
+                anyOf:
+                  - type: string
+                  - type: "null"
+              createdAt:
                 type: string
                 minLength: 1
             required:

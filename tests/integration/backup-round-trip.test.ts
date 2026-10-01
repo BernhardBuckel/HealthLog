@@ -43,13 +43,15 @@
  * is a thing a restore could get wrong while returning the right number of
  * rows, which is the only test worth writing here.
  */
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 process.env.ENCRYPTION_KEY ??=
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 import type { PrismaClient } from "@/generated/prisma/client";
-import { encrypt, encryptBytes } from "@/lib/crypto";
+import { decrypt, decryptBytes, encrypt, encryptBytes } from "@/lib/crypto";
 import { decryptFromBytes, encryptToBytes } from "@/lib/ai/coach/bytes-codec";
 import { readNote } from "@/lib/crypto/note-cipher";
 import {
@@ -69,11 +71,25 @@ import {
 } from "@/lib/medication-category";
 import { UNREADABLE_EXPORT_MARKER } from "@/lib/export/unreadable-marker";
 import { decryptNoteFromBytes } from "@/lib/labs/store";
-import { decryptContextFromBytes } from "@/lib/labs/biomarker-store";
+import {
+  decryptContextFromBytes,
+  encryptContextToBytes,
+} from "@/lib/labs/biomarker-store";
 import { legacyStreamedBlobFrom } from "@/__tests__/helpers/legacy-backup-blob";
 import { streamFullBackupJson } from "@/lib/export/full-backup-stream";
 import { TWO_ENDED_MODELS, type TwoEndedModel } from "@/lib/export/backup-plan";
+import { parseOnboardingSteps } from "@/lib/onboarding/needs";
 import { POST } from "./restore-job-driver";
+import {
+  type AuditColumn,
+  type AuditModel,
+  enumValuesFromSchema,
+  isDefaultValue,
+  normalise,
+  ownerWhere,
+  readAuditModels,
+  syntheticValue,
+} from "./backup-column-audit";
 
 import { cookieJar, headerJar } from "./mock-next-headers";
 import { getPrismaClient, truncateAllTables } from "./setup";
@@ -3211,4 +3227,417 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       expect(restored.createdAt.toISOString()).toBe(createdAt.toISOString());
     });
   }
+});
+
+/**
+ * Columns the restore is right not to bring back verbatim, by `Model.column`.
+ * Every other column of every two-ended model must come back with the value
+ * it left with. An entry here whose column no longer exists fails the run.
+ */
+const COLUMN_EXCLUSIONS: Readonly<Record<string, string>> = {
+  "MeasurementReminder.lastNotifiedAt":
+    "operational repeat cursor, documented on the column as not in the backup: a restored reminder re-reminds at most once, on its next notify hour",
+  // When a join row was written. Nothing reads these: the links are read for
+  // which tag, symptom or context applies, never for when the row appeared,
+  // and the parent entry carries its own timestamps, which do travel.
+  "MoodContext.createdAt":
+    "insert stamp of the per-entry context row; no reader, the mood entry's own timestamps travel",
+  "MoodEntryTagLink.createdAt":
+    "insert stamp of a tag link; no reader, the mood entry's own timestamps travel",
+  "CycleSymptomLink.createdAt":
+    "insert stamp of a symptom link; no reader, the day log's own timestamps travel",
+  "IllnessSymptomLink.createdAt":
+    "insert stamp of a symptom link; no reader, the illness day log's own timestamps travel",
+};
+
+/**
+ * Columns every reader parses through one function before using, compared
+ * through that same function: the restore writes the parsed form.
+ */
+const READ_THROUGH: Readonly<Record<string, (value: unknown) => unknown>> = {
+  "OnboardingRecord.stepsJson": parseOnboardingSteps,
+};
+
+/**
+ * Values for columns the fixture leaves empty where the type alone does not
+ * produce one the export and the restore accept.
+ */
+const FILL_OVERRIDES: Readonly<Record<string, unknown>> = {
+  "MedicationSchedule.rrule": "FREQ=WEEKLY;BYDAY=MO,TH",
+  "InboundDocument.sourceInstance": "https://paperless.example.test",
+  // The digest of the fixture's own document bytes, so a restore that checks
+  // it against the content finds them consistent.
+  "InboundDocument.contentSha256": createHash("sha256")
+    .update("round-trip document bytes")
+    .digest("hex"),
+  "Biomarker.contextEncrypted": () =>
+    encryptContextToBytes("fasted, morning draw"),
+  "MoodEntry.tags": JSON.stringify(["round-trip-tag"]),
+  "CorrelationPattern.qValue": 0.04,
+  "CorrelationPattern.dismissedEvidenceHash": "ab".repeat(32),
+};
+
+/**
+ * Rows for the columns a CHECK constraint ties to a shape the base fixture
+ * does not have: a stage only on a sleep reading, a context only on a glucose
+ * reading, a rolling interval only on a schedule without a calendar rule.
+ */
+async function seedColumnShapes(prisma: PrismaClient): Promise<void> {
+  await prisma.measurement.create({
+    data: {
+      userId: OWNER_ID,
+      type: "BLOOD_GLUCOSE",
+      value: 5.4,
+      unit: "mmol/L",
+      measuredAt: AT("2026-07-03T06:45:00.000Z"),
+      source: "MANUAL",
+      glucoseContext: "FASTING",
+    },
+  });
+  await prisma.measurement.create({
+    data: {
+      userId: OWNER_ID,
+      type: "SLEEP_DURATION",
+      value: 95,
+      unit: "min",
+      measuredAt: AT("2026-07-03T02:00:00.000Z"),
+      source: "APPLE_HEALTH",
+      externalId: "round-trip-deep-sleep",
+      sleepStage: "DEEP",
+    },
+  });
+  // A start logged out of order and folded into the one before it: soft
+  // deleted, and pointing at the start that absorbed it so that removing that
+  // start can bring this one back.
+  const absorbing = await prisma.menstrualCycle.findFirstOrThrow({
+    where: { userId: OWNER_ID, startDate: "2026-06-01" },
+  });
+  await prisma.menstrualCycle.create({
+    data: {
+      userId: OWNER_ID,
+      startDate: "2026-06-03",
+      deletedAt: AT("2026-06-04T07:00:00.000Z"),
+      absorbedIntoId: absorbing.id,
+    },
+  });
+  const medication = await prisma.medication.findFirstOrThrow({
+    where: { userId: OWNER_ID },
+  });
+  await prisma.medicationSchedule.create({
+    data: {
+      medicationId: medication.id,
+      windowStart: "20:00",
+      windowEnd: "21:00",
+      label: "Every third evening",
+      rollingIntervalDays: 3,
+    },
+  });
+}
+
+type Delegate = {
+  findMany(args: {
+    where: Record<string, unknown>;
+  }): Promise<Record<string, unknown>[]>;
+  update(args: {
+    where: Record<string, unknown>;
+    data: Record<string, unknown>;
+  }): Promise<unknown>;
+};
+
+function delegateOf(prisma: PrismaClient, model: AuditModel): Delegate {
+  return (prisma as unknown as Record<string, Delegate>)[model.delegate];
+}
+
+function primaryKeyWhere(
+  model: AuditModel,
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  if (model.primaryKey.length === 1) {
+    return { [model.primaryKey[0]]: row[model.primaryKey[0]] };
+  }
+  return {
+    [model.primaryKey.join("_")]: Object.fromEntries(
+      model.primaryKey.map((k) => [k, row[k]]),
+    ),
+  };
+}
+
+/** How a column is compared, or why it is not. */
+function comparison(
+  column: AuditColumn,
+): "value" | "presence" | { excluded: string } {
+  const key = `${column.model}.${column.name}`;
+  if (key in COLUMN_EXCLUSIONS) return { excluded: COLUMN_EXCLUSIONS[key] };
+  if (column.isId) {
+    return { excluded: "primary key; the restore may mint a fresh one" };
+  }
+  if (column.name === "userId") {
+    return { excluded: "owner; re-derived from the restoring account" };
+  }
+  if (column.isUpdatedAt) {
+    return { excluded: "@updatedAt; Prisma stamps it on the restore's write" };
+  }
+  // A declared foreign key may be re-pointed at a row the restore minted, so
+  // it is held to being set where it was set, not to the same id.
+  if (column.isForeignKey) return "presence";
+  return "value";
+}
+
+/** Plaintext behind a sealed value, or the value itself when it is not one. */
+function opened(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "string") {
+    try {
+      return `text:${decrypt(value)}`;
+    } catch {
+      return `text:${value}`;
+    }
+  }
+  if (value instanceof Uint8Array) {
+    for (const open of BYTE_OPENERS) {
+      try {
+        return `text:${open(value)}`;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return normalise(value);
+}
+
+/** Every codec a sealed byte column is written with. */
+const BYTE_OPENERS: ReadonlyArray<(value: Uint8Array) => string> = [
+  decryptFromBytes,
+  decryptNoteFromBytes,
+  decryptContextFromBytes,
+  (value) => decryptBytes(Buffer.from(value)).toString("base64"),
+];
+
+/**
+ * A legacy plaintext column beside its sealed twin (`note` / `noteEncrypted`)
+ * is one value in two places: the restore seals what it finds in either, and
+ * clears the plaintext. So the pair is compared as the value a reader sees.
+ */
+function readerValue(
+  row: Record<string, unknown>,
+  column: AuditColumn,
+): string {
+  const parse = READ_THROUGH[`${column.model}.${column.name}`];
+  if (parse) return normalise(parse(row[column.name]));
+  const twin = `${column.name}Encrypted`;
+  if (twin in row) {
+    const sealed = opened(row[twin]);
+    return sealed !== "null" ? sealed : opened(row[column.name]);
+  }
+  return opened(row[column.name]);
+}
+
+function columnValues(
+  rows: Record<string, unknown>[],
+  column: AuditColumn,
+  how: "value" | "presence",
+): string[] {
+  return rows
+    .map((row) =>
+      how === "presence"
+        ? row[column.name] === null || row[column.name] === undefined
+          ? "null"
+          : "set"
+        : readerValue(row, column),
+    )
+    .sort();
+}
+
+async function snapshot(
+  prisma: PrismaClient,
+  models: AuditModel[],
+  wheres: Map<string, Record<string, unknown>>,
+): Promise<Map<string, Record<string, unknown>[]>> {
+  const out = new Map<string, Record<string, unknown>[]>();
+  for (const model of models) {
+    out.set(
+      model.name,
+      await delegateOf(prisma, model).findMany({
+        where: wheres.get(model.name)!,
+      }),
+    );
+  }
+  return out;
+}
+
+/**
+ * Columns whose value differs between two snapshots, by `Model.column`. Pure,
+ * so the test can show it catches a column it was never told about.
+ */
+function lostColumns(
+  models: AuditModel[],
+  before: Map<string, Record<string, unknown>[]>,
+  after: Map<string, Record<string, unknown>[]>,
+): { lost: string[]; compared: number } {
+  const lost: string[] = [];
+  let compared = 0;
+  for (const model of models) {
+    for (const column of model.columns) {
+      const how = comparison(column);
+      if (typeof how === "object") continue;
+      const plain = column.name.replace(/Encrypted$/, "");
+      if (
+        plain !== column.name &&
+        model.columns.some((c) => c.name === plain)
+      ) {
+        continue; // compared through its plaintext twin, see readerValue
+      }
+      compared += 1;
+      const was = columnValues(before.get(model.name) ?? [], column, how);
+      const is = columnValues(after.get(model.name) ?? [], column, how);
+      if (normalise(was) !== normalise(is)) {
+        lost.push(`${model.name}.${column.name}`);
+      }
+    }
+  }
+  return { lost: lost.sort(), compared };
+}
+
+describe("every column of every two-ended model survives a real restore", () => {
+  it("brings each column back with the value it left with", async () => {
+    const prisma = getPrismaClient();
+    await seedAdminSession(prisma);
+    await createOwner(prisma);
+    // A catalogue row the fixture adds, which survives both the account delete
+    // and the per-test truncation; left behind by the first test in this file.
+    await prisma.illnessSymptom.deleteMany({
+      where: { key: "round_trip_cough" },
+    });
+    await seedEveryTwoEndedModel(prisma);
+    await seedColumnShapes(prisma);
+
+    const models = readAuditModels(prisma, TWO_ENDED_MODELS);
+    const byName = new Map(models.map((m) => [m.name, m]));
+    const wheres = new Map(
+      models.map((m) => [m.name, ownerWhere(byName, prisma, m.name, OWNER_ID)]),
+    );
+    const enumValues = enumValuesFromSchema();
+
+    // Fill what the fixture left empty, so an empty column cannot come back
+    // empty and read as carried. One column at a time on one row, so a value
+    // the database refuses names its column instead of failing the batch.
+    const unfillable: string[] = [];
+    const seededRows = await snapshot(prisma, models, wheres);
+    for (const model of models) {
+      const rows = seededRows.get(model.name)!;
+      expect(rows.length, `${model.name} seeded no row`).toBeGreaterThan(0);
+      for (const column of model.columns) {
+        if (comparison(column) !== "value") continue;
+        // Filling it would turn the fixture's row into a tombstone, and which
+        // models carry tombstones is a row decision, not a column one.
+        if (column.name === "deletedAt") continue;
+        if (rows.some((row) => !isDefaultValue(column, row[column.name]))) {
+          continue;
+        }
+        try {
+          await delegateOf(prisma, model).update({
+            where: primaryKeyWhere(model, rows[0]),
+            data: {
+              [column.name]: syntheticValue(column, enumValues, FILL_OVERRIDES),
+            },
+          });
+        } catch (error) {
+          unfillable.push(
+            `${model.name}.${column.name}: ${String(error).split("\n").slice(-3).join(" ").slice(0, 200)}`,
+          );
+        }
+      }
+    }
+    expect(unfillable, "columns the fill could not set").toEqual([]);
+
+    const before = await snapshot(prisma, models, wheres);
+
+    const exportedAt = new Date("2026-08-01T00:00:00.000Z");
+    let json = "";
+    await streamFullBackupJson(
+      prisma,
+      OWNER_ID,
+      (chunk) => {
+        json += chunk;
+      },
+      { purpose: "disaster-recovery", exportedAt },
+    );
+    await prisma.user.delete({ where: { id: OWNER_ID } });
+    await createOwner(prisma);
+    const backup = await prisma.dataBackup.create({
+      data: {
+        userId: OWNER_ID,
+        type: "COLUMN_ROUND_TRIP",
+        data: await legacyStreamedBlobFrom(async (write) => {
+          await write(json);
+        }),
+      },
+    });
+    const response = await POST(
+      new Request(`http://localhost/api/admin/backups/${backup.id}/restore`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: "RESTORE" }),
+      }) as never,
+      { params: Promise.resolve({ id: backup.id }) },
+    );
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+
+    const after = await snapshot(prisma, models, wheres);
+    const { lost, compared } = lostColumns(models, before, after);
+
+    // A comparison over no columns agrees with everything. 632 at the time of
+    // writing; the headroom is for a column dropped by a migration, not for a
+    // data model that stopped being read.
+    expect(compared).toBeGreaterThanOrEqual(620);
+    expect(
+      lost,
+      "these columns left with a value and came back without it. Carry each " +
+        "through the export and the restore, or name it in COLUMN_EXCLUSIONS " +
+        "with the reason the restore is right to drop it",
+    ).toEqual([]);
+  });
+
+  it("notices a column nobody told it about", () => {
+    const model: AuditModel = {
+      name: "Probe",
+      delegate: "probe",
+      primaryKey: ["id"],
+      parents: {},
+      columns: [
+        {
+          model: "Probe",
+          name: "addedTomorrow",
+          kind: "scalar",
+          type: "String",
+          isList: false,
+          isOptional: true,
+          isId: false,
+          isUpdatedAt: false,
+          isForeignKey: false,
+          defaultText: null,
+        },
+      ],
+    };
+    const before = new Map([["Probe", [{ id: "a", addedTomorrow: "kept" }]]]);
+    const after = new Map([["Probe", [{ id: "b", addedTomorrow: null }]]]);
+    expect(lostColumns([model], before, after)).toEqual({
+      lost: ["Probe.addedTomorrow"],
+      compared: 1,
+    });
+  });
+
+  it("names no exclusion for a column that no longer exists", () => {
+    const models = readAuditModels(getPrismaClient(), TWO_ENDED_MODELS);
+    const known = new Set(
+      models.flatMap((m) => m.columns.map((c) => `${m.name}.${c.name}`)),
+    );
+    const stale = [
+      ...Object.keys(COLUMN_EXCLUSIONS),
+      ...Object.keys(READ_THROUGH),
+      ...Object.keys(FILL_OVERRIDES),
+    ].filter((key) => !known.has(key));
+    expect(stale).toEqual([]);
+  });
 });

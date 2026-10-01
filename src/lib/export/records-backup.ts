@@ -143,6 +143,8 @@ export interface WorkoutBackupEntry {
   externalId: string | null;
   /** Canonical DR only; portable workout summaries keep their existing shape. */
   metadata?: Prisma.JsonValue;
+  /** Canonical DR only, beside `metadata`: the source's own version marker. */
+  externalSourceVersion?: string | null;
 }
 
 export interface DocumentBackupEntry {
@@ -517,6 +519,7 @@ export async function buildRecordsBackupSection(
           createdAt: w.createdAt.toISOString(),
           updatedAt: w.updatedAt.toISOString(),
           ...(w.metadata == null ? {} : { metadata: w.metadata }),
+          externalSourceVersion: w.externalSourceVersion,
         }
       : {}),
     sportType: w.sportType,

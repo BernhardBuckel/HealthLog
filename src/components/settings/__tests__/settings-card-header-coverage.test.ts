@@ -23,6 +23,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { requireFloor } from "@/__tests__/helpers/source-files";
+
 const ROOT = join(__dirname, "../../../..");
 const SETTINGS_DIR = join(ROOT, "src/components/settings");
 
@@ -59,7 +61,8 @@ describe("Settings card headers route through SettingsCardHeader", () => {
   it("has no hand-rolled <h2 text-lg> outside the primitive + allowlist", () => {
     const offenders: string[] = [];
 
-    for (const file of walk(SETTINGS_DIR)) {
+    const files = requireFloor("settings cards", walk(SETTINGS_DIR), 80);
+    for (const file of files) {
       const base = file.slice(file.lastIndexOf("/") + 1);
       if (base === PRIMITIVE) continue;
       if (ALLOWLIST.has(base)) continue;

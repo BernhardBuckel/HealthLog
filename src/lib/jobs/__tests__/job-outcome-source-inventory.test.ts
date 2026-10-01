@@ -13,6 +13,7 @@ import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
+import { requireFloor } from "@/__tests__/helpers/source-files";
 import { JOB_FACT_ALLOWLIST } from "@/lib/jobs/job-outcome";
 
 const JOBS_ROOT = join(process.cwd(), "src/lib/jobs");
@@ -109,14 +110,18 @@ function successFactKeys(file: string): string[] {
 
 describe("durable production job-outcome fact inventory", () => {
   it("allows every explicit production success-fact key", () => {
-    const unknown = productionJobFiles()
-      .flatMap((file) =>
-        successFactKeys(file).map((key) => ({
-          file: file.replace(`${process.cwd()}/`, ""),
-          key,
-        })),
-      )
-      .filter(({ key }) => !JOB_FACT_ALLOWLIST.has(key));
+    const facts = requireFloor(
+      "jobDone fact keys",
+      requireFloor("production job files", productionJobFiles(), 120).flatMap(
+        (file) =>
+          successFactKeys(file).map((key) => ({
+            file: file.replace(`${process.cwd()}/`, ""),
+            key,
+          })),
+      ),
+      350,
+    );
+    const unknown = facts.filter(({ key }) => !JOB_FACT_ALLOWLIST.has(key));
 
     expect(unknown).toEqual([]);
   });

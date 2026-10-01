@@ -50,8 +50,8 @@
  * worktrees, each a full second copy of the tree that would double every
  * match. Every caller roots at `src/`, `e2e/` or a subtree of one.
  */
-import { readdirSync } from "node:fs";
-import { sep } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, sep } from "node:path";
 
 export function walkSourceFiles(
   root: string,
@@ -139,4 +139,93 @@ export function stripComments(source: string): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Asserts that a sweep found at least `floor` things, and returns them.
+ *
+ * `walkSourceFiles` puts a floor under the walk. This puts one under what a
+ * guard does with it: the narrowed file set, the call sites a matcher picked
+ * out, the routes an inventory extracted. A matcher that drifts out of step
+ * with the code — a renamed helper, a call split across two lines, a regex
+ * that stopped compiling the way it was meant to — returns an empty list, and
+ * an empty list agrees with every allowlist and every "none of these may
+ * exist" rule. That is how the Bearer-scope guard stayed green for weeks while
+ * matching nothing.
+ *
+ * Pin `floor` at the real count when the set is a closed inventory, and below
+ * it with headroom only when the count legitimately moves. A floor of zero is
+ * refused: it is the bug this exists to prevent, spelled as a parameter.
+ */
+export function requireFloor<T>(
+  label: string,
+  found: readonly T[],
+  floor: number,
+): readonly T[] {
+  if (!Number.isInteger(floor) || floor < 1) {
+    throw new Error(
+      `requireFloor(${label}): floor must be a positive integer, got ${floor}.`,
+    );
+  }
+  if (found.length < floor) {
+    throw new Error(
+      `${label}: found ${found.length}, below the stated floor of ${floor}. ` +
+        `A matcher that finds this little has drifted from the code it ` +
+        `reads; fix the matcher before lowering the floor.`,
+    );
+  }
+  return found;
+}
+
+export interface SourceMatch {
+  /** Path relative to the scanned root, posix-separated. */
+  file: string;
+  /** 1-based line of the match start. */
+  line: number;
+  /** The matched text. */
+  text: string;
+}
+
+/**
+ * Walk `root`, run `pattern` over every kept file, and return each match —
+ * with a floor on the files read AND a floor on the matches found.
+ *
+ * `pattern` must carry the `g` flag; it is the only way to report more than
+ * one hit per file, and a non-global regex silently finding one hit per file
+ * is the kind of quiet narrowing this helper is for.
+ */
+export function scanSourceMatches(
+  root: string,
+  pattern: RegExp,
+  options: {
+    fileFloor: number;
+    matchFloor: number;
+    extensions?: readonly string[];
+    include?: (rel: string) => boolean;
+    stripComments?: boolean;
+  },
+): SourceMatch[] {
+  if (!pattern.global) {
+    throw new Error(`scanSourceMatches: pattern ${pattern} needs the g flag.`);
+  }
+  const files = walkSourceFiles(root, {
+    floor: options.fileFloor,
+    extensions: options.extensions,
+  }).filter(options.include ?? (() => true));
+  requireFloor(`scanSourceMatches(${root}) files`, files, options.fileFloor);
+
+  const matches: SourceMatch[] = [];
+  for (const file of files) {
+    const raw = readFileSync(join(root, file), "utf8");
+    const source = options.stripComments ? stripComments(raw) : raw;
+    for (const m of source.matchAll(pattern)) {
+      const line = source.slice(0, m.index).split("\n").length;
+      matches.push({ file, line, text: m[0] });
+    }
+  }
+  return requireFloor(
+    `scanSourceMatches(${root}, ${pattern})`,
+    matches,
+    options.matchFloor,
+  ) as SourceMatch[];
 }

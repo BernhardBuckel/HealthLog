@@ -44,6 +44,13 @@ function sortedKeys<T extends string>(keys: readonly T[]): T[] {
 }
 
 describe("side-effect taxonomy drift guard", () => {
+  it("compares populated keysets, not two empty ones", () => {
+    // Every check below is an equality, and two empty sets are equal. A
+    // mocked or mis-resolved enum would pass all of them on nothing.
+    expect(Object.values(MedicationSideEffectCategory).length).toBe(5);
+    expect(Object.values(MedicationSideEffectEntry).length).toBe(21);
+  });
+
   describe("category keysets", () => {
     it("validator categories equal Prisma enum categories", () => {
       const prisma = Object.values(MedicationSideEffectCategory);

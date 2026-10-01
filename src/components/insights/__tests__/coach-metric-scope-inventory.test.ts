@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { CoachScopeSource } from "@/lib/ai/coach/types";
+import { requireFloor } from "@/__tests__/helpers/source-files";
 import {
   scopeSourceFromMetricKey,
   scopeSourceMetricLabelKey,
@@ -38,8 +39,10 @@ function sourceFilesBelow(directory: string): string[] {
 }
 
 function genericMetricCardInventory(): Set<string> {
-  const insightRouteSources = sourceFilesBelow(
-    join(PROJECT_ROOT, "src/app/insights"),
+  const insightRouteSources = requireFloor(
+    "insight route sources",
+    sourceFilesBelow(join(PROJECT_ROOT, "src/app/insights")),
+    60,
   ).map((path) => readFileSync(path, "utf8"));
   const recoverySource = readFileSync(
     join(PROJECT_ROOT, "src/components/insights/recovery/recovery-section.tsx"),

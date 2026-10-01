@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SettingsCard } from "@/components/settings/settings-card";
 import { SettingsCardHeader } from "@/components/settings/_card-header";
 import { SettingsCardActions } from "@/components/settings/_card-actions";
+import { requireFloor } from "@/__tests__/helpers/source-files";
 
 /**
  * Settings + Admin read as one surface. These pin the parts of that claim
@@ -179,8 +180,12 @@ describe("the Settings and Admin shells route their heading through PageHeader",
 describe("the abolished body gutter stays abolished", () => {
   it("has no `pl-7` left under Settings or Admin", () => {
     const offenders: string[] = [];
-    for (const dir of ["settings", "admin"]) {
-      for (const file of walk(join(ROOT, "src", "components", dir))) {
+    for (const [dir, floor] of [
+      ["settings", 130],
+      ["admin", 30],
+    ] as const) {
+      const files = walk(join(ROOT, "src", "components", dir));
+      for (const file of requireFloor(`${dir} components`, files, floor)) {
         const source = readFileSync(file, "utf8");
         for (const [i, line] of source.split("\n").entries()) {
           // Comments may name the class they retired; class strings may not.

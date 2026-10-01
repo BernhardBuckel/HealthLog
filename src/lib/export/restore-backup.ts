@@ -2139,6 +2139,7 @@ export async function restoreBackup(
               pauseDurationSec: workout.pauseDurationSec ?? null,
               source: workout.source as never,
               externalId: workout.externalId ?? null,
+              externalSourceVersion: workout.externalSourceVersion ?? null,
               ...(workout.metadata == null
                 ? {}
                 : { metadata: toJson(workout.metadata) }),
@@ -2161,6 +2162,8 @@ export async function restoreBackup(
               amount: n.amount,
               unit: n.unit,
               source: n.source,
+              externalSourceVersion: n.externalSourceVersion ?? null,
+              ...(n.createdAt ? { createdAt: new Date(n.createdAt) } : {}),
             })),
           });
         }

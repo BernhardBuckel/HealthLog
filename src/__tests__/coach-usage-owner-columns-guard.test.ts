@@ -98,12 +98,14 @@ describe("coach_usage — the two counters move together", () => {
 
   it("names operator_tokens in every clause that names total_tokens", () => {
     const offences: string[] = [];
+    let examined = 0;
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       if (!source.includes("coach_usage")) continue;
       for (const literal of sqlLiterals(source)) {
         for (const clause of columnClauses(literal)) {
           if (!clause.text.includes("total_tokens")) continue;
+          examined += 1;
           if (clause.text.includes("operator_tokens")) continue;
           offences.push(
             `${relative(REPO_ROOT, file)} — ${clause.label}: ${clause.text
@@ -118,6 +120,8 @@ describe("coach_usage — the two counters move together", () => {
       offences,
       `Every raw coach_usage clause that touches total_tokens must touch operator_tokens too:\n${offences.join("\n")}`,
     ).toEqual([]);
+    // No clauses examined would agree with the rule above on nothing.
+    expect(examined).toBeGreaterThanOrEqual(6);
   });
 
   it("keeps the raw-SQL writer set to the files that reason about the ledger", () => {

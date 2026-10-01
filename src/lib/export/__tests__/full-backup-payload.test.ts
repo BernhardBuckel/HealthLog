@@ -361,6 +361,8 @@ function makePrisma() {
           amount: 1500,
           unit: "ml",
           source: "MANUAL",
+          externalSourceVersion: null,
+          createdAt: new Date("2026-07-19T20:15:00.000Z"),
         },
       ]),
     },
@@ -705,6 +707,8 @@ describe("buildFullBackupPayload disaster-recovery mode", () => {
           amount: 1500,
           unit: "ml",
           source: "MANUAL",
+          externalSourceVersion: null,
+          createdAt: "2026-07-19T20:15:00.000Z",
         },
       ],
     });
