@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { requireFloor } from "@/__tests__/helpers/source-files";
 import { locales, type Locale } from "@/lib/i18n/config";
 import { openingShape } from "@/lib/ai/prompts/shared-contracts";
 import {
@@ -110,14 +111,18 @@ describe("tone harness — prompt surfaces", () => {
       "native-prompts.ts",
       "status-batch.ts",
     ]);
-    const modules = readdirSync(dir).filter(
-      (f) =>
-        f.endsWith(".ts") &&
-        !f.endsWith(".d.ts") &&
-        !NON_ASSESSMENT.has(f) &&
-        /export function get\w*SystemPrompt/.test(
-          readFileSync(join(dir, f), "utf8"),
-        ),
+    const modules = requireFloor(
+      "assessment prompt modules",
+      readdirSync(dir).filter(
+        (f) =>
+          f.endsWith(".ts") &&
+          !f.endsWith(".d.ts") &&
+          !NON_ASSESSMENT.has(f) &&
+          /export function get\w*SystemPrompt/.test(
+            readFileSync(join(dir, f), "utf8"),
+          ),
+      ),
+      11,
     );
     const registered = new Set(
       ASSESSMENT_SURFACES.map((s) =>

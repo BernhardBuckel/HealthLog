@@ -16,6 +16,8 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { requireFloor } from "@/__tests__/helpers/source-files";
+
 const ROOT = resolve(__dirname, "../../../..");
 
 /**
@@ -23,10 +25,14 @@ const ROOT = resolve(__dirname, "../../../..");
  * so every module there is guarded — read from the directory, so a step added
  * later is covered without editing this list.
  */
-const TURN_PIPELINE_FILES = readdirSync(resolve(ROOT, "lib/ai/coach/turn"))
-  .filter((name) => name.endsWith(".ts"))
-  .sort()
-  .map((name) => `lib/ai/coach/turn/${name}`);
+const TURN_PIPELINE_FILES = requireFloor(
+  "coach turn pipeline modules",
+  readdirSync(resolve(ROOT, "lib/ai/coach/turn"))
+    .filter((name) => name.endsWith(".ts"))
+    .sort()
+    .map((name) => `lib/ai/coach/turn/${name}`),
+  12,
+);
 
 const GUARDED_FILES = [
   "app/api/insights/chat/route.ts",

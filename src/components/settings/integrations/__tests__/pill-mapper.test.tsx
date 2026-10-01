@@ -9,8 +9,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { join, sep } from "node:path";
-import { globSync } from "node:fs";
+import { join } from "node:path";
+
+import { walkSourceFiles } from "@/__tests__/helpers/source-files";
 
 import type { SyncVerdict } from "@/lib/integrations/sync-verdict";
 import {
@@ -113,14 +114,10 @@ describe("structural guard — no second pill dialect", () => {
   const SRC = join(process.cwd(), "src");
 
   function sourceFiles(): string[] {
-    return globSync("**/*.{ts,tsx}", { cwd: SRC })
-      .filter(
-        (p) => !p.startsWith(`generated${sep}`) && !p.startsWith("generated/"),
-      )
+    return walkSourceFiles(SRC, { floor: 3000 })
+      .filter((p) => !p.startsWith("generated/"))
       .filter((p) => !p.includes("__tests__"))
-      .filter((p) => !p.endsWith(".test.ts") && !p.endsWith(".test.tsx"))
-      .map((p) => p.split(sep).join("/"))
-      .sort();
+      .filter((p) => !p.endsWith(".test.ts") && !p.endsWith(".test.tsx"));
   }
 
   /**
