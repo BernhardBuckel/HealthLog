@@ -4661,6 +4661,42 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "422": *a4
         "429": *a5
+    delete:
+      tags:
+        - Measurements
+      summary: Delete a workout entered by hand
+      description: "Removes a `MANUAL` workout outright, with its child rows, and any personal record that workout set; a
+        silent detection pass then re-derives the previous best. A workout from any other source answers 409
+        (`workout.delete.synced_source`), because the next sync would write it back. Own record only: a cookie session
+        or a wildcard token. Another user's row answers 404."
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteWorkoutResponse"
+        "401": *a1
+        "404":
+          description: Workout not found (or owned by another user).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The workout was synced from a device or service, not entered by hand.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
   /api/workouts/batch:
     post:
       tags:
@@ -43051,6 +43087,30 @@ components:
       description: "One AI capability, resolved for one record from every layer that can say no. Render from it; never
         recompute it. Data never depends on it: measurements, scores, statistics and device records load whatever it
         says."
+    DeleteWorkoutResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            deleted:
+              type: boolean
+              const: true
+          required:
+            - deleted
+          additionalProperties: false
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
     BatchWorkoutsResponse:
       type: object
       properties:

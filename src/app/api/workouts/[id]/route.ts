@@ -21,13 +21,21 @@
  *     route geometry); absent for manual entries.
  *   - Ownership-gated: a row owned by another user resolves as 404 so
  *     the existence channel never leaks.
+ *
+ * `DELETE /api/workouts/{id}` removes a workout entered by hand. Only a
+ * `MANUAL` row: a synced workout would come back with the next sync, so
+ * deleting it here would be a promise the record cannot keep. See the
+ * handler below.
  */
 import { NextRequest } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { apiHandler, requireAuth } from "@/lib/api-handler";
-import { apiError, apiSuccess } from "@/lib/api-response";
+import { apiError, apiSuccess, getClientIp } from "@/lib/api-response";
 import { annotate } from "@/lib/logging/context";
+import { auditLog } from "@/lib/auth/audit";
+import { invalidateUserMeasurements } from "@/lib/cache/invalidate";
+import { enqueuePrDetection } from "@/lib/jobs/pr-detection";
 import { pickCanonicalWorkoutRows } from "@/lib/measurements/pick-canonical-workout-rows";
 import { requireModuleEnabled } from "@/lib/modules/gate";
 import { aiCapabilityToServe } from "@/lib/ai/capabilities/gate";
@@ -355,5 +363,105 @@ export const GET = apiHandler(
       // unaffected.
       previousWorkoutId,
     });
+  },
+);
+
+/**
+ * `DELETE /api/workouts/{id}` — remove a workout that was entered by hand.
+ *
+ * - Own record only: `requireAuth()` with no scope admits a cookie session or
+ *   a wildcard token and refuses an acting-account carrier, the same arm the
+ *   detail read above uses. A narrow token is refused.
+ * - Ownership: another user's row answers 404, like the read.
+ * - `MANUAL` only. Every other source is a sync, and the next sync would
+ *   write the row back, so it answers 409 instead of pretending.
+ * - Not module-gated: deleting is cleanup of the person's own rows, which
+ *   the data layer allows whatever the module says
+ *   (`module-route-gate-inventory.test.ts`).
+ *
+ * The workout table carries no tombstone, so the row is removed outright;
+ * route, samples, insight and claim rows cascade with it. A personal record
+ * the workout set would otherwise outlive it (the detector only ever raises
+ * a stored best), so the records keyed on this workout go in the same
+ * transaction and a silent detection pass re-derives the honest best.
+ */
+export const DELETE = apiHandler(
+  async (request: NextRequest, { params }: RouteParams) => {
+    const { user } = await requireAuth();
+    const { id } = await params;
+
+    const row = await prisma.workout.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        source: true,
+        externalId: true,
+        startedAt: true,
+        sportType: true,
+      },
+    });
+    if (!row || row.userId !== user.id) {
+      return apiError("Workout not found", 404);
+    }
+    if (row.source !== "MANUAL") {
+      annotate({
+        action: {
+          name: "workout.delete",
+          entity_type: "workout",
+          entity_id: id,
+        },
+        meta: { outcome: "synced_source", source: row.source },
+      });
+      return apiError(
+        "Only a workout entered by hand can be deleted here",
+        409,
+        { errorCode: "workout.delete.synced_source" },
+      );
+    }
+
+    const removedRecords = await prisma.$transaction(async (tx) => {
+      const records = await tx.personalRecord.deleteMany({
+        where: {
+          userId: user.id,
+          metricSlot: { not: null },
+          source: "MANUAL",
+          ...(row.externalId !== null
+            ? { externalId: row.externalId }
+            : { externalId: null, achievedAt: row.startedAt }),
+        },
+      });
+      await tx.workout.delete({ where: { id: row.id } });
+      return records.count;
+    });
+
+    await auditLog("workout.delete", {
+      userId: user.id,
+      ipAddress: getClientIp(request),
+      details: {
+        workoutId: id,
+        sportType: row.sportType,
+        personalRecordsRemoved: removedRecords,
+      },
+    });
+    annotate({
+      action: { name: "workout.delete", entity_type: "workout", entity_id: id },
+      meta: { outcome: "deleted", personalRecordsRemoved: removedRecords },
+    });
+
+    invalidateUserMeasurements(user.id, { evict: true });
+
+    if (removedRecords > 0) {
+      try {
+        await enqueuePrDetection(user.id, { silent: true });
+      } catch (err) {
+        annotate({
+          action: { name: "personal_records.detection_enqueue_failed" },
+          meta: { error: err instanceof Error ? err.message : String(err) },
+        });
+      }
+    }
+
+    return apiSuccess({ deleted: true });
   },
 );
