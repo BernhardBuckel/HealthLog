@@ -87,7 +87,7 @@ export interface ResponsiveSheetProps {
    * consumer-passed width silently collide with the hardcoded
    * default, so the width now resolves from this single source.
    */
-  contentWidth?: "md" | "lg" | "2xl" | "3xl" | "4xl";
+  contentWidth?: "md" | "lg" | "2xl" | "3xl" | "4xl" | "6xl";
   children: React.ReactNode;
 }
 
@@ -100,6 +100,7 @@ const CONTENT_WIDTH_CLASS: Record<
   "2xl": "sm:max-w-2xl",
   "3xl": "sm:max-w-3xl",
   "4xl": "sm:max-w-4xl",
+  "6xl": "sm:max-w-6xl",
 };
 
 /**
