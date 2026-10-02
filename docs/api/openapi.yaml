@@ -31798,12 +31798,13 @@ components:
                 vaccination.encounter-not-found, vaccination.identity-required, vaccination.invalid,
                 vaccination.link.invalid, vaccination.not-found, vaccination.practitioner-not-found; workout —
                 workout.batch.invalid, workout.batch.payload_too_large, workout.batch.source_not_permitted,
-                workout.batch.too_large; (unprefixed) — about_me_conflict, ai_response_truncated, coach_prefs_conflict,
-                dashboard_layout_conflict, empty_file, health_score_config_conflict, insights_layout_conflict,
-                invalid_base_updated_at, json_carries_no_intake_time, json_not_an_array, medication_layout_conflict,
-                missing_required_columns, modules_conflict, mood_tag_layout_conflict, not_configured,
-                notification_prefs_conflict, oidc_only, private_origin_not_approved, private_origin_not_grantable,
-                rate_limited_self, too_many_rows, unreadable_json, upstream_invalid_json, vapid_not_configured"
+                workout.batch.too_large, workout.delete.synced_source; (unprefixed) — about_me_conflict,
+                ai_response_truncated, coach_prefs_conflict, dashboard_layout_conflict, empty_file,
+                health_score_config_conflict, insights_layout_conflict, invalid_base_updated_at,
+                json_carries_no_intake_time, json_not_an_array, medication_layout_conflict, missing_required_columns,
+                modules_conflict, mood_tag_layout_conflict, not_configured, notification_prefs_conflict, oidc_only,
+                private_origin_not_approved, private_origin_not_grantable, rate_limited_self, too_many_rows,
+                unreadable_json, upstream_invalid_json, vapid_not_configured"
               type: string
             capability:
               description: "On an AI refusal: the capability that is unavailable, one of the keys of `AiCapabilities` (`coach`,
