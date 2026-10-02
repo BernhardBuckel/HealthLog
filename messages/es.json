@@ -3361,7 +3361,7 @@
       "description": "Carreras, salidas en bici, paseos y sesiones de fuerza recientes, deduplicados entre Apple Watch y Withings.",
       "emptyState": {
         "title": "Aún no hay entrenamientos",
-        "description": "Abre la app Apple Salud en el iPhone para sincronizar tus entrenamientos. La importación de actividad de Withings también incorpora caminatas y rutas en bici."
+        "description": "Los entrenamientos llegan desde Apple Salud en el iPhone y desde Withings. También puedes registrar uno a mano."
       },
       "detail": {
         "backToList": "Volver a entrenamientos",

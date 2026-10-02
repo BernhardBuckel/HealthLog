@@ -3361,7 +3361,7 @@
       "description": "Ostatnie biegi, jazdy, marsze i treningi siłowe — zdeduplikowane między Apple Watch a Withings.",
       "emptyState": {
         "title": "Brak treningów",
-        "description": "Otwórz aplikację Apple Zdrowie na iPhonie, aby zsynchronizować treningi. Import aktywności z Withings także dorzuca marsze i przejażdżki."
+        "description": "Treningi trafiają tu z Apple Zdrowie na iPhonie i z Withings. Możesz też wpisać trening ręcznie."
       },
       "detail": {
         "backToList": "Powrót do treningów",

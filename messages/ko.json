@@ -3361,7 +3361,7 @@
       "description": "최근 달리기, 자전거, 걷기, 근력 운동 세션이에요. Apple Watch와 Withings 소스 사이 중복은 정리했어요.",
       "emptyState": {
         "title": "아직 운동 기록이 없어요",
-        "description": "iPhone에서 Apple Health 앱을 열면 운동이 여기로 동기화돼요. Withings 활동 불러오기로 걷기와 자전거 세션도 계속 들어와요."
+        "description": "운동은 iPhone의 Apple Health와 Withings에서 동기화돼요. 직접 기록할 수도 있어요."
       },
       "detail": {
         "backToList": "운동으로 돌아가기",

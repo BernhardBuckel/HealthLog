@@ -3361,7 +3361,7 @@
       "description": "Recent runs, rides, walks and strength sessions, deduped across Apple Watch and Withings sources.",
       "emptyState": {
         "title": "No workouts yet",
-        "description": "Open the Apple Health app on your iPhone to sync workouts here. Withings activity import keeps walking and cycling sessions flowing in too."
+        "description": "Workouts sync from Apple Health on your iPhone and from Withings. You can also log one by hand."
       },
       "detail": {
         "backToList": "Back to workouts",

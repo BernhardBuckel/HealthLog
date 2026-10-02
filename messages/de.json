@@ -3361,7 +3361,7 @@
       "description": "Letzte Läufe, Touren, Spaziergänge und Krafteinheiten — quellenübergreifend entdoppelt zwischen Apple Watch und Withings.",
       "emptyState": {
         "title": "Noch keine Workouts",
-        "description": "Öffne die Apple-Health-App auf dem iPhone, damit Workouts hier synchronisiert werden. Withings-Aktivitätsimport pflegt Geh- und Radtouren mit ein."
+        "description": "Workouts kommen per Apple Health vom iPhone und von Withings. Du kannst eins auch von Hand erfassen."
       },
       "detail": {
         "backToList": "Zurück zu Workouts",

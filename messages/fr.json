@@ -3361,7 +3361,7 @@
       "description": "Courses, sorties à vélo, marches et séances de musculation récentes, dédupliquées entre Apple Watch et Withings.",
       "emptyState": {
         "title": "Aucun entraînement",
-        "description": "Ouvre l'app Apple Santé sur ton iPhone pour synchroniser tes entraînements. L'import d'activité Withings alimente également la marche et le vélo."
+        "description": "Tes entraînements arrivent d'Apple Santé sur l'iPhone et de Withings. Tu peux aussi en saisir un à la main."
       },
       "detail": {
         "backToList": "Retour aux entraînements",
