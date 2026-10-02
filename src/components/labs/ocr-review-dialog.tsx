@@ -271,6 +271,10 @@ export function OcrReviewDialog({
       open={open}
       onOpenChange={handleClose}
       title={t("labs.ocr.reviewTitle")}
+      // Picking a file is a single control and stays narrow. Reviewing is a
+      // list of readings to compare and correct, which wants the room; the
+      // rows lay themselves out from the width they are given.
+      contentWidth={stage === "review" ? "6xl" : "md"}
       description={
         stage === "pick" ? t("labs.ocr.uploadHint") : t("labs.ocr.reviewHint")
       }

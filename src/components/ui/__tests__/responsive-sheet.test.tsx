@@ -142,6 +142,46 @@ describe("<ResponsiveSheet>", () => {
     expect(html).toContain("pr-3");
   });
 
+  it.each([
+    [undefined, "sm:max-w-md"],
+    ["md", "sm:max-w-md"],
+    ["4xl", "sm:max-w-4xl"],
+    ["6xl", "sm:max-w-6xl"],
+  ] as const)(
+    "maps contentWidth %s to %s on the Dialog branch, and to no other tier",
+    (contentWidth, expected) => {
+      mobile = false;
+      const html = renderToStaticMarkup(
+        <ResponsiveSheet
+          open
+          onOpenChange={() => {}}
+          title="Review"
+          contentWidth={contentWidth}
+        >
+          <p>body</p>
+        </ResponsiveSheet>,
+      );
+      const tiers = html.match(/sm:max-w-(?:md|lg|2xl|3xl|4xl|6xl)/g);
+      expect(tiers).toEqual([expected]);
+    },
+  );
+
+  it("does not apply a width tier on the Sheet branch", () => {
+    mobile = true;
+    const html = renderToStaticMarkup(
+      <ResponsiveSheet
+        open
+        onOpenChange={() => {}}
+        title="Review"
+        contentWidth="6xl"
+      >
+        <p>body</p>
+      </ResponsiveSheet>,
+    );
+    expect(html).not.toContain("sm:max-w-6xl");
+    mobile = false;
+  });
+
   it("renders the bottom Sheet branch on narrow viewports", () => {
     mobile = true;
     const html = renderToStaticMarkup(

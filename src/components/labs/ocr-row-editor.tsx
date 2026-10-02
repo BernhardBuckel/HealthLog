@@ -97,243 +97,264 @@ export function OcrRowEditor({
   const flagRange = isNewNumericMarker && (lowRangeConfidence || !hasBounds);
 
   return (
-    <div className="space-y-3 rounded-lg border p-3">
-      <div className="flex items-start gap-3">
-        {/* The checkbox is the PRIMARY per-row confirm on a touch-first OCR
+    // `@container` makes the row follow the width of the dialog, not the
+    // window: in a narrow dialog (or on a phone) it stacks as before; once the
+    // dialog is wide enough it splits into the reading on the left and its
+    // fields on the right, so a long report reads as a table, not a column.
+    <div className="@container">
+      <div className="space-y-3 rounded-lg border p-3 @3xl:grid @3xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @3xl:items-start @3xl:space-y-0 @3xl:gap-x-6">
+        <div className="flex items-start gap-3">
+          {/* The checkbox is the PRIMARY per-row confirm on a touch-first OCR
             review screen, so it needs a ≥44px hit area on coarse pointers. The
             wrapping label supplies the touch target (and forwards the click to
             the control) without enlarging the 20px glyph or bloating the row on
             desktop, where the negative margins collapse the padding back. */}
-        <label
-          htmlFor={`${fieldId}-confirm`}
-          className="-m-3 flex min-h-11 min-w-11 cursor-pointer items-start justify-center p-3 sm:m-0 sm:min-h-0 sm:min-w-0 sm:p-0"
-        >
-          <Checkbox
-            id={`${fieldId}-confirm`}
-            checked={row.confirmed}
-            onCheckedChange={(checked) =>
-              onChange({ ...row, confirmed: checked === true })
-            }
-            className="mt-0.5 min-h-5 min-w-5 sm:mt-1"
-            aria-label={t("labs.ocr.confirmRow")}
-          />
-        </label>
-        <div className="min-w-0 flex-1 space-y-1">
-          <Input
-            value={row.analyte}
-            onChange={(e) => onChange({ ...row, analyte: e.target.value })}
-            aria-label={t("labs.ocr.analyteLabel")}
-            {...invalidProps("analyte")}
-            className="font-medium"
-          />
-          {fieldError("analyte", "labs.ocr.errorAnalyte")}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {row.biomarkerMatch === "existing" ? (
-              // The chip repeats the analyte, so a long panel name ran past
-              // the row on a phone; it truncates inside the row instead.
-              <Badge
-                variant="outline"
-                className="text-muted-foreground max-w-full"
-                title={t("labs.ocr.linksExisting", { name: row.analyte })}
-              >
-                <Link2 aria-hidden />
-                <span className="truncate">
-                  {t("labs.ocr.linksExisting", { name: row.analyte })}
-                </span>
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="text-muted-foreground">
-                <FilePlus2 aria-hidden />
-                {t("labs.ocr.newBiomarker")}
-              </Badge>
-            )}
-            {row.duplicateOf ? (
-              <Badge variant="secondary">
-                <TriangleAlert aria-hidden />
-                {t("labs.ocr.duplicateWarning")}
-              </Badge>
-            ) : null}
-            {lowRowConfidence ? (
-              <Badge variant="secondary" className="text-muted-foreground">
-                <AlertCircle aria-hidden />
-                {t("labs.ocr.lowConfidenceBadge")}
-              </Badge>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {isQualitative ? (
-          <div className="col-span-2 space-y-1 sm:col-span-3">
-            <Label htmlFor={`${fieldId}-vt`} className="text-xs">
-              {t("labs.ocr.resultLabel")}
-              <RequiredMark />
-            </Label>
-            <Input
-              id={`${fieldId}-vt`}
-              value={row.valueText ?? ""}
-              onChange={(e) => onChange({ ...row, valueText: e.target.value })}
-              {...invalidProps("valueText")}
+          <label
+            htmlFor={`${fieldId}-confirm`}
+            className="-m-3 flex min-h-11 min-w-11 cursor-pointer items-start justify-center p-3 sm:m-0 sm:min-h-0 sm:min-w-0 sm:p-0"
+          >
+            <Checkbox
+              id={`${fieldId}-confirm`}
+              checked={row.confirmed}
+              onCheckedChange={(checked) =>
+                onChange({ ...row, confirmed: checked === true })
+              }
+              className="mt-0.5 min-h-5 min-w-5 sm:mt-1"
+              aria-label={t("labs.ocr.confirmRow")}
             />
-            {fieldError("valueText", "labs.ocr.errorResult")}
+          </label>
+          <div className="min-w-0 flex-1 space-y-1">
+            <Input
+              value={row.analyte}
+              onChange={(e) => onChange({ ...row, analyte: e.target.value })}
+              aria-label={t("labs.ocr.analyteLabel")}
+              {...invalidProps("analyte")}
+              className="font-medium"
+            />
+            {fieldError("analyte", "labs.ocr.errorAnalyte")}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {row.biomarkerMatch === "existing" ? (
+                // The chip repeats the analyte, so a long panel name ran past
+                // the row on a phone; it truncates inside the row instead.
+                <Badge
+                  variant="outline"
+                  className="text-muted-foreground max-w-full"
+                  title={t("labs.ocr.linksExisting", { name: row.analyte })}
+                >
+                  <Link2 aria-hidden />
+                  <span className="truncate">
+                    {t("labs.ocr.linksExisting", { name: row.analyte })}
+                  </span>
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-muted-foreground">
+                  <FilePlus2 aria-hidden />
+                  {t("labs.ocr.newBiomarker")}
+                </Badge>
+              )}
+              {row.duplicateOf ? (
+                <Badge variant="secondary">
+                  <TriangleAlert aria-hidden />
+                  {t("labs.ocr.duplicateWarning")}
+                </Badge>
+              ) : null}
+              {lowRowConfidence ? (
+                <Badge variant="secondary" className="text-muted-foreground">
+                  <AlertCircle aria-hidden />
+                  {t("labs.ocr.lowConfidenceBadge")}
+                </Badge>
+              ) : null}
+            </div>
           </div>
-        ) : (
-          <>
-            <div className="space-y-1">
-              <Label htmlFor={`${fieldId}-val`} className="text-xs">
-                {t("labs.ocr.valueLabel")}
-                <RequiredMark />
-              </Label>
-              <Input
-                id={`${fieldId}-val`}
-                inputMode="decimal"
-                value={row.value === null ? "" : String(row.value)}
-                onChange={(e) => {
-                  const raw = e.target.value.trim();
-                  const parsed = raw === "" ? null : Number(raw);
-                  onChange({
-                    ...row,
-                    value:
-                      parsed !== null && Number.isFinite(parsed)
-                        ? parsed
-                        : null,
-                  });
-                }}
-                {...invalidProps("value")}
-              />
-              {fieldError("value", "labs.ocr.errorValue")}
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor={`${fieldId}-unit`} className="text-xs">
-                {t("labs.ocr.unitLabel")}
-                <RequiredMark />
-              </Label>
-              <Input
-                id={`${fieldId}-unit`}
-                value={row.unit ?? ""}
-                onChange={(e) => onChange({ ...row, unit: e.target.value })}
-                {...invalidProps("unit")}
-              />
-              {fieldError("unit", "labs.ocr.errorUnit")}
-            </div>
-          </>
-        )}
-        <div className="space-y-1">
-          <Label htmlFor={`${fieldId}-date`} className="text-xs">
-            {t("labs.ocr.dateLabel")}
-            <RequiredMark />
-          </Label>
-          <DateField
-            id={`${fieldId}-date`}
-            value={row.takenAt ?? ""}
-            onChange={(value) => onChange({ ...row, takenAt: value || null })}
-            {...invalidProps("date")}
-            // The bordered wrapper is the visible control; the input inside
-            // it only carries the aria state.
-            className={errors?.date ? "border-destructive" : undefined}
-          />
-          {fieldError("date", "labs.ocr.errorDate")}
         </div>
-      </div>
 
-      {/* v1.18.10 (#5) — for a NEW numeric biomarker the reference range below
+        {/* The fields are a container of their own, so how many columns they
+          get follows the width they actually have: the whole row when
+          stacked, the right-hand column once the row splits. */}
+        <div className="@container min-w-0 space-y-3">
+          <div className="grid grid-cols-2 gap-2 @md:grid-cols-3">
+            {isQualitative ? (
+              <div className="col-span-2 space-y-1 @md:col-span-3">
+                <Label htmlFor={`${fieldId}-vt`} className="text-xs">
+                  {t("labs.ocr.resultLabel")}
+                  <RequiredMark />
+                </Label>
+                <Input
+                  id={`${fieldId}-vt`}
+                  value={row.valueText ?? ""}
+                  onChange={(e) =>
+                    onChange({ ...row, valueText: e.target.value })
+                  }
+                  {...invalidProps("valueText")}
+                />
+                {fieldError("valueText", "labs.ocr.errorResult")}
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1">
+                  <Label htmlFor={`${fieldId}-val`} className="text-xs">
+                    {t("labs.ocr.valueLabel")}
+                    <RequiredMark />
+                  </Label>
+                  <Input
+                    id={`${fieldId}-val`}
+                    inputMode="decimal"
+                    value={row.value === null ? "" : String(row.value)}
+                    onChange={(e) => {
+                      const raw = e.target.value.trim();
+                      const parsed = raw === "" ? null : Number(raw);
+                      onChange({
+                        ...row,
+                        value:
+                          parsed !== null && Number.isFinite(parsed)
+                            ? parsed
+                            : null,
+                      });
+                    }}
+                    {...invalidProps("value")}
+                  />
+                  {fieldError("value", "labs.ocr.errorValue")}
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`${fieldId}-unit`} className="text-xs">
+                    {t("labs.ocr.unitLabel")}
+                    <RequiredMark />
+                  </Label>
+                  <Input
+                    id={`${fieldId}-unit`}
+                    value={row.unit ?? ""}
+                    onChange={(e) => onChange({ ...row, unit: e.target.value })}
+                    {...invalidProps("unit")}
+                  />
+                  {fieldError("unit", "labs.ocr.errorUnit")}
+                </div>
+              </>
+            )}
+            <div className="space-y-1">
+              <Label htmlFor={`${fieldId}-date`} className="text-xs">
+                {t("labs.ocr.dateLabel")}
+                <RequiredMark />
+              </Label>
+              <DateField
+                id={`${fieldId}-date`}
+                value={row.takenAt ?? ""}
+                onChange={(value) =>
+                  onChange({ ...row, takenAt: value || null })
+                }
+                {...invalidProps("date")}
+                // The bordered wrapper is the visible control; the input inside
+                // it only carries the aria state.
+                className={errors?.date ? "border-destructive" : undefined}
+              />
+              {fieldError("date", "labs.ocr.errorDate")}
+            </div>
+          </div>
+
+          {/* v1.18.10 (#5) — for a NEW numeric biomarker the reference range below
           becomes the marker's catalog range. Make that consequence visible, and
           flag low range-confidence / a missing range so the user verifies it
           before saving. A calm `secondary` badge, not an alarm. */}
-      {isNewNumericMarker ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant={flagRange ? "secondary" : "outline"}>
-            <Ruler aria-hidden />
-            {flagRange
-              ? t("labs.ocr.rangeVerify")
-              : t("labs.ocr.rangeFromScan")}
-          </Badge>
-        </div>
-      ) : null}
+          {isNewNumericMarker ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant={flagRange ? "secondary" : "outline"}>
+                <Ruler aria-hidden />
+                {flagRange
+                  ? t("labs.ocr.rangeVerify")
+                  : t("labs.ocr.rangeFromScan")}
+              </Badge>
+            </div>
+          ) : null}
 
-      {!isQualitative ? (
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <Label htmlFor={`${fieldId}-lo`} className="text-xs">
-              {t("labs.ocr.refLowLabel")}
-            </Label>
-            <Input
-              id={`${fieldId}-lo`}
-              inputMode="decimal"
-              value={row.referenceLow === null ? "" : String(row.referenceLow)}
-              onChange={(e) => {
-                const raw = e.target.value.trim();
-                const parsed = raw === "" ? null : Number(raw);
-                onChange({
-                  ...row,
-                  referenceLow:
-                    parsed !== null && Number.isFinite(parsed) ? parsed : null,
-                });
-              }}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor={`${fieldId}-hi`} className="text-xs">
-              {t("labs.ocr.refHighLabel")}
-            </Label>
-            <Input
-              id={`${fieldId}-hi`}
-              inputMode="decimal"
-              value={
-                row.referenceHigh === null ? "" : String(row.referenceHigh)
-              }
-              onChange={(e) => {
-                const raw = e.target.value.trim();
-                const parsed = raw === "" ? null : Number(raw);
-                onChange({
-                  ...row,
-                  referenceHigh:
-                    parsed !== null && Number.isFinite(parsed) ? parsed : null,
-                });
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
+          {!isQualitative ? (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor={`${fieldId}-lo`} className="text-xs">
+                  {t("labs.ocr.refLowLabel")}
+                </Label>
+                <Input
+                  id={`${fieldId}-lo`}
+                  inputMode="decimal"
+                  value={
+                    row.referenceLow === null ? "" : String(row.referenceLow)
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const parsed = raw === "" ? null : Number(raw);
+                    onChange({
+                      ...row,
+                      referenceLow:
+                        parsed !== null && Number.isFinite(parsed)
+                          ? parsed
+                          : null,
+                    });
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor={`${fieldId}-hi`} className="text-xs">
+                  {t("labs.ocr.refHighLabel")}
+                </Label>
+                <Input
+                  id={`${fieldId}-hi`}
+                  inputMode="decimal"
+                  value={
+                    row.referenceHigh === null ? "" : String(row.referenceHigh)
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const parsed = raw === "" ? null : Number(raw);
+                    onChange({
+                      ...row,
+                      referenceHigh:
+                        parsed !== null && Number.isFinite(parsed)
+                          ? parsed
+                          : null,
+                    });
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
 
-      {/* The window as the report printed it. Editable, because the human is
+          {/* The window as the report printed it. Editable, because the human is
           reviewing a transcription: the two bounds above are the derived
           reading of this string, and correcting the string is how a range the
           parser could not read ("bis 5,0", "negativ") still reaches the row
           instead of being dropped. */}
-      {!isQualitative ? (
-        <div className="space-y-1">
-          <Label htmlFor={`${fieldId}-refText`} className="text-xs">
-            {t("labs.ocr.refTextLabel")}
-          </Label>
-          <Input
-            id={`${fieldId}-refText`}
-            value={row.referenceText ?? ""}
-            placeholder={t("labs.ocr.refTextPlaceholder")}
-            maxLength={120}
-            onChange={(e) => {
-              const raw = e.target.value;
-              onChange({
-                ...row,
-                referenceText: raw.trim() === "" ? null : raw,
-              });
-            }}
-          />
-        </div>
-      ) : null}
+          {!isQualitative ? (
+            <div className="space-y-1">
+              <Label htmlFor={`${fieldId}-refText`} className="text-xs">
+                {t("labs.ocr.refTextLabel")}
+              </Label>
+              <Input
+                id={`${fieldId}-refText`}
+                value={row.referenceText ?? ""}
+                placeholder={t("labs.ocr.refTextPlaceholder")}
+                maxLength={120}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  onChange({
+                    ...row,
+                    referenceText: raw.trim() === "" ? null : raw,
+                  });
+                }}
+              />
+            </div>
+          ) : null}
 
-      {valueUnreadable ? (
-        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-          <AlertCircle aria-hidden className="h-3.5 w-3.5" />
-          {t("labs.ocr.valueUnreadable")}
-        </p>
-      ) : lowValueConfidence ? (
-        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-          <AlertCircle aria-hidden className="h-3.5 w-3.5" />
-          {t("labs.ocr.lowConfidence")}
-        </p>
-      ) : null}
+          {valueUnreadable ? (
+            <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <AlertCircle aria-hidden className="h-3.5 w-3.5" />
+              {t("labs.ocr.valueUnreadable")}
+            </p>
+          ) : lowValueConfidence ? (
+            <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <AlertCircle aria-hidden className="h-3.5 w-3.5" />
+              {t("labs.ocr.lowConfidence")}
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
