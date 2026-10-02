@@ -3157,6 +3157,7 @@
         "boneMassBody": "La masa ósea es el peso estimado del mineral de tu esqueleto. Las estimaciones de la báscula son aproximadas, pero una tendencia estable o al alza favorece la fortaleza ósea a largo plazo.",
         "fatFreeMassBody": "La masa libre de grasa es todo lo que en tu cuerpo no es grasa: músculo, hueso, órganos y agua. Mantenerla o aumentarla mientras pierdes peso suele indicar una composición corporal más sana.",
         "fatMassBody": "La masa grasa es el peso total de la grasa de tu cuerpo. Algo de grasa es esencial para las hormonas y la reserva de energía, pero un exceso —sobre todo en el abdomen— eleva el riesgo para la salud a largo plazo (WHO 2024).",
+        "bodyFatBody": "El porcentaje de grasa corporal es la parte de tu peso que es grasa. Los rangos saludables dependen del sexo y la edad, y las básculas lo estiman por bioimpedancia, así que la tendencia de varias semanas dice más que una sola lectura.",
         "muscleMassBody": "La masa muscular es el peso estimado del músculo de tu cuerpo. Más músculo favorece la fuerza, el metabolismo y la movilidad, y suele requerir esfuerzo activo para conservarse con la edad.",
         "visceralFatBody": "La grasa visceral es la grasa almacenada en lo profundo del abdomen, alrededor de los órganos. A diferencia de la grasa bajo la piel, un nivel alto se asocia estrechamente con enfermedad cardíaca y diabetes tipo 2, por lo que cuanto más baja, mejor.",
         "leanBodyMassBody": "La masa magra corporal es tu peso total menos la grasa: músculo, hueso, órganos y agua en conjunto. Seguirla junto al peso muestra si los cambios vienen del músculo o de la grasa.",
@@ -3575,7 +3576,18 @@
         "description": "Las lecturas aparecen aquí cuando una báscula de composición se sincroniza."
       }
     },
+    "bodyFat": {
+      "title": "Grasa corporal",
+      "description": "Tu porcentaje de grasa corporal en el tiempo.",
+      "chartTitle": "Grasa corporal",
+      "emptyState": {
+        "title": "Aún no hay datos de grasa corporal",
+        "description": "Las lecturas aparecen aquí cuando una báscula de composición se sincroniza o cuando registras una a mano.",
+        "cta": "Registrar grasa corporal"
+      }
+    },
     "navFatMass": "Masa grasa",
+    "navBodyFat": "Grasa corporal",
     "muscleMass": {
       "title": "Masa muscular",
       "description": "Tu masa muscular en el tiempo, en kilogramos.",

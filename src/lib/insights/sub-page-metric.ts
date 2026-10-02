@@ -66,6 +66,10 @@ const SUB_PAGE_METRIC = {
   weight: ["WEIGHT"],
   // BMI is derived from WEIGHT + profile height (no separate series).
   bmi: ["WEIGHT"],
+  // Body fat percentage. The dashboard has tiled and charted it since the
+  // first release, but it never had a page of its own, so its tile led
+  // nowhere while every sibling below opened one.
+  "body-fat": ["BODY_FAT"],
   // v1.7.0 — Withings / Apple body-composition tail.
   "body-water": ["TOTAL_BODY_WATER"],
   "bone-mass": ["BONE_MASS"],
@@ -199,6 +203,7 @@ export const SUB_PAGE_GROUP: Partial<Record<SubPageSlug, SubPageGroup>> = {
   "respiratory-rate": "vitals",
   // body composition (v1.7.0)
   bmi: "body",
+  "body-fat": "body",
   "body-water": "body",
   "bone-mass": "body",
   "fat-free-mass": "body",
@@ -387,7 +392,7 @@ export const SUB_PAGE_MANAGER_GROUP_SLUGS: Record<
  * `WEIGHT`) the first in `SUB_PAGE_SLUGS` order wins (`weight`). A type that
  * only ever appears on a multi-metric page (the two blood-pressure
  * components, the two HRV flavours) falls back to that page. Types with no
- * sub-page at all (BODY_FAT, RECOVERY_SCORE, the `*_EVENT` series, most
+ * sub-page at all (RECOVERY_SCORE, the `*_EVENT` series, most
  * device scores) are absent — the caller falls back to the filtered
  * measurements list.
  */

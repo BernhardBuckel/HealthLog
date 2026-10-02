@@ -3157,6 +3157,7 @@
         "boneMassBody": "Masa kostna to szacowana waga minerałów w szkielecie. Pomiary z wagi są przybliżone, ale stabilny lub rosnący trend sprzyja długotrwałej wytrzymałości kości.",
         "fatFreeMassBody": "Masa beztłuszczowa to wszystko w ciele, co nie jest tłuszczem — mięśnie, kości, narządy i woda. Utrzymanie lub jej budowanie przy spadku wagi zwykle wskazuje na zdrowszy skład ciała.",
         "fatMassBody": "Masa tłuszczowa to łączna waga tłuszczu w ciele. Pewna ilość tłuszczu jest niezbędna dla hormonów i magazynowania energii, ale jego nadmiar — zwłaszcza w okolicy brzucha — zwiększa długoterminowe ryzyko zdrowotne (WHO 2024).",
+        "bodyFatBody": "Procent tkanki tłuszczowej to część masy ciała, którą stanowi tłuszcz. Zdrowe zakresy zależą od płci i wieku, a wagi szacują go metodą bioimpedancji, dlatego trend z kilku tygodni mówi więcej niż pojedynczy pomiar.",
         "muscleMassBody": "Masa mięśniowa to szacowana waga mięśni w ciele. Więcej mięśni wspiera siłę, metabolizm i sprawność, a ich utrzymanie z wiekiem zwykle wymaga aktywnego wysiłku.",
         "visceralFatBody": "Tłuszcz trzewny to tłuszcz gromadzony głęboko w jamie brzusznej wokół narządów. W odróżnieniu od tłuszczu podskórnego jego wysoki poziom jest ściśle powiązany z chorobami serca i cukrzycą typu 2, więc im niżej, tym lepiej.",
         "leanBodyMassBody": "Beztłuszczowa masa ciała to całkowita waga pomniejszona o tłuszcz — mięśnie, kości, narządy i woda razem. Śledzenie jej obok wagi pokazuje, czy zmiany wynikają z mięśni, czy z tłuszczu.",
@@ -3575,7 +3576,18 @@
         "description": "Odczyty pojawią się tutaj po synchronizacji wagi analitycznej."
       }
     },
+    "bodyFat": {
+      "title": "Tkanka tłuszczowa",
+      "description": "Twój procent tkanki tłuszczowej w czasie.",
+      "chartTitle": "Tkanka tłuszczowa",
+      "emptyState": {
+        "title": "Brak danych o tkance tłuszczowej",
+        "description": "Odczyty pojawią się tutaj po synchronizacji wagi analitycznej lub po ręcznym zapisaniu wartości.",
+        "cta": "Zapisz tkankę tłuszczową"
+      }
+    },
     "navFatMass": "Masa tłuszczowa",
+    "navBodyFat": "Tkanka tłuszczowa",
     "muscleMass": {
       "title": "Masa mięśniowa",
       "description": "Twoja masa mięśniowa w czasie, w kilogramach.",

@@ -82,6 +82,9 @@ export type InsightMetric =
   | "BLOOD_GLUCOSE"
   | "TOTAL_BODY_WATER"
   | "BONE_MASS"
+  // Body fat percentage, keyed on its MeasurementType like the rest of the
+  // body-composition pages.
+  | "BODY_FAT"
   | "FLIGHTS_CLIMBED"
   | "WALKING_RUNNING_DISTANCE"
   | "FAT_FREE_MASS"

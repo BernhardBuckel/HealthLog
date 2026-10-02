@@ -25902,7 +25902,7 @@ components:
               - order
         tiles:
           minItems: 1
-          maxItems: 62
+          maxItems: 63
           type: array
           items:
             type: object
@@ -25919,6 +25919,7 @@ components:
                   - pain
                   - weight
                   - bmi
+                  - body-fat
                   - body-water
                   - bone-mass
                   - fat-free-mass
@@ -31264,7 +31265,7 @@ components:
                 additionalProperties: false
             tiles:
               minItems: 1
-              maxItems: 62
+              maxItems: 63
               type: array
               items:
                 type: object
@@ -31281,6 +31282,7 @@ components:
                       - pain
                       - weight
                       - bmi
+                      - body-fat
                       - body-water
                       - bone-mass
                       - fat-free-mass
@@ -51976,7 +51978,7 @@ components:
             additionalProperties: false
         tiles:
           minItems: 1
-          maxItems: 62
+          maxItems: 63
           type: array
           items:
             type: object
@@ -51993,6 +51995,7 @@ components:
                   - pain
                   - weight
                   - bmi
+                  - body-fat
                   - body-water
                   - bone-mass
                   - fat-free-mass

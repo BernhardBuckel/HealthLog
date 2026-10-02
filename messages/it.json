@@ -3157,6 +3157,7 @@
         "boneMassBody": "La massa ossea è il peso stimato dei minerali del tuo scheletro. Le stime da bilancia sono approssimative, ma un andamento stabile o in aumento sostiene la robustezza ossea a lungo termine.",
         "fatFreeMassBody": "La massa magra è tutto ciò che nel corpo non è grasso: muscoli, ossa, organi e acqua. Mantenerla o aumentarla mentre si perde peso indica di solito una composizione corporea più sana.",
         "fatMassBody": "La massa grassa è il peso totale del grasso nel corpo. Un po' di grasso è essenziale per gli ormoni e le riserve di energia, ma un eccesso — soprattutto sull'addome — aumenta il rischio per la salute a lungo termine (WHO 2024).",
+        "bodyFatBody": "La percentuale di grasso corporeo è la parte del tuo peso costituita da grasso. Gli intervalli sani dipendono da sesso ed età, e le bilance la stimano con la bioimpedenza, quindi l'andamento su più settimane dice più di una singola misura.",
         "muscleMassBody": "La massa muscolare è il peso stimato dei muscoli del corpo. Più muscolo sostiene forza, metabolismo e mobilità, e di solito richiede impegno attivo per essere mantenuto con l'età.",
         "visceralFatBody": "Il grasso viscerale è il grasso depositato in profondità nell'addome, intorno agli organi. A differenza del grasso sottocutaneo, un livello elevato è strettamente legato a malattie cardiache e diabete di tipo 2, quindi più basso è in genere meglio.",
         "leanBodyMassBody": "La massa magra corporea è il peso totale meno il grasso: muscoli, ossa, organi e acqua insieme. Seguirla accanto al peso mostra se i cambiamenti derivano dal muscolo o dal grasso.",
@@ -3575,7 +3576,18 @@
         "description": "Le letture appaiono qui quando una bilancia impedenziometrica si sincronizza."
       }
     },
+    "bodyFat": {
+      "title": "Grasso corporeo",
+      "description": "La tua percentuale di grasso corporeo nel tempo.",
+      "chartTitle": "Grasso corporeo",
+      "emptyState": {
+        "title": "Nessun dato di grasso corporeo",
+        "description": "Le letture appaiono qui quando una bilancia impedenziometrica si sincronizza o quando ne registri una a mano.",
+        "cta": "Registra il grasso corporeo"
+      }
+    },
     "navFatMass": "Massa grassa",
+    "navBodyFat": "Grasso corporeo",
     "muscleMass": {
       "title": "Massa muscolare",
       "description": "La tua massa muscolare nel tempo, in chilogrammi.",

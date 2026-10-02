@@ -34,10 +34,12 @@ describe("type → insights sub-page slug", () => {
     expect(subPageSlugForType("ACTIVITY_STEPS")).toBe("steps");
     expect(subPageSlugForType("MOOD")).toBe("mood");
     expect(subPageSlugForType("BLOOD_GLUCOSE")).toBe("blood-glucose");
+    // Body fat gained its own page so the dashboard tile has somewhere to go;
+    // it used to fall back to the filtered measurements list.
+    expect(subPageSlugForType("BODY_FAT")).toBe("body-fat");
   });
 
   it("returns undefined for a type with no sub-page", () => {
-    expect(subPageSlugForType("BODY_FAT")).toBeUndefined();
     expect(subPageSlugForType("RECOVERY_SCORE")).toBeUndefined();
     expect(subPageSlugForType("NOT_A_REAL_TYPE")).toBeUndefined();
   });

@@ -3157,6 +3157,7 @@
         "boneMassBody": "Die Knochenmasse ist das geschätzte Gewicht der Mineralien in deinem Skelett. Waagengestützte Schätzungen sind ungefähr, doch ein gleichbleibender oder steigender Trend unterstützt die langfristige Knochenstärke.",
         "fatFreeMassBody": "Die fettfreie Masse ist alles in deinem Körper, das kein Fett ist — Muskeln, Knochen, Organe und Wasser. Sie zu halten oder aufzubauen, während das Gewicht sinkt, deutet meist auf eine gesündere Körperzusammensetzung hin.",
         "fatMassBody": "Die Fettmasse ist das Gesamtgewicht des Körperfetts. Etwas Fett ist für Hormone und Energiespeicher unverzichtbar, doch zu viel — besonders am Bauch — erhöht das langfristige Gesundheitsrisiko (WHO 2024).",
+        "bodyFatBody": "Der Körperfettanteil ist der Teil deines Gewichts, der aus Fett besteht. Gesunde Bereiche hängen von Geschlecht und Alter ab, und Waagen schätzen den Wert per Bioimpedanz, deshalb sagt der Verlauf über mehrere Wochen mehr als eine einzelne Messung.",
         "muscleMassBody": "Die Muskelmasse ist das geschätzte Gewicht der Muskeln in deinem Körper. Mehr Muskeln unterstützen Kraft, Stoffwechsel und Beweglichkeit und müssen mit zunehmendem Alter aktiv erhalten werden.",
         "visceralFatBody": "Viszeralfett ist das Fett, das tief im Bauchraum um die Organe gespeichert wird. Anders als das Unterhautfett ist ein hoher Wert eng mit Herzkrankheiten und Typ-2-Diabetes verbunden, daher ist niedriger meist besser.",
         "leanBodyMassBody": "Die Magermasse ist dein Gesamtgewicht abzüglich des Körperfetts — Muskeln, Knochen, Organe und Wasser zusammen. Sie neben dem Gewicht zu verfolgen zeigt, ob Veränderungen aus Muskeln oder aus Fett stammen.",
@@ -3575,7 +3576,18 @@
         "description": "Fettmassewerte erscheinen hier, sobald eine Körperanalysewaage synchronisiert."
       }
     },
+    "bodyFat": {
+      "title": "Körperfett",
+      "description": "Dein Körperfettanteil im Zeitverlauf.",
+      "chartTitle": "Körperfett",
+      "emptyState": {
+        "title": "Noch keine Körperfettdaten",
+        "description": "Körperfettwerte erscheinen hier, sobald eine Körperanalysewaage synchronisiert oder du einen Wert von Hand erfasst.",
+        "cta": "Körperfett erfassen"
+      }
+    },
     "navFatMass": "Fettmasse",
+    "navBodyFat": "Körperfett",
     "muscleMass": {
       "title": "Muskelmasse",
       "description": "Deine Muskelmasse im Zeitverlauf, in Kilogramm.",
