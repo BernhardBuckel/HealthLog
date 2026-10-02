@@ -3465,6 +3465,7 @@
           "durationRequired": "운동한 시간을 입력하세요.",
           "durationInvalid": "시간은 정수로, 분은 0에서 59 사이로 입력하세요.",
           "durationTooLong": "운동은 최대 24시간까지 입력할 수 있습니다.",
+          "endInFuture": "종료 시간이 미래가 됩니다. 시작 시간을 운동을 시작한 시각으로 설정하세요.",
           "distanceInvalid": "거리를 현실적인 범위의 숫자로 입력하세요.",
           "energyInvalid": "활동 에너지는 20,000kcal 이하의 숫자로 입력하세요."
         }

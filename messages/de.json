@@ -3465,6 +3465,7 @@
           "durationRequired": "Gib an, wie lange das Workout gedauert hat.",
           "durationInvalid": "Gib ganze Stunden und Minuten von 0 bis 59 ein.",
           "durationTooLong": "Ein Workout dauert höchstens 24 Stunden.",
+          "endInFuture": "Das Workout würde in der Zukunft enden. Stell den Beginn auf die Uhrzeit, zu der es angefangen hat.",
           "distanceInvalid": "Gib die Distanz als Zahl in einem realistischen Bereich ein.",
           "energyInvalid": "Gib die aktive Energie als Zahl bis 20.000 kcal ein."
         }

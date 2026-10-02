@@ -136,15 +136,22 @@ describe("buildManualWorkoutEntry — validation", () => {
   });
 
   it("tolerates the minute the form was opened in", () => {
-    // 14:00:30 Berlin is 30 s past `now`: inside the slack.
+    // 13:15 Berlin + 45 min ends at 12:00Z, 30 s past `now`: inside the slack.
     const result = buildManualWorkoutEntry(
-      draft({ start: "2026-09-15T14:00" }),
+      draft({ start: "2026-09-15T13:15" }),
       {
         ...CTX,
         now: new Date("2026-09-15T11:59:30Z"),
       },
     );
     expect(result.ok).toBe(true);
+  });
+
+  it("refuses a workout that would end in the future", () => {
+    // Logged at 14:00 Berlin with the start left at 13:30: 45 min ends 14:15.
+    expect(errorsOf({ start: "2026-09-15T13:30" }).duration).toBe(
+      "insights.workouts.manual.errors.endInFuture",
+    );
   });
 
   it("asks for a start", () => {

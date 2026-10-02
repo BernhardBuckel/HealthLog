@@ -3465,6 +3465,7 @@
           "durationRequired": "Enter how long the workout lasted.",
           "durationInvalid": "Enter whole hours, and minutes from 0 to 59.",
           "durationTooLong": "A workout can last at most 24 hours.",
+          "endInFuture": "It would end in the future. Set the start to when the workout began.",
           "distanceInvalid": "Enter the distance as a number within a realistic range.",
           "energyInvalid": "Enter active energy as a number up to 20,000 kcal."
         }
