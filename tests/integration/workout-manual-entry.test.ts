@@ -50,9 +50,8 @@ vi.mock("@/lib/db-compat", () => ({
 const { POST: postBatch } = await import("@/app/api/workouts/batch/route");
 const { GET: listWorkouts } = await import("@/app/api/workouts/route");
 const { DELETE: deleteWorkout } = await import("@/app/api/workouts/[id]/route");
-const { buildManualWorkoutEntry, newManualWorkoutExternalId } = await import(
-  "@/lib/workouts/manual-entry"
-);
+const { buildManualWorkoutEntry, newManualWorkoutExternalId } =
+  await import("@/lib/workouts/manual-entry");
 
 beforeEach(async () => {
   await truncateAllTables(getPrismaClient());
