@@ -10,10 +10,14 @@
  *     loaded) and posts ONLY the text. Images only — a PDF/attachment in text
  *     mode is refused client-side before any download/OCR work.
  *
- * A provider call is slow, so requests opt out of the default 15 s fetch window
- * in favour of a generous ceiling.
+ * A provider call is slow, so requests opt out of the default 15 s fetch window.
+ * The ceiling is derived from the `ai.provider.responseTimeoutMs` the account
+ * payload publishes (the person's response-timeout setting, resolved on the
+ * server) times the model calls the route can make, plus a margin, so the
+ * browser never abandons a read the server is still allowed to finish.
  */
 import { apiFetchRaw, apiPost } from "@/lib/api/api-fetch";
+import { clientAbortMs } from "@/lib/ai/effective-timeout";
 import { ocrImageToText, LocalOcrError } from "@/lib/labs/local-ocr";
 
 /** The transport an AI call uses, resolved from the OCR capability probe. */
@@ -68,7 +72,16 @@ export async function runDocumentAi<T>(opts: {
   path: string;
   mode: DocumentAiMode;
   target: DocumentAiTarget;
+  /** `ai.provider.responseTimeoutMs` from the account payload. */
+  responseTimeoutMs: number;
+  /**
+   * The most sequential model calls the route makes on one request: one for
+   * suggest and summary; three for index (the transcription, then the lab
+   * staging read with its one corrective retry).
+   */
+  modelCalls: number;
 }): Promise<T> {
+  const timeoutMs = clientAbortMs(opts.responseTimeoutMs, opts.modelCalls);
   if (opts.mode === "text") {
     if (
       opts.target.servingClass !== "inline" ||
@@ -89,12 +102,12 @@ export async function runDocumentAi<T>(opts: {
     return apiPost<T>(
       opts.path,
       { mode: "text", text },
-      { signal: AbortSignal.timeout(120_000) },
+      { signal: AbortSignal.timeout(timeoutMs) },
     );
   }
   // Vision: empty body → the route dispatches to its vision handler.
   return apiPost<T>(opts.path, undefined, {
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 }
 
@@ -114,10 +127,13 @@ export interface DocumentIndexResult {
 export function runDocumentIndex(opts: {
   mode: DocumentAiMode;
   target: DocumentAiTarget;
+  responseTimeoutMs: number;
 }): Promise<DocumentIndexResult> {
   return runDocumentAi<DocumentIndexResult>({
     path: `/api/documents/inbound/${opts.target.documentId}/index`,
     mode: opts.mode,
     target: opts.target,
+    responseTimeoutMs: opts.responseTimeoutMs,
+    modelCalls: 3,
   });
 }

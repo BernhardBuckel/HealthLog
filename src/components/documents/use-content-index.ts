@@ -16,6 +16,7 @@
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { useAiProviderState } from "@/hooks/use-ai-capability";
 import { apiPost } from "@/lib/api/api-fetch";
 import { invalidateKeys, queryKeys } from "@/lib/query-keys";
 
@@ -29,12 +30,14 @@ import {
 /** Index / re-index one document for content search. */
 export function useIndexDocument() {
   const queryClient = useQueryClient();
+  const { responseTimeoutMs } = useAiProviderState();
   return useMutation<
     DocumentIndexResult,
     Error,
     { mode: DocumentAiMode; target: DocumentAiTarget }
   >({
-    mutationFn: ({ mode, target }) => runDocumentIndex({ mode, target }),
+    mutationFn: ({ mode, target }) =>
+      runDocumentIndex({ mode, target, responseTimeoutMs }),
     onSuccess: () => {
       void invalidateKeys(queryClient, [queryKeys.documents()]);
     },
