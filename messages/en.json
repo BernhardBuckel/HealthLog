@@ -3157,6 +3157,7 @@
         "boneMassBody": "Bone mass is the estimated weight of the mineral in your skeleton. Scale-based estimates are approximate, but a steady or rising trend supports long-term bone strength.",
         "fatFreeMassBody": "Fat-free mass is everything in your body that is not fat — muscle, bone, organs, and water. Holding or building it while losing weight usually signals healthier body composition.",
         "fatMassBody": "Fat mass is the total weight of fat in your body. Some fat is essential for hormones and energy storage, but too much — especially around the abdomen — raises long-term health risk (WHO 2024).",
+        "bodyFatBody": "Body fat percentage is the share of your weight that is fat. Healthy ranges depend on sex and age, and home scales estimate it from bioimpedance, so the trend over several weeks says more than a single reading.",
         "muscleMassBody": "Muscle mass is the estimated weight of the muscle in your body. More muscle supports strength, metabolism, and mobility, and it tends to need active effort to preserve as you age.",
         "visceralFatBody": "Visceral fat is the fat stored deep in the abdomen around your organs. Unlike fat under the skin, a high level is closely linked to heart disease and type 2 diabetes, so lower is generally better.",
         "leanBodyMassBody": "Lean body mass is your total weight minus body fat — muscle, bone, organs, and water combined. Tracking it alongside weight shows whether changes come from muscle or from fat.",
@@ -3575,7 +3576,18 @@
         "description": "Fat-mass readings appear here once a connected body-composition scale syncs."
       }
     },
+    "bodyFat": {
+      "title": "Body Fat",
+      "description": "Your body fat percentage over time.",
+      "chartTitle": "Body fat",
+      "emptyState": {
+        "title": "No body-fat data yet",
+        "description": "Body-fat readings appear here once a body-composition scale syncs, or when you log one by hand.",
+        "cta": "Log body fat"
+      }
+    },
     "navFatMass": "Fat Mass",
+    "navBodyFat": "Body Fat",
     "muscleMass": {
       "title": "Muscle Mass",
       "description": "Your muscle mass over time, in kilograms.",

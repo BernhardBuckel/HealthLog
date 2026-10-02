@@ -174,6 +174,7 @@ export {
   resolveConfiguredTileCount,
   resolveChartRowPlaceholderCount,
 } from "@/components/dashboard/dashboard-gates";
+import { dashboardTileHref } from "@/components/dashboard/tile-destinations";
 import {
   resolveDashboardFirstPaintGate,
   resolveConfiguredTileCount,
@@ -181,42 +182,6 @@ import {
   pickHrvSummary,
   resolveGlucoseTiles,
 } from "@/components/dashboard/dashboard-gates";
-
-/**
- * Dashboard metric tiles are no longer dead-ends: each tile links to its
- * Insights detail page (bands, correlations, history). Keyed by the stable
- * tile `id` used in the `trendCards` builder; glucose contexts share one
- * blood-glucose destination via the `glucose-` prefix. Tiles with no
- * dedicated sub-page (body fat %) stay un-linked rather than misroute.
- */
-const TILE_INSIGHT_HREF: Record<string, string> = {
-  weight: "/insights/weight",
-  "bp-sys": "/insights/blood-pressure",
-  "bp-dia": "/insights/blood-pressure",
-  bpInTarget: "/insights/blood-pressure",
-  pulse: "/insights/pulse",
-  mood: "/insights/mood",
-  sleep: "/insights/sleep",
-  steps: "/insights/steps",
-  vo2Max: "/insights/cardio-fitness",
-  // v1.28.52 — vitals + body-composition strip tiles link to their
-  // existing /insights detail pages (bands, history, correlations).
-  hrv: "/insights/hrv",
-  oxygenSaturation: "/insights/oxygen",
-  respiratoryRate: "/insights/respiratory-rate",
-  wristTemperature: "/insights/wrist-temperature",
-  muscleMass: "/insights/muscle-mass",
-  totalBodyWater: "/insights/body-water",
-  boneMass: "/insights/bone-mass",
-  // v1.29 — fluid intake links to the nutrients surface (hydration hero +
-  // quick-add), not a Measurement-backed detail page.
-  waterIntake: "/insights/nutrients",
-};
-
-function tileInsightHref(id: string): string | null {
-  if (id.startsWith("glucose-")) return "/insights/blood-glucose";
-  return TILE_INSIGHT_HREF[id] ?? null;
-}
 
 export default function DashboardPageClient({
   batchWindow: batchWindowProp,
@@ -2172,9 +2137,10 @@ export default function DashboardPageClient({
                     </Suspense>
                   );
                   // A tile is no longer a dead-end: it links to its Insights
-                  // detail page. The link fills the grid cell and paints a
-                  // ring on hover / focus so the whole tile reads as tappable.
-                  const href = tileInsightHref(entry.id);
+                  // detail page (`tile-destinations.ts`, gated on the page's
+                  // module). The link fills the grid cell and paints a ring
+                  // on hover / focus so the whole tile reads as tappable.
+                  const href = dashboardTileHref(entry.id, user?.modules);
                   return href ? (
                     <Link
                       key={entry.id}

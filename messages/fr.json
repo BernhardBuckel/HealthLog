@@ -3157,6 +3157,7 @@
         "boneMassBody": "La masse osseuse est le poids estimé des minéraux de votre squelette. Les estimations sur balance sont approximatives, mais une tendance stable ou en hausse soutient la solidité osseuse à long terme.",
         "fatFreeMassBody": "La masse non grasse est tout ce qui, dans votre corps, n'est pas de la graisse : muscle, os, organes et eau. La maintenir ou la développer tout en perdant du poids signale en général une composition corporelle plus saine.",
         "fatMassBody": "La masse grasse est le poids total de la graisse de votre corps. Une part de graisse est indispensable aux hormones et au stockage d'énergie, mais un excès — surtout au niveau de l'abdomen — augmente le risque pour la santé à long terme (WHO 2024).",
+        "bodyFatBody": "Le taux de masse grasse est la part de votre poids constituée de graisse. Les plages saines dépendent du sexe et de l'âge, et les balances l'estiment par bio-impédance : la tendance sur plusieurs semaines en dit plus qu'une mesure isolée.",
         "muscleMassBody": "La masse musculaire est le poids estimé des muscles de votre corps. Plus de muscle soutient la force, le métabolisme et la mobilité, et demande généralement un effort actif pour être préservé avec l'âge.",
         "visceralFatBody": "La graisse viscérale est la graisse stockée au plus profond de l'abdomen, autour des organes. Contrairement à la graisse sous la peau, un niveau élevé est étroitement lié aux maladies cardiaques et au diabète de type 2 : plus elle est basse, mieux c'est.",
         "leanBodyMassBody": "La masse maigre est votre poids total moins la graisse corporelle : muscle, os, organes et eau réunis. La suivre en parallèle du poids montre si les variations viennent du muscle ou de la graisse.",
@@ -3575,7 +3576,18 @@
         "description": "Les relevés apparaissent ici dès qu’une balance à impédance se synchronise."
       }
     },
+    "bodyFat": {
+      "title": "Taux de masse grasse",
+      "description": "Votre taux de masse grasse au fil du temps.",
+      "chartTitle": "Taux de masse grasse",
+      "emptyState": {
+        "title": "Aucune donnée de taux de masse grasse",
+        "description": "Les relevés apparaissent ici dès qu'une balance à impédance se synchronise ou que vous en saisissez un à la main.",
+        "cta": "Enregistrer le taux de masse grasse"
+      }
+    },
     "navFatMass": "Masse grasse",
+    "navBodyFat": "Taux de masse grasse",
     "muscleMass": {
       "title": "Masse musculaire",
       "description": "Votre masse musculaire au fil du temps, en kilogrammes.",
