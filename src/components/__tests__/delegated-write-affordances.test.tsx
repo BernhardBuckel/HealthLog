@@ -126,7 +126,11 @@ function writeCaps(
   sections: ShareDomain[] | null,
 ) {
   const writable = new Set(delegatedDomains(level, sections, "write"));
-  return { canWriteDomain: (domain: ShareDomain) => writable.has(domain) };
+  return {
+    // A delegate is always inside somebody else's record.
+    inSharedRecord: true,
+    canWriteDomain: (domain: ShareDomain) => writable.has(domain),
+  };
 }
 
 const mockAccessRef: { value: AccountAccess } = { value: OWN_RECORD };
@@ -499,7 +503,7 @@ describe("the capture picker's kinds", () => {
 
   /** The picker asks one question per kind, of that kind's own section. */
   const caps = writeCaps;
-  const OWNER_CAPS = { canWriteDomain: () => true };
+  const OWNER_CAPS = { inSharedRecord: false, canWriteDomain: () => true };
   const WRITER_CAPS = caps("write", null);
   const READER_CAPS = caps("read", null);
   // A guardian: every section with a delegated route answers at MANAGE.
@@ -556,6 +560,29 @@ describe("the capture picker's kinds", () => {
     expect(visibleCaptureKinds(caps("write", ["documents"]), [...ALL])).toEqual(
       [],
     );
+  });
+
+  it("offers a workout in the caller's own record, gated by the workouts module", () => {
+    expect(visibleCaptureKinds(OWNER_CAPS, ["workout"])).toEqual(["workout"]);
+    expect(
+      visibleCaptureKinds(OWNER_CAPS, ["workout"], { workouts: false }),
+    ).toEqual([]);
+    expect(
+      visibleCaptureKinds(OWNER_CAPS, ["workout"], { mood: false }),
+    ).toEqual(["workout"]);
+  });
+
+  it("never offers a delegate a workout, at any level or scope", () => {
+    // The batch ingest resolves the caller (`requireAuth`), so no grant
+    // reaches it: a measurements-scoped MANAGE grant is refused the same way.
+    for (const delegate of [
+      WRITER_CAPS,
+      READER_CAPS,
+      GUARDIAN_CAPS,
+      caps("manage", ["measurements"]),
+    ]) {
+      expect(visibleCaptureKinds(delegate, ["workout"])).toEqual([]);
+    }
   });
 
   it("offers a scoped MANAGE delegate the mood entry only with the mind section", () => {
@@ -659,6 +686,20 @@ describe("a form opened before the record answered", () => {
     );
   });
 
+  it("withdraws the workout sheet in any shared record, and keeps it in one's own", () => {
+    for (const level of ["read", "write", "manage"] as const) {
+      expect(admittedQuickEntry("workout", writeCaps(level, null)), level).toBe(
+        null,
+      );
+    }
+    expect(
+      admittedQuickEntry("workout", {
+        inSharedRecord: false,
+        canWriteDomain: () => true,
+      }),
+    ).toBe("workout");
+  });
+
   it("keeps the mood sheet for a guardian, whose mind routes answer at MANAGE", () => {
     expect(admittedQuickEntry("mood", writeCaps("manage", null))).toBe("mood");
   });
@@ -678,7 +719,7 @@ describe("a form opened before the record answered", () => {
   });
 
   it("leaves the owner's own sheets alone", () => {
-    const OWNER_CAPS = { canWriteDomain: () => true };
+    const OWNER_CAPS = { inSharedRecord: false, canWriteDomain: () => true };
     for (const sheet of ["measurement", "mood", "medicationIntake"] as const) {
       expect(admittedQuickEntry(sheet, OWNER_CAPS), sheet).toBe(sheet);
     }

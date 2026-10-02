@@ -11,7 +11,7 @@
  *      post-hydration name personalisation);
  *   2. the SSR pass renders the name-less fallback (hydration-safe).
  */
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider } from "@/lib/i18n/context";
@@ -30,9 +30,16 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     <>{children}</>
   ),
 }));
+const modulesRef: { value: Record<string, boolean> | undefined } = {
+  value: undefined,
+};
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    user: { username: "tester", timezone: "Europe/Berlin" },
+    user: {
+      username: "tester",
+      timezone: "Europe/Berlin",
+      modules: modulesRef.value,
+    },
   }),
 }));
 
@@ -83,5 +90,30 @@ describe("<DashboardHeader> — quick-add menu", () => {
     // Water logging was removed from the app; the dashboard quick-add offers
     // no water entry.
     expect(html).not.toContain("Log water");
+  });
+});
+
+describe("<DashboardHeader> — Log workout", () => {
+  beforeEach(() => {
+    modulesRef.value = undefined;
+  });
+
+  it("offers it beside the other capture entries", () => {
+    modulesRef.value = { workouts: true };
+    const html = renderSSR(
+      <DashboardHeader onQuickEntry={() => undefined} />,
+      "en",
+    );
+    expect(html).toContain("Log workout");
+  });
+
+  it("withholds it when the workouts module is off, and keeps the rest", () => {
+    modulesRef.value = { workouts: false };
+    const html = renderSSR(
+      <DashboardHeader onQuickEntry={() => undefined} />,
+      "en",
+    );
+    expect(html).not.toContain("Log workout");
+    expect(html).toContain("Log measurement");
   });
 });

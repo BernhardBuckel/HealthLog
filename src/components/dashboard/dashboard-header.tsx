@@ -12,7 +12,7 @@
  */
 import { useMemo } from "react";
 import Link from "next/link";
-import { Activity, Pill, Plus, Waves, Wrench } from "lucide-react";
+import { Activity, Footprints, Pill, Plus, Waves, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,6 +26,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useMounted } from "@/hooks/use-mounted";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { hourInTz } from "@/lib/tz/format";
+import { canLogWorkout } from "@/lib/workouts/manual-entry";
 import type { QuickEntryDialog } from "@/components/dashboard/quick-entry-sheets";
 
 export function DashboardHeader({
@@ -43,12 +44,16 @@ export function DashboardHeader({
   // grant that opens neither of the two sections the menu never asked about.
   // The customize shortcut points at a settings page sharing does not cover at
   // all.
-  const { canWriteDomain, inSharedRecord } = useRecordCapabilities();
+  const capabilities = useRecordCapabilities();
+  const { canWriteDomain, inSharedRecord } = capabilities;
   const canAddMeasurement = canWriteDomain("measurements");
   const canAddIntake = canWriteDomain("medications");
   // A mood entry is created at MANAGE under the mind section.
   const canAddMood = canWriteDomain("mind");
-  const canAddAnything = canAddMeasurement || canAddIntake || canAddMood;
+  // A workout: own record only, workouts module on (`canLogWorkout`).
+  const canAddWorkout = canLogWorkout(capabilities, user?.modules);
+  const canAddAnything =
+    canAddMeasurement || canAddIntake || canAddMood || canAddWorkout;
 
   // The pre-hero greeting derivation, kept hydration-safe: `user` comes
   // from the auth query, which can resolve before this boundary
@@ -181,6 +186,12 @@ export function DashboardHeader({
                   >
                     <Pill className="mr-2 h-4 w-4" aria-hidden="true" />
                     {t("dashboard.quickAddMedicationIntake")}
+                  </DropdownMenuItem>
+                )}
+                {canAddWorkout && (
+                  <DropdownMenuItem onClick={() => onQuickEntry("workout")}>
+                    <Footprints className="mr-2 h-4 w-4" aria-hidden="true" />
+                    {t("dashboard.quickAddWorkout")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

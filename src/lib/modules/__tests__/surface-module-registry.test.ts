@@ -255,6 +255,7 @@ describe("every surface that shows a module's data is owned by it", () => {
     ["overview:cycle-ring", "cycle"],
     ["capture:mood", "mood"],
     ["capture:medication", "medications"],
+    ["capture:workout", "workouts"],
     ["trend:mood", "mood"],
     ["widget:medications", "medications"],
     ["correlation:MEDICATION_COMPLIANCE", "medications"],
