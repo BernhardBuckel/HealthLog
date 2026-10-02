@@ -4,9 +4,9 @@ import { useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Loader2, Plus } from "lucide-react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { toastWrittenOutcome } from "@/components/outcome/outcome-toast";
 import { DateTimeField } from "@/components/ui/date-time-field";
 import { FieldError } from "@/components/forms/field-error";
 import { Input } from "@/components/ui/input";
@@ -166,11 +166,16 @@ export function ManualWorkoutForm({
     setSaving(true);
     try {
       const outcome = await saveManualWorkout(built.entry, queryClient);
-      toast.success(
-        outcome === "duplicate"
-          ? t("insights.workouts.manual.alreadySaved")
-          : t("common.saved"),
-      );
+      // A duplicate wrote nothing new: the same form already landed this
+      // session. That is reported as such, not as a fresh save.
+      if (outcome === "duplicate") {
+        toastWrittenOutcome(
+          "empty",
+          t("insights.workouts.manual.alreadySaved"),
+        );
+      } else {
+        toastWrittenOutcome("success", t("common.saved"));
+      }
       onSuccess?.();
     } catch (err) {
       setSaveError(

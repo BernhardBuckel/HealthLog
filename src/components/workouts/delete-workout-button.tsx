@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Loader2, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -17,6 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { toastWrittenOutcome } from "@/components/outcome/outcome-toast";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { apiDelete } from "@/lib/api/api-fetch";
 import { useTranslations } from "@/lib/i18n/context";
@@ -78,11 +78,11 @@ export function DeleteWorkoutButton({
     setDeleting(true);
     try {
       await deleteManualWorkout(workout.id, queryClient);
-      toast.success(t("insights.workouts.manual.deleted"));
+      toastWrittenOutcome("success", t("insights.workouts.manual.deleted"));
       setOpen(false);
       router.replace("/insights/workouts");
     } catch {
-      toast.error(t("insights.workouts.manual.deleteError"));
+      toastWrittenOutcome("failed", t("insights.workouts.manual.deleteError"));
     } finally {
       setDeleting(false);
     }

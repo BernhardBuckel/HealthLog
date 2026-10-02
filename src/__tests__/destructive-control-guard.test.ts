@@ -380,6 +380,13 @@ const REGISTRY: DestructiveEntry[] = [
     recovery: "tombstoned-no-restore",
     confirm: ["AlertDialog"],
   },
+  {
+    file: "components/workouts/delete-workout-button.tsx",
+    destroys:
+      "one workout entered by hand, with the personal records it set; synced workouts are refused by the route",
+    recovery: "permanent",
+    confirm: ["AlertDialog"],
+  },
 
   // ── Visits and the address book ─────────────────────────────────────────
   {
