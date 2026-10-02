@@ -403,7 +403,9 @@
       "medication": "Medication",
       "medicationDescription": "Mark a dose as taken",
       "mood": "Mood",
-      "moodDescription": "Log your mood and tags"
+      "moodDescription": "Log your mood and tags",
+      "workout": "Workout",
+      "workoutDescription": "A session your devices did not record"
     },
     "cycle": "Cycle",
     "labs": "Labs",
@@ -520,6 +522,7 @@
     "quickAddMeasurement": "Log measurement",
     "quickAddMood": "Log mood",
     "quickAddMedicationIntake": "Log medication intake",
+    "quickAddWorkout": "Log workout",
     "customizeDashboard": "Customize dashboard",
     "medicationIntakeQuickAdd": {
       "sheetTitle": "Log medication intake",
@@ -3359,7 +3362,7 @@
       "description": "Recent runs, rides, walks and strength sessions, deduped across Apple Watch and Withings sources.",
       "emptyState": {
         "title": "No workouts yet",
-        "description": "Open the Apple Health app on your iPhone to sync workouts here. Withings activity import keeps walking and cycling sessions flowing in too."
+        "description": "Workouts sync from Apple Health on your iPhone and from Withings. You can also log one by hand."
       },
       "detail": {
         "backToList": "Back to workouts",
@@ -3437,7 +3440,35 @@
       "countFew": "{count} workouts",
       "filterLabel": "Filter by sport",
       "filterAll": "All sports",
-      "filterEmpty": "No sessions of this sport in your history."
+      "filterEmpty": "No sessions of this sport in your history.",
+      "manual": {
+        "logWorkout": "Log workout",
+        "sheetTitle": "Log workout",
+        "sheetDescription": "Enter a session by hand: what you did, when, and for how long.",
+        "sportLabel": "Activity",
+        "sportPlaceholder": "Choose an activity",
+        "startLabel": "Start",
+        "durationLabel": "Duration",
+        "distanceLabel": "Distance ({unit})",
+        "energyLabel": "Active energy (kcal)",
+        "alreadySaved": "This workout is already saved",
+        "saveError": "The workout could not be saved",
+        "deleteLabel": "Delete workout",
+        "deleteConfirmTitle": "Delete this workout?",
+        "deleteConfirmDescription": "This workout you entered by hand will be removed for good.",
+        "deleted": "Workout deleted",
+        "deleteError": "The workout could not be deleted",
+        "errors": {
+          "sportRequired": "Choose an activity.",
+          "startRequired": "Enter a date and time.",
+          "startInFuture": "The start cannot be in the future.",
+          "durationRequired": "Enter how long the workout lasted.",
+          "durationInvalid": "Enter whole hours, and minutes from 0 to 59.",
+          "durationTooLong": "A workout can last at most 24 hours.",
+          "distanceInvalid": "Enter the distance as a number within a realistic range.",
+          "energyInvalid": "Enter active energy as a number up to 20,000 kcal."
+        }
+      }
     },
     "bloodGlucose": {
       "title": "Blood Glucose",

@@ -403,7 +403,9 @@
       "medication": "Medicamento",
       "medicationDescription": "Marcar una dosis como tomada",
       "mood": "Estado de ánimo",
-      "moodDescription": "Registra tu estado de ánimo y etiquetas"
+      "moodDescription": "Registra tu estado de ánimo y etiquetas",
+      "workout": "Entrenamiento",
+      "workoutDescription": "Una sesión que tus dispositivos no registraron"
     },
     "cycle": "Ciclo",
     "labs": "Análisis",
@@ -520,6 +522,7 @@
     "quickAddMeasurement": "Registrar medición",
     "quickAddMood": "Registrar estado de ánimo",
     "quickAddMedicationIntake": "Registrar toma",
+    "quickAddWorkout": "Registrar entrenamiento",
     "customizeDashboard": "Personalizar panel",
     "medicationIntakeQuickAdd": {
       "sheetTitle": "Registrar toma de medicación",
@@ -3359,7 +3362,7 @@
       "description": "Carreras, salidas en bici, paseos y sesiones de fuerza recientes, deduplicados entre Apple Watch y Withings.",
       "emptyState": {
         "title": "Aún no hay entrenamientos",
-        "description": "Abre la app Apple Salud en el iPhone para sincronizar tus entrenamientos. La importación de actividad de Withings también incorpora caminatas y rutas en bici."
+        "description": "Los entrenamientos llegan desde Apple Salud en el iPhone y desde Withings. También puedes registrar uno a mano."
       },
       "detail": {
         "backToList": "Volver a entrenamientos",
@@ -3437,7 +3440,35 @@
       "countFew": "{count} entrenamientos",
       "filterLabel": "Filtrar por deporte",
       "filterAll": "Todos los deportes",
-      "filterEmpty": "No hay sesiones de este deporte en tu historial."
+      "filterEmpty": "No hay sesiones de este deporte en tu historial.",
+      "manual": {
+        "logWorkout": "Registrar entrenamiento",
+        "sheetTitle": "Registrar entrenamiento",
+        "sheetDescription": "Introduce una sesión a mano: qué hiciste, cuándo y durante cuánto tiempo.",
+        "sportLabel": "Actividad",
+        "sportPlaceholder": "Elige una actividad",
+        "startLabel": "Inicio",
+        "durationLabel": "Duración",
+        "distanceLabel": "Distancia ({unit})",
+        "energyLabel": "Energía activa (kcal)",
+        "alreadySaved": "Este entrenamiento ya está guardado",
+        "saveError": "No se pudo guardar el entrenamiento",
+        "deleteLabel": "Eliminar entrenamiento",
+        "deleteConfirmTitle": "¿Eliminar este entrenamiento?",
+        "deleteConfirmDescription": "Este entrenamiento que introdujiste a mano se eliminará de forma definitiva.",
+        "deleted": "Entrenamiento eliminado",
+        "deleteError": "No se pudo eliminar el entrenamiento",
+        "errors": {
+          "sportRequired": "Elige una actividad.",
+          "startRequired": "Introduce una fecha y una hora.",
+          "startInFuture": "El inicio no puede estar en el futuro.",
+          "durationRequired": "Indica cuánto duró el entrenamiento.",
+          "durationInvalid": "Introduce horas enteras y minutos de 0 a 59.",
+          "durationTooLong": "Un entrenamiento puede durar como máximo 24 horas.",
+          "distanceInvalid": "Introduce la distancia como un número dentro de un rango realista.",
+          "energyInvalid": "Introduce la energía activa como un número de hasta 20.000 kcal."
+        }
+      }
     },
     "bloodGlucose": {
       "title": "Glucosa en sangre",

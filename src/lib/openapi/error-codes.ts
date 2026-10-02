@@ -357,6 +357,7 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
       "workout.batch.payload_too_large",
       "workout.batch.source_not_permitted",
       "workout.batch.too_large",
+      "workout.delete.synced_source",
     ],
     "(unprefixed)": [
       "about_me_conflict",

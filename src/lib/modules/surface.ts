@@ -123,6 +123,7 @@ const STATIC_SURFACE_MODULE = {
   // ── Add menu ──
   "capture:mood": "mood",
   "capture:medication": "medications",
+  "capture:workout": "workouts",
 
   // ── Dashboard widgets ──
   // CORE widgets (weight, blood pressure, pulse, body fat, the vital-derived

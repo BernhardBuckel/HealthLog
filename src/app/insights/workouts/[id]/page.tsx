@@ -10,6 +10,7 @@ import { SubPageShell } from "@/components/insights/sub-page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
 import { canonicalWorkoutDetailHref } from "@/lib/workouts/canonical-detail-route";
+import { DeleteWorkoutButton } from "@/components/workouts/delete-workout-button";
 import {
   WorkoutDetailHeader,
   WorkoutDetailStats,
@@ -64,6 +65,11 @@ export default function InsightsWorkoutDetailPage({
       // No description. The one this page used to carry belongs to the LIST
       // ("Recent runs, rides, walks…, deduped…") and describes a surface
       // this is not — a detail page must not claim to be the list.
+      // A workout entered by hand can be deleted here; the control renders
+      // nothing for a synced one.
+      headerAction={
+        data && !canonicalHref ? <DeleteWorkoutButton workout={data} /> : null
+      }
       backLink={
         <BackLink
           href="/insights/workouts"

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, Pill, Waves } from "lucide-react";
+import { Activity, Footprints, Pill, Waves } from "lucide-react";
 
 import { MeasurementForm } from "@/components/measurements/measurement-form";
 import { MoodForm } from "@/components/mood/mood-form";
 import { MedicationIntakeQuickAdd } from "@/components/dashboard/medication-intake-quick-add";
+import { ManualWorkoutForm } from "@/components/workouts/manual-workout-form";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import {
   AlertDialog,
@@ -30,11 +31,12 @@ import {
 /**
  * The center "Log" capture action (iOS parity — the bottom bar's
  * middle slot is a capture CTA, not a destination). It opens a small
- * picker that routes to three existing quick-entry surfaces:
+ * picker that routes to four existing quick-entry surfaces:
  *
  *   - Measurement → `<MeasurementForm>` (the `/measurements` add form)
  *   - Medication  → `<MedicationIntakeQuickAdd>` (dashboard quick-add)
  *   - Mood        → `<MoodForm>` (the `/mood` add form, 5-face flow)
+ *   - Workout     → `<ManualWorkoutForm>` (the workouts page's "Log workout")
  *
  * The picker reuses each existing capture component rather than
  * rebuilding parallel forms.
@@ -50,7 +52,7 @@ import {
  * instead of closing unconditionally.
  */
 
-type CaptureKind = "measurement" | "medication" | "mood";
+type CaptureKind = "measurement" | "medication" | "mood" | "workout";
 
 /**
  * The section each capture surface writes to.
@@ -66,10 +68,13 @@ type CaptureKind = "measurement" | "medication" | "mood";
  * so asking it per section answers both cases and the mood entry's
  * MANAGE-only create as well.
  */
-const CAPTURE_KIND_DOMAIN: Readonly<Record<CaptureKind, ShareDomain>> = {
+const CAPTURE_KIND_DOMAIN: Readonly<Record<CaptureKind, ShareDomain | null>> = {
   measurement: "measurements",
   medication: "medications",
   mood: "mind",
+  // A workout goes through the batch ingest, which resolves the caller:
+  // no grant reaches it, so it is offered in one's own record only.
+  workout: null,
 };
 
 /** The order the chooser lists them in. */
@@ -77,6 +82,7 @@ export const CAPTURE_KIND_ORDER: ReadonlyArray<CaptureKind> = [
   "measurement",
   "medication",
   "mood",
+  "workout",
 ];
 
 /**
@@ -118,15 +124,16 @@ export function admittedCaptureKind(
  * kind the record allows, the gate's default-on contract.
  */
 export function visibleCaptureKinds(
-  caps: Pick<RecordCapabilities, "canWriteDomain">,
+  caps: Pick<RecordCapabilities, "canWriteDomain" | "inSharedRecord">,
   kinds: ReadonlyArray<CaptureKind>,
   modules?: SurfaceModuleMap | null,
 ): CaptureKind[] {
-  return kinds.filter(
-    (kind) =>
-      caps.canWriteDomain(CAPTURE_KIND_DOMAIN[kind]) &&
-      isSurfaceVisible(`capture:${kind}`, modules),
-  );
+  return kinds.filter((kind) => {
+    const domain = CAPTURE_KIND_DOMAIN[kind];
+    const writable =
+      domain === null ? !caps.inSharedRecord : caps.canWriteDomain(domain);
+    return writable && isSurfaceVisible(`capture:${kind}`, modules);
+  });
 }
 
 interface CapturePickerProps {
@@ -203,6 +210,12 @@ export function CapturePicker({ open, onOpenChange }: CapturePickerProps) {
       description: t("nav.capture.moodDescription"),
       icon: Waves,
     },
+    {
+      kind: "workout",
+      label: t("nav.capture.workout"),
+      description: t("nav.capture.workoutDescription"),
+      icon: Footprints,
+    },
   ];
   const options = allOptions.filter((opt) => offered.includes(opt.kind));
 
@@ -210,6 +223,7 @@ export function CapturePicker({ open, onOpenChange }: CapturePickerProps) {
     measurement: t("measurements.addMeasurement"),
     medication: t("nav.capture.medication"),
     mood: t("mood.addEntry"),
+    workout: t("insights.workouts.manual.sheetTitle"),
   };
   // `openKind === null` keeps the form sheet closed (the title is unread
   // then); the mood label is the harmless default, matching the prior
@@ -267,6 +281,13 @@ export function CapturePicker({ open, onOpenChange }: CapturePickerProps) {
         )}
         {openKind === "medication" && (
           <MedicationIntakeQuickAdd
+            onSuccess={closeForm}
+            onCancel={closeForm}
+            footerSlot={footerEl}
+          />
+        )}
+        {openKind === "workout" && (
+          <ManualWorkoutForm
             onSuccess={closeForm}
             onCancel={closeForm}
             footerSlot={footerEl}

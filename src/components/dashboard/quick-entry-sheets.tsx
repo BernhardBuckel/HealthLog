@@ -24,6 +24,7 @@ import {
 import { MeasurementForm } from "@/components/measurements/measurement-form";
 import { MoodForm } from "@/components/mood/mood-form";
 import { MedicationIntakeQuickAdd } from "@/components/dashboard/medication-intake-quick-add";
+import { ManualWorkoutForm } from "@/components/workouts/manual-workout-form";
 import { useTranslations } from "@/lib/i18n/context";
 import {
   useRecordCapabilities,
@@ -32,15 +33,20 @@ import {
 import type { ShareDomain } from "@/lib/sharing/scope";
 
 export type QuickEntryDialog =
-  "measurement" | "mood" | "medicationIntake" | null;
+  "measurement" | "mood" | "medicationIntake" | "workout" | null;
 
-/** The section each sheet writes to; see the capture picker. */
+/**
+ * The section each sheet writes to; see the capture picker. `null` marks a
+ * sheet whose route resolves the caller rather than the record, which no
+ * grant reaches: a workout goes through the batch ingest, own record only.
+ */
 const QUICK_ENTRY_DOMAIN: Readonly<
-  Record<NonNullable<QuickEntryDialog>, ShareDomain>
+  Record<NonNullable<QuickEntryDialog>, ShareDomain | null>
 > = {
   measurement: "measurements",
   medicationIntake: "medications",
   mood: "mind",
+  workout: null,
 };
 
 /**
@@ -59,10 +65,13 @@ const QUICK_ENTRY_DOMAIN: Readonly<
  */
 export function admittedQuickEntry(
   open: QuickEntryDialog,
-  caps: Pick<RecordCapabilities, "canWriteDomain">,
+  caps: Pick<RecordCapabilities, "canWriteDomain" | "inSharedRecord">,
 ): QuickEntryDialog {
   if (open === null) return open;
-  return caps.canWriteDomain(QUICK_ENTRY_DOMAIN[open]) ? open : null;
+  const domain = QUICK_ENTRY_DOMAIN[open];
+  const admitted =
+    domain === null ? !caps.inSharedRecord : caps.canWriteDomain(domain);
+  return admitted ? open : null;
 }
 
 /**
@@ -151,6 +160,9 @@ export function QuickEntrySheets({
   // mobile soft keyboard.
   const [medicationIntakeFooterEl, setMedicationIntakeFooterEl] =
     useState<HTMLDivElement | null>(null);
+  const [workoutFooterEl, setWorkoutFooterEl] = useState<HTMLDivElement | null>(
+    null,
+  );
   // v1.11.3 F3 — when an open quick-entry sheet is dismissed with
   // unsaved input, hold the close in this flag and surface a confirm
   // instead of nulling the dialog outright. Cleared once the user
@@ -212,6 +224,24 @@ export function QuickEntrySheets({
           onCancel={onClose}
           footerSlot={medicationIntakeFooterEl}
         />
+      </ResponsiveSheet>
+
+      {/* Log a workout by hand. Mounted only while open, so every opening
+          is a fresh form with its own external id. */}
+      <ResponsiveSheet
+        open={openSheet === "workout"}
+        onOpenChange={handleQuickEntryOpenChange}
+        title={t("insights.workouts.manual.sheetTitle")}
+        description={t("insights.workouts.manual.sheetDescription")}
+        footer={<div ref={setWorkoutFooterEl} className="flex w-full" />}
+      >
+        {openSheet === "workout" && (
+          <ManualWorkoutForm
+            onSuccess={onClose}
+            onCancel={onClose}
+            footerSlot={workoutFooterEl}
+          />
+        )}
       </ResponsiveSheet>
 
       {/* v1.11.3 F3 — confirm before discarding a partly-filled
