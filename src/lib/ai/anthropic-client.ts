@@ -1,4 +1,5 @@
 import { safeFetch } from "@/lib/safe-fetch";
+import { callTimeoutMs } from "./effective-timeout";
 import { extractJsonObject } from "./json-extract";
 import type {
   AIProvider,
@@ -157,6 +158,8 @@ function buildAnthropicTools(tools: AiToolDef[]) {
 
 export class AnthropicClient implements AIProvider {
   readonly type = "anthropic" as const;
+  /** See `AIProvider.responseTimeoutSeconds`; stamped by the resolver. */
+  responseTimeoutSeconds: number | null = null;
   private config: AnthropicClientConfig;
 
   constructor(config: AnthropicClientConfig) {
@@ -259,9 +262,9 @@ export class AnthropicClient implements AIProvider {
       // check so a private/metadata address is rejected (SSRF/rebinding).
       // v1.20.1 — compose the caller's cancel signal (Coach SSE disconnect) so
       // a mid-generation abort tears the upstream call down early.
-      // v1.21.5 — honour the caller's per-request timeout override; default 60 s.
+      // The record owner's response-timeout setting, else the surface value, else 60 s.
       {
-        timeoutMs: params.timeoutMs ?? 60_000,
+        timeoutMs: callTimeoutMs(params, this.responseTimeoutSeconds),
         requirePublicHost: true,
         signal: params.signal,
       },

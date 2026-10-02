@@ -39,6 +39,7 @@ let providerState: AiProviderState = {
   configured: true,
   managedBy: "user",
   canConfigure: true,
+  responseTimeoutMs: 60_000,
 };
 vi.mock("@/hooks/use-ai-capability", () => ({
   useAiProviderState: () => providerState,
@@ -135,11 +136,21 @@ describe("<GettingStartedChecklist> — rows for an established account", () => 
   it("leaves the AI row out when AI cannot be set up here", () => {
     // The operator switched AI off, or the record belongs to somebody else:
     // the list never carries a to-do nobody on this screen can finish.
-    providerState = { configured: false, managedBy: null, canConfigure: false };
+    providerState = {
+      configured: false,
+      managedBy: null,
+      canConfigure: false,
+      responseTimeoutMs: 60_000,
+    };
     currentUser = user();
     const html = render();
     expect(html).toContain("4 of 5 done");
-    providerState = { configured: true, managedBy: "user", canConfigure: true };
+    providerState = {
+      configured: true,
+      managedBy: "user",
+      canConfigure: true,
+      responseTimeoutMs: 60_000,
+    };
   });
 
   it("keeps the supporting queries enabled while the card can render", () => {

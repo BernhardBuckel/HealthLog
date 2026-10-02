@@ -673,6 +673,10 @@ export async function runReactionLine(
         temperature: budget.temperature,
         maxTokens,
         timeoutMs: REACTION_LINE_TIMEOUT_MS,
+        // The claim lease (`REACTION_LINE_CLAIM_LEASE_MS`) is shorter than the
+        // largest response-timeout setting, and the deterministic lead stands
+        // in when the line does not arrive, so this ceiling is not lifted.
+        timeoutPolicy: "surface-ceiling",
         signal: AbortSignal.timeout(REACTION_LINE_TIMEOUT_MS + 1_000),
       }),
     );

@@ -7,6 +7,7 @@ import type {
   AiCapabilityState,
   AiProviderState,
 } from "@/lib/ai/capabilities/types";
+import { PROVIDER_DEFAULT_TIMEOUT_MS } from "@/lib/ai/effective-timeout";
 
 /**
  * The web reader for the `ai` block on `GET /api/auth/me`.
@@ -34,6 +35,7 @@ const NO_PROVIDER_STATE: AiProviderState = Object.freeze({
   configured: false,
   managedBy: null,
   canConfigure: false,
+  responseTimeoutMs: PROVIDER_DEFAULT_TIMEOUT_MS,
 });
 
 /** One capability, for the record this browser is inside. */

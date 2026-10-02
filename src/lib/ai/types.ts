@@ -115,6 +115,14 @@ export interface AIProvider {
    * available" and answer from base context.
    */
   supportsTools?: boolean;
+  /**
+   * The record owner's `aiResponseTimeoutSeconds`, stamped by the resolver
+   * that handed this provider out (`bindResponseTimeout`). Each client reads
+   * its upstream ceiling through `callTimeoutMs(params, this.responseTimeoutSeconds)`,
+   * so the setting reaches every call without the call site passing it.
+   * `null` / absent → the surface's `timeoutMs`, else the 60 s default.
+   */
+  responseTimeoutSeconds?: number | null;
   generateCompletion(params: CompletionParams): Promise<CompletionResult>;
   /**
    * v1.22 (#89) — optional true-streaming variant. A provider that can emit
@@ -303,8 +311,21 @@ export interface CompletionParams {
    * aborted mid-stream ("operation aborted due to timeout"), which left the
    * briefing — and the insights trend narrative that reads the same cached
    * block — permanently blank. Sized in `AI_BUDGETS.comprehensive.timeoutMs`.
+   *
+   * This is the SURFACE default. The record owner's response-timeout setting,
+   * bound to the provider instance at resolution, overrides it (see
+   * `callTimeoutMs` in `effective-timeout.ts`) unless `timeoutPolicy` says the
+   * value is a hard ceiling.
    */
   timeoutMs?: number;
+  /**
+   * `"surface-ceiling"` makes `timeoutMs` a hard ceiling the person's
+   * response-timeout setting does not lift. Reserved for unattended surfaces
+   * that are latency-bounded by design and fall back to deterministic copy
+   * (the Coach nudge tick, the reaction line). The set of callers is frozen by
+   * `ai-call-timeout-guard.test.ts`.
+   */
+  timeoutPolicy?: "surface-ceiling";
 }
 
 export interface CompletionResult {
@@ -351,6 +372,8 @@ export function singleUserTurn(p: {
   signal?: AbortSignal;
   /** v1.22 (#89) — per-request upstream timeout override (ms); see CompletionParams. */
   timeoutMs?: number;
+  /** See `CompletionParams.timeoutPolicy`. */
+  timeoutPolicy?: "surface-ceiling";
 }): CompletionParams {
   const images = p.images ?? [];
   const documents = p.documents ?? [];
@@ -385,6 +408,7 @@ export function singleUserTurn(p: {
     toolChoice: p.toolChoice,
     signal: p.signal,
     timeoutMs: p.timeoutMs,
+    ...(p.timeoutPolicy ? { timeoutPolicy: p.timeoutPolicy } : {}),
   };
 }
 

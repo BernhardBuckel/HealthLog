@@ -239,6 +239,10 @@ export const composeNudgeWithAI: ComposeNudgeWithAI = async (params) => {
           temperature: budget.temperature,
           maxTokens,
           timeoutMs: COACH_NUDGE_AI_CALL_TIMEOUT_MS,
+          // The tick is sequential across every account and bounded by
+          // `COACH_NUDGE_AI_TICK_BUDGET_MS`; the template is always ready. A
+          // raised response-timeout setting must not hold the tick for others.
+          timeoutPolicy: "surface-ceiling",
           signal: AbortSignal.timeout(COACH_NUDGE_AI_CALL_TIMEOUT_MS + 1_000),
         }),
       );

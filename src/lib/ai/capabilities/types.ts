@@ -313,6 +313,15 @@ export interface AiProviderState {
    * and when the operator's master switch is off.
    */
   canConfigure: boolean;
+  /**
+   * How long one model call on this record may take before the server gives
+   * up, in milliseconds: the record's response-timeout setting, else the 60 s
+   * default. A surface that waits on a model call (document reads, lab OCR)
+   * sizes its own request abort from this plus a margin, so the browser never
+   * gives up before the server does. Surfaces with a larger budget of their
+   * own (the briefing) may run longer when the setting is unset.
+   */
+  responseTimeoutMs: number;
 }
 
 /** The `ai` block the account payload publishes. */

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { callTimeoutMs } from "./effective-timeout";
 import { safeFetch } from "@/lib/safe-fetch";
 import type {
   AIProvider,
@@ -253,6 +254,8 @@ export interface CodexAttemptDiagnostics {
 
 export class CodexClient implements AIProvider {
   readonly type = "codex" as const;
+  /** See `AIProvider.responseTimeoutSeconds`; stamped by the resolver. */
+  responseTimeoutSeconds: number | null = null;
   private accessToken: string;
   private accountId: string;
   private onTokenRefresh: () => Promise<{
@@ -509,9 +512,12 @@ export class CodexClient implements AIProvider {
       },
       // v1.20.1 — compose the caller's cancel signal (Coach SSE disconnect) so
       // a mid-generation abort tears the upstream call down early.
-      // v1.21.5 — honour the caller's per-request timeout override (the
-      // comprehensive briefing needs >60 s); default unchanged at 60 s.
-      { timeoutMs: params.timeoutMs ?? 60_000, signal: params.signal },
+      // The record owner's response-timeout setting, else the surface value
+      // (the comprehensive briefing needs >60 s), else 60 s.
+      {
+        timeoutMs: callTimeoutMs(params, this.responseTimeoutSeconds),
+        signal: params.signal,
+      },
     );
   }
 

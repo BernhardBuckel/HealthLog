@@ -3,12 +3,12 @@
 /* ────────────────────────────────────────────────────────────────
  * v1.22 (#89) — Response timeout (seconds).
  *
- * A per-user upstream timeout for AI generation, threaded onto the provider
- * call (`CompletionParams.timeoutMs`). Surfaced here mainly for local /
- * self-hosted backends: an MLX/exo server can take >60 s on the first request
- * while it loads the model, which the legacy 60 s default timed out before the
- * first token landed. Empty = the built-in comprehensive-briefing default
- * (~120 s, `AI_BUDGETS.comprehensive.timeoutMs`).
+ * A per-user upstream timeout for every model call on the record: the
+ * resolver binds it to the provider and each client reads its ceiling through
+ * `callTimeoutMs` (only the nudge tick and the reaction line keep their own
+ * short ceilings). Surfaced here mainly for local / self-hosted backends: an
+ * MLX/exo server can take >60 s on the first request while it loads the model.
+ * Empty = each surface's own default (60 s for most, longer for the briefing).
  * ──────────────────────────────────────────────────────────────── */
 
 import { useRef, useState, type FormEvent } from "react";

@@ -181,6 +181,13 @@ export const aiProviderState = z
       .describe(
         "Whether the person in front of the screen may set up a provider for this record: false inside somebody else's record and while the operator's master switch is off. A setup hint is shown only when this is true.",
       ),
+    responseTimeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .describe(
+        "How long one model call on this record may take before the server gives up, in milliseconds: the record's response-timeout setting (Settings → AI), else 60000. A client that waits on a model call (a document read, lab OCR) sizes its own request timeout from this plus a margin, so it never gives up before the server does.",
+      ),
   })
   .meta({
     id: "AiProviderState",

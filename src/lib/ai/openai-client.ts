@@ -1,4 +1,5 @@
 import { safeFetch } from "@/lib/safe-fetch";
+import { callTimeoutMs } from "./effective-timeout";
 import { annotate } from "@/lib/logging/context";
 import type { AIProvider, CompletionParams, CompletionResult } from "./types";
 import { selectOpenAIChatCompletionsCapabilities } from "./openai-capabilities";
@@ -59,6 +60,8 @@ type OpenAIProviderType = "admin-key" | "codex" | "openai-compatible";
 
 export class OpenAIClient implements AIProvider {
   readonly type: OpenAIProviderType;
+  /** See `AIProvider.responseTimeoutSeconds`; stamped by the resolver. */
+  responseTimeoutSeconds: number | null = null;
   private config: OpenAIClientConfig;
 
   constructor(config: OpenAIClientConfig) {
@@ -156,7 +159,7 @@ export class OpenAIClient implements AIProvider {
       // address is rejected, closing the SSRF/rebinding surface.
       // v1.20.1 — compose the caller's cancel signal (Coach SSE disconnect) so
       // a mid-generation abort tears the upstream call down early.
-      // v1.21.5 — honour the caller's per-request timeout override; default 60 s.
+      // The record owner's response-timeout setting, else the surface value, else 60 s.
       // v1.33.1 (#470) — the gateway tag reuses the Local provider's host
       // policy verbatim: public hosts always; a private host only when the
       // operator granted its origin (`AI_PRIVATE_ORIGINS` or the legacy host
@@ -174,7 +177,7 @@ export class OpenAIClient implements AIProvider {
       // pin: its base URL is a repository constant, there is nothing an
       // operator legitimately redirects.
       {
-        timeoutMs: params.timeoutMs ?? 60_000,
+        timeoutMs: callTimeoutMs(params, this.responseTimeoutSeconds),
         ...(this.isGateway || this.type === "admin-key"
           ? aiEgressPolicyFor(url, {
               operatorTrusted: this.config.operatorTrusted,

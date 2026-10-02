@@ -14,6 +14,10 @@
  */
 import { documentProviderRank } from "@/lib/documents/provider-rank";
 import {
+  PROVIDER_DEFAULT_TIMEOUT_MS,
+  resolveEffectiveTimeoutMs,
+} from "@/lib/ai/effective-timeout";
+import {
   isExternalProvider,
   isOperatorHeldProvider,
 } from "@/lib/ai/provider-egress";
@@ -56,6 +60,12 @@ export interface ProviderPresence {
   /** The person's in-browser OCR opt-in, which lets a text-only provider read a document. */
   localOcrEnabled: boolean;
   managedBy: AiProviderManagedBy | null;
+  /**
+   * The record's `aiResponseTimeoutSeconds`, read off the same row. Not a
+   * presence fact, but the account payload publishes the effective timeout
+   * beside the provider and this row is already in hand. Absent → unset.
+   */
+  responseTimeoutSeconds?: number | null;
 }
 
 /** Whose record this is, as far as configuring a provider for it goes. */
@@ -332,12 +342,21 @@ export function resolveAiProviderState(
   inputs: AiCapabilityInputs | null,
 ): AiProviderState {
   if (inputs === null) {
-    return { configured: false, managedBy: null, canConfigure: false };
+    return {
+      configured: false,
+      managedBy: null,
+      canConfigure: false,
+      responseTimeoutMs: PROVIDER_DEFAULT_TIMEOUT_MS,
+    };
   }
   return {
     configured: inputs.provider.entries.length > 0,
     managedBy: inputs.provider.managedBy,
     canConfigure: inputs.recordKind === "self" && inputs.switches.enabled,
+    responseTimeoutMs: resolveEffectiveTimeoutMs(
+      inputs.provider.responseTimeoutSeconds,
+      PROVIDER_DEFAULT_TIMEOUT_MS,
+    ),
   };
 }
 

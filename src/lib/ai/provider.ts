@@ -1,4 +1,5 @@
 import type { AIProvider, CompletionResult } from "./types";
+import { bindResponseTimeout } from "./effective-timeout";
 import { prisma } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { CodexClient, resolveCodexVisionSlug } from "./codex-client";
@@ -499,18 +500,24 @@ export async function resolveProvider(userId: string): Promise<AIProvider> {
       aiCompatModel: true,
       role: true,
       managedProfileAt: true,
+      aiResponseTimeoutSeconds: true,
     },
   });
+  // The record's response-timeout setting rides on whatever this returns, on
+  // every branch, the operator-key fallback for a managed profile included:
+  // the person waiting on the record is who the call serves.
+  const bind = (provider: AIProvider): AIProvider =>
+    bindResponseTimeout(provider, userRow?.aiResponseTimeoutSeconds);
   const policy = providerCredentialPolicy(
     authority,
     userRow?.managedProfileAt ?? null,
   );
-  if (policy === "operator-default") return resolveAdminProvider();
+  if (policy === "operator-default") return bind(await resolveAdminProvider());
 
   // 1. Per-user Anthropic / Local
   if (userRow) {
     const userProvider = buildUserProvider(userRow);
-    if (userProvider) return userProvider;
+    if (userProvider) return bind(userProvider);
   }
 
   // 2. Codex OAuth (either explicitly selected or implicit fallback)
@@ -518,11 +525,26 @@ export async function resolveProvider(userId: string): Promise<AIProvider> {
   const tryCodex = explicitChoice === "CHATGPT_OAUTH" || !explicitChoice;
   if (tryCodex) {
     const codex = await resolveCodexProvider(userId);
-    if (codex) return codex;
+    if (codex) return bind(codex);
   }
 
   // 3. Admin OpenAI key (also acts as fallback for user-OPENAI selection)
-  return resolveAdminProvider();
+  return bind(await resolveAdminProvider());
+}
+
+/**
+ * The record owner's `aiResponseTimeoutSeconds`, for `resolveProviderForTest`,
+ * whose many branches (saved config, unsaved override, the chain) are bound in
+ * one place on the way out. The other two resolvers read it with their row.
+ */
+async function readResponseTimeoutSeconds(
+  userId: string,
+): Promise<number | null> {
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { aiResponseTimeoutSeconds: true },
+  });
+  return row?.aiResponseTimeoutSeconds ?? null;
 }
 
 /**
@@ -570,8 +592,12 @@ export async function resolveProviderChain(
       aiProviderChain: true,
       useCentralCodex: true,
       managedProfileAt: true,
+      aiResponseTimeoutSeconds: true,
     },
   });
+  // See `resolveProvider`: every instance carries the record's setting.
+  const bind = (provider: AIProvider): AIProvider =>
+    bindResponseTimeout(provider, userRow?.aiResponseTimeoutSeconds);
   const policy = providerCredentialPolicy(
     authority,
     userRow?.managedProfileAt ?? null,
@@ -580,7 +606,7 @@ export async function resolveProviderChain(
     const provider = await resolveAdminProvider();
     return provider.type === "none"
       ? []
-      : [{ providerType: "admin-openai", instance: provider }];
+      : [{ providerType: "admin-openai", instance: bind(provider) }];
   }
 
   const rawChain = userRow?.aiProviderChain ?? null;
@@ -594,7 +620,10 @@ export async function resolveProviderChain(
       policy,
     });
     if (instance) {
-      resolved.push({ providerType: entry.providerType, instance });
+      resolved.push({
+        providerType: entry.providerType,
+        instance: bind(instance),
+      });
     }
   }
 
@@ -607,7 +636,10 @@ export async function resolveProviderChain(
   if (userRow?.useCentralCodex) {
     const centralCodex = await resolveAdminCodexProvider();
     if (centralCodex) {
-      resolved.push({ providerType: "admin-codex", instance: centralCodex });
+      resolved.push({
+        providerType: "admin-codex",
+        instance: bind(centralCodex),
+      });
     }
   }
 
@@ -854,6 +886,7 @@ const PRESENCE_USER_SELECT = {
   useCentralCodex: true,
   managedProfileAt: true,
   labsLocalOcrEnabled: true,
+  aiResponseTimeoutSeconds: true,
 } as const;
 
 const PRESENCE_SETTINGS_SELECT = {
@@ -947,6 +980,7 @@ export function probeProviderChain(
           // A guardian's in-browser OCR is not the record's opt-in to use.
           localOcrEnabled: false,
           managedBy: adminKey ? "server" : null,
+          responseTimeoutSeconds: row.aiResponseTimeoutSeconds,
         };
       }
 
@@ -1002,6 +1036,7 @@ export function probeProviderChain(
         entries,
         localOcrEnabled: row.labsLocalOcrEnabled,
         managedBy: entries.length > 0 ? managedBy : null,
+        responseTimeoutSeconds: row.aiResponseTimeoutSeconds,
       };
     },
     { freshInBackground: true },
@@ -1146,6 +1181,19 @@ export class AITestConfigError extends Error {
 export async function resolveProviderForTest(
   userId: string,
   override: AITestOverride = {},
+): Promise<AIProvider> {
+  // The test runs under the same timeout generation would, so a slow local
+  // model that needs a raised setting is not reported as dead by the test.
+  const provider = await resolveProviderForTestUnbound(userId, override);
+  return bindResponseTimeout(
+    provider,
+    await readResponseTimeoutSeconds(userId),
+  );
+}
+
+async function resolveProviderForTestUnbound(
+  userId: string,
+  override: AITestOverride,
 ): Promise<AIProvider> {
   const stored = await prisma.user.findUnique({
     where: { id: userId },
