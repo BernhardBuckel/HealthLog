@@ -3465,6 +3465,7 @@
           "durationRequired": "Podaj, jak długo trwał trening.",
           "durationInvalid": "Podaj pełne godziny i minuty od 0 do 59.",
           "durationTooLong": "Trening może trwać najwyżej 24 godziny.",
+          "endInFuture": "Trening kończyłby się w przyszłości. Ustaw początek na godzinę, o której się zaczął.",
           "distanceInvalid": "Podaj dystans jako liczbę w realistycznym zakresie.",
           "energyInvalid": "Podaj energię czynną jako liczbę do 20 000 kcal."
         }

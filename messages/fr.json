@@ -3465,6 +3465,7 @@
           "durationRequired": "Indiquez la durée de l’entraînement.",
           "durationInvalid": "Saisissez des heures entières et des minutes de 0 à 59.",
           "durationTooLong": "Un entraînement dure au maximum 24 heures.",
+          "endInFuture": "Il se terminerait dans le futur. Indiquez comme début l’heure à laquelle l’entraînement a commencé.",
           "distanceInvalid": "Saisissez la distance sous forme de nombre, dans une plage réaliste.",
           "energyInvalid": "Saisissez l’énergie active sous forme de nombre, jusqu’à 20 000 kcal."
         }

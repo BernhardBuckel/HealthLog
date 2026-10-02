@@ -235,6 +235,18 @@ function manualWorkoutSchema(ctx: ManualWorkoutContext) {
             path: ["duration"],
             message: `${ERR}.durationTooLong`,
           });
+        } else if (
+          // The default start is "now", so a workout logged right after it
+          // finished would otherwise be stored as ending in the future.
+          startedAt !== null &&
+          startedAt.getTime() + sec * 1000 >
+            ctx.now.getTime() + FUTURE_TOLERANCE_MS
+        ) {
+          issue.addIssue({
+            code: "custom",
+            path: ["duration"],
+            message: `${ERR}.endInFuture`,
+          });
         }
       }
 
