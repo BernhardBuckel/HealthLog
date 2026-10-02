@@ -110,3 +110,13 @@ minimumReleaseAgeExclude:
   - "@next/bundle-analyzer@16.2.12"
   - lucide-react@1.27.0
   - undici@8.10.0
+
+auditConfig:
+  ignoreGhsas:
+    # node-forge <=1.4.0, RSA PKCS#1 v1.5 signature verification. It arrives
+    # only through @parse/node-apn, which uses it for certificate-based APNs
+    # credentials (p12 / PEM certificate). HealthLog authenticates to APNs
+    # with a token (.p8 key, APNS_KEY_ID / APNS_TEAM_ID), so that code path
+    # never runs. No patched release is published yet (latest is 1.4.0);
+    # remove this entry and raise the floor once 1.4.1 is out.
+    - GHSA-86w9-cpqp-85rv
