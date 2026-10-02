@@ -5884,9 +5884,9 @@
         "questionsOpenCoach": "코치에서 답하기"
       },
       "responseTimeoutHeading": "응답 제한 시간",
-      "responseTimeoutBody": "AI 응답을 얼마나 기다린 뒤 포기할지 정해요. 첫 요청에서 모델을 불러오는 데 시간이 걸리는 로컬·셀프 호스팅 모델이라면 늘리세요.",
+      "responseTimeoutBody": "AI 응답을 얼마나 기다린 뒤 포기할지 정해요. 첫 요청에서 모델을 불러오는 데 시간이 걸리는 로컬·셀프 호스팅 모델이라면 늘리세요. 비워 두면 응답은 {seconds}초까지 기다리고, 일일 브리핑은 최대 {briefingSeconds}초까지 기다려요.",
       "responseTimeoutLabel": "응답 제한 시간 (초)",
-      "responseTimeoutPlaceholder": "기본값 (약 120)",
+      "responseTimeoutPlaceholder": "기본값 ({seconds}초)",
       "responseTimeoutInvalid": "10에서 600초 사이의 숫자를 입력해 주세요.",
       "autoRead": {
         "title": "AI로 문서 자동 읽기",

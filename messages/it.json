@@ -5884,9 +5884,9 @@
         "questionsOpenCoach": "Rispondi nel Coach"
       },
       "responseTimeoutHeading": "Timeout della risposta",
-      "responseTimeoutBody": "Quanto attendere la risposta dell'IA prima di annullare. Aumentalo per un modello locale o self-hosted che ha bisogno di tempo per caricarsi alla prima richiesta.",
+      "responseTimeoutBody": "Quanto attendere la risposta dell'IA prima di annullare. Aumentalo per un modello locale o self-hosted che ha bisogno di tempo per caricarsi alla prima richiesta. Se lasci vuoto, una risposta può richiedere {seconds} s; il briefing giornaliero fino a {briefingSeconds} s.",
       "responseTimeoutLabel": "Timeout della risposta (secondi)",
-      "responseTimeoutPlaceholder": "Predefinito (~120)",
+      "responseTimeoutPlaceholder": "Predefinito ({seconds} s)",
       "responseTimeoutInvalid": "Inserisci un numero tra 10 e 600 secondi.",
       "autoRead": {
         "title": "Leggi i documenti automaticamente con l'IA",
