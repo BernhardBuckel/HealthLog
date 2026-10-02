@@ -403,7 +403,9 @@
       "medication": "Médicament",
       "medicationDescription": "Marquer une dose comme prise",
       "mood": "Humeur",
-      "moodDescription": "Enregistrez votre humeur et des étiquettes"
+      "moodDescription": "Enregistrez votre humeur et des étiquettes",
+      "workout": "Entraînement",
+      "workoutDescription": "Une séance que vos appareils n’ont pas enregistrée"
     },
     "cycle": "Cycle",
     "labs": "Analyses",
@@ -520,6 +522,7 @@
     "quickAddMeasurement": "Saisir une mesure",
     "quickAddMood": "Saisir une humeur",
     "quickAddMedicationIntake": "Saisir une prise",
+    "quickAddWorkout": "Saisir un entraînement",
     "customizeDashboard": "Personnaliser le tableau de bord",
     "medicationIntakeQuickAdd": {
       "sheetTitle": "Saisir une prise de médicament",
@@ -3436,7 +3439,35 @@
       "countFew": "{count} séances",
       "filterLabel": "Filtrer par sport",
       "filterAll": "Tous les sports",
-      "filterEmpty": "Aucune séance de ce sport dans votre historique."
+      "filterEmpty": "Aucune séance de ce sport dans votre historique.",
+      "manual": {
+        "logWorkout": "Saisir un entraînement",
+        "sheetTitle": "Saisir un entraînement",
+        "sheetDescription": "Saisissez une séance à la main : ce que vous avez fait, quand et combien de temps.",
+        "sportLabel": "Activité",
+        "sportPlaceholder": "Choisir une activité",
+        "startLabel": "Début",
+        "durationLabel": "Durée",
+        "distanceLabel": "Distance ({unit})",
+        "energyLabel": "Énergie active (kcal)",
+        "alreadySaved": "Cet entraînement est déjà enregistré",
+        "saveError": "L’entraînement n’a pas pu être enregistré",
+        "deleteLabel": "Supprimer l’entraînement",
+        "deleteConfirmTitle": "Supprimer cet entraînement ?",
+        "deleteConfirmDescription": "Cet entraînement saisi à la main sera supprimé définitivement.",
+        "deleted": "Entraînement supprimé",
+        "deleteError": "L’entraînement n’a pas pu être supprimé",
+        "errors": {
+          "sportRequired": "Choisissez une activité.",
+          "startRequired": "Saisissez une date et une heure.",
+          "startInFuture": "Le début ne peut pas être dans le futur.",
+          "durationRequired": "Indiquez la durée de l’entraînement.",
+          "durationInvalid": "Saisissez des heures entières et des minutes de 0 à 59.",
+          "durationTooLong": "Un entraînement dure au maximum 24 heures.",
+          "distanceInvalid": "Saisissez la distance sous forme de nombre, dans une plage réaliste.",
+          "energyInvalid": "Saisissez l’énergie active sous forme de nombre, jusqu’à 20 000 kcal."
+        }
+      }
     },
     "bloodGlucose": {
       "title": "Glycémie",

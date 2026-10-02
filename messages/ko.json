@@ -403,7 +403,9 @@
       "medication": "약",
       "medicationDescription": "복용으로 표시하기",
       "mood": "기분",
-      "moodDescription": "기분과 태그 기록하기"
+      "moodDescription": "기분과 태그 기록하기",
+      "workout": "운동",
+      "workoutDescription": "기기가 기록하지 못한 운동"
     },
     "cycle": "생리 주기",
     "labs": "검사",
@@ -520,6 +522,7 @@
     "quickAddMeasurement": "측정 기록",
     "quickAddMood": "기분 기록",
     "quickAddMedicationIntake": "복용 기록",
+    "quickAddWorkout": "운동 기록",
     "customizeDashboard": "대시보드 맞춤 설정",
     "medicationIntakeQuickAdd": {
       "sheetTitle": "복용 기록",
@@ -3436,7 +3439,35 @@
       "countFew": "운동 {count}개",
       "filterLabel": "종목별 필터",
       "filterAll": "전체 종목",
-      "filterEmpty": "기록에 이 종목의 세션이 없어요."
+      "filterEmpty": "기록에 이 종목의 세션이 없어요.",
+      "manual": {
+        "logWorkout": "운동 기록",
+        "sheetTitle": "운동 기록",
+        "sheetDescription": "무엇을, 언제, 얼마나 했는지 직접 입력하세요.",
+        "sportLabel": "활동",
+        "sportPlaceholder": "활동 선택",
+        "startLabel": "시작",
+        "durationLabel": "시간",
+        "distanceLabel": "거리({unit})",
+        "energyLabel": "활동 에너지(kcal)",
+        "alreadySaved": "이미 저장된 운동입니다",
+        "saveError": "운동을 저장하지 못했습니다",
+        "deleteLabel": "운동 삭제",
+        "deleteConfirmTitle": "이 운동을 삭제할까요?",
+        "deleteConfirmDescription": "직접 입력한 이 운동이 영구적으로 삭제됩니다.",
+        "deleted": "운동을 삭제했습니다",
+        "deleteError": "운동을 삭제하지 못했습니다",
+        "errors": {
+          "sportRequired": "활동을 선택하세요.",
+          "startRequired": "날짜와 시간을 입력하세요.",
+          "startInFuture": "시작 시간은 미래일 수 없습니다.",
+          "durationRequired": "운동한 시간을 입력하세요.",
+          "durationInvalid": "시간은 정수로, 분은 0에서 59 사이로 입력하세요.",
+          "durationTooLong": "운동은 최대 24시간까지 입력할 수 있습니다.",
+          "distanceInvalid": "거리를 현실적인 범위의 숫자로 입력하세요.",
+          "energyInvalid": "활동 에너지는 20,000kcal 이하의 숫자로 입력하세요."
+        }
+      }
     },
     "bloodGlucose": {
       "title": "혈당",

@@ -403,7 +403,9 @@
       "medication": "Medikament",
       "medicationDescription": "Eine Dosis als genommen markieren",
       "mood": "Stimmung",
-      "moodDescription": "Stimmung und Tags erfassen"
+      "moodDescription": "Stimmung und Tags erfassen",
+      "workout": "Workout",
+      "workoutDescription": "Eine Einheit, die kein Gerät aufgezeichnet hat"
     },
     "cycle": "Zyklus",
     "labs": "Laborwerte",
@@ -520,6 +522,7 @@
     "quickAddMeasurement": "Messung erfassen",
     "quickAddMood": "Stimmung erfassen",
     "quickAddMedicationIntake": "Einnahme erfassen",
+    "quickAddWorkout": "Workout erfassen",
     "customizeDashboard": "Dashboard anpassen",
     "medicationIntakeQuickAdd": {
       "sheetTitle": "Medikamenteneinnahme erfassen",
@@ -3436,7 +3439,35 @@
       "countFew": "{count} Workouts",
       "filterLabel": "Nach Sportart filtern",
       "filterAll": "Alle Sportarten",
-      "filterEmpty": "Keine Einheiten dieser Sportart in deinem Verlauf."
+      "filterEmpty": "Keine Einheiten dieser Sportart in deinem Verlauf.",
+      "manual": {
+        "logWorkout": "Workout erfassen",
+        "sheetTitle": "Workout erfassen",
+        "sheetDescription": "Trag eine Einheit von Hand ein: was, wann und wie lange.",
+        "sportLabel": "Aktivität",
+        "sportPlaceholder": "Aktivität wählen",
+        "startLabel": "Beginn",
+        "durationLabel": "Dauer",
+        "distanceLabel": "Distanz ({unit})",
+        "energyLabel": "Aktive Energie (kcal)",
+        "alreadySaved": "Dieses Workout ist schon gespeichert",
+        "saveError": "Das Workout konnte nicht gespeichert werden",
+        "deleteLabel": "Workout löschen",
+        "deleteConfirmTitle": "Dieses Workout löschen?",
+        "deleteConfirmDescription": "Dieses von Hand eingetragene Workout wird endgültig entfernt.",
+        "deleted": "Workout gelöscht",
+        "deleteError": "Das Workout konnte nicht gelöscht werden",
+        "errors": {
+          "sportRequired": "Wähle eine Aktivität.",
+          "startRequired": "Gib Datum und Uhrzeit ein.",
+          "startInFuture": "Der Beginn darf nicht in der Zukunft liegen.",
+          "durationRequired": "Gib an, wie lange das Workout gedauert hat.",
+          "durationInvalid": "Gib ganze Stunden und Minuten von 0 bis 59 ein.",
+          "durationTooLong": "Ein Workout dauert höchstens 24 Stunden.",
+          "distanceInvalid": "Gib die Distanz als Zahl in einem realistischen Bereich ein.",
+          "energyInvalid": "Gib die aktive Energie als Zahl bis 20.000 kcal ein."
+        }
+      }
     },
     "bloodGlucose": {
       "title": "Blutzucker",
