@@ -5927,9 +5927,9 @@
         "questionsOpenCoach": "Answer them in the Coach"
       },
       "responseTimeoutHeading": "Response timeout",
-      "responseTimeoutBody": "How long to wait for the AI to respond before giving up. Raise it for a local or self-hosted model that needs time to load on the first request.",
+      "responseTimeoutBody": "How long to wait for the AI to respond before giving up. Raise it for a local or self-hosted model that needs time to load on the first request. Left empty, a reply may take {seconds} s; the daily briefing allows up to {briefingSeconds} s.",
       "responseTimeoutLabel": "Response timeout (seconds)",
-      "responseTimeoutPlaceholder": "Default (~120)",
+      "responseTimeoutPlaceholder": "Default ({seconds} s)",
       "responseTimeoutInvalid": "Enter a number between 10 and 600 seconds.",
       "autoRead": {
         "title": "Read documents automatically with AI",

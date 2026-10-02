@@ -1,4 +1,5 @@
 import { safeFetch } from "@/lib/safe-fetch";
+import { callTimeoutMs } from "./effective-timeout";
 import { annotate } from "@/lib/logging/context";
 import { aiEgressPolicyFor } from "./local-host-allowlist";
 import type {
@@ -105,6 +106,8 @@ function withStrictJsonPrefix(messages: AiMessage[]): AiMessage[] {
  */
 export class LocalOpenAICompatibleClient implements AIProvider {
   readonly type = "local" as const;
+  /** See `AIProvider.responseTimeoutSeconds`; stamped by the resolver. */
+  responseTimeoutSeconds: number | null = null;
   /** Local servers commonly reject an unknown `tools` field — never send it. */
   readonly supportsTools = false;
   private config: LocalClientConfig;
@@ -218,8 +221,8 @@ export class LocalOpenAICompatibleClient implements AIProvider {
       // v1.20.1 — compose the caller's cancel signal (Coach SSE disconnect) so
       // a mid-generation abort tears the upstream call down early.
       {
-        // v1.22 (#89) — honour the caller's per-request timeout override; default 60 s.
-        timeoutMs: params.timeoutMs ?? 60_000,
+        // The record owner's response-timeout setting, else the surface value, else 60 s.
+        timeoutMs: callTimeoutMs(params, this.responseTimeoutSeconds),
         ...egress,
         signal: params.signal,
       },
@@ -353,7 +356,7 @@ export class LocalOpenAICompatibleClient implements AIProvider {
     // per-idle window. Composed with the caller's cancel signal so a client
     // disconnect still tears the call down immediately.
     const idle = new AbortController();
-    const idleMs = params.timeoutMs ?? 60_000;
+    const idleMs = callTimeoutMs(params, this.responseTimeoutSeconds);
     const signal = params.signal
       ? AbortSignal.any([params.signal, idle.signal])
       : idle.signal;

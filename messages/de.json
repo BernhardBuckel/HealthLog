@@ -5927,9 +5927,9 @@
         "questionsOpenCoach": "Im Coach beantworten"
       },
       "responseTimeoutHeading": "Antwort-Timeout",
-      "responseTimeoutBody": "Wie lange auf die Antwort der KI gewartet wird, bevor abgebrochen wird. Erhöhe den Wert für ein lokales oder selbst gehostetes Modell, das beim ersten Aufruf Zeit zum Laden braucht.",
+      "responseTimeoutBody": "Wie lange auf die Antwort der KI gewartet wird, bevor abgebrochen wird. Erhöhe den Wert für ein lokales oder selbst gehostetes Modell, das beim ersten Aufruf Zeit zum Laden braucht. Ohne Wert darf eine Antwort {seconds} s dauern, das Tagesbriefing bis zu {briefingSeconds} s.",
       "responseTimeoutLabel": "Antwort-Timeout (Sekunden)",
-      "responseTimeoutPlaceholder": "Standard (~120)",
+      "responseTimeoutPlaceholder": "Standard ({seconds} s)",
       "responseTimeoutInvalid": "Gib eine Zahl zwischen 10 und 600 Sekunden ein.",
       "autoRead": {
         "title": "Dokumente automatisch mit KI lesen",

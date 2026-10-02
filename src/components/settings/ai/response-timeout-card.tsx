@@ -3,12 +3,12 @@
 /* ────────────────────────────────────────────────────────────────
  * v1.22 (#89) — Response timeout (seconds).
  *
- * A per-user upstream timeout for AI generation, threaded onto the provider
- * call (`CompletionParams.timeoutMs`). Surfaced here mainly for local /
- * self-hosted backends: an MLX/exo server can take >60 s on the first request
- * while it loads the model, which the legacy 60 s default timed out before the
- * first token landed. Empty = the built-in comprehensive-briefing default
- * (~120 s, `AI_BUDGETS.comprehensive.timeoutMs`).
+ * A per-user upstream timeout for every model call on the record: the
+ * resolver binds it to the provider and each client reads its ceiling through
+ * `callTimeoutMs` (only the nudge tick and the reaction line keep their own
+ * short ceilings). Surfaced here mainly for local / self-hosted backends: an
+ * MLX/exo server can take >60 s on the first request while it loads the model.
+ * Empty = each surface's own default (60 s for most, longer for the briefing).
  * ──────────────────────────────────────────────────────────────── */
 
 import { useRef, useState, type FormEvent } from "react";
@@ -18,11 +18,23 @@ import { Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AI_BUDGETS } from "@/lib/ai/ai-budgets";
+import { PROVIDER_DEFAULT_TIMEOUT_MS } from "@/lib/ai/effective-timeout";
 import { apiPatch } from "@/lib/api/api-fetch";
 import { useTranslations } from "@/lib/i18n/context";
 import { aiInputDependentKeys, invalidateKeys } from "@/lib/query-keys";
 
 import type { UserAIProvider } from "./shared";
+
+/**
+ * The defaults the copy names, read from the constants the server applies, so
+ * the placeholder cannot drift from the real fallback again (it said "~120"
+ * while most surfaces waited 60 s).
+ */
+export const RESPONSE_TIMEOUT_COPY_PARAMS = {
+  seconds: PROVIDER_DEFAULT_TIMEOUT_MS / 1000,
+  briefingSeconds: (AI_BUDGETS.comprehensive.timeoutMs ?? 0) / 1000,
+} as const;
 
 export function ResponseTimeoutCard({
   userProvider,
@@ -98,7 +110,7 @@ export function ResponseTimeoutCard({
           {t("settings.ai.responseTimeoutHeading")}
         </p>
         <p className="text-muted-foreground text-xs">
-          {t("settings.ai.responseTimeoutBody")}
+          {t("settings.ai.responseTimeoutBody", RESPONSE_TIMEOUT_COPY_PARAMS)}
         </p>
       </div>
       <div>
@@ -113,7 +125,10 @@ export function ResponseTimeoutCard({
           max={600}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={t("settings.ai.responseTimeoutPlaceholder")}
+          placeholder={t(
+            "settings.ai.responseTimeoutPlaceholder",
+            RESPONSE_TIMEOUT_COPY_PARAMS,
+          )}
           className="mt-1 sm:max-w-xs"
         />
       </div>

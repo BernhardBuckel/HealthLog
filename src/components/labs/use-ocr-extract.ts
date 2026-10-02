@@ -14,6 +14,8 @@
 import type { AiCapabilityState } from "@/lib/ai/capabilities/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useAiProviderState } from "@/hooks/use-ai-capability";
+import { clientAbortMs } from "@/lib/ai/effective-timeout";
 import { apiFetch, apiGet, apiPatch, apiPost } from "@/lib/api/api-fetch";
 import { ocrImageToText } from "@/lib/labs/local-ocr";
 import {
@@ -92,19 +94,48 @@ export function useOcrCapability(enabled: boolean) {
   });
 }
 
+/**
+ * The most sequential model calls one extract request makes: the read, and one
+ * corrective retry when the reply does not parse.
+ */
+const OCR_EXTRACT_MODEL_CALLS = 2;
+
+/**
+ * POST one lab-report extraction. Vision mode uploads the file; text mode posts
+ * only the text the browser OCR'd. Either way a model reads it, so the request
+ * waits as long as the server may: the person's response-timeout setting as
+ * the account payload publishes it (`ai.provider.responseTimeoutMs`), times
+ * the calls one request can make, plus a margin. The 15 s default used to cut
+ * the text path off long before any model answered.
+ */
+export function postOcrExtract(
+  input: { file: File } | { text: string },
+  responseTimeoutMs: number,
+): Promise<OcrExtractResponseDto> {
+  const signal = AbortSignal.timeout(
+    clientAbortMs(responseTimeoutMs, OCR_EXTRACT_MODEL_CALLS),
+  );
+  if ("text" in input) {
+    return apiPost<OcrExtractResponseDto>(
+      "/api/labs/ocr/extract",
+      { mode: "text", text: input.text },
+      { signal },
+    );
+  }
+  const form = new FormData();
+  form.append("file", input.file);
+  return apiFetch<OcrExtractResponseDto>("/api/labs/ocr/extract", {
+    method: "POST",
+    body: form,
+    signal,
+  });
+}
+
 /** Upload + extract (VISION mode). Resolves with the proposed review rows. */
 export function useOcrExtract() {
+  const { responseTimeoutMs } = useAiProviderState();
   return useMutation<OcrExtractResponseDto, Error, File>({
-    mutationFn: (file: File) => {
-      const form = new FormData();
-      form.append("file", file);
-      return apiFetch<OcrExtractResponseDto>("/api/labs/ocr/extract", {
-        method: "POST",
-        body: form,
-        // Vision extraction is slow; a generous ceiling beats the 15 s default.
-        signal: AbortSignal.timeout(90_000),
-      });
-    },
+    mutationFn: (file: File) => postOcrExtract({ file }, responseTimeoutMs),
   });
 }
 
@@ -115,14 +146,10 @@ export function useOcrExtract() {
  * is shared verbatim.
  */
 export function useOcrTextExtract() {
+  const { responseTimeoutMs } = useAiProviderState();
   return useMutation<OcrExtractResponseDto, Error, File>({
-    mutationFn: async (file: File) => {
-      const text = await ocrImageToText(file);
-      return apiPost<OcrExtractResponseDto>("/api/labs/ocr/extract", {
-        mode: "text",
-        text,
-      });
-    },
+    mutationFn: async (file: File) =>
+      postOcrExtract({ text: await ocrImageToText(file) }, responseTimeoutMs),
   });
 }
 

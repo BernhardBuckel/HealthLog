@@ -5927,9 +5927,9 @@
         "questionsOpenCoach": "Y répondre dans le Coach"
       },
       "responseTimeoutHeading": "Délai de réponse",
-      "responseTimeoutBody": "Durée d'attente de la réponse de l'IA avant d'abandonner. Augmentez-la pour un modèle local ou auto-hébergé qui a besoin de temps pour se charger à la première requête.",
+      "responseTimeoutBody": "Durée d'attente de la réponse de l'IA avant d'abandonner. Augmentez-la pour un modèle local ou auto-hébergé qui a besoin de temps pour se charger à la première requête. Sans valeur, une réponse peut prendre {seconds} s ; le briefing quotidien jusqu'à {briefingSeconds} s.",
       "responseTimeoutLabel": "Délai de réponse (secondes)",
-      "responseTimeoutPlaceholder": "Par défaut (~120)",
+      "responseTimeoutPlaceholder": "Par défaut ({seconds} s)",
       "responseTimeoutInvalid": "Saisissez un nombre entre 10 et 600 secondes.",
       "autoRead": {
         "title": "Lire les documents automatiquement avec l'IA",

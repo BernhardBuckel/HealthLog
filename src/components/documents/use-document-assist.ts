@@ -17,6 +17,7 @@ import { useCallback } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
+import { useAiProviderState } from "@/hooks/use-ai-capability";
 import { apiGet, ApiError } from "@/lib/api/api-fetch";
 import { useTranslations } from "@/lib/i18n/context";
 import { queryKeys } from "@/lib/query-keys";
@@ -86,6 +87,7 @@ export function useDocumentsAutoAiRead(enabled: boolean) {
  * nothing.
  */
 export function useSuggestDetails() {
+  const { responseTimeoutMs } = useAiProviderState();
   return useMutation<
     DocumentSuggestionDto,
     Error,
@@ -96,6 +98,8 @@ export function useSuggestDetails() {
         path: `/api/documents/inbound/${target.documentId}/suggest`,
         mode,
         target,
+        responseTimeoutMs,
+        modelCalls: 1,
       });
       return data.suggestions;
     },
@@ -107,6 +111,7 @@ export function useSuggestDetails() {
  * summary block explicitly requests persistence or replacement.
  */
 export function useDocumentSummary() {
+  const { responseTimeoutMs } = useAiProviderState();
   return useMutation<
     DocumentDescribeResult,
     Error,
@@ -123,6 +128,8 @@ export function useDocumentSummary() {
         path: `/api/documents/inbound/${target.documentId}/summary?mode=${output}${persist ? "&persist=true" : ""}${replace ? "&replace=true" : ""}`,
         mode,
         target,
+        responseTimeoutMs,
+        modelCalls: 1,
       }),
   });
 }

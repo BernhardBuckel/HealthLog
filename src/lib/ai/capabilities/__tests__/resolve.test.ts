@@ -452,7 +452,16 @@ describe("the provider block", () => {
       configured: true,
       managedBy: "local",
       canConfigure: true,
+      responseTimeoutMs: 60_000,
     });
+  });
+
+  it("publishes the record's response-timeout setting as the effective timeout", () => {
+    const inputs = baseline();
+    inputs.provider = { ...inputs.provider, responseTimeoutSeconds: 420 };
+    expect(resolveAiProviderState(inputs).responseTimeoutMs).toBe(420_000);
+    inputs.provider = { ...inputs.provider, responseTimeoutSeconds: null };
+    expect(resolveAiProviderState(inputs).responseTimeoutMs).toBe(60_000);
   });
 
   it("offers setup only on one's own record, and only with the master on", () => {
@@ -473,6 +482,7 @@ describe("the provider block", () => {
       configured: false,
       managedBy: null,
       canConfigure: false,
+      responseTimeoutMs: 60_000,
     });
   });
 });

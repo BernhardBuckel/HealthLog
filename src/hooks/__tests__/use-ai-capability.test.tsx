@@ -76,6 +76,7 @@ describe("useAiCapability", () => {
       configured: false,
       managedBy: null,
       canConfigure: false,
+      responseTimeoutMs: 60_000,
     });
   });
 

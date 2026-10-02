@@ -5927,9 +5927,9 @@
         "questionsOpenCoach": "Odpowiedz w Coachu"
       },
       "responseTimeoutHeading": "Limit czasu odpowiedzi",
-      "responseTimeoutBody": "Jak długo czekać na odpowiedź AI, zanim nastąpi przerwanie. Zwiększ wartość dla lokalnego lub samodzielnie hostowanego modelu, który potrzebuje czasu na załadowanie przy pierwszym żądaniu.",
+      "responseTimeoutBody": "Jak długo czekać na odpowiedź AI, zanim nastąpi przerwanie. Zwiększ wartość dla lokalnego lub samodzielnie hostowanego modelu, który potrzebuje czasu na załadowanie przy pierwszym żądaniu. Bez wartości odpowiedź może trwać {seconds} s, a dzienne podsumowanie do {briefingSeconds} s.",
       "responseTimeoutLabel": "Limit czasu odpowiedzi (sekundy)",
-      "responseTimeoutPlaceholder": "Domyślnie (~120)",
+      "responseTimeoutPlaceholder": "Domyślnie ({seconds} s)",
       "responseTimeoutInvalid": "Podaj liczbę od 10 do 600 sekund.",
       "autoRead": {
         "title": "Automatyczne czytanie dokumentów przez AI",

@@ -73,6 +73,7 @@ interface MePayload {
       configured: boolean;
       managedBy: string | null;
       canConfigure: boolean;
+      responseTimeoutMs: number;
     };
   };
 }
@@ -171,7 +172,18 @@ describe("GET /api/auth/me — ai", () => {
       configured: true,
       managedBy: "user",
       canConfigure: true,
+      responseTimeoutMs: 60_000,
     });
+  });
+
+  it("publishes the record's response-timeout setting as the effective timeout", async () => {
+    const user = await makeUser("slow-local", {
+      aiResponseTimeoutSeconds: 420,
+    });
+    await grantConsent(user.id, "ai_full");
+    await signIn(user.id);
+    const me = await readMe();
+    expect(me.ai.provider.responseTimeoutMs).toBe(420_000);
   });
 
   it("closes everything when the operator's master switch is off", async () => {
@@ -216,6 +228,7 @@ describe("GET /api/auth/me — ai", () => {
       configured: false,
       managedBy: null,
       canConfigure: true,
+      responseTimeoutMs: 60_000,
     });
   });
 
@@ -318,6 +331,7 @@ describe("GET /api/auth/me — ai", () => {
       configured: false,
       managedBy: null,
       canConfigure: false,
+      responseTimeoutMs: 60_000,
     });
   });
 
@@ -352,6 +366,7 @@ describe("GET /api/auth/me — ai", () => {
       configured: true,
       managedBy: "server",
       canConfigure: false,
+      responseTimeoutMs: 60_000,
     });
   });
 });
