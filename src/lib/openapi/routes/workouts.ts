@@ -312,6 +312,36 @@ export const workoutPaths: NonNullable<ZodOpenApiObject["paths"]> = {
         ...stdResponses,
       },
     },
+    delete: {
+      tags: ["Measurements"],
+      summary: "Delete a workout entered by hand",
+      description:
+        "Removes a `MANUAL` workout outright, with its child rows, and any personal record that workout set; a silent detection pass then re-derives the previous best. A workout from any other source answers 409 (`workout.delete.synced_source`), because the next sync would write it back. Own record only: a cookie session or a wildcard token. Another user's row answers 404.",
+      requestParams: { path: z.object({ id: z.string() }) },
+      responses: {
+        "200": {
+          description: "Deleted.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                z.object({ deleted: z.literal(true) }),
+                "DeleteWorkoutResponse",
+              ),
+            },
+          },
+        },
+        "404": {
+          description: "Workout not found (or owned by another user).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "409": {
+          description:
+            "The workout was synced from a device or service, not entered by hand.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        ...stdResponses,
+      },
+    },
   },
   "/api/workouts/batch": {
     post: {

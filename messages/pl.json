@@ -403,7 +403,9 @@
       "medication": "Lek",
       "medicationDescription": "Oznacz dawkę jako przyjętą",
       "mood": "Nastrój",
-      "moodDescription": "Zapisz nastrój i tagi"
+      "moodDescription": "Zapisz nastrój i tagi",
+      "workout": "Trening",
+      "workoutDescription": "Sesja, której nie zapisały twoje urządzenia"
     },
     "cycle": "Cykl",
     "labs": "Wyniki badań",
@@ -520,6 +522,7 @@
     "quickAddMeasurement": "Zarejestruj pomiar",
     "quickAddMood": "Zarejestruj nastrój",
     "quickAddMedicationIntake": "Zarejestruj przyjęcie",
+    "quickAddWorkout": "Zarejestruj trening",
     "customizeDashboard": "Dostosuj pulpit",
     "medicationIntakeQuickAdd": {
       "sheetTitle": "Zarejestruj przyjęcie leku",
@@ -3157,6 +3160,7 @@
         "boneMassBody": "Masa kostna to szacowana waga minerałów w szkielecie. Pomiary z wagi są przybliżone, ale stabilny lub rosnący trend sprzyja długotrwałej wytrzymałości kości.",
         "fatFreeMassBody": "Masa beztłuszczowa to wszystko w ciele, co nie jest tłuszczem — mięśnie, kości, narządy i woda. Utrzymanie lub jej budowanie przy spadku wagi zwykle wskazuje na zdrowszy skład ciała.",
         "fatMassBody": "Masa tłuszczowa to łączna waga tłuszczu w ciele. Pewna ilość tłuszczu jest niezbędna dla hormonów i magazynowania energii, ale jego nadmiar — zwłaszcza w okolicy brzucha — zwiększa długoterminowe ryzyko zdrowotne (WHO 2024).",
+        "bodyFatBody": "Procent tkanki tłuszczowej to część masy ciała, którą stanowi tłuszcz. Zdrowe zakresy zależą od płci i wieku, a wagi szacują go metodą bioimpedancji, dlatego trend z kilku tygodni mówi więcej niż pojedynczy pomiar.",
         "muscleMassBody": "Masa mięśniowa to szacowana waga mięśni w ciele. Więcej mięśni wspiera siłę, metabolizm i sprawność, a ich utrzymanie z wiekiem zwykle wymaga aktywnego wysiłku.",
         "visceralFatBody": "Tłuszcz trzewny to tłuszcz gromadzony głęboko w jamie brzusznej wokół narządów. W odróżnieniu od tłuszczu podskórnego jego wysoki poziom jest ściśle powiązany z chorobami serca i cukrzycą typu 2, więc im niżej, tym lepiej.",
         "leanBodyMassBody": "Beztłuszczowa masa ciała to całkowita waga pomniejszona o tłuszcz — mięśnie, kości, narządy i woda razem. Śledzenie jej obok wagi pokazuje, czy zmiany wynikają z mięśni, czy z tłuszczu.",
@@ -3358,7 +3362,7 @@
       "description": "Ostatnie biegi, jazdy, marsze i treningi siłowe — zdeduplikowane między Apple Watch a Withings.",
       "emptyState": {
         "title": "Brak treningów",
-        "description": "Otwórz aplikację Apple Zdrowie na iPhonie, aby zsynchronizować treningi. Import aktywności z Withings także dorzuca marsze i przejażdżki."
+        "description": "Treningi trafiają tu z Apple Zdrowie na iPhonie i z Withings. Możesz też wpisać trening ręcznie."
       },
       "detail": {
         "backToList": "Powrót do treningów",
@@ -3436,7 +3440,35 @@
       "countFew": "{count} treningi",
       "filterLabel": "Filtruj według sportu",
       "filterAll": "Wszystkie sporty",
-      "filterEmpty": "Brak treningów tego sportu w Twojej historii."
+      "filterEmpty": "Brak treningów tego sportu w Twojej historii.",
+      "manual": {
+        "logWorkout": "Zarejestruj trening",
+        "sheetTitle": "Zarejestruj trening",
+        "sheetDescription": "Wpisz sesję ręcznie: rodzaj aktywności, początek i czas trwania.",
+        "sportLabel": "Aktywność",
+        "sportPlaceholder": "Wybierz aktywność",
+        "startLabel": "Początek",
+        "durationLabel": "Czas trwania",
+        "distanceLabel": "Dystans ({unit})",
+        "energyLabel": "Energia czynna (kcal)",
+        "alreadySaved": "Ten trening jest już zapisany",
+        "saveError": "Nie udało się zapisać treningu",
+        "deleteLabel": "Usuń trening",
+        "deleteConfirmTitle": "Usunąć ten trening?",
+        "deleteConfirmDescription": "Ten ręcznie wpisany trening zostanie trwale usunięty.",
+        "deleted": "Trening usunięty",
+        "deleteError": "Nie udało się usunąć treningu",
+        "errors": {
+          "sportRequired": "Wybierz aktywność.",
+          "startRequired": "Podaj datę i godzinę.",
+          "startInFuture": "Początek nie może być w przyszłości.",
+          "durationRequired": "Podaj, jak długo trwał trening.",
+          "durationInvalid": "Podaj pełne godziny i minuty od 0 do 59.",
+          "durationTooLong": "Trening może trwać najwyżej 24 godziny.",
+          "distanceInvalid": "Podaj dystans jako liczbę w realistycznym zakresie.",
+          "energyInvalid": "Podaj energię czynną jako liczbę do 20 000 kcal."
+        }
+      }
     },
     "bloodGlucose": {
       "title": "Poziom glukozy",
@@ -3575,7 +3607,18 @@
         "description": "Odczyty pojawią się tutaj po synchronizacji wagi analitycznej."
       }
     },
+    "bodyFat": {
+      "title": "Tkanka tłuszczowa",
+      "description": "Twój procent tkanki tłuszczowej w czasie.",
+      "chartTitle": "Tkanka tłuszczowa",
+      "emptyState": {
+        "title": "Brak danych o tkance tłuszczowej",
+        "description": "Odczyty pojawią się tutaj po synchronizacji wagi analitycznej lub po ręcznym zapisaniu wartości.",
+        "cta": "Zapisz tkankę tłuszczową"
+      }
+    },
     "navFatMass": "Masa tłuszczowa",
+    "navBodyFat": "Tkanka tłuszczowa",
     "muscleMass": {
       "title": "Masa mięśniowa",
       "description": "Twoja masa mięśniowa w czasie, w kilogramach.",

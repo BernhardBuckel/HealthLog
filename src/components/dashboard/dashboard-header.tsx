@@ -12,7 +12,7 @@
  */
 import { useMemo } from "react";
 import Link from "next/link";
-import { Activity, Pill, Plus, Waves, Wrench } from "lucide-react";
+import { Activity, Footprints, Pill, Plus, Waves, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,6 +26,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { useMounted } from "@/hooks/use-mounted";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { hourInTz } from "@/lib/tz/format";
+import {
+  CAPTURE_KIND_ORDER,
+  visibleCaptureKinds,
+} from "@/components/layout/capture-picker";
 import type { QuickEntryDialog } from "@/components/dashboard/quick-entry-sheets";
 
 export function DashboardHeader({
@@ -36,19 +40,30 @@ export function DashboardHeader({
   const { t } = useTranslations();
   const { user } = useAuth();
   const mounted = useMounted();
-  // The quick-add offers three kinds, and each one is asked about its own
+  // The quick-add offers four kinds, and each one is asked about its own
   // section: a reading under `measurements`, a dose under `medications`, a
-  // mood entry under `mind`. The coarse `canAdd` this used to gate the whole
+  // mood entry under `mind`, a workout in one's own record only. The coarse `canAdd` this used to gate the whole
   // menu on carries the grant's LEVEL and no scope, so it answered true for a
   // grant that opens neither of the two sections the menu never asked about.
   // The customize shortcut points at a settings page sharing does not cover at
   // all.
-  const { canWriteDomain, inSharedRecord } = useRecordCapabilities();
-  const canAddMeasurement = canWriteDomain("measurements");
-  const canAddIntake = canWriteDomain("medications");
-  // A mood entry is created at MANAGE under the mind section.
-  const canAddMood = canWriteDomain("mind");
-  const canAddAnything = canAddMeasurement || canAddIntake || canAddMood;
+  const capabilities = useRecordCapabilities();
+  const { inSharedRecord } = capabilities;
+  // The same answer the bottom bar's capture picker renders from: per kind,
+  // the record's section (a delegated grant) AND the kind's module
+  // (`capture:<kind>`). Asking the picker's own function is what keeps the two
+  // menus from disagreeing — this one used to check the section alone, so a
+  // switched-off mood module still offered "Log mood" here.
+  const offered = visibleCaptureKinds(
+    capabilities,
+    CAPTURE_KIND_ORDER,
+    user?.modules,
+  );
+  const canAddMeasurement = offered.includes("measurement");
+  const canAddIntake = offered.includes("medication");
+  const canAddMood = offered.includes("mood");
+  const canAddWorkout = offered.includes("workout");
+  const canAddAnything = offered.length > 0;
 
   // The pre-hero greeting derivation, kept hydration-safe: `user` comes
   // from the auth query, which can resolve before this boundary
@@ -181,6 +196,12 @@ export function DashboardHeader({
                   >
                     <Pill className="mr-2 h-4 w-4" aria-hidden="true" />
                     {t("dashboard.quickAddMedicationIntake")}
+                  </DropdownMenuItem>
+                )}
+                {canAddWorkout && (
+                  <DropdownMenuItem onClick={() => onQuickEntry("workout")}>
+                    <Footprints className="mr-2 h-4 w-4" aria-hidden="true" />
+                    {t("dashboard.quickAddWorkout")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

@@ -151,6 +151,13 @@ export interface SubPageShellProps {
    * at the page foot.
    */
   showAllValuesType?: string;
+  /**
+   * A page-owned action that opens something in place rather than linking
+   * away (the workouts page's "Log workout"). Leads the header cluster, in
+   * the same 40 px ghost-icon shape as its siblings; the page owns the
+   * control and whatever it opens.
+   */
+  headerAction?: ReactNode;
   children: ReactNode;
 }
 
@@ -171,6 +178,7 @@ export function SubPageShell({
   coachLaunch = false,
   captureType,
   showAllValuesType,
+  headerAction,
   children,
 }: SubPageShellProps) {
   const { t } = useTranslations();
@@ -309,6 +317,7 @@ export function SubPageShell({
               with a tighter gap the later sibling's invisible halo sat
               on top of its neighbour's clickable edge. */}
             <div className="flex shrink-0 items-center gap-3">
+              {headerAction}
               {captureHref ? (
                 <Button
                   asChild

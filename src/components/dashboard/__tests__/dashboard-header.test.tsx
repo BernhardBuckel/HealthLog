@@ -11,7 +11,7 @@
  *      post-hydration name personalisation);
  *   2. the SSR pass renders the name-less fallback (hydration-safe).
  */
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider } from "@/lib/i18n/context";
@@ -30,13 +30,24 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     <>{children}</>
   ),
 }));
+const modulesRef: { value: Record<string, boolean> | undefined } = {
+  value: undefined,
+};
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    user: { username: "tester", timezone: "Europe/Berlin" },
+    user: {
+      username: "tester",
+      timezone: "Europe/Berlin",
+      modules: modulesRef.value,
+    },
   }),
 }));
 
 import { DashboardHeader } from "../dashboard-header";
+import {
+  CAPTURE_KIND_ORDER,
+  visibleCaptureKinds,
+} from "@/components/layout/capture-picker";
 
 function renderSSR(node: React.ReactElement, locale: "en" | "de" = "de") {
   return renderToStaticMarkup(
@@ -83,5 +94,90 @@ describe("<DashboardHeader> — quick-add menu", () => {
     // Water logging was removed from the app; the dashboard quick-add offers
     // no water entry.
     expect(html).not.toContain("Log water");
+  });
+});
+
+describe("<DashboardHeader> — Log workout", () => {
+  beforeEach(() => {
+    modulesRef.value = undefined;
+  });
+
+  it("offers it beside the other capture entries", () => {
+    modulesRef.value = { workouts: true };
+    const html = renderSSR(
+      <DashboardHeader onQuickEntry={() => undefined} />,
+      "en",
+    );
+    expect(html).toContain("Log workout");
+  });
+
+  it("withholds it when the workouts module is off, and keeps the rest", () => {
+    modulesRef.value = { workouts: false };
+    const html = renderSSR(
+      <DashboardHeader onQuickEntry={() => undefined} />,
+      "en",
+    );
+    expect(html).not.toContain("Log workout");
+    expect(html).toContain("Log measurement");
+  });
+});
+
+describe("<DashboardHeader> — every entry follows its module, as the capture picker does", () => {
+  beforeEach(() => {
+    modulesRef.value = undefined;
+  });
+
+  it("withholds Log mood when the mood module is off", () => {
+    modulesRef.value = { mood: false };
+    const html = renderSSR(
+      <DashboardHeader onQuickEntry={() => undefined} />,
+      "en",
+    );
+    expect(html).not.toContain("Log mood");
+    expect(html).toContain("Log medication intake");
+  });
+
+  it("withholds Log medication intake when the medications module is off", () => {
+    modulesRef.value = { medications: false };
+    const html = renderSSR(
+      <DashboardHeader onQuickEntry={() => undefined} />,
+      "en",
+    );
+    expect(html).not.toContain("Log medication intake");
+    expect(html).toContain("Log mood");
+  });
+
+  it("offers exactly what the capture picker offers for the same modules", () => {
+    const cases: Array<Record<string, boolean> | undefined> = [
+      undefined,
+      { mood: false },
+      { medications: false },
+      { workouts: false },
+      { mood: false, medications: false, workouts: false },
+    ];
+    for (const modules of cases) {
+      modulesRef.value = modules;
+      const html = renderSSR(
+        <DashboardHeader onQuickEntry={() => undefined} />,
+        "en",
+      );
+      const picker = visibleCaptureKinds(
+        { inSharedRecord: false, canWriteDomain: () => true },
+        CAPTURE_KIND_ORDER,
+        modules,
+      );
+      const label = {
+        measurement: "Log measurement",
+        medication: "Log medication intake",
+        mood: "Log mood",
+        workout: "Log workout",
+      } as const;
+      for (const kind of CAPTURE_KIND_ORDER) {
+        expect(
+          html.includes(label[kind]),
+          `${kind} ${JSON.stringify(modules)}`,
+        ).toBe(picker.includes(kind));
+      }
+    }
   });
 });

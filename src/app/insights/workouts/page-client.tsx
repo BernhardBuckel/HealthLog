@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Activity } from "lucide-react";
+import { Activity, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useTranslations } from "@/lib/i18n/context";
@@ -10,6 +10,11 @@ import { MetricEmptyState } from "@/components/insights/metric-empty-state";
 import { SubPageShell } from "@/components/insights/sub-page-shell";
 import { WorkoutList } from "@/components/insights/workout-list";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { ManualWorkoutSheet } from "@/components/workouts/manual-workout-sheet";
+import { useAuth } from "@/hooks/use-auth";
+import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
+import { canLogWorkout } from "@/lib/workouts/manual-entry";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
 
 /**
@@ -42,6 +47,10 @@ import { QueryErrorCard } from "@/components/ui/query-error-card";
 export default function InsightsWorkoutsPageClient() {
   const { t, tCount } = useTranslations();
   const [sportType, setSportType] = useState<string | undefined>(undefined);
+  const [logOpen, setLogOpen] = useState(false);
+  const { user } = useAuth();
+  const capabilities = useRecordCapabilities();
+  const showLog = canLogWorkout(capabilities, user?.modules);
   const {
     workouts,
     total,
@@ -80,7 +89,31 @@ export default function InsightsWorkoutsPageClient() {
       description={t("insights.workouts.description")}
       explainerMetric="workouts"
       coachLaunch
+      headerAction={
+        showLog ? (
+          // Same 40 px ghost icon and widened hit area as the header
+          // cluster's other actions; it opens the form in place.
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            data-slot="workout-log-manual"
+            aria-label={t("insights.workouts.manual.logWorkout")}
+            title={t("insights.workouts.manual.logWorkout")}
+            onClick={() => setLogOpen(true)}
+            className={cn(
+              "text-muted-foreground hover:text-foreground relative size-10",
+              "before:absolute before:-inset-1.5 before:content-['']",
+            )}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+          </Button>
+        ) : null
+      }
     >
+      {showLog ? (
+        <ManualWorkoutSheet open={logOpen} onOpenChange={setLogOpen} />
+      ) : null}
       {/* No `<MetricRangeControls>` here: workouts are session records, not a
           MeasurementType series, so the period-over-period range read has
           nothing to aggregate. */}
@@ -100,7 +133,13 @@ export default function InsightsWorkoutsPageClient() {
           icon={<Activity className="size-6" />}
           title={t("insights.workouts.emptyState.title")}
           description={t("insights.workouts.emptyState.description")}
-          cta={null}
+          cta={
+            showLog ? (
+              <Button size="sm" type="button" onClick={() => setLogOpen(true)}>
+                {t("insights.workouts.manual.logWorkout")}
+              </Button>
+            ) : null
+          }
           coachPrefill="I haven't logged any workouts yet — why does tracking them matter, and what should I focus on first?"
         />
       ) : (

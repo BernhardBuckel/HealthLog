@@ -11,7 +11,10 @@ import {
   GLUCOSE_CONTEXT_BUCKETS,
   type GlucoseContextBucket,
 } from "@/lib/glucose";
-import type { DashboardLayout } from "@/lib/dashboard-layout";
+import type {
+  DashboardLayout,
+  DashboardWidgetId,
+} from "@/lib/dashboard-layout";
 
 /**
  * v1.7.0 — first-paint gate for the dashboard tile strip.
@@ -49,7 +52,7 @@ export function resolveDashboardFirstPaintGate(input: {
  * path at all — counting any of them over-reserved the loading
  * silhouette and made the strip reshuffle when the data landed.
  */
-const TILE_CAPABLE_WIDGET_IDS = new Set<string>([
+export const TILE_CAPABLE_WIDGET_IDS = [
   "weight",
   "bp",
   "pulse",
@@ -72,7 +75,13 @@ const TILE_CAPABLE_WIDGET_IDS = new Set<string>([
   // v1.29 — fluid intake strip tile: paints one strip card and self-gates
   // on having a NUTRIENT_WATER sample.
   "waterIntake",
-]);
+] as const satisfies readonly DashboardWidgetId[];
+
+export type TileCapableWidgetId = (typeof TILE_CAPABLE_WIDGET_IDS)[number];
+
+const TILE_CAPABLE_WIDGET_ID_SET: ReadonlySet<string> = new Set(
+  TILE_CAPABLE_WIDGET_IDS,
+);
 
 /**
  * v1.16.8 — silhouette count for the tile-strip skeleton: one card per
@@ -85,7 +94,7 @@ const TILE_CAPABLE_WIDGET_IDS = new Set<string>([
 export function resolveConfiguredTileCount(layout: DashboardLayout): number {
   let count = 0;
   for (const widget of layout.widgets) {
-    if (!TILE_CAPABLE_WIDGET_IDS.has(widget.id)) continue;
+    if (!TILE_CAPABLE_WIDGET_ID_SET.has(widget.id)) continue;
     if (!(widget.tileVisible ?? widget.visible)) continue;
     count += widget.id === "bp" ? 2 : 1;
   }

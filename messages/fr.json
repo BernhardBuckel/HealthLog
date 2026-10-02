@@ -403,7 +403,9 @@
       "medication": "Médicament",
       "medicationDescription": "Marquer une dose comme prise",
       "mood": "Humeur",
-      "moodDescription": "Enregistrez votre humeur et des étiquettes"
+      "moodDescription": "Enregistrez votre humeur et des étiquettes",
+      "workout": "Entraînement",
+      "workoutDescription": "Une séance que vos appareils n’ont pas enregistrée"
     },
     "cycle": "Cycle",
     "labs": "Analyses",
@@ -520,6 +522,7 @@
     "quickAddMeasurement": "Saisir une mesure",
     "quickAddMood": "Saisir une humeur",
     "quickAddMedicationIntake": "Saisir une prise",
+    "quickAddWorkout": "Saisir un entraînement",
     "customizeDashboard": "Personnaliser le tableau de bord",
     "medicationIntakeQuickAdd": {
       "sheetTitle": "Saisir une prise de médicament",
@@ -3157,6 +3160,7 @@
         "boneMassBody": "La masse osseuse est le poids estimé des minéraux de votre squelette. Les estimations sur balance sont approximatives, mais une tendance stable ou en hausse soutient la solidité osseuse à long terme.",
         "fatFreeMassBody": "La masse non grasse est tout ce qui, dans votre corps, n'est pas de la graisse : muscle, os, organes et eau. La maintenir ou la développer tout en perdant du poids signale en général une composition corporelle plus saine.",
         "fatMassBody": "La masse grasse est le poids total de la graisse de votre corps. Une part de graisse est indispensable aux hormones et au stockage d'énergie, mais un excès — surtout au niveau de l'abdomen — augmente le risque pour la santé à long terme (WHO 2024).",
+        "bodyFatBody": "Le taux de masse grasse est la part de votre poids constituée de graisse. Les plages saines dépendent du sexe et de l'âge, et les balances l'estiment par bio-impédance : la tendance sur plusieurs semaines en dit plus qu'une mesure isolée.",
         "muscleMassBody": "La masse musculaire est le poids estimé des muscles de votre corps. Plus de muscle soutient la force, le métabolisme et la mobilité, et demande généralement un effort actif pour être préservé avec l'âge.",
         "visceralFatBody": "La graisse viscérale est la graisse stockée au plus profond de l'abdomen, autour des organes. Contrairement à la graisse sous la peau, un niveau élevé est étroitement lié aux maladies cardiaques et au diabète de type 2 : plus elle est basse, mieux c'est.",
         "leanBodyMassBody": "La masse maigre est votre poids total moins la graisse corporelle : muscle, os, organes et eau réunis. La suivre en parallèle du poids montre si les variations viennent du muscle ou de la graisse.",
@@ -3358,7 +3362,7 @@
       "description": "Courses, sorties à vélo, marches et séances de musculation récentes, dédupliquées entre Apple Watch et Withings.",
       "emptyState": {
         "title": "Aucun entraînement",
-        "description": "Ouvre l'app Apple Santé sur ton iPhone pour synchroniser tes entraînements. L'import d'activité Withings alimente également la marche et le vélo."
+        "description": "Tes entraînements arrivent d'Apple Santé sur l'iPhone et de Withings. Tu peux aussi en saisir un à la main."
       },
       "detail": {
         "backToList": "Retour aux entraînements",
@@ -3436,7 +3440,35 @@
       "countFew": "{count} séances",
       "filterLabel": "Filtrer par sport",
       "filterAll": "Tous les sports",
-      "filterEmpty": "Aucune séance de ce sport dans votre historique."
+      "filterEmpty": "Aucune séance de ce sport dans votre historique.",
+      "manual": {
+        "logWorkout": "Saisir un entraînement",
+        "sheetTitle": "Saisir un entraînement",
+        "sheetDescription": "Saisissez une séance à la main : ce que vous avez fait, quand et combien de temps.",
+        "sportLabel": "Activité",
+        "sportPlaceholder": "Choisir une activité",
+        "startLabel": "Début",
+        "durationLabel": "Durée",
+        "distanceLabel": "Distance ({unit})",
+        "energyLabel": "Énergie active (kcal)",
+        "alreadySaved": "Cet entraînement est déjà enregistré",
+        "saveError": "L’entraînement n’a pas pu être enregistré",
+        "deleteLabel": "Supprimer l’entraînement",
+        "deleteConfirmTitle": "Supprimer cet entraînement ?",
+        "deleteConfirmDescription": "Cet entraînement saisi à la main sera supprimé définitivement.",
+        "deleted": "Entraînement supprimé",
+        "deleteError": "L’entraînement n’a pas pu être supprimé",
+        "errors": {
+          "sportRequired": "Choisissez une activité.",
+          "startRequired": "Saisissez une date et une heure.",
+          "startInFuture": "Le début ne peut pas être dans le futur.",
+          "durationRequired": "Indiquez la durée de l’entraînement.",
+          "durationInvalid": "Saisissez des heures entières et des minutes de 0 à 59.",
+          "durationTooLong": "Un entraînement dure au maximum 24 heures.",
+          "distanceInvalid": "Saisissez la distance sous forme de nombre, dans une plage réaliste.",
+          "energyInvalid": "Saisissez l’énergie active sous forme de nombre, jusqu’à 20 000 kcal."
+        }
+      }
     },
     "bloodGlucose": {
       "title": "Glycémie",
@@ -3575,7 +3607,18 @@
         "description": "Les relevés apparaissent ici dès qu’une balance à impédance se synchronise."
       }
     },
+    "bodyFat": {
+      "title": "Taux de masse grasse",
+      "description": "Votre taux de masse grasse au fil du temps.",
+      "chartTitle": "Taux de masse grasse",
+      "emptyState": {
+        "title": "Aucune donnée de taux de masse grasse",
+        "description": "Les relevés apparaissent ici dès qu'une balance à impédance se synchronise ou que vous en saisissez un à la main.",
+        "cta": "Enregistrer le taux de masse grasse"
+      }
+    },
     "navFatMass": "Masse grasse",
+    "navBodyFat": "Taux de masse grasse",
     "muscleMass": {
       "title": "Masse musculaire",
       "description": "Votre masse musculaire au fil du temps, en kilogrammes.",

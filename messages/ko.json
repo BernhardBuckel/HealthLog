@@ -403,7 +403,9 @@
       "medication": "약",
       "medicationDescription": "복용으로 표시하기",
       "mood": "기분",
-      "moodDescription": "기분과 태그 기록하기"
+      "moodDescription": "기분과 태그 기록하기",
+      "workout": "운동",
+      "workoutDescription": "기기가 기록하지 못한 운동"
     },
     "cycle": "생리 주기",
     "labs": "검사",
@@ -520,6 +522,7 @@
     "quickAddMeasurement": "측정 기록",
     "quickAddMood": "기분 기록",
     "quickAddMedicationIntake": "복용 기록",
+    "quickAddWorkout": "운동 기록",
     "customizeDashboard": "대시보드 맞춤 설정",
     "medicationIntakeQuickAdd": {
       "sheetTitle": "복용 기록",
@@ -3157,6 +3160,7 @@
         "boneMassBody": "골량은 뼈에 들어 있는 무기질의 추정 무게예요. 체중계 기반 추정은 대략적이지만, 유지되거나 올라가는 추이는 장기적인 뼈 건강에 도움이 돼요.",
         "fatFreeMassBody": "제지방량은 몸에서 지방이 아닌 전부 — 근육·뼈·장기·수분이에요. 체중을 줄이면서도 이걸 유지하거나 늘리면 대체로 더 건강한 체성분을 뜻해요.",
         "fatMassBody": "체지방량은 몸속 지방의 총 무게예요. 지방은 호르몬과 에너지 저장에 어느 정도 꼭 필요하지만, 특히 복부에 너무 많으면 장기적인 건강 위험이 올라가요(WHO 2024).",
+        "bodyFatBody": "체지방률은 체중 중 지방이 차지하는 비율이에요. 건강한 범위는 성별과 나이에 따라 다르고, 체중계는 생체 전기 임피던스로 추정하므로 한 번의 측정값보다 몇 주간의 추이가 더 많은 걸 알려줘요.",
         "muscleMassBody": "근육량은 몸속 근육의 추정 무게예요. 근육이 많을수록 근력·대사·활동성에 도움이 되고, 나이가 들수록 유지하려면 적극적인 노력이 필요해요.",
         "visceralFatBody": "내장지방은 복부 깊숙이 장기 주변에 쌓이는 지방이에요. 피부 밑 지방과 달리 수치가 높으면 심장병과 2형 당뇨병에 밀접하게 연결되니 대체로 낮을수록 좋아요.",
         "leanBodyMassBody": "제지방 체중은 전체 체중에서 체지방을 뺀 값 — 근육·뼈·장기·수분을 합친 거예요. 체중과 함께 보면 변화가 근육에서 왔는지 지방에서 왔는지 알 수 있어요.",
@@ -3358,7 +3362,7 @@
       "description": "최근 달리기, 자전거, 걷기, 근력 운동 세션이에요. Apple Watch와 Withings 소스 사이 중복은 정리했어요.",
       "emptyState": {
         "title": "아직 운동 기록이 없어요",
-        "description": "iPhone에서 Apple Health 앱을 열면 운동이 여기로 동기화돼요. Withings 활동 불러오기로 걷기와 자전거 세션도 계속 들어와요."
+        "description": "운동은 iPhone의 Apple Health와 Withings에서 동기화돼요. 직접 기록할 수도 있어요."
       },
       "detail": {
         "backToList": "운동으로 돌아가기",
@@ -3436,7 +3440,35 @@
       "countFew": "운동 {count}개",
       "filterLabel": "종목별 필터",
       "filterAll": "전체 종목",
-      "filterEmpty": "기록에 이 종목의 세션이 없어요."
+      "filterEmpty": "기록에 이 종목의 세션이 없어요.",
+      "manual": {
+        "logWorkout": "운동 기록",
+        "sheetTitle": "운동 기록",
+        "sheetDescription": "무엇을, 언제, 얼마나 했는지 직접 입력하세요.",
+        "sportLabel": "활동",
+        "sportPlaceholder": "활동 선택",
+        "startLabel": "시작",
+        "durationLabel": "시간",
+        "distanceLabel": "거리({unit})",
+        "energyLabel": "활동 에너지(kcal)",
+        "alreadySaved": "이미 저장된 운동입니다",
+        "saveError": "운동을 저장하지 못했습니다",
+        "deleteLabel": "운동 삭제",
+        "deleteConfirmTitle": "이 운동을 삭제할까요?",
+        "deleteConfirmDescription": "직접 입력한 이 운동이 영구적으로 삭제됩니다.",
+        "deleted": "운동을 삭제했습니다",
+        "deleteError": "운동을 삭제하지 못했습니다",
+        "errors": {
+          "sportRequired": "활동을 선택하세요.",
+          "startRequired": "날짜와 시간을 입력하세요.",
+          "startInFuture": "시작 시간은 미래일 수 없습니다.",
+          "durationRequired": "운동한 시간을 입력하세요.",
+          "durationInvalid": "시간은 정수로, 분은 0에서 59 사이로 입력하세요.",
+          "durationTooLong": "운동은 최대 24시간까지 입력할 수 있습니다.",
+          "distanceInvalid": "거리를 현실적인 범위의 숫자로 입력하세요.",
+          "energyInvalid": "활동 에너지는 20,000kcal 이하의 숫자로 입력하세요."
+        }
+      }
     },
     "bloodGlucose": {
       "title": "혈당",
@@ -3575,7 +3607,18 @@
         "description": "연결된 체성분 체중계가 동기화되면 체지방량 측정값이 여기에 나타나요."
       }
     },
+    "bodyFat": {
+      "title": "체지방률",
+      "description": "시간에 따른 체지방률이에요.",
+      "chartTitle": "체지방률",
+      "emptyState": {
+        "title": "아직 체지방률 데이터가 없어요",
+        "description": "체성분 체중계가 동기화되거나 직접 기록하면 체지방률 측정값이 여기에 나타나요.",
+        "cta": "체지방률 기록"
+      }
+    },
     "navFatMass": "체지방량",
+    "navBodyFat": "체지방률",
     "muscleMass": {
       "title": "근육량",
       "description": "시간에 따른 근육량이에요(kg).",

@@ -4661,6 +4661,42 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "422": *a4
         "429": *a5
+    delete:
+      tags:
+        - Measurements
+      summary: Delete a workout entered by hand
+      description: "Removes a `MANUAL` workout outright, with its child rows, and any personal record that workout set; a
+        silent detection pass then re-derives the previous best. A workout from any other source answers 409
+        (`workout.delete.synced_source`), because the next sync would write it back. Own record only: a cookie session
+        or a wildcard token. Another user's row answers 404."
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteWorkoutResponse"
+        "401": *a1
+        "404":
+          description: Workout not found (or owned by another user).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The workout was synced from a device or service, not entered by hand.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
   /api/workouts/batch:
     post:
       tags:
@@ -25902,7 +25938,7 @@ components:
               - order
         tiles:
           minItems: 1
-          maxItems: 62
+          maxItems: 63
           type: array
           items:
             type: object
@@ -25919,6 +25955,7 @@ components:
                   - pain
                   - weight
                   - bmi
+                  - body-fat
                   - body-water
                   - bone-mass
                   - fat-free-mass
@@ -31264,7 +31301,7 @@ components:
                 additionalProperties: false
             tiles:
               minItems: 1
-              maxItems: 62
+              maxItems: 63
               type: array
               items:
                 type: object
@@ -31281,6 +31318,7 @@ components:
                       - pain
                       - weight
                       - bmi
+                      - body-fat
                       - body-water
                       - bone-mass
                       - fat-free-mass
@@ -31762,12 +31800,13 @@ components:
                 vaccination.encounter-not-found, vaccination.identity-required, vaccination.invalid,
                 vaccination.link.invalid, vaccination.not-found, vaccination.practitioner-not-found; workout —
                 workout.batch.invalid, workout.batch.payload_too_large, workout.batch.source_not_permitted,
-                workout.batch.too_large; (unprefixed) — about_me_conflict, ai_response_truncated, coach_prefs_conflict,
-                dashboard_layout_conflict, empty_file, health_score_config_conflict, insights_layout_conflict,
-                invalid_base_updated_at, json_carries_no_intake_time, json_not_an_array, medication_layout_conflict,
-                missing_required_columns, modules_conflict, mood_tag_layout_conflict, not_configured,
-                notification_prefs_conflict, oidc_only, private_origin_not_approved, private_origin_not_grantable,
-                rate_limited_self, too_many_rows, unreadable_json, upstream_invalid_json, vapid_not_configured"
+                workout.batch.too_large, workout.delete.synced_source; (unprefixed) — about_me_conflict,
+                ai_response_truncated, coach_prefs_conflict, dashboard_layout_conflict, empty_file,
+                health_score_config_conflict, insights_layout_conflict, invalid_base_updated_at,
+                json_carries_no_intake_time, json_not_an_array, medication_layout_conflict, missing_required_columns,
+                modules_conflict, mood_tag_layout_conflict, not_configured, notification_prefs_conflict, oidc_only,
+                private_origin_not_approved, private_origin_not_grantable, rate_limited_self, too_many_rows,
+                unreadable_json, upstream_invalid_json, vapid_not_configured"
               type: string
             capability:
               description: "On an AI refusal: the capability that is unavailable, one of the keys of `AiCapabilities` (`coach`,
@@ -43051,6 +43090,30 @@ components:
       description: "One AI capability, resolved for one record from every layer that can say no. Render from it; never
         recompute it. Data never depends on it: measurements, scores, statistics and device records load whatever it
         says."
+    DeleteWorkoutResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            deleted:
+              type: boolean
+              const: true
+          required:
+            - deleted
+          additionalProperties: false
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
     BatchWorkoutsResponse:
       type: object
       properties:
@@ -51976,7 +52039,7 @@ components:
             additionalProperties: false
         tiles:
           minItems: 1
-          maxItems: 62
+          maxItems: 63
           type: array
           items:
             type: object
@@ -51993,6 +52056,7 @@ components:
                   - pain
                   - weight
                   - bmi
+                  - body-fat
                   - body-water
                   - bone-mass
                   - fat-free-mass

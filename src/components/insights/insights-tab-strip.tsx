@@ -233,6 +233,7 @@ export const SUB_PAGE_TABS: Record<
   // ── body composition ──
   weight: { labelKey: "insights.navWeight", metric: "WEIGHT" },
   bmi: { labelKey: "insights.navBmi", metric: "BMI" },
+  "body-fat": { labelKey: "insights.navBodyFat", metric: "BODY_FAT" },
   "body-water": {
     labelKey: "insights.navTotalBodyWater",
     metric: "TOTAL_BODY_WATER",
