@@ -44,6 +44,10 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 
 import { DashboardHeader } from "../dashboard-header";
+import {
+  CAPTURE_KIND_ORDER,
+  visibleCaptureKinds,
+} from "@/components/layout/capture-picker";
 
 function renderSSR(node: React.ReactElement, locale: "en" | "de" = "de") {
   return renderToStaticMarkup(
@@ -115,5 +119,64 @@ describe("<DashboardHeader> — Log workout", () => {
     );
     expect(html).not.toContain("Log workout");
     expect(html).toContain("Log measurement");
+  });
+});
+
+describe("<DashboardHeader> — every entry follows its module, as the capture picker does", () => {
+  beforeEach(() => {
+    modulesRef.value = undefined;
+  });
+
+  it("withholds Log mood when the mood module is off", () => {
+    modulesRef.value = { mood: false };
+    const html = renderSSR(
+      <DashboardHeader onQuickEntry={() => undefined} />,
+      "en",
+    );
+    expect(html).not.toContain("Log mood");
+    expect(html).toContain("Log medication intake");
+  });
+
+  it("withholds Log medication intake when the medications module is off", () => {
+    modulesRef.value = { medications: false };
+    const html = renderSSR(
+      <DashboardHeader onQuickEntry={() => undefined} />,
+      "en",
+    );
+    expect(html).not.toContain("Log medication intake");
+    expect(html).toContain("Log mood");
+  });
+
+  it("offers exactly what the capture picker offers for the same modules", () => {
+    for (const modules of [
+      undefined,
+      { mood: false },
+      { medications: false },
+      { workouts: false },
+      { mood: false, medications: false, workouts: false },
+    ]) {
+      modulesRef.value = modules;
+      const html = renderSSR(
+        <DashboardHeader onQuickEntry={() => undefined} />,
+        "en",
+      );
+      const picker = visibleCaptureKinds(
+        { inSharedRecord: false, canWriteDomain: () => true },
+        CAPTURE_KIND_ORDER,
+        modules,
+      );
+      const label = {
+        measurement: "Log measurement",
+        medication: "Log medication intake",
+        mood: "Log mood",
+        workout: "Log workout",
+      } as const;
+      for (const kind of CAPTURE_KIND_ORDER) {
+        expect(
+          html.includes(label[kind]),
+          `${kind} ${JSON.stringify(modules)}`,
+        ).toBe(picker.includes(kind));
+      }
+    }
   });
 });

@@ -95,8 +95,9 @@ const ERR = "insights.workouts.manual.errors";
  * the `capture:workout` surface; an absent module map (the account still
  * loading) offers it, the gate's default-on contract.
  *
- * The dashboard add menu, the capture picker and the workouts page all ask
- * this one question.
+ * The workouts page asks this; the dashboard add menu and the capture picker
+ * ask `visibleCaptureKinds`, which applies the same two terms to the
+ * `workout` kind.
  */
 export function canLogWorkout(
   caps: { inSharedRecord: boolean },
