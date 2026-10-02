@@ -21,3 +21,13 @@ CVE-2026-33671
 # never reachable at runtime. Re-check when the Node base image ships an npm
 # build whose bundled sigstore is >= 4.1.1, then drop this entry.
 CVE-2026-48815
+
+# CVE-2026-85393 (node-forge RSA PKCS#1 v1.5 signature forgery, HIGH; GitHub
+# advisory GHSA-86w9-cpqp-85rv) — node-forge <= 1.4.0 arrives only through
+# @parse/node-apn, which uses it in its certificate-based credential path
+# (credentials/certificate/*: p12 / PEM certificate). HealthLog authenticates
+# to APNs with a token (.p8 key via APNS_KEY_ID / APNS_TEAM_ID), so that code
+# never runs. No fixed release is published (latest is 1.4.0). Remove this
+# entry, the matching `auditConfig.ignoreGhsas` entry in pnpm-workspace.yaml,
+# and raise the floor once node-forge 1.4.1 is out.
+CVE-2026-85393

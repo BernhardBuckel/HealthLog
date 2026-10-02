@@ -428,14 +428,23 @@ test.describe("lab-scan review dialog uses the width it is given", () => {
       await expect(rows).toHaveCount(REVIEW_ROWS.length);
 
       const label = `scan review @${vp.label}`;
-      // The sheet widens from the picking stage to the review stage and the
-      // row grid re-flows from the container width it is given. Measuring in
-      // the middle of that sees a half-laid-out row, so wait until the
-      // surface has kept the same width across two frames.
+      // The sheet widens from the picking stage to the review stage, and on a
+      // phone or small tablet it also slides up from the bottom. Measuring
+      // while either runs compares fields from different frames (the width
+      // settles before the slide ends, so waiting on width alone was not
+      // enough). Wait for every running animation and transition to finish,
+      // then for the surface to hold still across two frames.
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .map((animation) => animation.finished.catch(() => undefined)),
+        ),
+      );
       await expect
         .poll(
           async () => {
-            const before = (await surface.boundingBox())!.width;
+            const before = (await surface.boundingBox())!;
             await page.evaluate(
               () =>
                 new Promise<void>((resolve) =>
@@ -444,10 +453,13 @@ test.describe("lab-scan review dialog uses the width it is given", () => {
                   ),
                 ),
             );
-            const after = (await surface.boundingBox())!.width;
-            return Math.abs(after - before);
+            const after = (await surface.boundingBox())!;
+            return (
+              Math.abs(after.width - before.width) +
+              Math.abs(after.y - before.y)
+            );
           },
-          { message: `${label}: dialog width settles` },
+          { message: `${label}: dialog settles` },
         )
         .toBeLessThan(0.5);
       await expectNoSidewaysScroll(page, label);
@@ -470,20 +482,24 @@ test.describe("lab-scan review dialog uses the width it is given", () => {
 
       // Value, unit and date share a line when the fields have room for three
       // columns, and the date wraps under them when they do not.
+      // "Beside" means the same grid row: to the right of the value and
+      // starting above the value's bottom edge. Comparing the tops alone was
+      // too strict, because a field label that wraps onto a second line (it
+      // depends on the runner's font metrics) moves that field's input down
+      // by one line while it stays in the same row.
+      const besideValue = (field: { x: number; y: number }, name: string) => {
+        expect(field.x, `${label}: ${name} right of value`).toBeGreaterThan(
+          value.x,
+        );
+        expect(field.y, `${label}: ${name} in the value's row`).toBeLessThan(
+          value.y + value.height,
+        );
+      };
       if (vp.threeAcross) {
-        expect(
-          Math.abs(unit.y - value.y),
-          `${label}: unit beside value`,
-        ).toBeLessThan(8);
-        expect(
-          Math.abs(date.y - value.y),
-          `${label}: date beside value`,
-        ).toBeLessThan(8);
+        besideValue(unit, "unit");
+        besideValue(date, "date");
       } else {
-        expect(
-          Math.abs(unit.y - value.y),
-          `${label}: unit beside value`,
-        ).toBeLessThan(8);
+        besideValue(unit, "unit");
         expect(date.y, `${label}: date wraps`).toBeGreaterThan(
           value.y + value.height - 1,
         );
