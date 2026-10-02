@@ -148,13 +148,14 @@ describe("<DashboardHeader> — every entry follows its module, as the capture p
   });
 
   it("offers exactly what the capture picker offers for the same modules", () => {
-    for (const modules of [
+    const cases: Array<Record<string, boolean> | undefined> = [
       undefined,
       { mood: false },
       { medications: false },
       { workouts: false },
       { mood: false, medications: false, workouts: false },
-    ]) {
+    ];
+    for (const modules of cases) {
       modulesRef.value = modules;
       const html = renderSSR(
         <DashboardHeader onQuickEntry={() => undefined} />,
