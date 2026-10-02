@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.39.9] — 2026-10-03
+
+Workouts can be logged by hand, the body fat tile opens its own page, and
+every AI call honours the response-timeout setting.
+
+### Added
+
+- **Manual workouts (#1085).** A short form (sport, start, duration, optional
+  distance and energy) from the dashboard "+ Add" menu, the capture picker and
+  the workouts page, saved through `POST /api/workouts/batch` with
+  `source: "MANUAL"` and a per-form `externalId`. New
+  `DELETE /api/workouts/{id}` for manual workouts only (409
+  `workout.delete.synced_source` for synced ones).
+- **Body fat page (#1084).** `/insights/body-fat`; insights layout id
+  `body-fat`. Tile destinations live in one table gated on the module surface
+  map.
+- **Wide lab scan review (#1059).** The review stage uses a 72 rem dialog on
+  large screens, with a container-query row layout.
+
+### Fixed
+
+- **AI response timeout (#1090).** Document reading, summaries, extraction,
+  lab OCR, filing suggestions, medication extraction, the About-me questions,
+  the document chat and the provider test run under the user's setting
+  instead of a fixed 60 s; browser aborts derive from
+  `ai.provider.responseTimeoutMs` on `/api/auth/me`. The lab OCR text mode no
+  longer hits the 15 s client default. The settings placeholder shows the
+  real defaults.
+- **Dashboard "+ Add" menu.** Mood and medication intake follow their
+  modules, like the capture picker.
+
+### Checks
+
+- Tile destination guard, AI call timeout guard, menu and picker parity.
+- node-forge advisory GHSA-86w9-cpqp-85rv ignored until a patched release
+  exists; only the unused APNs certificate path depends on it.
+
 ## [1.39.8] — 2026-10-02
 
 New ECGs from the iPhone get through, a resting heart rate can be logged by
