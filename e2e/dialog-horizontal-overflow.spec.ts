@@ -428,6 +428,28 @@ test.describe("lab-scan review dialog uses the width it is given", () => {
       await expect(rows).toHaveCount(REVIEW_ROWS.length);
 
       const label = `scan review @${vp.label}`;
+      // The sheet widens from the picking stage to the review stage and the
+      // row grid re-flows from the container width it is given. Measuring in
+      // the middle of that sees a half-laid-out row, so wait until the
+      // surface has kept the same width across two frames.
+      await expect
+        .poll(
+          async () => {
+            const before = (await surface.boundingBox())!.width;
+            await page.evaluate(
+              () =>
+                new Promise<void>((resolve) =>
+                  requestAnimationFrame(() =>
+                    requestAnimationFrame(() => resolve()),
+                  ),
+                ),
+            );
+            const after = (await surface.boundingBox())!.width;
+            return Math.abs(after - before);
+          },
+          { message: `${label}: dialog width settles` },
+        )
+        .toBeLessThan(0.5);
       await expectNoSidewaysScroll(page, label);
       await expectControlsInsideBox(page, label);
 
