@@ -18,6 +18,7 @@ const baseRow: OcrReviewRow = {
   takenAt: null,
   confidence: { analyte: 1, value: 1, unit: 1, range: 1 },
   biomarkerMatch: "existing",
+  markerUnit: "mmol/L",
   duplicateOf: null,
   confirmed: true,
 };
@@ -113,5 +114,44 @@ describe("<OcrRowEditor> layout", () => {
     for (const id of ["-val", "-unit", "-date", "-lo", "-hi", "-refText"]) {
       expect(html, `field ${id}`).toContain(`${id}"`);
     }
+  });
+});
+
+describe("<OcrRowEditor> unit differs from the marker's", () => {
+  const mismatched: OcrReviewRow = {
+    ...baseRow,
+    takenAt: "2026-06-10",
+    unit: "mg/dL",
+    markerUnit: "mmol/L",
+  };
+
+  it("says so before any save attempt, in calm wording", () => {
+    const html = render(undefined, "en", mismatched);
+    expect(html).toContain("Tracked in mmol/L; this report says mg/dL");
+    expect(html).not.toContain('aria-invalid="true"');
+    expect(html).not.toContain('role="alert"');
+  });
+
+  it("marks the unit field and names the marker's unit once a save was refused", () => {
+    const html = render({ unitMismatch: true }, "en", mismatched);
+    const invalid = html.match(/<input[^>]*aria-invalid="true"[^>]*>/g) ?? [];
+    expect(invalid).toHaveLength(1);
+    expect(invalid[0]).toMatch(/id="[^"]*-unit"/);
+    expect(html).toContain("This marker is tracked in mmol/L.");
+  });
+
+  it("shows nothing when the units agree, however they are spelled", () => {
+    const html = render(undefined, "en", { ...mismatched, unit: "mmol/l" });
+    expect(html).not.toContain("Tracked in");
+  });
+
+  it("shows nothing for a new marker, which adopts the row's unit", () => {
+    const html = render(undefined, "en", { ...mismatched, markerUnit: null });
+    expect(html).not.toContain("Tracked in");
+  });
+
+  it("speaks German too", () => {
+    const html = render(undefined, "de", mismatched);
+    expect(html).toContain("Geführt in mmol/L; dieser Befund nennt mg/dL");
   });
 });

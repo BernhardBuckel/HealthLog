@@ -14064,7 +14064,16 @@ paths:
         "401": *a1
         "403": *a10
         "409": *a7
-        "422": *a4
+        "422":
+          description: Nothing was written. `meta.errorCode` = `labs.create.invalid` when the body failed validation (every issue
+            under `details.issues`), or `labs.unit.mismatch` when a numeric reading states a `unit` other than the one
+            its marker is tracked in (`meta.markerUnit`, `meta.readingUnit`). A unit is compared only when one is sent;
+            with a `biomarkerId` it may be omitted and the marker's unit is then the stated one. Spelling is forgiven
+            (`mmol/l`, `ug/L` for `µg/L`); a different unit is refused, never relabelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "429": *a11
   /api/labs/{id}:
     get:
@@ -14265,9 +14274,9 @@ paths:
         - Labs
       summary: Commit confirmed Lab-OCR rows
       description: 'Writes ONLY the rows the human confirmed on the review screen. Each row resolves-or-mints a user-scoped
-        biomarker and creates a `LabResult` with `source: "OCR"`; a row that duplicates a live reading is skipped.
-        Idempotent (Idempotency-Key). Audits as `labs.ocr.commit`. `userId` is narrowed from the session, never a body
-        field.'
+        biomarker and creates a `LabResult` with `source: "OCR"`; a row that duplicates a live reading, or states a unit
+        other than that of its marker, is skipped (`skipped[].reason`). Idempotent (Idempotency-Key). Audits as
+        `labs.ocr.commit`. `userId` is narrowed from the session, never a body field.'
       parameters:
         - *a6
       requestBody:
@@ -31762,15 +31771,16 @@ components:
                 labs.biomarker.notFound, labs.biomarker.update.invalid, labs.biomarker.update.referenceRangeInvalid,
                 labs.create.invalid, labs.ocr.budgetExceeded, labs.ocr.extractFailed, labs.ocr.fileTooLarge,
                 labs.ocr.fileType, labs.ocr.localOcrDisabled, labs.ocr.pdfNeedsAnthropic, labs.ocr.providerUnsupported,
-                labs.ocr.rateLimited, labs.restore.invalid, labs.result.notFound, labs.update.invalid,
-                labs.update.linkedFieldsImmutable, labs.update.numericExpected, labs.update.qualitativeExpected,
-                labs.update.referenceRangeInvalid, labs.update.sourceReferenceRangeInvalid; managed_profile —
-                managed_profile.guardian.duplicate, managed_profile.guardian.managed_invitee,
-                managed_profile.guardian.required, managed_profile.not_found; measurement — measurement.batch.invalid,
-                measurement.batch.source_not_permitted, measurement.batch.too_large, measurement.bulk-delete.invalid,
-                measurement.create.invalid, measurement.create.source_not_permitted, measurement.delete.too_large,
-                measurement.duplicate_timestamp, measurement.restore.invalid, measurement.update.server_owned_source;
-                medication — medication.intake.import.invalid_format; medications —
+                labs.ocr.rateLimited, labs.restore.invalid, labs.result.notFound, labs.unit.mismatch,
+                labs.update.invalid, labs.update.linkedFieldsImmutable, labs.update.numericExpected,
+                labs.update.qualitativeExpected, labs.update.referenceRangeInvalid,
+                labs.update.sourceReferenceRangeInvalid; managed_profile — managed_profile.guardian.duplicate,
+                managed_profile.guardian.managed_invitee, managed_profile.guardian.required, managed_profile.not_found;
+                measurement — measurement.batch.invalid, measurement.batch.source_not_permitted,
+                measurement.batch.too_large, measurement.bulk-delete.invalid, measurement.create.invalid,
+                measurement.create.source_not_permitted, measurement.delete.too_large, measurement.duplicate_timestamp,
+                measurement.restore.invalid, measurement.update.server_owned_source; medication —
+                medication.intake.import.invalid_format; medications —
                 medications.intake.bulk.apple_health_not_mirrored, medications.intake.bulk.invalid,
                 medications.intake.bulk.too_large, medications.intake.force_slot.invalid,
                 medications.intake.force_slot.occupied, medications.intake.injection_site.disallowed,
@@ -63380,6 +63390,13 @@ components:
           enum:
             - new
             - existing
+        markerUnit:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: "The unit the matched marker is tracked in, or null when the marker does not exist yet (it will adopt this
+            row's unit). A row whose `unit` differs from it cannot be committed: the commit skips it with `reason:
+            unit_mismatch`, and the review screen marks it before Save."
         duplicateOf:
           anyOf:
             - type: string
@@ -63395,6 +63412,7 @@ components:
         - takenAt
         - confidence
         - biomarkerMatch
+        - markerUnit
         - duplicateOf
       additionalProperties: false
       description: "One proposed reading transcribed from the upload. UNTRUSTED model output annotated server-side:
@@ -63435,7 +63453,11 @@ components:
                 type: string
               reason:
                 type: string
-                const: duplicate
+                enum:
+                  - duplicate
+                  - unit_mismatch
+                description: "`duplicate`: the row matched a live reading at commit time. `unit_mismatch`: the row states a unit other
+                  than the one its marker is tracked in, so it was not written."
             required:
               - analyte
               - reason
@@ -63455,7 +63477,8 @@ components:
         - skipped
         - outcome
       additionalProperties: false
-      description: 'The rows written (`source: "OCR"`), those skipped as commit-time duplicates, and the resolved outcome.'
+      description: 'The rows written (`source: "OCR"`), those skipped (commit-time duplicates, or a unit that differs from
+        that of the marker), and the resolved outcome.'
     OcrCommittedLabResult:
       type: object
       properties:

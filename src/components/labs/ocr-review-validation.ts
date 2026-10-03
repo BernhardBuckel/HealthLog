@@ -7,10 +7,13 @@
  * build the payload: it returns null exactly when `validateReviewRow` reports
  * at least one field.
  */
+import { sameLabUnit } from "@/lib/labs/unit-normalise";
+
 import type { OcrReviewRow } from "./ocr-review-types";
 import type { OcrCommitRowInput } from "./use-ocr-extract";
 
-export type OcrRowField = "analyte" | "value" | "valueText" | "unit" | "date";
+export type OcrRowField =
+  "analyte" | "value" | "valueText" | "unit" | "unitMismatch" | "date";
 
 /** The fields of one row that block saving; empty when the row is writable. */
 export type OcrRowErrors = Partial<Record<OcrRowField, true>>;
@@ -26,6 +29,23 @@ function isQualitativeRow(row: OcrReviewRow): boolean {
   return row.valueText !== null && row.valueText !== undefined;
 }
 
+/**
+ * Whether a numeric reading states a unit other than the one its marker is
+ * tracked in. A qualitative reading has no unit, a new marker adopts the row's
+ * own, and a row with no unit yet is a different problem (`unit`), so none of
+ * those count. The same rule the commit applies when it skips such a row.
+ */
+export function readingUnitDiffers(row: {
+  valueText: string | null | undefined;
+  unit: string | null | undefined;
+  markerUnit: string | null | undefined;
+}): boolean {
+  if (row.valueText !== null && row.valueText !== undefined) return false;
+  const stated = (row.unit ?? "").trim();
+  if (!row.markerUnit || !stated) return false;
+  return !sameLabUnit(stated, row.markerUnit);
+}
+
 export function validateReviewRow(row: OcrReviewRow): OcrRowErrors {
   const errors: OcrRowErrors = {};
   if (!row.analyte.trim()) errors.analyte = true;
@@ -36,6 +56,7 @@ export function validateReviewRow(row: OcrReviewRow): OcrRowErrors {
   } else {
     if (row.value === null || !Number.isFinite(row.value)) errors.value = true;
     if (!(row.unit ?? "").trim()) errors.unit = true;
+    if (readingUnitDiffers(row)) errors.unitMismatch = true;
   }
   return errors;
 }
@@ -59,6 +80,7 @@ export function toCommitRow(row: OcrReviewRow): OcrCommitRowInput | null {
   if (row.value === null || !Number.isFinite(row.value)) return null;
   const unit = (row.unit ?? "").trim();
   if (!unit) return null;
+  if (readingUnitDiffers(row)) return null;
   return {
     analyte,
     value: row.value,
