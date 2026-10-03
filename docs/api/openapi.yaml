@@ -21908,6 +21908,276 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "502": *a59
+  /api/symptoms/definitions:
+    get:
+      tags:
+        - Symptoms
+      summary: List your own symptoms (v1.40)
+      description: The record's active symptom definitions with their 30-day summary; `includeHidden=true` adds the hidden
+        ones. Rides the illness module.
+      parameters:
+        - in: query
+          name: includeHidden
+          schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+      responses:
+        "200":
+          description: The definitions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListSymptomDefinitionsEnvelope"
+        "401": *a1
+        "403": &a61
+          description: >-
+            `illness.disabled`: the record has the illness module switched off (or the operator turned it off
+            server-wide); symptoms ride that module.
+
+
+            Refused: this request named a record the caller may not act on (`meta.errorCode` = `sharing.access.denied`).
+            Byte-identical for an account that does not exist, an account that granted nothing, a grant whose sections
+            do not reach this surface, and a read grant on a request that writes — the response carries no reason, so it
+            is not an account-enumeration oracle. The reason reaches the record owner's activity feed and the operator's
+            audit trail instead. On the cookie transport the same code answers one further case: a session that has
+            entered a shared record and sends a request without its record-context assertion, which is a client older
+            than the fence — leave the record and reload. A request that names no record but the caller's own never
+            reaches this response, so a client that never switches and never sends the per-request account selector will
+            not see it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    post:
+      tags:
+        - Symptoms
+      summary: Define a symptom (v1.40)
+      description: Creates one definition. Idempotent under `Idempotency-Key`. Audits as `symptoms.definition.create` without
+        the label. Rate-limited to 30 a minute.
+      parameters:
+        - *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSymptomDefinitionRequest"
+      responses:
+        "201":
+          description: Definition created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSymptomDefinitionEnvelope"
+        "401": *a1
+        "403": *a61
+        "409": *a7
+        "422": *a4
+        "429": *a5
+  /api/symptoms/definitions/{id}:
+    patch:
+      tags:
+        - Symptoms
+      summary: Edit, hide or show a symptom (v1.40)
+      description: Partial edit. Audits as `symptoms.definition.update`, naming a label change without quoting it.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSymptomDefinitionRequest"
+      responses:
+        "200":
+          description: Definition updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateSymptomDefinitionEnvelope"
+        "401": *a1
+        "403": *a61
+        "404": &a62
+          description: "`symptoms.definition.notFound`: no definition with this id on the record."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    delete:
+      tags:
+        - Symptoms
+      summary: Hide or delete a symptom (v1.40)
+      description: Hides the definition and keeps its history. `?purge=true` deletes it and every occurrence of it.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: purge
+          schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+      responses:
+        "200":
+          description: Hidden or deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteSymptomDefinitionEnvelope"
+        "401": *a1
+        "403": *a61
+        "404": *a62
+        "422": *a4
+        "429": *a5
+  /api/symptoms/events:
+    get:
+      tags:
+        - Symptoms
+      summary: List symptom occurrences (v1.40)
+      description: Occurrences of the record's symptoms, newest first, narrowed by the optional query.
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        - in: query
+          name: definitionId
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - in: query
+          name: episodeId
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - in: query
+          name: limit
+          schema:
+            default: 200
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: A page of occurrences.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListSymptomEventsEnvelope"
+        "401": *a1
+        "403": *a61
+        "422": *a4
+        "429": *a5
+    post:
+      tags:
+        - Symptoms
+      summary: Log a symptom occurrence (v1.40)
+      description: Creates one occurrence. Idempotent under `Idempotency-Key`. A hidden definition can still be logged
+        against; another record's definition 404s (`symptoms.definition.notFound`). Audits as `symptoms.event.create`
+        without the note.
+      parameters:
+        - *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSymptomEventRequest"
+      responses:
+        "201":
+          description: Occurrence logged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSymptomEventEnvelope"
+        "401": *a1
+        "403": *a61
+        "404": *a62
+        "409": *a7
+        "422": *a4
+        "429": *a5
+  /api/symptoms/events/{id}:
+    patch:
+      tags:
+        - Symptoms
+      summary: Edit a symptom occurrence (v1.40)
+      description: Partial edit. Audits as `symptoms.event.update`, naming a note change without quoting it.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSymptomEventRequest"
+      responses:
+        "200":
+          description: Occurrence updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateSymptomEventEnvelope"
+        "401": *a1
+        "403": *a61
+        "404": &a63
+          description: "`symptoms.event.notFound`: no occurrence with this id on the record."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    delete:
+      tags:
+        - Symptoms
+      summary: Delete a symptom occurrence (v1.40)
+      description: Removes the occurrence. Audits as `symptoms.event.delete`.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteSymptomEventEnvelope"
+        "401": *a1
+        "403": *a61
+        "404": *a63
+        "422": *a4
+        "429": *a5
   /api/bugreport:
     post:
       security: []
@@ -31652,6 +31922,97 @@ components:
         leaves the singleton instance settings — registration, MFA requirement, default locale and timezone, module
         availability, notification and AI configuration, document cap and quota — exactly as they are. Send `true` only
         when rebuilding a host from a snapshot, because those settings apply to every account on the installation."
+    CreateSymptomDefinitionRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 40
+        icon:
+          anyOf:
+            - type: string
+            - type: "null"
+      required:
+        - label
+      description: Define a symptom of your own. `label` (1-40 characters) is encrypted at rest; `icon` is one of the cycle
+        custom-symptom icon names, null for the default glyph. At most eight active definitions per account (422
+        `symptoms.definition.limitReached`).
+    UpdateSymptomDefinitionRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 40
+        icon:
+          anyOf:
+            - type: string
+            - type: "null"
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 1000
+      description: "Partial edit; an omitted key leaves the column untouched. `isActive: false` hides the symptom (history
+        kept, slot freed); `isActive: true` shows it again and re-checks the cap."
+    CreateSymptomEventRequest:
+      type: object
+      properties:
+        definitionId:
+          type: string
+          minLength: 1
+          maxLength: 40
+        occurredAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        intensity:
+          type: integer
+          minimum: 0
+          maximum: 10
+        note:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+        episodeId:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 40
+            - type: "null"
+      required:
+        - definitionId
+        - intensity
+      description: Log one occurrence. `intensity` is 0-10 (0 none, 10 the worst imaginable). `occurredAt` defaults to now and
+        may not lie in the future beyond five minutes. `episodeId`, when given, must name one of the record's own
+        illness episodes that is still open (422 `symptoms.episode.notOpen` otherwise). The note is encrypted at rest.
+    UpdateSymptomEventRequest:
+      type: object
+      properties:
+        occurredAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        intensity:
+          type: integer
+          minimum: 0
+          maximum: 10
+        note:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+        episodeId:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 40
+            - type: "null"
+      description: "Partial edit of one occurrence. `note: null` clears the note, `episodeId: null` drops the link. A changed
+        `episodeId` must name an open episode; an unchanged link to an episode that has since resolved is kept."
     MedicationTreatmentClass:
       type: string
       enum:
@@ -31953,14 +32314,15 @@ components:
                 sharing.renounce.already_ended, sharing.renounce.not_found, sharing.revoke.already_ended,
                 sharing.revoke.not_found, sharing.session.changed, sharing.switch.invalid,
                 sharing.switch.wrong_transport; source-priority — source-priority.body.invalid_json,
-                source-priority.body.invalid_shape; tokens — tokens.documents.ceiling_reached,
-                tokens.measurements.ceiling_reached, tokens.workouts.ceiling_reached; vaccination —
-                vaccination.booster-invalid, vaccination.booster-no-antigen, vaccination.booster-out-of-scope,
-                vaccination.encounter-not-found, vaccination.identity-required, vaccination.invalid,
-                vaccination.link.invalid, vaccination.not-found, vaccination.practitioner-not-found; workout —
-                workout.batch.invalid, workout.batch.payload_too_large, workout.batch.source_not_permitted,
-                workout.batch.too_large, workout.delete.synced_source; (unprefixed) — about_me_conflict,
-                ai_response_truncated, coach_prefs_conflict, dashboard_layout_conflict, empty_file,
+                source-priority.body.invalid_shape; symptoms — symptoms.definition.limitReached,
+                symptoms.definition.notFound, symptoms.episode.notOpen, symptoms.event.notFound, symptoms.invalid;
+                tokens — tokens.documents.ceiling_reached, tokens.measurements.ceiling_reached,
+                tokens.workouts.ceiling_reached; vaccination — vaccination.booster-invalid,
+                vaccination.booster-no-antigen, vaccination.booster-out-of-scope, vaccination.encounter-not-found,
+                vaccination.identity-required, vaccination.invalid, vaccination.link.invalid, vaccination.not-found,
+                vaccination.practitioner-not-found; workout — workout.batch.invalid, workout.batch.payload_too_large,
+                workout.batch.source_not_permitted, workout.batch.too_large, workout.delete.synced_source; (unprefixed)
+                — about_me_conflict, ai_response_truncated, coach_prefs_conflict, dashboard_layout_conflict, empty_file,
                 health_score_config_conflict, insights_layout_conflict, invalid_base_updated_at,
                 json_carries_no_intake_time, json_not_an_array, medication_layout_conflict, missing_required_columns,
                 modules_conflict, mood_tag_layout_conflict, not_configured, notification_prefs_conflict, oidc_only,
@@ -36314,6 +36676,86 @@ components:
               - onsetAt
               - dayLogs
             additionalProperties: {}
+        symptomDefinitions:
+          default: []
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              label:
+                type: string
+                minLength: 1
+              labelEncrypted:
+                type: string
+                minLength: 1
+              icon:
+                anyOf:
+                  - type: string
+                  - type: "null"
+              sortOrder:
+                type: integer
+                minimum: -9007199254740991
+                maximum: 9007199254740991
+              isActive:
+                type: boolean
+              createdAt:
+                type: string
+                minLength: 1
+              updatedAt:
+                type: string
+                minLength: 1
+              events:
+                default: []
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      minLength: 1
+                    occurredAt:
+                      type: string
+                      minLength: 1
+                    intensity:
+                      type: integer
+                      minimum: 0
+                      maximum: 10
+                    note:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    noteEncrypted:
+                      anyOf:
+                        - type: string
+                          minLength: 1
+                        - type: "null"
+                    episodeId:
+                      anyOf:
+                        - type: string
+                          minLength: 1
+                        - type: "null"
+                    createdAt:
+                      type: string
+                      minLength: 1
+                    updatedAt:
+                      type: string
+                      minLength: 1
+                  required:
+                    - occurredAt
+                    - intensity
+                    - createdAt
+                    - updatedAt
+                  additionalProperties: {}
+            required:
+              - sortOrder
+              - isActive
+              - createdAt
+              - updatedAt
+              - events
+            additionalProperties: {}
         allergies:
           default: []
           type: array
@@ -38828,6 +39270,7 @@ components:
         - labResults
         - biomarkers
         - illnessEpisodes
+        - symptomDefinitions
         - allergies
         - familyHistory
         - workouts
@@ -75620,6 +76063,293 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/DocumentSourceImport"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    ListSymptomDefinitionsEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomDefinitionList"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    SymptomDefinitionList:
+      type: object
+      properties:
+        definitions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomDefinition"
+        limit:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+      required:
+        - definitions
+        - limit
+      additionalProperties: false
+      description: The record's symptom definitions in display order, and the active-definition cap.
+    SymptomDefinition:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          anyOf:
+            - type: string
+            - type: "null"
+        icon:
+          anyOf:
+            - type: string
+            - type: "null"
+        sortOrder:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        isActive:
+          type: boolean
+        recent:
+          type: object
+          properties:
+            count30d:
+              type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            maxIntensity30d:
+              anyOf:
+                - type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+                - type: "null"
+            lastOccurredAt:
+              anyOf:
+                - type: string
+                - type: "null"
+          required:
+            - count30d
+            - maxIntensity30d
+            - lastOccurredAt
+          additionalProperties: false
+      required:
+        - id
+        - label
+        - icon
+        - sortOrder
+        - isActive
+        - recent
+      additionalProperties: false
+      description: "A symptom the person defined. `label` is decrypted (null only on an unreadable value). `recent` is
+        computed server-side: occurrences and the highest intensity over the last 30 days, and the last occurrence ever.
+        Each active definition is also the correlation channel `SYMPTOM:<id>`."
+    CreateSymptomDefinitionEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomDefinition"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    UpdateSymptomDefinitionEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomDefinition"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    DeleteSymptomDefinitionEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomDefinitionDeleted"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    SymptomDefinitionDeleted:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+          const: true
+        purged:
+          type: boolean
+        eventsDeleted:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+      required:
+        - deleted
+        - purged
+        - eventsDeleted
+      additionalProperties: false
+      description: "`purged: false` means the definition was hidden and its history kept; `purged: true` means it and
+        `eventsDeleted` occurrences were removed."
+    ListSymptomEventsEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomEventList"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    SymptomEventList:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomEvent"
+        limit:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        hasMore:
+          type: boolean
+      required:
+        - events
+        - limit
+        - hasMore
+      additionalProperties: false
+      description: A page of occurrences, newest first. `hasMore` is true when the page is full; page on with `to` set to the
+        oldest `occurredAt` seen.
+    SymptomEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        definitionId:
+          type: string
+        occurredAt:
+          type: string
+        intensity:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        note:
+          anyOf:
+            - type: string
+            - type: "null"
+        episodeId:
+          anyOf:
+            - type: string
+            - type: "null"
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - definitionId
+        - occurredAt
+        - intensity
+        - note
+        - episodeId
+        - createdAt
+        - updatedAt
+      additionalProperties: false
+      description: "One occurrence of a defined symptom: when, how strong (0-10), the decrypted note, and the illness episode
+        it was filed against (null when none)."
+    CreateSymptomEventEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomEvent"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    UpdateSymptomEventEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomEvent"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    DeleteSymptomEventEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            deleted:
+              type: boolean
+              const: true
+          required:
+            - deleted
+          additionalProperties: false
         error:
           type: "null"
         meta:

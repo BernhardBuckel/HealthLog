@@ -911,6 +911,8 @@ model User {
   // per-day timeline mirroring the CycleDayLog shape.
   illnessEpisodes                           IllnessEpisode[]
   illnessDayLogs                            IllnessDayLog[]
+  symptomDefinitions                        SymptomDefinition[]
+  symptomEvents                             SymptomEvent[]
   // v1.25 (W-RECORDS) — structured health-record entries. Allergies map to
   // FHIR AllergyIntolerance; family-history entries map to FHIR
   // FamilyMemberHistory. Reference records (not time-series signals); the
@@ -7726,6 +7728,8 @@ model IllnessEpisode {
   dayLogs        IllnessDayLog[]
   documentLinks  DocumentConditionLink[]
   encounterLinks EncounterConditionLink[]
+  /// Symptom events the person filed against this episode while it was open.
+  symptomEvents  SymptomEvent[]
 
   @@index([userId, deletedAt])
   @@index([userId, onsetAt])
@@ -7812,6 +7816,68 @@ model IllnessSymptomLink {
   @@id([dayLogId, symptomId])
   @@index([symptomId])
   @@map("illness_symptom_links")
+}
+
+/// A symptom the person defined for themselves ("aura", "headache"), v1.40.
+///
+/// Separate from the seeded `IllnessSymptom` catalogue on the illness day log:
+/// that one is a fixed list of cold symptoms rated 1-3 per episode day, this one
+/// is the person's own vocabulary, logged as timestamped events with a 0-10
+/// intensity whether or not an episode is open. Rides the `illness` module.
+/// At most eight active definitions per account
+/// (`MAX_ACTIVE_SYMPTOM_DEFINITIONS`), and each active one is its own
+/// correlation channel `SYMPTOM:<id>`, so the cap also bounds the matrix.
+model SymptomDefinition {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  /// The person's own name for the symptom, AES-256-GCM encrypted at rest. A
+  /// symptom name is health data in the person's own words.
+  labelEncrypted Bytes    @map("label_encrypted")
+  /// Lucide icon name from `SYMPTOM_ICON_ALLOWLIST` (the cycle custom-symptom
+  /// list, which the iOS client already maps). NULL = the default glyph.
+  icon           String?
+  sortOrder      Int      @default(0) @map("sort_order")
+  /// FALSE = hidden: not offered in the quick entry, not a correlation
+  /// channel, history kept. Does not count toward the cap.
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events SymptomEvent[]
+
+  @@index([userId, sortOrder])
+  @@map("symptom_definitions")
+}
+
+/// One occurrence of a person-defined symptom: when, how strong (0-10, the
+/// same numeric rating scale the pain score uses), an optional note, and an
+/// optional link to the illness episode it happened during. v1.40.
+model SymptomEvent {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  definitionId  String   @map("definition_id")
+  /// The instant it happened (UTC). Day grouping is the reader's concern.
+  occurredAt    DateTime @map("occurred_at")
+  /// 0-10, CHECK-constrained in the migration.
+  intensity     Int
+  /// Optional free-text note, AES-256-GCM encrypted at rest.
+  noteEncrypted Bytes?   @map("note_encrypted")
+  /// The episode the person said this happened during. Only an open episode
+  /// of the same account can be linked (the route checks); deleting the
+  /// episode row keeps the event and drops the link.
+  episodeId     String?  @map("episode_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  definition SymptomDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  episode    IllnessEpisode?   @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, occurredAt])
+  @@index([definitionId, occurredAt])
+  @@index([episodeId])
+  @@map("symptom_events")
 }
 
 // ─── Structured health records (v1.25 W-RECORDS) ──────────────────

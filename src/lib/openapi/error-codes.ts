@@ -346,6 +346,13 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
       "source-priority.body.invalid_json",
       "source-priority.body.invalid_shape",
     ],
+    symptoms: [
+      "symptoms.definition.limitReached",
+      "symptoms.definition.notFound",
+      "symptoms.episode.notOpen",
+      "symptoms.event.notFound",
+      "symptoms.invalid",
+    ],
     tokens: [
       "tokens.documents.ceiling_reached",
       "tokens.measurements.ceiling_reached",

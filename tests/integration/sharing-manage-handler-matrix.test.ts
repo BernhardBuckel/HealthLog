@@ -37,6 +37,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NextRequest } from "next/server";
 
+import { encryptToBytes } from "@/lib/ai/coach/bytes-codec";
 import {
   ADMITTED_MUTATING_HANDLERS,
   type MutatingHandlerContract,
@@ -281,7 +282,7 @@ const ROUTE_IMPORTS = import.meta.glob<Record<string, unknown>>(
 
 describe("the complete MANAGE handler matrix", () => {
   it("starts with a non-empty, exact handler inventory", () => {
-    expect(ADMITTED_MUTATING_HANDLERS.length).toBe(77);
+    expect(ADMITTED_MUTATING_HANDLERS.length).toBe(83);
   });
 });
 
@@ -1329,6 +1330,178 @@ manageContract("POST /api/illness/episodes/[id]/restore", {
         where: { id: row.id },
       })
     )?.deletedAt === null,
+});
+
+async function makeSymptomDefinition(userId: string) {
+  return getPrismaClient().symptomDefinition.create({
+    data: {
+      userId,
+      labelEncrypted: encryptToBytes("Aura"),
+      icon: "Zap",
+    },
+  });
+}
+
+async function makeSymptomEvent(userId: string) {
+  const definition = await makeSymptomDefinition(userId);
+  return getPrismaClient().symptomEvent.create({
+    data: {
+      userId,
+      definitionId: definition.id,
+      occurredAt: new Date(ISO),
+      intensity: 6,
+    },
+  });
+}
+
+manageContract("POST /api/symptoms/definitions", {
+  contract: ADMITTED_MUTATING_HANDLERS.find(
+    (entry) =>
+      entry.route === "/api/symptoms/definitions" && entry.action === "POST",
+  )!,
+  prepare: async (ownerId) => ({ ownerId }),
+  act: async () => {
+    const { POST } = await import("@/app/api/symptoms/definitions/route");
+    return call(POST as Handler, "POST", "/api/symptoms/definitions", {
+      label: "Aura",
+      icon: "Zap",
+    });
+  },
+  ok: 201,
+  auditAction: "symptoms.definition.create",
+  applied: async ({ ownerId }) =>
+    (await getPrismaClient().symptomDefinition.count({
+      where: { userId: ownerId },
+    })) === 1,
+});
+
+manageContract("PATCH /api/symptoms/definitions/[id]", {
+  contract: ADMITTED_MUTATING_HANDLERS.find(
+    (entry) =>
+      entry.route === "/api/symptoms/definitions/[id]" &&
+      entry.action === "PATCH",
+  )!,
+  prepare: (ownerId) => makeSymptomDefinition(ownerId),
+  act: async (row) => {
+    const { PATCH } = await import("@/app/api/symptoms/definitions/[id]/route");
+    return call(
+      PATCH as Handler,
+      "PATCH",
+      `/api/symptoms/definitions/${row.id}`,
+      { icon: "Brain" },
+      { id: row.id },
+    );
+  },
+  ok: 200,
+  auditAction: "symptoms.definition.update",
+  applied: async (row) =>
+    (
+      await getPrismaClient().symptomDefinition.findUnique({
+        where: { id: row.id },
+      })
+    )?.icon === "Brain",
+});
+
+manageContract("DELETE /api/symptoms/definitions/[id]", {
+  contract: ADMITTED_MUTATING_HANDLERS.find(
+    (entry) =>
+      entry.route === "/api/symptoms/definitions/[id]" &&
+      entry.action === "DELETE",
+  )!,
+  prepare: (ownerId) => makeSymptomDefinition(ownerId),
+  act: async (row) => {
+    const { DELETE } =
+      await import("@/app/api/symptoms/definitions/[id]/route");
+    return call(
+      DELETE as Handler,
+      "DELETE",
+      `/api/symptoms/definitions/${row.id}`,
+      undefined,
+      { id: row.id },
+    );
+  },
+  ok: 200,
+  auditAction: "symptoms.definition.delete",
+  applied: async (row) =>
+    (
+      await getPrismaClient().symptomDefinition.findUnique({
+        where: { id: row.id },
+      })
+    )?.isActive === false,
+});
+
+writeEffectContract("POST /api/symptoms/events", {
+  contract: ADMITTED_MUTATING_HANDLERS.find(
+    (entry) =>
+      entry.route === "/api/symptoms/events" && entry.action === "POST",
+  )!,
+  prepare: async (ownerId) => ({
+    ownerId,
+    definition: await makeSymptomDefinition(ownerId),
+  }),
+  act: async ({ definition }) => {
+    const { POST } = await import("@/app/api/symptoms/events/route");
+    return call(POST as Handler, "POST", "/api/symptoms/events", {
+      definitionId: definition.id,
+      intensity: 7,
+    });
+  },
+  ok: 201,
+  auditAction: "symptoms.event.create",
+  applied: async ({ ownerId }) =>
+    (await getPrismaClient().symptomEvent.count({
+      where: { userId: ownerId },
+    })) === 1,
+});
+
+manageContract("PATCH /api/symptoms/events/[id]", {
+  contract: ADMITTED_MUTATING_HANDLERS.find(
+    (entry) =>
+      entry.route === "/api/symptoms/events/[id]" && entry.action === "PATCH",
+  )!,
+  prepare: (ownerId) => makeSymptomEvent(ownerId),
+  act: async (row) => {
+    const { PATCH } = await import("@/app/api/symptoms/events/[id]/route");
+    return call(
+      PATCH as Handler,
+      "PATCH",
+      `/api/symptoms/events/${row.id}`,
+      { intensity: 9 },
+      { id: row.id },
+    );
+  },
+  ok: 200,
+  auditAction: "symptoms.event.update",
+  applied: async (row) =>
+    (
+      await getPrismaClient().symptomEvent.findUnique({
+        where: { id: row.id },
+      })
+    )?.intensity === 9,
+});
+
+manageContract("DELETE /api/symptoms/events/[id]", {
+  contract: ADMITTED_MUTATING_HANDLERS.find(
+    (entry) =>
+      entry.route === "/api/symptoms/events/[id]" && entry.action === "DELETE",
+  )!,
+  prepare: (ownerId) => makeSymptomEvent(ownerId),
+  act: async (row) => {
+    const { DELETE } = await import("@/app/api/symptoms/events/[id]/route");
+    return call(
+      DELETE as Handler,
+      "DELETE",
+      `/api/symptoms/events/${row.id}`,
+      undefined,
+      { id: row.id },
+    );
+  },
+  ok: 200,
+  auditAction: "symptoms.event.delete",
+  applied: async (row) =>
+    (await getPrismaClient().symptomEvent.findUnique({
+      where: { id: row.id },
+    })) === null,
 });
 
 writeEffectContract("POST /api/encounters", {
@@ -2580,13 +2753,13 @@ describe("the conditions the admissions were granted on", () => {
 describe("the complete MANAGE handler matrix", () => {
   it("registers one strict actor-and-effect driver for every admission", () => {
     const expected = ADMITTED_MUTATING_HANDLERS.map(matrixKey).sort();
-    expect(STRICT_DRIVER_KEYS.size).toBe(77);
+    expect(STRICT_DRIVER_KEYS.size).toBe(83);
     expect([...STRICT_DRIVER_KEYS].sort()).toEqual(expected);
   });
 
   it("executes every registered driver through its owned effect and actor audit", () => {
     const expected = ADMITTED_MUTATING_HANDLERS.map(matrixKey).sort();
-    expect(REAL_EFFECT_KEYS.size).toBe(77);
+    expect(REAL_EFFECT_KEYS.size).toBe(83);
     expect([...REAL_EFFECT_KEYS].sort()).toEqual(expected);
   });
 });

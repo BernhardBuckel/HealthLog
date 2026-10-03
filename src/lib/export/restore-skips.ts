@@ -146,6 +146,12 @@
  * know, a threshold out of range, an avatar the upload would refuse. Its key
  * is the column (or `column.part` for one band or one site), never the value.
  * The account keeps what it had for that setting; everything else comes back.
+ *
+ * The fifteenth, `symptomEpisodeReference`, names the illness episode a
+ * symptom occurrence was filed against that the restore did not put back. A
+ * real foreign key, so the POINTER is dropped and the occurrence restores
+ * unlinked. A portable export omits soft-deleted episodes, which is the
+ * ordinary way an occurrence ends up naming one the file does not carry.
  */
 export type SkippedCatalogue =
   | "cycleSymptom"
@@ -165,7 +171,8 @@ export type SkippedCatalogue =
   | "medicationTarget"
   | "scheduleRevisionLink"
   | "checkupClosure"
-  | "accountSetting";
+  | "accountSetting"
+  | "symptomEpisodeReference";
 
 /** One key this instance does not know, and the links it cost. */
 export interface SkippedCatalogueKey {

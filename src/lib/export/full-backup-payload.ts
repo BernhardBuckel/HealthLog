@@ -107,6 +107,12 @@ import {
   type EcgBackupSection,
 } from "@/lib/export/ecg-backup";
 import {
+  buildSymptomsBackupSection,
+  countSymptomsBackupSection,
+  type SymptomsBackupCounts,
+  type SymptomsBackupSection,
+} from "@/lib/export/symptoms-backup";
+import {
   buildIntradayProfileBackupSection,
   countIntradayProfileBackupSection,
   type IntradayProfileBackupCounts,
@@ -140,7 +146,8 @@ export interface FullBackupCounts
     AwardsBackupCounts,
     EnvironmentBackupCounts,
     OnboardingBackupCounts,
-    EcgBackupCounts {
+    EcgBackupCounts,
+    SymptomsBackupCounts {
   measurements: number;
   medications: number;
   intakeEvents: number;
@@ -710,6 +717,7 @@ export async function buildFullBackupPayload(
     environment,
     onboardingRecord,
     ecg,
+    symptoms,
     nutrientDays,
     accountSettings,
   ] = await Promise.all([
@@ -886,6 +894,11 @@ export async function buildFullBackupPayload(
     buildEcgBackupSection(prisma, userId, {
       purpose: disasterRecovery ? "disaster-recovery" : "portable-export",
     }),
+    // The person's own symptoms with their occurrences nested inside. Both
+    // ends live in `src/lib/export/symptoms-backup.ts`.
+    buildSymptomsBackupSection(prisma, userId, {
+      purpose: disasterRecovery ? "disaster-recovery" : "portable-export",
+    }),
     // Nutrient day totals were absent from every export path, which
     // contradicted the schema's own reason for denormalising the unit column
     // ("rows stay self-describing in exports even if the catalog ever drifts").
@@ -939,6 +952,7 @@ export async function buildFullBackupPayload(
   const awardsSection: AwardsBackupSection = awards;
   const environmentSection: EnvironmentBackupSection = environment;
   const ecgSection: EcgBackupSection = ecg;
+  const symptomsSection: SymptomsBackupSection = symptoms;
   const accountSettingsSection: AccountSettingsBackupSection = accountSettings;
 
   // The three unbounded tables, either read into arrays or left as markers
@@ -1306,6 +1320,7 @@ export async function buildFullBackupPayload(
     ...awardsSection,
     ...environmentSection,
     ...ecgSection,
+    ...symptomsSection,
     nutrientDays: nutrientDays.map((n) => ({
       day: n.day,
       nutrient: n.nutrient,
@@ -1373,6 +1388,7 @@ export async function buildFullBackupPayload(
       ...countAwardsBackupSection(awards),
       ...countEnvironmentBackupSection(environment),
       ...countEcgBackupSection(ecg),
+      ...countSymptomsBackupSection(symptoms),
     },
   };
 }

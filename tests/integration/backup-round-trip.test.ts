@@ -232,6 +232,9 @@ const COUNT_BACK: Record<
     p.familyHistoryEntry.count({ where: { userId } }),
   IllnessEpisode: (p, userId) => p.illnessEpisode.count({ where: { userId } }),
   IllnessDayLog: (p, userId) => p.illnessDayLog.count({ where: { userId } }),
+  SymptomDefinition: (p, userId) =>
+    p.symptomDefinition.count({ where: { userId } }),
+  SymptomEvent: (p, userId) => p.symptomEvent.count({ where: { userId } }),
   IllnessSymptomLink: (p, userId) =>
     p.illnessSymptomLink.count({ where: { dayLog: { userId } } }),
   UserHealthProfile: (p, userId) =>
@@ -747,6 +750,52 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
       episodeId: episode.id,
       date: "2026-06-21",
       symptomLinks: { create: { symptomId: illnessSymptom.id, severity: 2 } },
+    },
+  });
+
+  // v1.40 — two of the person's own symptoms and three occurrences: one filed
+  // against the open cold, one with a note, one on its own in the gap.
+  const aura = await prisma.symptomDefinition.create({
+    data: {
+      userId: OWNER_ID,
+      labelEncrypted: encryptToBytes("Aura"),
+      icon: "Zap",
+      sortOrder: 0,
+    },
+  });
+  const headache = await prisma.symptomDefinition.create({
+    data: {
+      userId: OWNER_ID,
+      labelEncrypted: encryptToBytes("Headache"),
+      icon: "Brain",
+      sortOrder: 1,
+      isActive: false,
+    },
+  });
+  await prisma.symptomEvent.create({
+    data: {
+      userId: OWNER_ID,
+      definitionId: aura.id,
+      occurredAt: AT("2026-06-21T09:00:00.000Z"),
+      intensity: 4,
+      episodeId: episode.id,
+    },
+  });
+  await prisma.symptomEvent.create({
+    data: {
+      userId: OWNER_ID,
+      definitionId: headache.id,
+      occurredAt: AT("2026-06-21T11:00:00.000Z"),
+      intensity: 8,
+      noteEncrypted: encryptToBytes("left side, behind the eye"),
+    },
+  });
+  await prisma.symptomEvent.create({
+    data: {
+      userId: OWNER_ID,
+      definitionId: aura.id,
+      occurredAt: AT("2026-07-10T18:30:00.000Z"),
+      intensity: 2,
     },
   });
 
@@ -2107,6 +2156,69 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       },
       "a condition's body site and side must survive the round trip",
     ).toEqual({ bodySite: "Stomach", laterality: "BOTH" });
+
+    // v1.40 — the person's own symptoms: the names decrypt to what was typed,
+    // each occurrence keeps its time, intensity and note, and the one filed
+    // against the cold still points at the cold.
+    const restoredSymptoms = await prisma.symptomDefinition.findMany({
+      where: { userId: OWNER_ID },
+      orderBy: { sortOrder: "asc" },
+      include: {
+        events: {
+          orderBy: { occurredAt: "asc" },
+          include: { episode: { select: { label: true } } },
+        },
+      },
+    });
+    expect(
+      restoredSymptoms.map((definition) => ({
+        label: decryptFromBytes(definition.labelEncrypted),
+        icon: definition.icon,
+        isActive: definition.isActive,
+        events: definition.events.map((event) => ({
+          at: event.occurredAt.toISOString(),
+          intensity: event.intensity,
+          note: event.noteEncrypted
+            ? decryptFromBytes(event.noteEncrypted)
+            : null,
+          episode: event.episode?.label ?? null,
+        })),
+      })),
+      "symptom definitions and their occurrences must survive the round trip",
+    ).toEqual([
+      {
+        label: "Aura",
+        icon: "Zap",
+        isActive: true,
+        events: [
+          {
+            at: "2026-06-21T09:00:00.000Z",
+            intensity: 4,
+            note: null,
+            episode: "Cold",
+          },
+          {
+            at: "2026-07-10T18:30:00.000Z",
+            intensity: 2,
+            note: null,
+            episode: null,
+          },
+        ],
+      },
+      {
+        label: "Headache",
+        icon: "Brain",
+        isActive: false,
+        events: [
+          {
+            at: "2026-06-21T11:00:00.000Z",
+            intensity: 8,
+            note: "left side, behind the eye",
+            episode: null,
+          },
+        ],
+      },
+    ]);
 
     // The staged fact, and the decision on it.
     //

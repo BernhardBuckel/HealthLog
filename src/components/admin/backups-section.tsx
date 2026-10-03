@@ -461,6 +461,9 @@ function catalogueLabel(
   if (catalogue === "ecgReference") {
     return t("admin.section.backups.restoreSkippedEcgReference");
   }
+  if (catalogue === "symptomEpisodeReference") {
+    return t("admin.section.backups.restoreSkippedSymptomEpisodeReference");
+  }
   if (catalogue === "medicationTarget") {
     return t("admin.section.backups.restoreSkippedMedicationTarget");
   }

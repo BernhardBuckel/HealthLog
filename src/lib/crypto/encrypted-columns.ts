@@ -310,6 +310,9 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
   // (`laterality`) stays plaintext, as on `Encounter`.
   { model: "IllnessEpisode", field: "bodySiteEncrypted", kind: "bytes" },
   { model: "IllnessDayLog", field: "noteEncrypted", kind: "bytes" },
+  // v1.40 — the person's own symptom names and the note on one occurrence.
+  { model: "SymptomDefinition", field: "labelEncrypted", kind: "bytes" },
+  { model: "SymptomEvent", field: "noteEncrypted", kind: "bytes" },
 
   // ───── v1.19.0 ECG waveform (Bytes column) ─────
   { model: "EcgRecording", field: "waveformEncrypted", kind: "bytes" },
