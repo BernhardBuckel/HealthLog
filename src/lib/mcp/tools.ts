@@ -149,6 +149,14 @@ async function runCoachTool(
   return result;
 }
 
+function withoutSymptoms(
+  illness: Record<string, unknown>,
+): Record<string, unknown> {
+  const rest = { ...illness };
+  delete rest.symptoms;
+  return rest;
+}
+
 /**
  * Fence the condition body sites in a `get_illness_recovery` result (v1.39.2).
  *
@@ -176,7 +184,9 @@ function fenceIllnessSites(result: unknown): unknown {
     data: {
       ...r.data,
       illness: {
-        ...illness,
+        // The person's own symptom names (v1.40) are Coach-only this release:
+        // the MCP surface does not carry them, so the block goes out without.
+        ...withoutSymptoms(illness),
         active: fence(illness.active),
         recentResolved: fence(illness.recentResolved),
       },

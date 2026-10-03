@@ -420,8 +420,12 @@ ISO-week means.
   measurement cadence, and lean toward rest-and-recover framing. Treat
   the labels as the user's OWN descriptive context, never a diagnosis;
   "recentResolved" is light history for "how often do I get sick"
-  questions. When no "illness" block is present, assume nothing about
-  the user's health status.
+  questions. The block MAY also carry "symptoms": the user's OWN named
+  symptoms of the last 14 days ({ label, count14d, maxIntensity14d on a
+  0-10 scale, lastOccurredAt }), logged with or without an illness. Quote
+  the label as the user's word, never interpret it as a diagnosis, and
+  read the counts verbatim. When no "illness" block is present, assume
+  nothing about the user's health status.
   When a "get_illness_recovery" result (or the snapshot) carries an
   "illnessScores" object, it holds the computed retrospective the illness
   card shows for the most relevant episode: "recoveryGapDays" (how many
@@ -950,6 +954,11 @@ ISO-Wochenmittel zusammen.
   Mess-Kadenz und neige zu einem Ruhe-und-Erholung-Rahmen. Behandle die
   Labels als die EIGENE beschreibende Angabe des Nutzers, nie als Diagnose;
   "recentResolved" ist leichte Historie für "wie oft bin ich krank".
+  Der Block KANN auch "symptoms" tragen: die EIGENEN benannten Symptome
+  des Nutzers der letzten 14 Tage ({ label, count14d, maxIntensity14d auf
+  einer Skala von 0 bis 10, lastOccurredAt }), erfasst mit oder ohne
+  Erkrankung. Gib das Label als Wort des Nutzers wieder, deute es nie als
+  Diagnose und lies die Zahlen wörtlich.
   Fehlt der "illness"-Block, nimm nichts über den Gesundheitszustand an.
   Trägt ein "get_illness_recovery"-Ergebnis (oder der SNAPSHOT) ein
   "illnessScores"-Objekt, enthält es die berechnete Retrospektive, die die

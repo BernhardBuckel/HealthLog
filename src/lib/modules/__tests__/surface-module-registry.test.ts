@@ -66,9 +66,11 @@ import {
   TYPE_TO_SUB_PAGE_SLUG,
 } from "@/lib/insights/sub-page-metric";
 import { TREND_CHART_CONFIG } from "@/lib/insights/trend-chart-select";
+import { SYMPTOM_CHANNEL_PREFIX } from "@/lib/symptoms/shared";
 import {
   SURFACE_KINDS,
   SURFACE_MODULE,
+  correlationChannelSurfaceId,
   surfaceModule,
   surfaceModulesOfKind,
   type SurfaceKind,
@@ -167,6 +169,11 @@ describe("every surface id names a surface that exists", () => {
     // `correlationChannelSurfaceId` folds rated factors onto mood by this
     // prefix; it has to be the prefix the engine actually writes.
     expect(FACTOR_CHANNEL_PREFIX).toBe("FACTOR:");
+    // Person-defined symptoms fold onto the illness symptom channel by theirs.
+    expect(SYMPTOM_CHANNEL_PREFIX).toBe("SYMPTOM:");
+    expect(correlationChannelSurfaceId(`${SYMPTOM_CHANNEL_PREFIX}abc`)).toBe(
+      "correlation:SYMPTOM_SEVERITY",
+    );
   });
 });
 
@@ -256,6 +263,7 @@ describe("every surface that shows a module's data is owned by it", () => {
     ["capture:mood", "mood"],
     ["capture:medication", "medications"],
     ["capture:workout", "workouts"],
+    ["capture:symptom", "illness"],
     ["trend:mood", "mood"],
     ["widget:medications", "medications"],
     ["correlation:MEDICATION_COMPLIANCE", "medications"],

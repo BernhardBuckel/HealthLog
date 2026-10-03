@@ -84,6 +84,7 @@ import { profilePaths } from "./profile";
 import { recordSettingsPaths } from "./record-settings";
 import { retiredPaths } from "./retired";
 import { settingsPaths } from "./settings";
+import { symptomPaths } from "./symptoms";
 import { syncPaths } from "./sync";
 import { workoutPaths } from "./workouts";
 import { coachPrefsSchema } from "./shared";
@@ -177,6 +178,9 @@ export const openApiPaths: NonNullable<ZodOpenApiObject["paths"]> = {
   // Papra, searching it and importing picked documents; cookie-only
   // (appended, spread order is load-bearing).
   ...documentSourcePaths,
+  // v1.40 — person-defined symptoms and their occurrences, behind the illness
+  // module (appended, spread order is load-bearing).
+  ...symptomPaths,
   // The environmental-context overview. Its own module because nothing else
   // owns the surface (appended, spread order is load-bearing).
   //

@@ -140,6 +140,18 @@
       "unit": {
         "locked": "Este marcador ya tiene valores, así que no puedes cambiar su unidad. Los valores guardados se mostrarían en la nueva unidad sin convertirse."
       }
+    },
+    "symptoms": {
+      "definition": {
+        "limitReached": "Tienes 8 síntomas. Oculta uno para añadir otro.",
+        "notFound": "Este síntoma ya no existe."
+      },
+      "episode": {
+        "notOpen": "Esa enfermedad ya no está abierta. Elige otra o ninguna."
+      },
+      "event": {
+        "notFound": "Esta entrada ya no existe."
+      }
     }
   },
   "doctorReport": {
@@ -410,7 +422,9 @@
       "mood": "Estado de ánimo",
       "moodDescription": "Registra tu estado de ánimo y etiquetas",
       "workout": "Entrenamiento",
-      "workoutDescription": "Una sesión que tus dispositivos no registraron"
+      "workoutDescription": "Una sesión que tus dispositivos no registraron",
+      "symptom": "Síntoma",
+      "symptomDescription": "Uno de tus propios síntomas, con su intensidad"
     },
     "cycle": "Ciclo",
     "labs": "Análisis",
@@ -649,7 +663,8 @@
       "title": "Haz una copia de tu clave de cifrado",
       "body": "Sin una copia de la clave, tus datos no se pueden recuperar tras una reinstalación. Es cuestión de un minuto.",
       "action": "Abrir el paso"
-    }
+    },
+    "quickAddSymptom": "Registrar síntoma"
   },
   "measurements": {
     "title": "Mediciones",
@@ -7478,7 +7493,8 @@
         "restoreFailureUnexpected": "La restauración se detuvo por un error inesperado y se deshizo. El registro del servidor indica el error.",
         "restoreFailureKeyMissing": "La copia necesita la clave de cifrado {keys}, con la que este servidor no puede abrirla. Vuelve a añadir la clave a ENCRYPTION_KEYS, reinicia e inicia de nuevo la restauración.",
         "restoreFailureForeignReference": "El archivo apunta a registros que pertenecen a otra cuenta. No se escribió nada.",
-        "previewKeyMissing": "Esta copia no se puede restaurar en este servidor: necesita la clave de cifrado {keys}. Vuelve a añadir la clave a ENCRYPTION_KEYS y reinicia primero."
+        "previewKeyMissing": "Esta copia no se puede restaurar en este servidor: necesita la clave de cifrado {keys}. Vuelve a añadir la clave a ENCRYPTION_KEYS y reinicia primero.",
+        "restoreSkippedSymptomEpisodeReference": "Entrada de síntoma vinculada a una enfermedad que el archivo no contiene (se conserva sin el vínculo)"
       },
       "danger-zone": {
         "title": "Zona de peligro",
@@ -11270,7 +11286,13 @@
       "documentDiscard": "{name} descartó un documento",
       "medicationIntakeImportFinished": "La importación de dosis que inició {name} ha terminado",
       "medicationOneShotReconciled": "Un medicamento de una sola toma se abrió o se cerró tras una dosis que registró {name}",
-      "vaccinationBoosterPlanned": "{name} planificó un refuerzo"
+      "vaccinationBoosterPlanned": "{name} planificó un refuerzo",
+      "symptomEventCreate": "{name} registró un síntoma",
+      "symptomEventUpdate": "{name} editó una entrada de síntoma",
+      "symptomEventDelete": "{name} eliminó una entrada de síntoma",
+      "symptomDefinitionCreate": "{name} añadió un síntoma",
+      "symptomDefinitionUpdate": "{name} cambió un síntoma",
+      "symptomDefinitionDelete": "{name} quitó un síntoma"
     },
     "section": {
       "measurements": {
@@ -11501,5 +11523,66 @@
     "waitingForWorker": "Esperando al proceso en segundo plano. Si no cambia, puede que el worker del servidor no esté en marcha.",
     "errorWorkerUnavailable": "El proceso en segundo plano no está disponible ahora mismo. Inténtalo de nuevo en un momento o pide a quien administra el servidor que lo revise.",
     "errorTimedOut": "La lectura tardó más de lo que permite tu tiempo de respuesta de IA. Inténtalo de nuevo o aumenta el tiempo de respuesta en los ajustes de IA."
+  },
+  "symptoms": {
+    "add": "Nuevo síntoma",
+    "nameLabel": "Nombre",
+    "namePlaceholder": "p. ej. Aura",
+    "iconLabel": "Icono",
+    "limitReached": "Tienes 8 síntomas. Oculta uno para añadir otro.",
+    "saveError": "No se pudo guardar el síntoma. Inténtalo de nuevo.",
+    "nameRequired": "Ponle un nombre al síntoma.",
+    "unreadableLabel": "Síntoma ilegible",
+    "intensityPill": "{value}/10",
+    "entry": {
+      "sheetTitle": "Registrar síntoma",
+      "sheetDescription": "Uno de tus propios síntomas, su intensidad y cuándo.",
+      "symptom": "Síntoma",
+      "symptomRequired": "Elige un síntoma.",
+      "intensity": "Intensidad",
+      "intensityRequired": "Indica lo fuerte que fue.",
+      "intensityUnset": "Sin indicar",
+      "anchorLow": "Ninguna",
+      "anchorHigh": "La peor imaginable",
+      "intensityValueText": "{value} de {max} ({low} a {high})",
+      "when": "Cuándo",
+      "during": "Durante una enfermedad",
+      "duringNone": "Sin vincular",
+      "note": "Nota",
+      "notePlaceholder": "¿Qué más estaba pasando?",
+      "reset": "Restablecer formulario",
+      "emptyHint": "Añade tu primer síntoma, por ejemplo aura o dolor de cabeza.",
+      "emptyHintNoManage": "Este registro aún no tiene síntomas configurados.",
+      "limitHint": "Hasta {limit} síntomas. Oculta uno en la página de enfermedades para añadir otro."
+    },
+    "section": {
+      "title": "Tus síntomas",
+      "log": "Registrar",
+      "loadError": "No se pudieron cargar tus síntomas.",
+      "summaryOne": "Una vez en 30 días, {max}/10, la última {date}",
+      "summaryFew": "{count} veces en 30 días, hasta {max}/10, la última {date}",
+      "summaryOther": "{count} veces en 30 días, hasta {max}/10, la última {date}",
+      "summaryNoneRecent": "No en los últimos 30 días, la última {date}",
+      "summaryNever": "Aún sin registrar",
+      "menuLabel": "Opciones de {symptom}",
+      "eventMenuLabel": "Opciones de esta entrada de {symptom}",
+      "hide": "Ocultar",
+      "show": "Mostrar de nuevo",
+      "deleteTitle": "¿Eliminar síntoma?",
+      "deleteBody": "Se eliminarán «{symptom}» y todas sus entradas. Para conservar el historial, ocúltalo.",
+      "deleteEventTitle": "¿Eliminar entrada?",
+      "deleteEventBody": "Esta entrada se eliminará.",
+      "hiddenOne": "Ocultos (1)",
+      "hiddenFew": "Ocultos ({count})",
+      "hiddenOther": "Ocultos ({count})",
+      "recent": "Últimos 30 días",
+      "recentEmpty": "Nada registrado en los últimos 30 días.",
+      "editEventTitle": "Editar {symptom}",
+      "editSymptomTitle": "Editar síntoma"
+    },
+    "episode": {
+      "title": "Síntomas registrados",
+      "filed": "registrado con esta enfermedad"
+    }
   }
 }

@@ -140,6 +140,18 @@
       "unit": {
         "locked": "Dieser Marker hat schon Werte, deshalb kannst du seine Einheit nicht ändern. Die gespeicherten Werte würden sonst in der neuen Einheit angezeigt, ohne umgerechnet zu werden."
       }
+    },
+    "symptoms": {
+      "definition": {
+        "limitReached": "Du hast 8 Symptome. Blende eins aus, um ein neues anzulegen.",
+        "notFound": "Dieses Symptom gibt es nicht mehr."
+      },
+      "episode": {
+        "notOpen": "Diese Erkrankung ist nicht mehr offen. Wähle eine andere oder keine."
+      },
+      "event": {
+        "notFound": "Diesen Eintrag gibt es nicht mehr."
+      }
     }
   },
   "doctorReport": {
@@ -410,7 +422,9 @@
       "mood": "Stimmung",
       "moodDescription": "Stimmung und Tags erfassen",
       "workout": "Workout",
-      "workoutDescription": "Eine Einheit, die kein Gerät aufgezeichnet hat"
+      "workoutDescription": "Eine Einheit, die kein Gerät aufgezeichnet hat",
+      "symptom": "Symptom",
+      "symptomDescription": "Eines deiner eigenen Symptome, mit Stärke"
     },
     "cycle": "Zyklus",
     "labs": "Laborwerte",
@@ -649,7 +663,8 @@
       "title": "Sichere deinen Verschlüsselungsschlüssel",
       "body": "Ohne eine Kopie des Schlüssels lassen sich deine Daten nach einer Neuinstallation nicht wiederherstellen. Es dauert eine Minute.",
       "action": "Zum Schritt"
-    }
+    },
+    "quickAddSymptom": "Symptom erfassen"
   },
   "measurements": {
     "title": "Messungen",
@@ -7478,7 +7493,8 @@
         "restoreFailureUnexpected": "Die Wiederherstellung ist an einem unerwarteten Fehler gescheitert und wurde zurückgerollt. Das Server-Log nennt den Fehler.",
         "restoreFailureKeyMissing": "Die Sicherung braucht den Verschlüsselungsschlüssel {keys}, mit dem dieser Server sie nicht öffnen kann. Nimm den Schlüssel wieder in ENCRYPTION_KEYS auf, starte neu und starte die Wiederherstellung erneut.",
         "restoreFailureForeignReference": "Die Datei verweist auf Einträge, die zu einem anderen Konto gehören. Es wurde nichts geschrieben.",
-        "previewKeyMissing": "Diese Sicherung lässt sich auf diesem Server nicht wiederherstellen: Sie braucht den Verschlüsselungsschlüssel {keys}. Nimm den Schlüssel zuerst wieder in ENCRYPTION_KEYS auf und starte neu."
+        "previewKeyMissing": "Diese Sicherung lässt sich auf diesem Server nicht wiederherstellen: Sie braucht den Verschlüsselungsschlüssel {keys}. Nimm den Schlüssel zuerst wieder in ENCRYPTION_KEYS auf und starte neu.",
+        "restoreSkippedSymptomEpisodeReference": "Symptom-Eintrag mit Verknüpfung zu einer Erkrankung, die die Datei nicht enthält (ohne Verknüpfung behalten)"
       },
       "danger-zone": {
         "title": "Gefahrenzone",
@@ -11270,7 +11286,13 @@
       "documentDiscard": "{name} hat ein Dokument verworfen",
       "medicationIntakeImportFinished": "Der von {name} gestartete Einnahme-Import ist fertig",
       "medicationOneShotReconciled": "Ein einmaliges Medikament wurde nach einer Einnahme von {name} geöffnet oder geschlossen",
-      "vaccinationBoosterPlanned": "{name} hat eine Auffrischung geplant"
+      "vaccinationBoosterPlanned": "{name} hat eine Auffrischung geplant",
+      "symptomEventCreate": "{name} hat ein Symptom erfasst",
+      "symptomEventUpdate": "{name} hat einen Symptom-Eintrag bearbeitet",
+      "symptomEventDelete": "{name} hat einen Symptom-Eintrag gelöscht",
+      "symptomDefinitionCreate": "{name} hat ein Symptom angelegt",
+      "symptomDefinitionUpdate": "{name} hat ein Symptom geändert",
+      "symptomDefinitionDelete": "{name} hat ein Symptom entfernt"
     },
     "section": {
       "measurements": {
@@ -11501,5 +11523,66 @@
     "waitingForWorker": "Warte auf den Hintergrunddienst. Ändert sich das nicht, läuft der Worker auf dem Server vielleicht nicht.",
     "errorWorkerUnavailable": "Der Hintergrunddienst ist gerade nicht erreichbar. Versuch es gleich noch einmal oder bitte die Person, die den Server betreibt, ihn zu prüfen.",
     "errorTimedOut": "Das Lesen hat länger gedauert, als deine KI-Antwortzeit erlaubt. Versuch es noch einmal oder erhöhe die Antwortzeit in den KI-Einstellungen."
+  },
+  "symptoms": {
+    "add": "Neues Symptom",
+    "nameLabel": "Name",
+    "namePlaceholder": "z. B. Aura",
+    "iconLabel": "Symbol",
+    "limitReached": "Du hast 8 Symptome. Blende eins aus, um ein neues anzulegen.",
+    "saveError": "Das Symptom konnte nicht gespeichert werden. Bitte versuch es noch einmal.",
+    "nameRequired": "Gib dem Symptom einen Namen.",
+    "unreadableLabel": "Unlesbares Symptom",
+    "intensityPill": "{value}/10",
+    "entry": {
+      "sheetTitle": "Symptom erfassen",
+      "sheetDescription": "Eines deiner eigenen Symptome, wie stark und wann.",
+      "symptom": "Symptom",
+      "symptomRequired": "Wähle ein Symptom.",
+      "intensity": "Stärke",
+      "intensityRequired": "Gib an, wie stark es war.",
+      "intensityUnset": "Nicht gesetzt",
+      "anchorLow": "Keine",
+      "anchorHigh": "Stärkste vorstellbare",
+      "intensityValueText": "{value} von {max} ({low} bis {high})",
+      "when": "Wann",
+      "during": "Während einer Erkrankung",
+      "duringNone": "Nicht verknüpft",
+      "note": "Notiz",
+      "notePlaceholder": "Was war sonst noch?",
+      "reset": "Formular zurücksetzen",
+      "emptyHint": "Leg dein erstes Symptom an, zum Beispiel Aura oder Kopfschmerz.",
+      "emptyHintNoManage": "Für diesen Datensatz sind noch keine Symptome angelegt.",
+      "limitHint": "Bis zu {limit} Symptome. Blende auf der Krankheitsseite eins aus, um ein neues anzulegen."
+    },
+    "section": {
+      "title": "Deine Symptome",
+      "log": "Erfassen",
+      "loadError": "Deine Symptome konnten nicht geladen werden.",
+      "summaryOne": "Einmal in 30 Tagen, {max}/10, zuletzt {date}",
+      "summaryFew": "{count}-mal in 30 Tagen, bis {max}/10, zuletzt {date}",
+      "summaryOther": "{count}-mal in 30 Tagen, bis {max}/10, zuletzt {date}",
+      "summaryNoneRecent": "Nicht in den letzten 30 Tagen, zuletzt {date}",
+      "summaryNever": "Noch nicht erfasst",
+      "menuLabel": "Optionen für {symptom}",
+      "eventMenuLabel": "Optionen für diesen Eintrag {symptom}",
+      "hide": "Ausblenden",
+      "show": "Wieder einblenden",
+      "deleteTitle": "Symptom löschen?",
+      "deleteBody": "„{symptom}“ und alle Einträge dazu werden gelöscht. Um den Verlauf zu behalten, blende es stattdessen aus.",
+      "deleteEventTitle": "Eintrag löschen?",
+      "deleteEventBody": "Dieser Eintrag wird gelöscht.",
+      "hiddenOne": "Ausgeblendet (1)",
+      "hiddenFew": "Ausgeblendet ({count})",
+      "hiddenOther": "Ausgeblendet ({count})",
+      "recent": "Letzte 30 Tage",
+      "recentEmpty": "In den letzten 30 Tagen nichts erfasst.",
+      "editEventTitle": "{symptom} bearbeiten",
+      "editSymptomTitle": "Symptom bearbeiten"
+    },
+    "episode": {
+      "title": "Erfasste Symptome",
+      "filed": "zu dieser Erkrankung erfasst"
+    }
   }
 }

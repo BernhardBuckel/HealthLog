@@ -12,7 +12,15 @@
  */
 import { useMemo } from "react";
 import Link from "next/link";
-import { Activity, Footprints, Pill, Plus, Waves, Wrench } from "lucide-react";
+import {
+  Activity,
+  Footprints,
+  Pill,
+  Plus,
+  Stethoscope,
+  Waves,
+  Wrench,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -62,6 +70,7 @@ export function DashboardHeader({
   const canAddMeasurement = offered.includes("measurement");
   const canAddIntake = offered.includes("medication");
   const canAddMood = offered.includes("mood");
+  const canAddSymptom = offered.includes("symptom");
   const canAddWorkout = offered.includes("workout");
   const canAddAnything = offered.length > 0;
 
@@ -196,6 +205,12 @@ export function DashboardHeader({
                   >
                     <Pill className="mr-2 h-4 w-4" aria-hidden="true" />
                     {t("dashboard.quickAddMedicationIntake")}
+                  </DropdownMenuItem>
+                )}
+                {canAddSymptom && (
+                  <DropdownMenuItem onClick={() => onQuickEntry("symptom")}>
+                    <Stethoscope className="mr-2 h-4 w-4" aria-hidden="true" />
+                    {t("dashboard.quickAddSymptom")}
                   </DropdownMenuItem>
                 )}
                 {canAddWorkout && (

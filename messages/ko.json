@@ -140,6 +140,18 @@
       "unit": {
         "locked": "이 마커에는 이미 기록된 값이 있어서 단위를 바꿀 수 없어요. 저장된 값이 변환되지 않은 채 새 단위로 표시되기 때문이에요."
       }
+    },
+    "symptoms": {
+      "definition": {
+        "limitReached": "증상이 8개입니다. 하나를 숨기면 새로 추가할 수 있습니다.",
+        "notFound": "이 증상은 더 이상 없습니다."
+      },
+      "episode": {
+        "notOpen": "그 질병은 더 이상 진행 중이 아닙니다. 다른 질병을 선택하거나 선택하지 마세요."
+      },
+      "event": {
+        "notFound": "이 기록은 더 이상 없습니다."
+      }
     }
   },
   "doctorReport": {
@@ -410,7 +422,9 @@
       "mood": "기분",
       "moodDescription": "기분과 태그 기록하기",
       "workout": "운동",
-      "workoutDescription": "기기가 기록하지 못한 운동"
+      "workoutDescription": "기기가 기록하지 못한 운동",
+      "symptom": "증상",
+      "symptomDescription": "직접 정한 증상과 강도"
     },
     "cycle": "생리 주기",
     "labs": "검사",
@@ -649,7 +663,8 @@
       "title": "암호화 키를 백업하세요",
       "body": "키 사본이 없으면 다시 설치한 뒤 데이터를 복구할 수 없습니다. 1분이면 됩니다.",
       "action": "단계 열기"
-    }
+    },
+    "quickAddSymptom": "증상 기록"
   },
   "measurements": {
     "title": "측정",
@@ -7457,7 +7472,8 @@
         "restoreFailureUnexpected": "예상하지 못한 오류로 복원이 멈췄고 되돌려졌어요. 서버 로그에 오류가 나와 있어요.",
         "restoreFailureKeyMissing": "이 백업에는 암호화 키 {keys}가 필요하지만 이 서버는 그 키로 백업을 열 수 없습니다. 키를 ENCRYPTION_KEYS에 다시 추가하고 재시작한 뒤 복원을 다시 시작하세요.",
         "restoreFailureForeignReference": "파일이 다른 계정에 속한 기록을 가리키고 있습니다. 아무것도 기록되지 않았습니다.",
-        "previewKeyMissing": "이 서버에서는 이 백업을 복원할 수 없습니다. 암호화 키 {keys}가 필요합니다. 먼저 키를 ENCRYPTION_KEYS에 다시 추가하고 재시작하세요."
+        "previewKeyMissing": "이 서버에서는 이 백업을 복원할 수 없습니다. 암호화 키 {keys}가 필요합니다. 먼저 키를 ENCRYPTION_KEYS에 다시 추가하고 재시작하세요.",
+        "restoreSkippedSymptomEpisodeReference": "파일에 없는 질병과 연결된 증상 기록(연결 없이 유지됨)"
       },
       "danger-zone": {
         "title": "위험 구역",
@@ -11270,7 +11286,13 @@
       "documentDiscard": "{name} 님이 문서를 폐기했어요",
       "medicationIntakeImportFinished": "{name} 님이 시작한 복용 기록 불러오기가 끝났어요",
       "medicationOneShotReconciled": "{name} 님이 기록한 복용에 따라 일회성 약이 시작되거나 종료됐어요",
-      "vaccinationBoosterPlanned": "{name} 님이 추가 접종을 계획했어요"
+      "vaccinationBoosterPlanned": "{name} 님이 추가 접종을 계획했어요",
+      "symptomEventCreate": "{name}님이 증상을 기록했습니다",
+      "symptomEventUpdate": "{name}님이 증상 기록을 편집했습니다",
+      "symptomEventDelete": "{name}님이 증상 기록을 삭제했습니다",
+      "symptomDefinitionCreate": "{name}님이 증상을 추가했습니다",
+      "symptomDefinitionUpdate": "{name}님이 증상을 변경했습니다",
+      "symptomDefinitionDelete": "{name}님이 증상을 제거했습니다"
     },
     "section": {
       "measurements": {
@@ -11501,5 +11523,66 @@
     "waitingForWorker": "백그라운드 작업자를 기다리고 있어요. 계속 그대로라면 서버의 작업자가 실행 중이 아닐 수 있어요.",
     "errorWorkerUnavailable": "지금은 백그라운드 작업자를 사용할 수 없어요. 잠시 후 다시 시도하거나 서버 운영자에게 확인을 요청하세요.",
     "errorTimedOut": "AI 응답 시간 설정보다 읽기가 오래 걸렸어요. 다시 시도하거나 AI 설정에서 응답 시간을 늘려 주세요."
+  },
+  "symptoms": {
+    "add": "새 증상",
+    "nameLabel": "이름",
+    "namePlaceholder": "예: 전조",
+    "iconLabel": "아이콘",
+    "limitReached": "증상이 8개입니다. 하나를 숨기면 새로 추가할 수 있습니다.",
+    "saveError": "증상을 저장하지 못했습니다. 다시 시도하세요.",
+    "nameRequired": "증상 이름을 입력하세요.",
+    "unreadableLabel": "읽을 수 없는 증상",
+    "intensityPill": "{value}/10",
+    "entry": {
+      "sheetTitle": "증상 기록",
+      "sheetDescription": "직접 정한 증상과 강도, 시각을 기록합니다.",
+      "symptom": "증상",
+      "symptomRequired": "증상을 선택하세요.",
+      "intensity": "강도",
+      "intensityRequired": "얼마나 심했는지 정하세요.",
+      "intensityUnset": "미설정",
+      "anchorLow": "없음",
+      "anchorHigh": "상상할 수 있는 최악",
+      "intensityValueText": "{max} 중 {value} ({low}부터 {high}까지)",
+      "when": "시각",
+      "during": "질병 기간 중",
+      "duringNone": "연결 안 함",
+      "note": "메모",
+      "notePlaceholder": "그 밖에 어떤 일이 있었나요?",
+      "reset": "양식 초기화",
+      "emptyHint": "첫 증상을 추가하세요. 예: 전조, 두통.",
+      "emptyHintNoManage": "이 기록에는 아직 설정된 증상이 없습니다.",
+      "limitHint": "증상은 최대 {limit}개입니다. 질병 페이지에서 하나를 숨기면 새로 추가할 수 있습니다."
+    },
+    "section": {
+      "title": "내 증상",
+      "log": "기록",
+      "loadError": "증상을 불러오지 못했습니다.",
+      "summaryOne": "30일 동안 1회, {max}/10, 마지막 {date}",
+      "summaryFew": "30일 동안 {count}회, 최대 {max}/10, 마지막 {date}",
+      "summaryOther": "30일 동안 {count}회, 최대 {max}/10, 마지막 {date}",
+      "summaryNoneRecent": "최근 30일 동안 없음, 마지막 {date}",
+      "summaryNever": "아직 기록 없음",
+      "menuLabel": "{symptom} 옵션",
+      "eventMenuLabel": "이 {symptom} 기록의 옵션",
+      "hide": "숨기기",
+      "show": "다시 표시",
+      "deleteTitle": "증상을 삭제할까요?",
+      "deleteBody": "\"{symptom}\"과 모든 기록이 삭제됩니다. 기록을 남기려면 대신 숨기세요.",
+      "deleteEventTitle": "기록을 삭제할까요?",
+      "deleteEventBody": "이 기록이 삭제됩니다.",
+      "hiddenOne": "숨김 (1)",
+      "hiddenFew": "숨김 ({count})",
+      "hiddenOther": "숨김 ({count})",
+      "recent": "최근 30일",
+      "recentEmpty": "최근 30일 동안 기록이 없습니다.",
+      "editEventTitle": "{symptom} 편집",
+      "editSymptomTitle": "증상 편집"
+    },
+    "episode": {
+      "title": "기록된 증상",
+      "filed": "이 질병과 함께 기록됨"
+    }
   }
 }

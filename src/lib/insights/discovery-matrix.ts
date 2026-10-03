@@ -48,6 +48,7 @@ import {
   buildMeasurementDailySeries,
   fetchComplianceSeries,
   fetchCustomMetricBehaviourSeries,
+  fetchSymptomEventSeries,
   fetchEnvironmentSeries,
   fetchMeasurementDailySeriesTiered,
   fetchMeasurementWindowSeries,
@@ -154,6 +155,8 @@ export interface DiscoveryMatrixDiagnostics {
   customMetricDays: number;
   /** `FACTOR:*` channels admitted (0 unless `includeMoodFactors`). */
   moodFactorChannels: number;
+  /** `SYMPTOM:*` channels read (before the module mask). */
+  symptomEventChannels: number;
 }
 
 export interface DiscoveryMatrix {
@@ -294,6 +297,7 @@ export async function assembleDiscoveryMatrix(
     symptomSeries,
     environmentSeries,
     customMetricSeries,
+    symptomEventSeries,
   ] = await Promise.all([
     readMeasurementDaily(userId, tz, since, measurementTypes, fetchMode),
     readMood(userId, tz, since, opts.includeMoodFactors === true),
@@ -301,6 +305,7 @@ export async function assembleDiscoveryMatrix(
     fetchSymptomSeries(userId, tz, since),
     fetchEnvironmentSeries(userId, since),
     fetchCustomMetricBehaviourSeries(userId, tz, since),
+    fetchSymptomEventSeries(userId, tz, since),
   ]);
 
   const { factorSeries } = mood;
@@ -331,6 +336,11 @@ export async function assembleDiscoveryMatrix(
   // (D → D+1) against every outcome above, under the unchanged n ≥ 20 / FDR /
   // effect-size gates, so a thin weather or custom series degrades to absent.
   series.push(...environmentSeries, ...customMetricSeries);
+  // The person's own symptoms are OUTCOMES: "short sleep, then an aura the
+  // next day" is the question they log them to answer. Each is its own
+  // channel and its own family, capped at eight; the illness module owns them
+  // through the `SYMPTOM:` prefix rule in the surface map.
+  series.push(...symptomEventSeries);
   // A factor is plausibly both a lag source ("rated work today → next-day
   // sleep") and a lag target ("steps today → next-day rated energy"), so it
   // enters as both roles. The engine skips self-pairs — every factor shares
@@ -371,6 +381,7 @@ export async function assembleDiscoveryMatrix(
         0,
       ),
       moodFactorChannels: factorSeries.size,
+      symptomEventChannels: symptomEventSeries.length,
     },
   };
 }

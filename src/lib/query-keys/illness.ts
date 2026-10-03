@@ -48,4 +48,15 @@ export const illnessKeys = {
    */
   illnessInsights: (windowDays: number, includeRecoveryGap: boolean) =>
     ["illness", "insights", windowDays, includeRecoveryGap] as const,
+  /**
+   * v1.40 — person-defined symptoms. Under the `["illness"]` root because they
+   * ride the illness module and the episode detail reads them: an illness
+   * write and a symptom write each evict the whole tree. The definition list
+   * with and without hidden ones are two payloads, so two keys.
+   */
+  symptomDefinitions: (includeHidden: boolean) =>
+    ["illness", "symptoms", "definitions", includeHidden] as const,
+  /** One window of occurrences; the window bounds and the filters are the key. */
+  symptomEvents: (from: string, to: string, episodeId: string | null) =>
+    ["illness", "symptoms", "events", from, to, episodeId] as const,
 };

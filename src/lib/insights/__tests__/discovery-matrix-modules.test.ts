@@ -42,6 +42,9 @@ vi.mock("@/lib/insights/correlation-channel-series", () => ({
   fetchCustomMetricBehaviourSeries: vi.fn(async () => [
     { key: "CUSTOM_METRIC:abc", role: "behaviour", points: pts },
   ]),
+  fetchSymptomEventSeries: vi.fn(async () => [
+    { key: "SYMPTOM:def1", label: "Aura", role: "outcome", points: pts },
+  ]),
 }));
 vi.mock("@/lib/rollups/measurement-read", () => ({
   loadUserSourcePriority: vi.fn(),
@@ -77,6 +80,7 @@ describe("assembleDiscoveryMatrix — switched-off modules", () => {
       "SYMPTOM_SEVERITY",
       "ENV_TEMP_MEAN",
       "CUSTOM_METRIC:abc",
+      "SYMPTOM:def1",
       "WEIGHT",
     ]) {
       expect(keys).toContain(key);
@@ -103,6 +107,7 @@ describe("assembleDiscoveryMatrix — switched-off modules", () => {
       "BLOOD_GLUCOSE",
       "MEDICATION_COMPLIANCE",
       "SYMPTOM_SEVERITY",
+      "SYMPTOM:def1",
       "ENV_TEMP_MEAN",
     ]) {
       expect(keys, gone).not.toContain(gone);
