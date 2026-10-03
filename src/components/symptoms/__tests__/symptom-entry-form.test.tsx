@@ -7,13 +7,16 @@
  *   - drop the `resolvedAt === null` filter on the episodes → "offers no
  *     episode selector when every episode is resolved" goes red;
  *   - render the add chip unconditionally → "a delegate who may log but not
- *     manage gets no add chip" goes red.
+ *     manage gets no add chip" goes red;
+ *   - drop the `definitions.isError` branch → "a failed read shows the error
+ *     row, not the empty hint" goes red (the empty hint renders instead).
  */
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 const state = vi.hoisted(() => ({
   canManage: true,
+  definitionsFailed: false,
   episodes: [] as Array<{
     id: string;
     label: string;
@@ -34,30 +37,42 @@ vi.mock("@/components/illness/use-illness", () => ({
 }));
 
 vi.mock("../use-symptoms", () => ({
-  useSymptomDefinitions: () => ({
-    isLoading: false,
-    data: {
-      limit: 8,
-      definitions: [
-        {
-          id: "d1",
-          label: "Aura",
-          icon: "Zap",
-          sortOrder: 0,
-          isActive: true,
-          recent: { count30d: 0, maxIntensity30d: null, lastOccurredAt: null },
+  useSymptomDefinitions: () =>
+    state.definitionsFailed
+      ? { isLoading: false, isError: true, data: undefined, refetch: vi.fn() }
+      : {
+          isLoading: false,
+          isError: false,
+          data: {
+            limit: 8,
+            definitions: [
+              {
+                id: "d1",
+                label: "Aura",
+                icon: "Zap",
+                sortOrder: 0,
+                isActive: true,
+                recent: {
+                  count30d: 0,
+                  maxIntensity30d: null,
+                  lastOccurredAt: null,
+                },
+              },
+              {
+                id: "d2",
+                label: "Headache",
+                icon: "Brain",
+                sortOrder: 1,
+                isActive: true,
+                recent: {
+                  count30d: 0,
+                  maxIntensity30d: null,
+                  lastOccurredAt: null,
+                },
+              },
+            ],
+          },
         },
-        {
-          id: "d2",
-          label: "Headache",
-          icon: "Brain",
-          sortOrder: 1,
-          isActive: true,
-          recent: { count30d: 0, maxIntensity30d: null, lastOccurredAt: null },
-        },
-      ],
-    },
-  }),
   useLogSymptomEvent: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateSymptomDefinition: () => ({
     mutateAsync: vi.fn(),
@@ -110,5 +125,20 @@ describe("<SymptomEntryForm>", () => {
       { id: "e1", label: "Cold", resolvedAt: "2026-08-08T00:00:00.000Z" },
     ];
     expect(render()).not.toContain("-episode");
+  });
+
+  it("a failed read shows the error row, not the empty hint", () => {
+    state.canManage = true;
+    state.episodes = [];
+    state.definitionsFailed = true;
+    try {
+      const html = render();
+      expect(html).toContain('data-slot="query-error-row"');
+      expect(html).toContain("load your symptoms");
+      expect(html).not.toContain("first symptom");
+      expect(html).not.toContain('data-testid="symptom-add-chip"');
+    } finally {
+      state.definitionsFailed = false;
+    }
   });
 });

@@ -11,6 +11,9 @@
  *   - a second submit of the same form is a `duplicate`, not a second row;
  *   - a submit after an edit is `updated` and the one row carries the edit,
  *     while a synced id with changed values stays first-write-wins;
+ *   - an edit drops the paragraph written about the old values, lets go of
+ *     its generation claim without freeing the day's slot, and raises the
+ *     workout's arrival again so the paragraph is written from the new ones;
  *   - delete removes a hand-entered workout and refuses a synced one.
  */
 import { NextRequest } from "next/server";
@@ -44,6 +47,11 @@ vi.mock("next/headers", async () => {
     })),
   };
 });
+
+// The arrival seam is observed, not run: the edit test asserts the route
+// raises one for the edited workout; what the spine then does is its own suite.
+const emitDataArrival = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/lib/arrivals/emit-shared", () => ({ emitDataArrival }));
 
 vi.mock("@/lib/db-compat", () => ({
   ensureDbCompatibility: vi.fn().mockResolvedValue(undefined),
@@ -214,6 +222,97 @@ describe("a workout entered by hand", () => {
     expect((await again.json()).data.entries).toEqual([
       { index: 0, status: "duplicate" },
     ]);
+  });
+
+  it("drops the paragraph about the old values when an edit lands", async () => {
+    const prisma = getPrismaClient();
+    const entry = formEntry(newManualWorkoutExternalId());
+    await post({ workouts: [entry] });
+    const stored = await prisma.workout.findFirstOrThrow({
+      where: { userId: TEST_USER_ID },
+    });
+    // What the worker leaves behind once it wrote the paragraph.
+    const claim = await prisma.workoutInsightGenerationClaim.create({
+      data: {
+        userId: TEST_USER_ID,
+        workoutId: stored.id,
+        localDate: "2026-10-03",
+        providerInvokedAt: new Date(),
+        completedAt: new Date(),
+      },
+    });
+    await prisma.workoutInsight.create({
+      data: {
+        userId: TEST_USER_ID,
+        workoutId: stored.id,
+        paragraphEncrypted: Buffer.from("ciphertext-stand-in", "utf8"),
+        inputHash: "hash-of-the-old-values",
+        promptVersion: "1.0.0",
+        providerType: "local",
+        locale: "en",
+        generatedAt: new Date(),
+      },
+    });
+    emitDataArrival.mockClear();
+
+    // A run corrected from 8 km to 1.2 km.
+    const res = await post({
+      workouts: [{ ...entry, totalDistanceM: 1200 }],
+    });
+    expect((await res.json()).data.entries).toEqual([
+      { index: 0, status: "updated" },
+    ]);
+
+    expect(
+      await prisma.workoutInsight.count({ where: { workoutId: stored.id } }),
+    ).toBe(0);
+    // The claim stays as the day's ledger, detached from the workout, so the
+    // edit frees no slot and a fresh claim for the workout is possible.
+    const ledger = await prisma.workoutInsightGenerationClaim.findUniqueOrThrow(
+      { where: { id: claim.id } },
+    );
+    expect(ledger.workoutId).toBeNull();
+    expect(ledger.providerInvokedAt).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(emitDataArrival).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: TEST_USER_ID,
+          kind: "workout",
+          refId: stored.id,
+        }),
+      ),
+    );
+  });
+
+  it("keeps the paragraph when the same form is sent again unchanged", async () => {
+    const prisma = getPrismaClient();
+    const entry = formEntry(newManualWorkoutExternalId());
+    await post({ workouts: [entry] });
+    const stored = await prisma.workout.findFirstOrThrow({
+      where: { userId: TEST_USER_ID },
+    });
+    await prisma.workoutInsight.create({
+      data: {
+        userId: TEST_USER_ID,
+        workoutId: stored.id,
+        paragraphEncrypted: Buffer.from("ciphertext-stand-in", "utf8"),
+        inputHash: "hash-of-the-values",
+        promptVersion: "1.0.0",
+        providerType: "local",
+        locale: "en",
+        generatedAt: new Date(),
+      },
+    });
+    emitDataArrival.mockClear();
+
+    const res = await post({ workouts: [entry] });
+    expect((await res.json()).data.entries).toEqual([
+      { index: 0, status: "duplicate" },
+    ]);
+    expect(
+      await prisma.workoutInsight.count({ where: { workoutId: stored.id } }),
+    ).toBe(1);
+    expect(emitDataArrival).not.toHaveBeenCalled();
   });
 
   it("keeps a synced workout first-write-wins under the same resend", async () => {

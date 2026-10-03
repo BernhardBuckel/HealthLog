@@ -27,6 +27,7 @@ import {
 import { FieldGroup } from "@/components/ui/field-group";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { QueryErrorRow } from "@/components/ui/query-error-row";
 import {
   Select,
   SelectContent,
@@ -210,59 +211,70 @@ export function SymptomEntryForm({
     >
       <div className="space-y-2">
         <Label id={symptomGroupId}>{t("symptoms.entry.symptom")}</Label>
-        <div
-          role="radiogroup"
-          aria-labelledby={symptomGroupId}
-          aria-describedby={
-            symptomError ? `${symptomGroupId}-error` : undefined
-          }
-          className="flex flex-wrap gap-2"
-        >
-          {list.map((definition) => {
-            const selected = definitionId === definition.id;
-            return (
-              <button
-                key={definition.id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                data-testid="symptom-chip"
-                onClick={() => {
-                  setDefinitionId(selected ? null : definition.id);
-                  setSymptomError(null);
-                }}
-                className={cn(
-                  "focus-visible:ring-ring/50 inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none sm:min-h-8",
-                  selected
-                    ? "border-primary bg-primary/10 text-foreground"
-                    : "border-border text-foreground hover:bg-accent",
-                )}
-              >
-                <SymptomIcon name={definition.icon} className="size-4" />
-                {definition.label ?? t("symptoms.unreadableLabel")}
-              </button>
-            );
-          })}
-          {canDefine && !atLimit ? (
-            <AddSymptomChip
-              onCreated={(id) => {
-                setDefinitionId(id);
-                setSymptomError(null);
-              }}
-            />
-          ) : null}
-        </div>
-        {list.length === 0 && !definitions.isLoading ? (
-          <p className="text-muted-foreground text-xs">
-            {canDefine
-              ? t("symptoms.entry.emptyHint")
-              : t("symptoms.entry.emptyHintNoManage")}
-          </p>
-        ) : atLimit && canDefine ? (
-          <p className="text-muted-foreground text-xs">
-            {t("symptoms.entry.limitHint", { limit })}
-          </p>
-        ) : null}
+        {definitions.isError ? (
+          // A failed read is not an empty list: the empty hint would invite
+          // the person to define a symptom they may already have.
+          <QueryErrorRow
+            message={t("symptoms.section.loadError")}
+            onRetry={() => void definitions.refetch()}
+          />
+        ) : (
+          <>
+            <div
+              role="radiogroup"
+              aria-labelledby={symptomGroupId}
+              aria-describedby={
+                symptomError ? `${symptomGroupId}-error` : undefined
+              }
+              className="flex flex-wrap gap-2"
+            >
+              {list.map((definition) => {
+                const selected = definitionId === definition.id;
+                return (
+                  <button
+                    key={definition.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    data-testid="symptom-chip"
+                    onClick={() => {
+                      setDefinitionId(selected ? null : definition.id);
+                      setSymptomError(null);
+                    }}
+                    className={cn(
+                      "focus-visible:ring-ring/50 inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none sm:min-h-8",
+                      selected
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-foreground hover:bg-accent",
+                    )}
+                  >
+                    <SymptomIcon name={definition.icon} className="size-4" />
+                    {definition.label ?? t("symptoms.unreadableLabel")}
+                  </button>
+                );
+              })}
+              {canDefine && !atLimit ? (
+                <AddSymptomChip
+                  onCreated={(id) => {
+                    setDefinitionId(id);
+                    setSymptomError(null);
+                  }}
+                />
+              ) : null}
+            </div>
+            {list.length === 0 && !definitions.isLoading ? (
+              <p className="text-muted-foreground text-xs">
+                {canDefine
+                  ? t("symptoms.entry.emptyHint")
+                  : t("symptoms.entry.emptyHintNoManage")}
+              </p>
+            ) : atLimit && canDefine ? (
+              <p className="text-muted-foreground text-xs">
+                {t("symptoms.entry.limitHint", { limit })}
+              </p>
+            ) : null}
+          </>
+        )}
         {symptomError ? (
           <p
             id={`${symptomGroupId}-error`}

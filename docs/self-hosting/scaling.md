@@ -46,10 +46,12 @@ staging file. The import then fails with a staging-file-missing error
 ("the import staging file is not visible to the worker"). Two things to
 know:
 
-- A pure `web` container has no pg-boss handle, so an import kicked off
-  there currently returns `503 Background worker is not running`. Run
-  imports from a container that also runs the worker until send-only
-  boss support lands.
+- A pure `web` container opens a send-only pg-boss connection at boot
+  (`src/instrumentation.ts`, `startGlobalBossProducer`), so an import
+  kicked off there is accepted and queued for the worker like any other
+  job. It answers `503 Background worker is not running` only when that
+  producer connection could not be opened (the boot log then shows
+  `Failed to start pg-boss producer`).
 - If you run web and worker as separate containers, they **must share
   the import staging directory** — mount the same named volume at the
   temp path on both — or run imports in single-container (`all`) mode.
@@ -85,6 +87,43 @@ does not stay stuck: the worker reconciles non-terminal import jobs at
 boot and every 15 minutes, flipping orphaned rows to `failed`
 (`interrupted_by_restart`) so the UI offers a retry instead of an
 endless spinner.
+
+## Document and lab-scan reads run on the worker (v1.40)
+
+Since v1.40, every AI read of a document or a lab report runs as a
+background job on the worker, not inside the HTTP request:
+
+- reading a document for search (the content index),
+- a document summary, stored or shown once,
+- filing suggestions (title, type, date),
+- extracting facts from a stored document for review,
+- a lab scan (photo or PDF of a lab report).
+
+The request only queues the read and answers `202`; the client then
+polls the run until it ends. That is what keeps a
+slow model from being cut off by a proxy timeout in front of the
+server. When the enqueue itself fails (no pg-boss connection at all),
+the request answers `503` straight away, and nothing is charged.
+
+**"Waiting for the background worker"** is the line the app shows when
+a read has sat in the queue for more than 30 seconds without a worker
+picking it up. On a single `all` container that is rare and short
+(the worker is busy with another job). If it does not go away, no
+worker process is consuming the queue: the worker container is
+stopped, crashing on boot, or pointed at another database. A run that
+no worker picks up within 15 minutes fails as
+`aiRuns.workerUnavailable` and its AI budget reservation is handed
+back. That sweep is itself a worker job, so with no worker running at
+all the run simply stays queued until one starts.
+
+**In a web/worker split, the worker must run the same version as the
+web containers.** The web container queues the read; only a worker
+that knows the `document-ai-run` queue can execute it. A worker left
+on a pre-v1.40 image never takes these jobs, so every document read
+and lab scan waits and then fails as above, while everything else
+looks healthy. Deploy both from the same image tag
+(`HEALTHLOG_IMAGE_REF` is shared by `app` and the `app-worker` block)
+and restart the worker together with the web containers.
 
 ## Healthchecks
 

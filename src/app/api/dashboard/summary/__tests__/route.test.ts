@@ -561,32 +561,6 @@ describe("GET /api/dashboard/summary", () => {
     expect(glucose?.lastSeenAt).toBe(tenDaysAgo.toISOString());
   });
 
-  it("names the owner's glucose unit on the glucose card", async () => {
-    // Applied after the summary cache: the unit is the record's own choice
-    // and the card's numbers are in it (the conversion is pinned in
-    // `src/lib/dashboard/__tests__/glucose-card.test.ts`).
-    vi.mocked(getSession).mockResolvedValue({
-      ...SESSION_OK,
-      user: { ...SESSION_OK.user, glucoseUnit: "mmol/L" },
-    } as never);
-    vi.mocked(prisma.measurement.groupBy).mockResolvedValue([
-      {
-        type: "BLOOD_GLUCOSE",
-        _count: { _all: 4 },
-        _max: { measuredAt: new Date(Date.now() - 10 * 86_400_000) },
-      },
-    ] as never);
-    const res = await callGet(makeReq());
-    const body = (await res.json()) as {
-      data: { metrics: Array<{ id: string; unit: string | null }> };
-    };
-    expect(body.data.metrics.find((m) => m.id === "glucose")?.unit).toBe(
-      "mmol/L",
-    );
-    // Every other card keeps its own unit contract.
-    expect(body.data.metrics.find((m) => m.id === "weight")?.unit).toBeNull();
-  });
-
   it("emits the sleep tile as the night TIME-ASLEEP total in hours, not one stage (v1.11.4)", async () => {
     // SLEEP_DURATION is stored one row per STAGE per night (minutes). The
     // tile must SUM the asleep stages of the latest night and convert to

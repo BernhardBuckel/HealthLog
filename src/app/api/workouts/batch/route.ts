@@ -194,7 +194,8 @@ interface EntryResult {
 }
 
 /**
- * v1.31.1 — emit one data arrival per workout this batch actually inserted.
+ * v1.31.1 — emit one data arrival per workout this batch actually inserted,
+ * and per hand-entered workout whose edit it actually wrote.
  *
  * `createManyAndReturn` gives the transaction the exact inserted ids. The
  * index-keyed map avoids a second lookup and keeps equal external ids from
@@ -541,6 +542,8 @@ async function postBatch(request: NextRequest): Promise<Response> {
   let enrichedCount = 0;
   let updatedCount = 0;
   const insertedIdByIndex = new Map<number, string>();
+  /** Workout ids of the manual edits this request actually wrote. */
+  const overwrittenIdByIndex = new Map<number, string>();
 
   if (survivors.length > 0) {
     // v1.4.42 W5 — only the write-time dedup survivors are probed
@@ -709,6 +712,19 @@ async function postBatch(request: NextRequest): Promise<Response> {
                 externalId: o.externalId,
               },
             });
+            // The paragraph described the old values (a 12 km run corrected
+            // to 1.2 km must not keep its 12 km story). It goes with them,
+            // and the claim is let go of its workout the way a delete does
+            // (`ON DELETE SET NULL`): the row stays as the day's ledger, so
+            // the edit buys no slot back, and the arrival emitted below can
+            // claim a fresh one through the ordinary path, under the same cap.
+            await tx.workoutInsight.deleteMany({
+              where: { userId: user.id, workoutId: o.workoutId },
+            });
+            await tx.workoutInsightGenerationClaim.updateMany({
+              where: { userId: user.id, workoutId: o.workoutId },
+              data: { workoutId: null },
+            });
           }
         }
 
@@ -841,7 +857,10 @@ async function postBatch(request: NextRequest): Promise<Response> {
           index: o.index,
           status: landed ? "updated" : "duplicate",
         };
-        if (landed) updatedCount += 1;
+        if (landed) {
+          updatedCount += 1;
+          overwrittenIdByIndex.set(o.index, o.workoutId);
+        }
         duplicateCount += 1;
       }
     }
@@ -914,13 +933,17 @@ async function postBatch(request: NextRequest): Promise<Response> {
     invalidateUserMeasurements(user.id);
   }
 
-  if (insertedCount > 0) {
+  if (insertedCount > 0 || overwrittenIdByIndex.size > 0) {
     // One arrival per exact INSERT ... RETURNING winner. Historical rows still
     // stop at the shared salience classifier before any queue work.
     // An enrichment raises none: the workout arrived when it was stored.
-    void emitWorkoutArrivals(user.id, prepared, insertedIdByIndex).catch(
-      () => {},
-    );
+    // A hand-entered workout whose edit landed raises one again, so its
+    // paragraph (dropped with the old values) is written from the new ones.
+    void emitWorkoutArrivals(
+      user.id,
+      prepared,
+      new Map([...insertedIdByIndex, ...overwrittenIdByIndex]),
+    ).catch(() => {});
   }
 
   return apiSuccess({
