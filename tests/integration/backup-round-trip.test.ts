@@ -126,6 +126,12 @@ vi.mock("@/lib/cache/invalidate", () => ({
 
 const OWNER_ID = "round-trip-owner";
 const AT = (iso: string) => new Date(iso);
+// The restore drops a measurement tombstone older than
+// `TOMBSTONE_RETENTION_DAYS` on purpose, so the fixture's deletion has to stay
+// recent on whatever day the suite runs. A fixed date aged out on 2026-10-03.
+const TOMBSTONE_DELETED_AT = new Date(
+  Math.floor((Date.now() - 10 * 86_400_000) / 1000) * 1000,
+).toISOString();
 const PHQ9_RESPONSES = JSON.stringify({
   items: [2, 1, 2, 2, 1, 1, 2, 1, 2],
   schema: 1,
@@ -351,7 +357,7 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
       source: "APPLE_HEALTH",
       externalId: "round-trip-deleted-sample",
       syncVersion: 4,
-      deletedAt: AT("2026-07-20T09:15:00.000Z"),
+      deletedAt: AT(TOMBSTONE_DELETED_AT),
     },
   });
   // The EVENT row an ECG strip is filed against, and the strip itself. The
@@ -1425,7 +1431,7 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       ),
       "a soft-deleted reading is missing from the disaster-recovery payload",
     ).toMatchObject({
-      deletedAt: "2026-07-20T09:15:00.000Z",
+      deletedAt: TOMBSTONE_DELETED_AT,
       syncVersion: 4,
     });
 
@@ -2342,7 +2348,7 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       },
       "the deleted reading came back, but not as a deletion — a tombstone " +
         "restored without its `deletedAt` is a resurrected measurement",
-    ).toEqual({ deletedAt: "2026-07-20T09:15:00.000Z", syncVersion: 4 });
+    ).toEqual({ deletedAt: TOMBSTONE_DELETED_AT, syncVersion: 4 });
 
     const restoredMeasurement = await prisma.measurement.findFirstOrThrow({
       where: { userId: OWNER_ID, type: "WEIGHT" },
