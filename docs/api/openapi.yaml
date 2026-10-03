@@ -16132,6 +16132,7 @@ paths:
                 - REFERRAL
                 - INSURANCE
                 - VACCINATION
+                - SICK_NOTE
                 - OTHER
           description: Category filter — OR inside the facet. Repeat the parameter (or send a comma-separated value).
         - name: episodeId
@@ -16316,6 +16317,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
                 documentDate:
                   description: Optional user filing date (YYYY-MM-DD). Defaults to the upload day when omitted so the library
@@ -16820,6 +16822,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
               required:
                 - mode
@@ -16910,6 +16913,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
               required:
                 - mode
@@ -16976,6 +16980,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
               required:
                 - mode
@@ -21858,6 +21863,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
                 link:
                   type: object
@@ -29285,6 +29291,7 @@ components:
             - REFERRAL
             - INSURANCE
             - VACCINATION
+            - SICK_NOTE
             - OTHER
         episodeId:
           type: string
@@ -29320,6 +29327,7 @@ components:
             - REFERRAL
             - INSURANCE
             - VACCINATION
+            - SICK_NOTE
             - OTHER
         documentDate:
           anyOf:
@@ -29374,6 +29382,7 @@ components:
                 - REFERRAL
                 - INSURANCE
                 - VACCINATION
+                - SICK_NOTE
                 - OTHER
           required:
             - mode
@@ -36593,6 +36602,7 @@ components:
                   - REFERRAL
                   - INSURANCE
                   - VACCINATION
+                  - SICK_NOTE
                   - OTHER
               title:
                 anyOf:
@@ -63949,6 +63959,7 @@ components:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
                 - type: "null"
             documentDate:
@@ -66810,6 +66821,7 @@ components:
             - REFERRAL
             - INSURANCE
             - VACCINATION
+            - SICK_NOTE
             - OTHER
         title:
           anyOf:
@@ -67256,6 +67268,7 @@ components:
             - REFERRAL
             - INSURANCE
             - VACCINATION
+            - SICK_NOTE
             - OTHER
         title:
           anyOf:

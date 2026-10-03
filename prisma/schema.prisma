@@ -8019,6 +8019,9 @@ enum InboundDocumentKind {
   REFERRAL
   INSURANCE
   VACCINATION
+  /// A certificate of incapacity for work (in Germany the
+  /// Arbeitsunfähigkeitsbescheinigung) and its equivalents.
+  SICK_NOTE
   OTHER
 
   @@map("inbound_document_kind")

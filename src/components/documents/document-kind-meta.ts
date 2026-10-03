@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Stethoscope,
   Syringe,
+  Thermometer,
 } from "lucide-react";
 
 import type { InboundDocumentKindValue } from "@/lib/validations/inbound-documents";
@@ -26,6 +27,7 @@ export const DOCUMENT_KIND_ORDER: readonly InboundDocumentKindValue[] = [
   "IMAGING",
   "DISCHARGE_LETTER",
   "PRESCRIPTION",
+  "SICK_NOTE",
   "REFERRAL",
   "VACCINATION",
   "INSURANCE",
@@ -44,5 +46,6 @@ export const DOCUMENT_KIND_ICONS: Record<
   REFERRAL: ArrowRightLeft,
   INSURANCE: ShieldCheck,
   VACCINATION: Syringe,
+  SICK_NOTE: Thermometer,
   OTHER: File,
 };
