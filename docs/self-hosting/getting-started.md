@@ -295,6 +295,15 @@ one clear refusal. After a key rotation the rotation script removes the
 record of a retired key id itself, once it reports that no values remain
 under that id.
 
+At a first start there is no record yet, so there is nothing to reset. If
+the check refuses there and you are certain the key is right, the last
+resort is `ENCRYPTION_KEY_CHECK=warn` (default `enforce`): the check still
+runs and logs its full result, `/api/health` names it as
+`warning: "encryption_key_mismatch"` without failing, requests are served,
+and no key is recorded while the check does not pass. This disables a
+safety check. With a wrong key every encrypted value fails and new rows are
+written under that key, so remove the setting once the key is confirmed.
+
 ## Backup and restore
 
 Your database is the only stateful piece — back it up, and back up the

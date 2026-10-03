@@ -32,6 +32,13 @@ const KEY_A =
 const KEY_B =
   "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
+function configureKeys(keys: Record<string, string>, active: string) {
+  vi.stubEnv("ENCRYPTION_KEYS", JSON.stringify(keys));
+  vi.stubEnv("ENCRYPTION_ACTIVE_KEY_ID", active);
+  vi.stubEnv("ENCRYPTION_KEY", "");
+  _resetCryptoCacheForTests();
+}
+
 function configureKey(hex: string) {
   vi.stubEnv("ENCRYPTION_KEYS", "");
   vi.stubEnv("ENCRYPTION_ACTIVE_KEY_ID", "");
@@ -391,6 +398,48 @@ describe("encryption key canary", () => {
         ok({ inconclusive: [{ keyId: "v1", reason: "unsampled" }] }),
       );
       expect(inserts).toEqual([]);
+    });
+  });
+
+  describe("ENCRYPTION_KEY_CHECK=warn", () => {
+    it("records nothing for any key id while one is inconclusive", async () => {
+      configureKeys({ v1: KEY_A, v2: KEY_B }, "v2");
+      const lone = encryptUnderKeyId("only value", "v1");
+      configureKeys({ v1: KEY_B, v2: KEY_A }, "v2");
+      const fake = fakeClient({
+        probe: { "User.codexAccessTokenEncrypted": [lone] },
+      });
+      // Enforce records the proven id beside the inconclusive one.
+      expect(await fake.check()).toEqual(
+        ok({
+          written: ["v2"],
+          inconclusive: [{ keyId: "v1", reason: "single-value" }],
+        }),
+      );
+      const warn = fakeClient({
+        probe: { "User.codexAccessTokenEncrypted": [lone] },
+      });
+      expect(
+        await checkEncryptionKeyCanaries(warn.client, {
+          sampler: warn.sampler,
+          mode: "warn",
+        }),
+      ).toEqual(
+        ok({ inconclusive: [{ keyId: "v1", reason: "single-value" }] }),
+      );
+      expect(warn.inserts).toEqual([]);
+    });
+
+    it("records a key that passes for every id, as enforce does", async () => {
+      const warn = fakeClient({
+        probe: { "User.codexAccessTokenEncrypted": [encrypt("opens")] },
+      });
+      expect(
+        await checkEncryptionKeyCanaries(warn.client, {
+          sampler: warn.sampler,
+          mode: "warn",
+        }),
+      ).toEqual(ok({ written: ["v1"] }));
     });
   });
 

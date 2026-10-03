@@ -106,6 +106,15 @@ fails on every encrypted value instead of refusing clearly, so only do this
 when you are sure. After a key rotation you never need this for the old key
 id: the rotation script removes its record once no values remain under it.
 
+On a first start there is no record to remove. If the check refuses there and
+you are certain the key is right, add `ENCRYPTION_KEY_CHECK` = `warn` under
+Apps, HealthLog, Edit, Environment as a last resort. The check still runs and
+logs, `/api/health` reports `warning: "encryption_key_mismatch"` without
+failing, the app serves, and no key is recorded until the check passes. This
+switches off a safety check: with a wrong key every encrypted value fails and
+new data is written under that key. Remove the setting once the key is
+confirmed.
+
 ## Updates
 
 Pick the new tag, take a snapshot of the database dataset first, and update.

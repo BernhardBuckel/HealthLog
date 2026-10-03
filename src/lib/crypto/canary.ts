@@ -472,7 +472,16 @@ export async function columnsHoldingKeyId(
  */
 export async function checkEncryptionKeyCanaries(
   client: CanaryClient,
-  options: { probeBudgetMs?: number; sampler?: ColumnSampler } = {},
+  options: {
+    probeBudgetMs?: number;
+    sampler?: ColumnSampler;
+    /**
+     * `warn` (`ENCRYPTION_KEY_CHECK=warn`): record nothing unless every key
+     * id passed. The process serves whatever the outcome, so a key that is
+     * not proven for every id must not be recorded beside it.
+     */
+    mode?: "enforce" | "warn";
+  } = {},
 ): Promise<KeyCheckOutcome> {
   let keyIds: string[];
   try {
@@ -531,8 +540,10 @@ export async function checkEncryptionKeyCanaries(
   }
 
   const written: string[] = [];
+  const sealable =
+    options.mode === "warn" && inconclusive.length > 0 ? [] : toWrite;
   try {
-    for (const keyId of toWrite) {
+    for (const keyId of sealable) {
       const ciphertext = encryptUnderKeyId(canaryPlaintext(keyId), keyId);
       const inserted =
         await client.$executeRaw`INSERT INTO encryption_key_canaries (key_id, ciphertext) VALUES (${keyId}, ${ciphertext}) ON CONFLICT (key_id) DO NOTHING`;
@@ -617,6 +628,11 @@ export function keyMismatchLogBlock(keyIds: string[]): string {
     ...keyIds.map(
       (id) => `   DELETE FROM encryption_key_canaries WHERE key_id = '${id}';`,
     ),
+    "",
+    " Last resort, when no record exists yet to reset (a first start) and you",
+    " are certain the key is right: ENCRYPTION_KEY_CHECK=warn serves anyway",
+    " and only logs. It disables this safety check; with a wrong key every",
+    " encrypted value then fails and new rows are written under that key.",
     "============================================================",
   ].join("\n");
 }

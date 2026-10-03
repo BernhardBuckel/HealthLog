@@ -15,7 +15,11 @@ import {
   type CanaryClient,
   type InconclusiveReason,
 } from "@/lib/crypto/canary";
-import { setKeyMismatchState } from "./key-mismatch-state";
+import {
+  getKeyCheckMode,
+  setKeyMismatchState,
+  setKeyMismatchWarning,
+} from "./key-mismatch-state";
 
 const INCONCLUSIVE_EXPLANATION: Record<InconclusiveReason, string> = {
   "single-value": "the only stored value found under that id did not open.",
@@ -31,13 +35,28 @@ const INCONCLUSIVE_EXPLANATION: Record<InconclusiveReason, string> = {
 };
 
 export async function runBootKeyCheck(client: CanaryClient): Promise<boolean> {
-  const outcome = await checkEncryptionKeyCanaries(client);
+  const mode = getKeyCheckMode();
+  const outcome = await checkEncryptionKeyCanaries(client, { mode });
+  setKeyMismatchWarning(null);
   if (outcome.state === "mismatch") {
-    setKeyMismatchState({
+    const state = {
       keyIds: outcome.keyIds,
       detectedAt: new Date().toISOString(),
-    });
+    };
     console.error(keyMismatchLogBlock(outcome.keyIds));
+    if (mode === "warn") {
+      // The operator turned the refusal off. Say so next to the block, keep
+      // the finding for /api/health, and serve.
+      setKeyMismatchState(null);
+      setKeyMismatchWarning(state);
+      console.error(
+        "[boot] ENCRYPTION_KEY_CHECK=warn: serving anyway. No key is recorded " +
+          "while the check does not pass. Remove the setting once the key is " +
+          "confirmed.",
+      );
+      return false;
+    }
+    setKeyMismatchState(state);
     return true;
   }
   setKeyMismatchState(null);
@@ -53,6 +72,12 @@ export async function runBootKeyCheck(client: CanaryClient): Promise<boolean> {
         `[boot] Encryption key check inconclusive for key id ${keyId}: ` +
           `${INCONCLUSIVE_EXPLANATION[reason]} Serving; no key recorded; ` +
           "the check runs again at the next start.",
+      );
+    }
+    if (mode === "warn" && outcome.inconclusive.length > 0) {
+      console.warn(
+        "[boot] ENCRYPTION_KEY_CHECK=warn: no key recorded on this start " +
+          "because the check did not pass for every key id.",
       );
     }
     if (outcome.written.length > 0) {

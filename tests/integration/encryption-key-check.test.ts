@@ -59,8 +59,10 @@ import {
   type CanaryClient,
 } from "@/lib/crypto/canary";
 import {
+  getKeyMismatchWarning,
   isKeyMismatch,
   setKeyMismatchState,
+  setKeyMismatchWarning,
 } from "@/lib/boot/key-mismatch-state";
 
 const KEY_A =
@@ -389,6 +391,97 @@ describe("boot key check: what decides, and what may seal (real Postgres)", () =
     useKey(KEY_A);
     const same = await checkEncryptionKeyCanaries(racing);
     expect(same.state).toBe("ok");
+  });
+});
+
+describe("ENCRYPTION_KEY_CHECK (real Postgres)", () => {
+  afterEach(() => setKeyMismatchWarning(null));
+
+  it("warn: a mismatch is logged and reported, never refused, never recorded", async () => {
+    const prisma = getPrismaClient();
+    await seedUser("warned", new Date("2024-01-01T00:00:00Z"), sealNow);
+    useKey(KEY_B);
+    vi.stubEnv("ENCRYPTION_KEY_CHECK", "warn");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    const logged = errors.mock.calls.map((c) => String(c[0])).join("\n");
+    errors.mockRestore();
+    expect(logged).toContain("encryption.key_mismatch");
+    expect(logged).toContain("ENCRYPTION_KEY_CHECK=warn");
+    expect(isKeyMismatch()).toBe(false);
+    expect(getKeyMismatchWarning()?.keyIds).toEqual(["v1"]);
+    expect(await prisma.encryptionKeyCanary.count()).toBe(0);
+
+    // Requests are served, through apiHandler and outside it.
+    await seedAdmin();
+    const { GET: keyBackupGet } =
+      await import("@/app/api/admin/encryption/key-backup/route");
+    const served = await asRoute(keyBackupGet)(
+      new NextRequest("http://localhost/api/admin/encryption/key-backup"),
+    );
+    expect(served.status).toBe(200);
+    const { POST: mcp } = await import("@/app/mcp/route");
+    const mcpRes = await mcp(
+      new Request("http://localhost/mcp", { method: "POST", body: "{}" }),
+    );
+    expect(mcpRes.status).not.toBe(503);
+
+    const { GET: healthGet } = await import("@/app/api/health/route");
+    const healthBody = await (
+      await asRoute(healthGet)(new NextRequest("http://localhost/api/health"))
+    ).json();
+    expect(healthBody.warning).toBe("encryption_key_mismatch");
+    expect(healthBody.reason).toBeUndefined();
+  });
+
+  it("warn: nothing is recorded while any key id is inconclusive", async () => {
+    const prisma = getPrismaClient();
+    vi.stubEnv("ENCRYPTION_KEYS", JSON.stringify({ v1: KEY_A, v2: KEY_B }));
+    vi.stubEnv("ENCRYPTION_ACTIVE_KEY_ID", "v1");
+    vi.stubEnv("ENCRYPTION_KEY", "");
+    _resetCryptoCacheForTests();
+    await prisma.user.create({
+      data: {
+        username: "lone",
+        email: "lone@example.test",
+        codexAccessTokenEncrypted: encrypt("the only value"),
+      },
+    });
+    // v1 now holds a different key: its one value does not open. v2 has no
+    // data, which on its own would be recorded.
+    vi.stubEnv("ENCRYPTION_KEYS", JSON.stringify({ v1: KEY_B, v2: KEY_A }));
+    _resetCryptoCacheForTests();
+    vi.stubEnv("ENCRYPTION_KEY_CHECK", "warn");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    warn.mockRestore();
+    expect(await prisma.encryptionKeyCanary.count()).toBe(0);
+
+    // Enforce records the proven id, as before.
+    vi.stubEnv("ENCRYPTION_KEY_CHECK", "enforce");
+    const warn2 = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    warn2.mockRestore();
+    const ids = (await prisma.encryptionKeyCanary.findMany()).map(
+      (r) => r.keyId,
+    );
+    expect(ids).toEqual(["v2"]);
+  });
+
+  it("enforce, set explicitly or by any other value, refuses as before", async () => {
+    const prisma = getPrismaClient();
+    await seedUser("enforced", new Date("2024-01-01T00:00:00Z"), sealNow);
+    useKey(KEY_B);
+    for (const value of ["enforce", "", "off"]) {
+      vi.stubEnv("ENCRYPTION_KEY_CHECK", value);
+      setKeyMismatchState(null);
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(await runBootKeyCheck(prisma)).toBe(true);
+      errors.mockRestore();
+      expect(isKeyMismatch()).toBe(true);
+      expect(getKeyMismatchWarning()).toBeNull();
+    }
+    expect(await prisma.encryptionKeyCanary.count()).toBe(0);
   });
 });
 
