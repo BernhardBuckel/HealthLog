@@ -35,16 +35,12 @@ vi.mock("@/components/ui/responsive-sheet", () => ({
   }) => (open ? <section>{children}</section> : null),
 }));
 
-vi.mock("@/components/measurements/measurement-form", () => ({
+vi.mock("@/components/dashboard/quick-entry-forms.lazy", () => ({
   MeasurementForm: () => <div data-testid="measurement-form" />,
-}));
-
-vi.mock("@/components/mood/mood-form", () => ({
   MoodForm: () => <div data-testid="mood-form" />,
-}));
-
-vi.mock("@/components/dashboard/medication-intake-quick-add", () => ({
   MedicationIntakeQuickAdd: () => <div data-testid="medication-form" />,
+  ManualWorkoutForm: () => <div data-testid="workout-form" />,
+  SymptomEntryForm: () => <div data-testid="symptom-form" />,
 }));
 
 import { CapturePicker } from "../capture-picker";

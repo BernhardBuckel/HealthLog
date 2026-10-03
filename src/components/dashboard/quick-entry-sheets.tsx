@@ -12,6 +12,13 @@
 import { useState } from "react";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import {
+  ManualWorkoutForm,
+  MeasurementForm,
+  MedicationIntakeQuickAdd,
+  MoodForm,
+  SymptomEntryForm,
+} from "@/components/dashboard/quick-entry-forms.lazy";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -21,11 +28,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MeasurementForm } from "@/components/measurements/measurement-form";
-import { MoodForm } from "@/components/mood/mood-form";
-import { MedicationIntakeQuickAdd } from "@/components/dashboard/medication-intake-quick-add";
-import { ManualWorkoutForm } from "@/components/workouts/manual-workout-form";
-import { SymptomEntryForm } from "@/components/symptoms/symptom-entry-form";
 import { useTranslations } from "@/lib/i18n/context";
 import {
   useRecordCapabilities,
