@@ -135,6 +135,11 @@
         "required": "Bestätige dein aktuelles Passwort, um das zu ändern.",
         "failed": "Die Bestätigung ist fehlgeschlagen. Es wurde nichts geändert."
       }
+    },
+    "biomarkers": {
+      "unit": {
+        "locked": "Dieser Marker hat schon Werte, deshalb kannst du seine Einheit nicht ändern. Die gespeicherten Werte würden sonst in der neuen Einheit angezeigt, ohne umgerechnet zu werden."
+      }
     }
   },
   "doctorReport": {
@@ -8917,6 +8922,7 @@
         "namePlaceholder": "z. B. LDL-Cholesterin",
         "unit": "Einheit",
         "unitPlaceholder": "z. B. mg/dl",
+        "unitLockedHint": "Sobald dieser Marker Werte hat, bleibt seine Einheit, wie sie ist. Sonst würden die gespeicherten Werte in einer neuen Einheit angezeigt, ohne umgerechnet zu werden.",
         "panel": "Panel",
         "panelPlaceholder": "z. B. Lipide",
         "lowerBound": "Referenz unten",

@@ -135,6 +135,11 @@
         "required": "Potwierdź obecne hasło, aby to zmienić.",
         "failed": "Weryfikacja nie powiodła się. Nic nie zostało zmienione."
       }
+    },
+    "biomarkers": {
+      "unit": {
+        "locked": "Ten marker ma już wyniki, więc nie możesz zmienić jego jednostki. Zapisane wartości byłyby pokazywane w nowej jednostce bez przeliczenia."
+      }
     }
   },
   "doctorReport": {
@@ -8917,6 +8922,7 @@
         "namePlaceholder": "np. Cholesterol LDL",
         "unit": "Jednostka",
         "unitPlaceholder": "np. mg/dl",
+        "unitLockedHint": "Gdy ten marker ma już wyniki, jego jednostka pozostaje bez zmian. W przeciwnym razie zapisane wartości byłyby pokazywane w nowej jednostce bez przeliczenia.",
         "panel": "Panel",
         "panelPlaceholder": "np. Lipidy",
         "lowerBound": "Dolna granica",

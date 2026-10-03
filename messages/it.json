@@ -135,6 +135,11 @@
         "required": "Conferma la password attuale per modificarlo.",
         "failed": "La verifica non è riuscita. Non è stato modificato nulla."
       }
+    },
+    "biomarkers": {
+      "unit": {
+        "locked": "Questo marcatore ha già dei valori, quindi non puoi cambiarne l'unità. I valori salvati verrebbero mostrati nella nuova unità senza essere convertiti."
+      }
     }
   },
   "doctorReport": {
@@ -8917,6 +8922,7 @@
         "namePlaceholder": "es. Colesterolo LDL",
         "unit": "Unità",
         "unitPlaceholder": "es. mg/dL",
+        "unitLockedHint": "Quando questo marcatore ha già dei valori, la sua unità resta invariata. Altrimenti i valori salvati verrebbero mostrati in una nuova unità senza essere convertiti.",
         "panel": "Panel",
         "panelPlaceholder": "es. Lipidi",
         "lowerBound": "Riferimento minimo",

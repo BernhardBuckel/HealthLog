@@ -135,6 +135,11 @@
         "required": "Confirm your current password to change this.",
         "failed": "That did not verify. Nothing was changed."
       }
+    },
+    "biomarkers": {
+      "unit": {
+        "locked": "This marker already has readings, so its unit can't be changed. The stored values would be shown in the new unit without being converted."
+      }
     }
   },
   "doctorReport": {
@@ -8917,6 +8922,7 @@
         "namePlaceholder": "e.g. LDL cholesterol",
         "unit": "Unit",
         "unitPlaceholder": "e.g. mg/dL",
+        "unitLockedHint": "Once this marker has readings, its unit stays as it is. The stored values would otherwise be shown in a new unit without being converted.",
         "panel": "Panel",
         "panelPlaceholder": "e.g. Lipids",
         "lowerBound": "Reference low",
