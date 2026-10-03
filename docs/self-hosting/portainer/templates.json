@@ -31,6 +31,12 @@
           "description": "Generate with: openssl rand -hex 32"
         },
         {
+          "name": "HEALTHLOG_PLATFORM",
+          "label": "Platform hint",
+          "description": "Opens the admin's encryption key backup step on the Portainer instructions.",
+          "default": "portainer"
+        },
+        {
           "name": "SESSION_COOKIE_SECURE",
           "label": "Session cookie Secure flag",
           "description": "Set to false for plain-HTTP / LAN access, or login fails. Set to true only behind an HTTPS reverse proxy.",

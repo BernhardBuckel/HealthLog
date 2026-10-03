@@ -60,11 +60,19 @@ const RELATION_ENVELOPE = new Set([
 ]);
 
 /**
- * Columns this scan derives that are deliberately NOT in the rotation
- * registry. Empty today. An entry here is a written decision with a reason,
- * never a way to quiet the guard.
+ * Columns that hold ciphertext and are deliberately NOT in the rotation
+ * registry. An entry here is a written decision with a reason, never a way to
+ * quiet the guard.
+ *
+ * `EncryptionKeyCanary.ciphertext` — one known value per key id, sealed under
+ * THAT key (`encryptUnderKeyId`, written by raw SQL in
+ * `src/lib/crypto/canary.ts`). Re-sealing it under the active key would make
+ * every id's boot check test the active key instead of its own. A retired
+ * key's row is never read again: only configured ids are checked.
  */
-const NOT_ROTATED: ReadonlySet<string> = new Set<string>();
+const NOT_ROTATED: ReadonlySet<string> = new Set<string>([
+  "EncryptionKeyCanary.ciphertext",
+]);
 
 /**
  * Ciphertext written where the Prisma-call walk below cannot see it: by raw

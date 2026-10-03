@@ -9,6 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTranslations } from "@/lib/i18n/context";
 import { ApiError, apiPost } from "@/lib/api/api-fetch";
+import { currentClientTransport } from "@/lib/auth/client-transport";
+
+/** The server's refusal for a page whose sign-in cookie cannot stick. */
+const INSECURE_TRANSPORT_CODE = "auth.session.insecure_transport";
 import { describePasskeyError } from "@/lib/passkey-errors";
 
 export type MfaMethod = "totp" | "recovery" | "webauthn";
@@ -61,13 +65,17 @@ export function MfaLoginStep({
         method: useRecovery ? "recovery" : "totp",
         code: code.trim(),
         rememberDevice: useRecovery ? false : rememberDevice,
+        clientTransport: currentClientTransport(),
       });
       onSuccess();
     } catch (err) {
       setError(
-        err instanceof ApiError && err.message
-          ? err.message
-          : t("auth.mfa.verifyFailed"),
+        err instanceof ApiError &&
+          err.meta?.errorCode === INSECURE_TRANSPORT_CODE
+          ? t("auth.insecureTransport.title")
+          : err instanceof ApiError && err.message
+            ? err.message
+            : t("auth.mfa.verifyFailed"),
       );
     } finally {
       setLoading(false);
@@ -89,6 +97,7 @@ export function MfaLoginStep({
         challengeId,
         credential,
         rememberDevice,
+        clientTransport: currentClientTransport(),
       });
       onSuccess();
     } catch (err) {

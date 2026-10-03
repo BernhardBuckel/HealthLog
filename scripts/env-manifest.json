@@ -323,6 +323,11 @@
           "example": "false"
         },
         {
+          "name": "HEALTHLOG_PLATFORM",
+          "purpose": "Where this server's environment is configured (compose, truenas, coolify, unraid, portainer). Shown back to the admin: the \"Back up your encryption key\" step opens on that platform's instructions. Unset means compose.",
+          "example": "compose"
+        },
+        {
           "name": "TRUST_PROXY_HOPS",
           "purpose": "Trusted reverse-proxy hop count; the client IP is read that many entries from the right of X-Forwarded-For.",
           "example": "1"

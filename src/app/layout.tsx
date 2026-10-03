@@ -8,6 +8,8 @@ import { AuthShell } from "@/components/layout/auth-shell";
 import { MonitoringBootstrap } from "@/components/monitoring/bootstrap";
 import { WebVitalsReporter } from "@/components/monitoring/web-vitals-reporter";
 import { resolveInitialLocale } from "@/lib/i18n/resolve-initial-locale";
+import { isKeyMismatch } from "@/lib/boot/key-mismatch-state";
+import { KeyMismatchPage } from "./key-mismatch-page";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -131,17 +133,23 @@ export default async function RootLayout({
         />
       </head>
       <body className={`${inter.variable} font-sans antialiased`}>
-        <Providers initialLocale={initialLocale}>
-          <MonitoringBootstrap />
-          <WebVitalsReporter />
-          {/* `DEMO_MODE` is a server-only env var; the proxy uses it to
+        {isKeyMismatch() ? (
+          // The boot key check refused this process: no app shell, no data
+          // reads, one page that names the fix.
+          <KeyMismatchPage locale={initialLocale} />
+        ) : (
+          <Providers initialLocale={initialLocale}>
+            <MonitoringBootstrap />
+            <WebVitalsReporter />
+            {/* `DEMO_MODE` is a server-only env var; the proxy uses it to
               block mutations. Resolve it here (server component) and
               thread the boolean into the client shell so the demo
               banner can render without a client-side detection path. */}
-          <AuthShell demoMode={process.env.DEMO_MODE === "true"}>
-            {children}
-          </AuthShell>
-        </Providers>
+            <AuthShell demoMode={process.env.DEMO_MODE === "true"}>
+              {children}
+            </AuthShell>
+          </Providers>
+        )}
       </body>
     </html>
   );

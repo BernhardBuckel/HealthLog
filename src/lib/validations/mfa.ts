@@ -4,6 +4,7 @@
  * auth.ts`) describe the identical wire contract.
  */
 import { z } from "zod/v4";
+import { clientTransportSchema } from "@/lib/validations/client-transport";
 
 /** A 6-digit TOTP code. */
 export const totpCodeSchema = z
@@ -42,6 +43,7 @@ export const mfaVerifySchema = z
       .describe(
         "Opt in to trusting this device for 30 days — subsequent logins skip the second factor (the password is still required).",
       ),
+    clientTransport: clientTransportSchema.optional(),
   })
   .meta({
     id: "MfaVerifyRequest",
@@ -111,6 +113,7 @@ export const mfaWebauthnLoginVerifySchema = z
       .describe(
         "Opt in to trusting this device for 30 days — subsequent logins skip the second factor (the password is still required).",
       ),
+    clientTransport: clientTransportSchema.optional(),
   })
   .meta({
     id: "MfaWebauthnLoginVerifyRequest",

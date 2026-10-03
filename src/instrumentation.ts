@@ -15,6 +15,19 @@ export async function register() {
       // A readiness summary must never break boot.
     }
 
+    // Does the configured encryption key open this database? A process whose
+    // key does not refuses every API request with one clear 503 and starts
+    // neither the producer nor the worker (a wrong key must never write).
+    try {
+      const [{ runBootKeyCheck }, { prisma }] = await Promise.all([
+        import("@/lib/boot/key-check"),
+        import("@/lib/db"),
+      ]);
+      if (await runBootKeyCheck(prisma)) return;
+    } catch (err) {
+      console.error("[instrumentation] Encryption key check crashed:", err);
+    }
+
     // Every Node process watches its own event loop — web-only
     // containers included; a stall report from the process serving
     // requests is the whole point.

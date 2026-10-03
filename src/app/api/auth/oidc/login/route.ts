@@ -5,6 +5,7 @@ import { annotate, getEvent } from "@/lib/logging/context";
 import { checkAuthSurfaceRateLimit } from "@/lib/rate-limit";
 import { encrypt } from "@/lib/crypto";
 import { shouldEmitSecureCookie } from "@/lib/auth/secure-cookie";
+import { transportVerdict } from "@/lib/auth/client-transport";
 import { s256Challenge, isValidChallenge } from "@/lib/mcp/oauth/pkce";
 import { buildNativeCallbackUrl } from "@/lib/auth/oidc-native-handoff";
 import {
@@ -52,6 +53,24 @@ export const GET = apiHandler(async (req: NextRequest) => {
   const config = getOidcConfig();
   if (!config) {
     return loginError("oidc_disabled");
+  }
+
+  // The SSO button states the page's transport. A browser on plain http://
+  // with Secure-only cookies would come back from the provider and drop the
+  // session cookie, so it is stopped here instead of after the round trip.
+  if (!isNative) {
+    const clientProto = req.nextUrl.searchParams.get("client_proto");
+    const clientHost = req.nextUrl.searchParams.get("client_host") ?? "";
+    if (
+      (clientProto === "http" || clientProto === "https") &&
+      transportVerdict(shouldEmitSecureCookie(), {
+        protocol: clientProto,
+        host: clientHost,
+      }) === "blocked"
+    ) {
+      annotate({ meta: { reason: "insecure_transport" } });
+      return loginError("insecure_transport");
+    }
   }
 
   const rl = await checkAuthSurfaceRateLimit(

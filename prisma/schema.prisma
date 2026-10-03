@@ -4877,7 +4877,38 @@ model AppSettings {
   documentMaxFileBytes Int    @default(26214400) @map("document_max_file_bytes")
   documentQuotaBytes   BigInt @default(1073741824) @map("document_quota_bytes")
 
+  // The operator's confirmation that the encryption key is backed up, bound to
+  // the key it was given for: the active key id and its fingerprint (the first
+  // twelve hex characters of SHA-256 over the raw key bytes). A rotation or a
+  // re-keyed install changes either one, and the step is due again. Never the
+  // key itself. Written by `POST /api/admin/encryption/key-backup/confirm`;
+  // consumer: `readKeyBackupStatus` (the admin step, the overview tile and the
+  // dashboard banner for admins).
+  encryptionKeyBackupConfirmedAt          DateTime? @map("encryption_key_backup_confirmed_at")
+  encryptionKeyBackupConfirmedKeyId       String?   @map("encryption_key_backup_confirmed_key_id")
+  encryptionKeyBackupConfirmedFingerprint String?   @map("encryption_key_backup_confirmed_fingerprint")
+  /// Plain id, not a relation: the instance row must not become user-scoped,
+  /// and a deleted admin leaves the confirmation standing. Consumer: the admin
+  /// step names who confirmed when the account still exists.
+  encryptionKeyBackupConfirmedByUserId    String?   @map("encryption_key_backup_confirmed_by_user_id")
+
   @@map("app_settings")
+}
+
+/// One known plaintext per configured encryption key id, sealed under that
+/// key. At boot every configured id is checked against its row: a row that no
+/// longer opens means the key in the environment is not the key this database
+/// was written with, and the process refuses to serve instead of answering
+/// with random errors. A missing row is written (`ON CONFLICT DO NOTHING`).
+/// Deliberately outside key rotation: a canary belongs to its key id, and
+/// re-sealing it under the active key would make every id's check test the
+/// active key. Written and read only by `src/lib/crypto/canary.ts`.
+model EncryptionKeyCanary {
+  keyId      String   @id @map("key_id")
+  ciphertext String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("encryption_key_canaries")
 }
 
 // ─── Audit Log ─────────────────────────────────────────────

@@ -6,6 +6,10 @@ import { getSession } from "@/lib/auth/session";
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api-handler";
 import { annotate } from "@/lib/logging/context";
+import {
+  isKeyMismatch,
+  KEY_MISMATCH_HEALTH_REASON,
+} from "@/lib/boot/key-mismatch-state";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +26,13 @@ export const GET = apiHandler(async () => {
 
   const worker = getWorkerStatus();
   const producerReady = getGlobalBoss() !== null;
+  // A process whose encryption key cannot open the database refuses every
+  // other route; the probe says so in a word every caller may see, because
+  // it is the one place a catalog install's status page reads.
+  const keyMismatch = isKeyMismatch();
+  const reason = keyMismatch ? KEY_MISMATCH_HEALTH_REASON : undefined;
   const status =
+    !keyMismatch &&
     dbOk &&
     (!shouldRunWeb() || producerReady) &&
     (!shouldRunWorker() || worker.running)
@@ -40,6 +50,7 @@ export const GET = apiHandler(async () => {
     return NextResponse.json(
       {
         status,
+        ...(reason ? { reason } : {}),
         timestamp: new Date().toISOString(),
         database: dbOk ? "connected" : "disconnected",
         worker: worker.running ? "running" : "stopped",
@@ -52,7 +63,7 @@ export const GET = apiHandler(async () => {
   }
 
   return NextResponse.json(
-    { status },
+    { status, ...(reason ? { reason } : {}) },
     { status: statusCode, headers: cacheHeaders },
   );
 });

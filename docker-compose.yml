@@ -132,6 +132,9 @@ x-healthlog-env: &healthlog_env
   # all = bundle web + worker in this container (default, single-host)
   # web = serve HTTP only; pair with a separate app-worker service
   HEALTHLOG_PROCESS_TYPE: "${HEALTHLOG_PROCESS_TYPE:-all}"
+  # compose | truenas | coolify | unraid | portainer. Only chooses which
+  # instructions the admin's "Back up your encryption key" step shows first.
+  HEALTHLOG_PLATFORM: "${HEALTHLOG_PLATFORM:-}"
   BACKUP_ENCRYPTION_KEY: "${BACKUP_ENCRYPTION_KEY:-}"
   BACKUP_ENCRYPTION_PREVIOUS_KEYS: "${BACKUP_ENCRYPTION_PREVIOUS_KEYS:-}"
   BACKUP_S3_ENDPOINT: "${BACKUP_S3_ENDPOINT:-}"

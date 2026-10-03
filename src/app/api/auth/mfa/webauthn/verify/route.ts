@@ -39,6 +39,7 @@ import { mfaWebauthnLoginVerifySchema } from "@/lib/validations/mfa";
 import { mintTrustedDevice } from "@/lib/auth/trusted-device";
 import { coarseDeviceLabel } from "@/lib/auth/device-fingerprint";
 import { setMfaEnrollCookie } from "@/lib/auth/mfa-enrollment";
+import { refuseWhenCookieCannotStick } from "@/lib/auth/transport-refusal";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,10 @@ export const POST = apiHandler(async (request: NextRequest) => {
     maxBytes: 64 * 1024,
   });
   if (jsonError) return jsonError;
+
+  // Before the ticket is loaded or an attempt reserved (see mfa/verify).
+  const transportRefusal = refuseWhenCookieCannotStick(body);
+  if (transportRefusal) return transportRefusal;
 
   const parsed = mfaWebauthnLoginVerifySchema.safeParse(body);
   if (!parsed.success) {
