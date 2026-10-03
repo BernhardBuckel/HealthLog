@@ -15,7 +15,10 @@ import {
   unitSkippedAnalytes,
 } from "../ocr-review-dialog";
 
-const hookState = vi.hoisted(() => ({ extractPending: false }));
+const hookState = vi.hoisted(() => ({
+  extractPending: false,
+  runPhase: "idle" as "idle" | "running" | "waitingForWorker",
+}));
 
 vi.mock("@/components/ui/responsive-sheet", () => ({
   ResponsiveSheet: ({
@@ -37,6 +40,7 @@ vi.mock("@/components/ui/responsive-sheet", () => ({
 vi.mock("../use-ocr-extract", () => ({
   useOcrExtract: () => ({
     isPending: hookState.extractPending,
+    runPhase: hookState.runPhase,
     mutate: vi.fn(),
     reset: vi.fn(),
   }),
@@ -172,6 +176,35 @@ describe("<OcrReviewDialog> document-reading consent", () => {
     expect(html).not.toContain('data-slot="document-reading-consent"');
     expect(html).toMatch(/<input[^>]*type="file"/);
   });
+});
+
+/**
+ * A lab scan's proposed rows live only in its run: nothing is stored until
+ * the person confirms them here. So the waiting line must not promise that
+ * the page can be left (the result would be lost, and a second scan costs
+ * another rate slot). Mutation check: swap `aiRuns.backgroundScan` for
+ * `aiRuns.backgroundDocument` in the dialog → both cases go red.
+ */
+describe("<OcrReviewDialog> background read", () => {
+  afterEach(() => {
+    hookState.extractPending = false;
+    hookState.runPhase = "idle";
+  });
+
+  it.each([
+    ["en", "With a slow model", "leave this page"],
+    ["de", "Mit einem langsamen Modell", "Seite verlassen"],
+  ] as const)(
+    "(%s) says it reads in the background, never that the page can be left",
+    (locale, expected, forbidden) => {
+      hookState.extractPending = true;
+      hookState.runPhase = "running";
+      const html = render(locale);
+      expect(html).toContain('data-slot="ocr-run-phase"');
+      expect(html).toContain(expected);
+      expect(html).not.toContain(forbidden);
+    },
+  );
 });
 
 describe("extractErrorMessage", () => {
