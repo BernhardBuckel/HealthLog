@@ -124,6 +124,7 @@ const subsystemSurface = {
   "achievement-unlock-sweep": { audience: "system" },
   "measurement-tombstone-cleanup": { audience: "system" },
   "coach-message-cleanup": { audience: "system" },
+  "workout-insight-claim-cleanup": { audience: "system" },
   "note-encryption-backfill": { audience: "system" },
   "encryption-key-rotate": { audience: "system" },
   "mcp-token-cleanup": { audience: "system" },

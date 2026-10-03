@@ -579,7 +579,7 @@ export const DERIVED_MODELS: Readonly<Record<string, string>> = {
   WorkoutInsight:
     "Generated narrative over `Workout`; regenerates on demand. Carrying it would restore an interpretation of data rather than the data.",
   WorkoutInsightGenerationClaim:
-    "A concurrency claim guarding the generator above. Meaningless outside the run that took it.",
+    "A concurrency claim and the daily-cap ledger for the generator above. It outlives a deleted workout for at most a week and means nothing on another instance or day.",
   InsightNarrative:
     "Generated prose over measurements. Same reasoning as WorkoutInsight — the record restores, the essay about it does not.",
   InsightStatusCache:

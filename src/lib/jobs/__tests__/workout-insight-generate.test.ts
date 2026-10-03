@@ -54,7 +54,10 @@ vi.mock("@/lib/measurements/pick-canonical-workout-rows", () => ({
   pickCanonicalWorkoutRows: vi.fn((rows) => rows),
 }));
 
-import { runWorkoutInsightGenerate } from "../workout-insight-generate";
+import {
+  runWorkoutInsightGenerate,
+  workoutInsightCapWhere,
+} from "../workout-insight-generate";
 import { prisma } from "@/lib/db";
 import { aiCapabilityForJob } from "@/lib/ai/capabilities/gate";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
@@ -224,8 +227,10 @@ describe("Activity Insight — the gate stack", () => {
     expect(outcome.status).toBe("generated");
   });
 
-  it("gate 3 — refuses once four paragraphs exist for the local day", async () => {
-    vi.mocked(prisma.workoutInsight.count).mockResolvedValue(4 as never);
+  it("gate 3 — refuses once four slots are spent for the local day", async () => {
+    vi.mocked(prisma.workoutInsightGenerationClaim.count).mockResolvedValue(
+      4 as never,
+    );
 
     const outcome = await runWorkoutInsightGenerate(
       { userId: USER, workoutId: WORKOUT },
@@ -237,36 +242,33 @@ describe("Activity Insight — the gate stack", () => {
   });
 
   it("gate 3 — counts in the USER's timezone, not UTC", async () => {
-    // 00:30 Berlin on the 19th is 22:30 UTC on the 18th. A UTC-keyed window
-    // would still be counting the 18th's paragraphs against the new local day.
+    // 00:30 Berlin on the 19th is 22:30 UTC on the 18th. A UTC-keyed day
+    // would still be counting the 18th's claims against the new local day.
     vi.mocked(resolveUserTimezone).mockResolvedValue("Europe/Berlin");
     await runWorkoutInsightGenerate(
       { userId: USER, workoutId: WORKOUT },
       new Date("2026-07-18T22:30:00.000Z"),
     );
 
-    const where = vi.mocked(prisma.workoutInsight.count).mock.calls[0][0]
-      ?.where as { generatedAt: { gte: Date } };
-    // Midnight Berlin on the 19th == 22:00 UTC on the 18th.
-    expect(where.generatedAt.gte.toISOString()).toBe(
-      "2026-07-18T22:00:00.000Z",
-    );
+    const where = vi.mocked(prisma.workoutInsightGenerationClaim.count).mock
+      .calls[0][0]?.where as { localDate: string };
+    expect(where.localDate).toBe("2026-07-19");
   });
 
-  it("gate 3 — starts a midday cap window at exact local midnight", async () => {
-    vi.mocked(resolveUserTimezone).mockResolvedValue("Europe/Berlin");
-    vi.mocked(prisma.workoutInsight.count).mockResolvedValue(4 as never);
+  it("gate 3 — the cap reads the claim ledger, never the insight rows", async () => {
+    // A paragraph whose workout was deleted is gone from `workout_insights`,
+    // so counting those rows would hand the slot back. Only the claims count.
+    vi.mocked(prisma.workoutInsightGenerationClaim.count).mockResolvedValue(
+      4 as never,
+    );
+    vi.mocked(prisma.workoutInsight.count).mockResolvedValue(0 as never);
 
     const outcome = await runWorkoutInsightGenerate(
       { userId: USER, workoutId: WORKOUT },
       new Date("2026-07-18T15:00:45.678Z"),
     );
 
-    const where = vi.mocked(prisma.workoutInsight.count).mock.calls[0][0]
-      ?.where as { generatedAt: { gte: Date } };
-    expect(where.generatedAt.gte.toISOString()).toBe(
-      "2026-07-17T22:00:00.000Z",
-    );
+    expect(prisma.workoutInsight.count).not.toHaveBeenCalled();
     expect(outcome).toEqual({ status: "skipped", reason: "daily_cap" });
     expect(runStatusCompletion).not.toHaveBeenCalled();
   });
@@ -304,7 +306,9 @@ describe("Activity Insight — the gate stack", () => {
 
     vi.clearAllMocks();
     arrangeHappyPath();
-    vi.mocked(prisma.workoutInsight.count).mockResolvedValue(0 as never);
+    vi.mocked(prisma.workoutInsightGenerationClaim.count).mockResolvedValue(
+      0 as never,
+    );
     vi.mocked(prisma.workoutInsight.findFirst).mockResolvedValue({
       id: "wi-1",
       inputHash: stored.inputHash,
@@ -321,7 +325,9 @@ describe("Activity Insight — the gate stack", () => {
     // The mirror of the test above: a fresh workout (no stored row, so the hash
     // gate cannot fire) is still refused once the day's count is spent.
     vi.mocked(prisma.workoutInsight.findFirst).mockResolvedValue(null as never);
-    vi.mocked(prisma.workoutInsight.count).mockResolvedValue(4 as never);
+    vi.mocked(prisma.workoutInsightGenerationClaim.count).mockResolvedValue(
+      4 as never,
+    );
 
     const outcome = await runWorkoutInsightGenerate(
       { userId: USER, workoutId: WORKOUT },
@@ -658,5 +664,39 @@ describe("Activity Insight — own-history comparison", () => {
       ?.where as { userId: string; id: { not: string } };
     expect(where.userId).toBe(USER);
     expect(where.id).toEqual({ not: WORKOUT });
+  });
+});
+
+describe("Activity Insight — the cap predicate", () => {
+  const staleBefore = new Date("2026-07-18T14:50:00.000Z");
+
+  it("counts every provider attempt and every live lease, nothing narrower", () => {
+    const where = workoutInsightCapWhere({
+      userId: USER,
+      localDate: "2026-07-18",
+      staleBefore,
+    });
+    expect(where).toEqual({
+      userId: USER,
+      localDate: "2026-07-18",
+      OR: [
+        { providerInvokedAt: { not: null } },
+        { claimId: { not: null }, claimedAt: { gte: staleBefore } },
+      ],
+    });
+    // A completed claim whose workout is gone is still a spent slot: the
+    // predicate must not narrow on the workout or on completion.
+    expect(JSON.stringify(where)).not.toContain("workoutId");
+    expect(JSON.stringify(where)).not.toContain("completedAt");
+  });
+
+  it("leaves the reclaiming row out of its own count", () => {
+    const where = workoutInsightCapWhere({
+      userId: USER,
+      localDate: "2026-07-18",
+      staleBefore,
+      excludeClaimRowId: "claim-row-1",
+    });
+    expect(where).toMatchObject({ id: { not: "claim-row-1" } });
   });
 });

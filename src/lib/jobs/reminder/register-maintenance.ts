@@ -189,6 +189,8 @@ import {
   handlePushAttemptCleanup,
   ArrivalReactionCleanupPayload,
   handleArrivalReactionCleanup,
+  WorkoutInsightClaimCleanupPayload,
+  handleWorkoutInsightClaimCleanup,
   MeasurementTombstoneCleanupPayload,
   handleMeasurementTombstoneCleanup,
   handleRateLimitCleanup,
@@ -330,6 +332,13 @@ const MEASUREMENT_TOMBSTONE_CLEANUP_CRON = "40 3 * * *";
 const COACH_MESSAGE_CLEANUP_QUEUE = "coach-message-cleanup";
 
 const COACH_MESSAGE_CLEANUP_CRON = "50 3 * * *";
+// v1.40 — daily prune of the workout-insight claim ledger. Claims outlive a
+// deleted workout so the delete cannot free a daily slot; rows older than a
+// week are never read by the cap again.
+
+const WORKOUT_INSIGHT_CLAIM_CLEANUP_QUEUE = "workout-insight-claim-cleanup";
+
+const WORKOUT_INSIGHT_CLAIM_CLEANUP_CRON = "52 3 * * *";
 // v1.23 — converging backfill that migrates the free-text health-note columns
 // (mood + measurement) from plaintext to AES-256-GCM at rest. Boot discovery
 // enqueues one per-user job; a daily 03:55 Europe/Berlin discovery tick (empty
@@ -445,6 +454,10 @@ const allQueues = [
   // the daily schedule silently no-ops and the encrypted coach_messages
   // table grows unbounded.
   COACH_MESSAGE_CLEANUP_QUEUE,
+  // v1.40 — workout-insight claim ledger retention prune. Without this entry
+  // the daily schedule silently no-ops and the claim table keeps every row
+  // whose workout was deleted.
+  WORKOUT_INSIGHT_CLAIM_CLEANUP_QUEUE,
   // v1.23 — free-text health-note encryption backfill. Boot discovery + a
   // daily discovery cron enqueue one per-user job per account still holding a
   // plaintext note; without this entry pg-boss never provisions the queue and
@@ -605,6 +618,12 @@ const schedules: ScheduleEntry[] = [
   [MEASUREMENT_TOMBSTONE_CLEANUP_QUEUE, MEASUREMENT_TOMBSTONE_CLEANUP_CRON],
   // v1.18.7 — daily 03:50 Europe/Berlin prune for stale Coach history.
   [COACH_MESSAGE_CLEANUP_QUEUE, COACH_MESSAGE_CLEANUP_CRON, cronIsTheRetry],
+  // v1.40 — daily 03:52 Europe/Berlin prune for the workout-insight claims.
+  [
+    WORKOUT_INSIGHT_CLAIM_CLEANUP_QUEUE,
+    WORKOUT_INSIGHT_CLAIM_CLEANUP_CRON,
+    cronIsTheRetry,
+  ],
   // v1.23 — daily 03:55 Europe/Berlin note-encryption backfill discovery.
   // The empty cron payload (no `userId`) is the handler's signal to fan out
   // one per-user job per account still holding a plaintext note.
@@ -917,6 +936,14 @@ export async function registerMaintenanceQueues(
     COACH_MESSAGE_CLEANUP_QUEUE,
     { localConcurrency: 1 },
     handleCoachMessageCleanup,
+  );
+  // v1.40 — daily prune of the workout-insight claim ledger. Single-flight
+  // like every other cleanup queue.
+  await createAndWork<WorkoutInsightClaimCleanupPayload>(
+    boss,
+    WORKOUT_INSIGHT_CLAIM_CLEANUP_QUEUE,
+    { localConcurrency: 1 },
+    handleWorkoutInsightClaimCleanup,
   );
   // MCP Phase 3 (M2) — daily prune of dead MCP connector access tokens +
   // long-revoked connection anchors. Single-flight like every other cleanup.
