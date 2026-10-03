@@ -19,6 +19,7 @@ import { toastWrittenOutcome } from "@/components/outcome/outcome-toast";
 import { Button } from "@/components/ui/button";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { ApiError } from "@/lib/api/api-fetch";
+import type { OcrSkippedRowDto } from "@/lib/validations/labs-ocr";
 import { EncounterSuggestionField } from "@/components/encounters/encounter-suggestion-field";
 import { useTranslations } from "@/lib/i18n/context";
 
@@ -51,6 +52,25 @@ export function handleFilePickerChange(
   // Reset so re-picking the same file fires `change` again.
   input.value = "";
   if (file) onFilePicked(file);
+}
+
+/**
+ * The analytes the commit skipped for a unit other than their marker's, as one
+ * short phrase for a toast (the first three, then a count), or null when none.
+ */
+export function unitSkippedAnalytes(
+  skipped: readonly OcrSkippedRowDto[],
+): string | null {
+  const names = [
+    ...new Set(
+      skipped
+        .filter((row) => row.reason === "unit_mismatch")
+        .map((row) => row.analyte),
+    ),
+  ];
+  if (names.length === 0) return null;
+  const shown = names.slice(0, 3).join(", ");
+  return names.length > 3 ? `${shown} +${names.length - 3}` : shown;
 }
 
 /**
@@ -241,19 +261,32 @@ export function OcrReviewDialog({
           // used to be green on any 200 and print the count regardless; the
           // server resolves the outcome from the two lists and the dialog
           // renders it.
+          // A row skipped for its unit is the one the person has to act on, so
+          // when there is one the message names it; the plain "already
+          // recorded" wording would be wrong for it.
+          const unitSkipped = unitSkippedAnalytes(result.skipped);
           toastWrittenOutcome(
             result.outcome,
             result.outcome === "success"
               ? t("labs.ocr.savedToast", { count: result.inserted.length })
               : result.outcome === "partial"
-                ? t("labs.ocr.savedPartialToast", {
-                    count: result.inserted.length,
-                    skipped: result.skipped.length,
-                  })
-                : result.outcome === "failed"
-                  ? t("labs.ocr.savedNothingToast", {
+                ? unitSkipped
+                  ? t("labs.ocr.savedPartialUnitToast", {
+                      count: result.inserted.length,
+                      analytes: unitSkipped,
+                    })
+                  : t("labs.ocr.savedPartialToast", {
+                      count: result.inserted.length,
                       skipped: result.skipped.length,
                     })
+                : result.outcome === "failed"
+                  ? unitSkipped
+                    ? t("labs.ocr.savedNothingUnitToast", {
+                        analytes: unitSkipped,
+                      })
+                    : t("labs.ocr.savedNothingToast", {
+                        skipped: result.skipped.length,
+                      })
                   : t("labs.ocr.savedEmptyToast"),
           );
           onCommitted();

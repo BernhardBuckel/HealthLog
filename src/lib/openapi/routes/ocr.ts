@@ -72,6 +72,10 @@ const extractedRow = z
     takenAt: z.string().nullable(),
     confidence: extractConfidence,
     biomarkerMatch: z.enum(["new", "existing"]),
+    markerUnit: z.string().nullable().meta({
+      description:
+        "The unit the matched marker is tracked in, or null when the marker does not exist yet (it will adopt this row's unit). A row whose `unit` differs from it cannot be committed: the commit skips it with `reason: unit_mismatch`, and the review screen marks it before Save.",
+    }),
     duplicateOf: z.string().nullable(),
   })
   .meta({
@@ -138,7 +142,10 @@ const commitResponse = z
     skipped: z.array(
       z.object({
         analyte: z.string(),
-        reason: z.literal("duplicate"),
+        reason: z.enum(["duplicate", "unit_mismatch"]).meta({
+          description:
+            "`duplicate`: the row matched a live reading at commit time. `unit_mismatch`: the row states a unit other than the one its marker is tracked in, so it was not written.",
+        }),
       }),
     ),
     outcome: z.enum(["empty", "failed", "partial", "success"]).meta({
@@ -149,7 +156,7 @@ const commitResponse = z
   .meta({
     id: "OcrCommitResponse",
     description:
-      'The rows written (`source: "OCR"`), those skipped as commit-time duplicates, and the resolved outcome.',
+      'The rows written (`source: "OCR"`), those skipped (commit-time duplicates, or a unit that differs from that of the marker), and the resolved outcome.',
   });
 
 export const ocrPaths: NonNullable<ZodOpenApiObject["paths"]> = {
@@ -223,7 +230,7 @@ export const ocrPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Labs"],
       summary: "Commit confirmed Lab-OCR rows",
       description:
-        'Writes ONLY the rows the human confirmed on the review screen. Each row resolves-or-mints a user-scoped biomarker and creates a `LabResult` with `source: "OCR"`; a row that duplicates a live reading is skipped. Idempotent (Idempotency-Key). Audits as `labs.ocr.commit`. `userId` is narrowed from the session, never a body field.',
+        'Writes ONLY the rows the human confirmed on the review screen. Each row resolves-or-mints a user-scoped biomarker and creates a `LabResult` with `source: "OCR"`; a row that duplicates a live reading, or states a unit other than that of its marker, is skipped (`skipped[].reason`). Idempotent (Idempotency-Key). Audits as `labs.ocr.commit`. `userId` is narrowed from the session, never a body field.',
       requestBody: {
         required: true,
         content: { "application/json": { schema: ocrCommitRequest } },

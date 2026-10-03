@@ -33,6 +33,7 @@ import { withIdempotency } from "@/lib/idempotency";
 import { enqueueReminderSatisfy } from "@/lib/jobs/reminder-satisfy";
 import { emitDataArrival } from "@/lib/arrivals/emit-shared";
 import { resolveOrMintBiomarker } from "@/lib/labs/biomarker-store";
+import { sameLabUnit } from "@/lib/labs/unit-normalise";
 import { parseReferenceRange } from "@/lib/labs/parse-reference-range";
 import { serialiseLabResult } from "@/lib/labs/serialise";
 import {
@@ -177,6 +178,21 @@ async function commitOcrRows(request: NextRequest) {
       referenceHigh: isQualitative ? null : sourceHigh,
       panel: row.panel ?? null,
     });
+
+    // The marker's unit is the one the reading is stored under, so a row that
+    // states another unit cannot be written: the number would be kept under a
+    // unit it is not in. The review screen marks such a row before Save; this
+    // is the backstop for a client that did not, and for a marker whose unit
+    // changed between the scan and the commit. A freshly minted marker adopted
+    // this row's unit, so it cannot disagree.
+    if (
+      !isQualitative &&
+      row.unit !== undefined &&
+      !sameLabUnit(row.unit, biomarker.unit)
+    ) {
+      skipped.push({ analyte: row.analyte.trim(), reason: "unit_mismatch" });
+      continue;
+    }
 
     // Field-by-field — never spread the parsed row. The row stamps the resolved
     // catalog name/unit/range as historical truth and keeps the FK.
