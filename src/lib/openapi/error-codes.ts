@@ -218,6 +218,7 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
       "labs.ocr.rateLimited",
       "labs.restore.invalid",
       "labs.result.notFound",
+      "labs.unit.mismatch",
       "labs.update.invalid",
       "labs.update.linkedFieldsImmutable",
       "labs.update.numericExpected",

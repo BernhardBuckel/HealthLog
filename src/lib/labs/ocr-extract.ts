@@ -131,7 +131,7 @@ export class OcrExtractError extends Error {
  * server-computed biomarker match + duplicate id. `reportDate` fills a row's
  * date when the row itself carries none.
  */
-async function annotateRow(
+export async function annotateRow(
   userId: string,
   row: ExtractedRow,
   reportDate: string | null,
@@ -144,7 +144,7 @@ async function annotateRow(
   // Biomarker match — case-insensitive on the catalog identity, presence-only.
   const existingBiomarker = await prisma.biomarker.findFirst({
     where: { userId, name: { equals: analyte, mode: "insensitive" } },
-    select: { id: true },
+    select: { id: true, unit: true },
   });
 
   // Duplicate check: a live lab_results row with the same analyte (fuzzy,
@@ -198,6 +198,7 @@ async function annotateRow(
     takenAt,
     confidence: row.confidence,
     biomarkerMatch: existingBiomarker ? "existing" : "new",
+    markerUnit: existingBiomarker?.unit ?? null,
     duplicateOf,
   };
 }
