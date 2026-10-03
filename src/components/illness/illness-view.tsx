@@ -41,6 +41,7 @@ import { LogDaySheet } from "./log-day-sheet";
 import { NewEpisodeSheet } from "./new-episode-sheet";
 import { EpisodeMenu } from "./episode-menu";
 import { IllnessInsightsCard } from "./illness-insights-card";
+import { SymptomsSection } from "@/components/symptoms/symptoms-section";
 import { useIllnessEpisodes, useResolveEpisode } from "./use-illness";
 import type { IllnessEpisodeDTO } from "./types";
 
@@ -448,6 +449,10 @@ export function IllnessView() {
               never buries it. */}
           <IllnessInsightsCard />
 
+          {/* v1.40 — the person's own symptoms; renders nothing until one is
+              defined. */}
+          <SymptomsSection />
+
           <EpisodeGroup
             title={t("illness.section.active")}
             parents={grouped.activeParents}
@@ -471,20 +476,23 @@ export function IllnessView() {
           />
         </>
       ) : (
-        <EmptyState
-          icon={<Stethoscope className="size-6" />}
-          title={t("illness.empty.title")}
-          description={t("illness.empty.body")}
-          ctaSize="lg"
-          action={
-            canAddEpisode ? (
-              <Button onClick={() => setNewOpen(true)}>
-                <Plus className="h-4 w-4" />
-                {t("illness.newEpisode")}
-              </Button>
-            ) : undefined
-          }
-        />
+        <>
+          <SymptomsSection />
+          <EmptyState
+            icon={<Stethoscope className="size-6" />}
+            title={t("illness.empty.title")}
+            description={t("illness.empty.body")}
+            ctaSize="lg"
+            action={
+              canAddEpisode ? (
+                <Button onClick={() => setNewOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                  {t("illness.newEpisode")}
+                </Button>
+              ) : undefined
+            }
+          />
+        </>
       )}
 
       <NewEpisodeSheet open={newOpen} onOpenChange={setNewOpen} today={today} />

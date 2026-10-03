@@ -124,6 +124,8 @@ const STATIC_SURFACE_MODULE = {
   "capture:mood": "mood",
   "capture:medication": "medications",
   "capture:workout": "workouts",
+  // v1.40 — an occurrence of a person-defined symptom rides the illness module.
+  "capture:symptom": "illness",
 
   // ── Dashboard widgets ──
   // CORE widgets (weight, blood pressure, pulse, body fat, the vital-derived
