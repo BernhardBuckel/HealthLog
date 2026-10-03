@@ -38,11 +38,6 @@ interface NutrientDailyBarChartProps {
   referenceValue?: number | null;
 }
 
-/** Noon UTC so every viewer timezone renders the same calendar day. */
-function dayToDate(day: string): Date {
-  return new Date(`${day}T12:00:00.000Z`);
-}
-
 export function NutrientDailyBarChart({
   days,
   unit,
@@ -78,7 +73,7 @@ export function NutrientDailyBarChart({
         />
         <XAxis
           dataKey="day"
-          tickFormatter={(day: string) => fmt.dateShortSmart(dayToDate(day))}
+          tickFormatter={(day: string) => fmt.dateShortSmartCalendar(day)}
           tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
           stroke="var(--border)"
           minTickGap={24}
@@ -117,7 +112,7 @@ export function NutrientDailyBarChart({
             return (
               <RichChartTooltip
                 active
-                label={fmt.dateShortSmart(dayToDate(point.day))}
+                label={fmt.dateShortSmartCalendar(point.day)}
                 rows={rows}
               />
             );

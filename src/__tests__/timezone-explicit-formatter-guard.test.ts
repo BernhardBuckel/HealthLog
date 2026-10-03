@@ -183,3 +183,71 @@ describe("date formatters name the calendar they render in", () => {
     }
   });
 });
+
+/**
+ * A stated calendar date must not go through a zone-aware short formatter.
+ *
+ * A day key is anchored at noon UTC (`${key}T12:00:00Z`) so that it is the
+ * same calendar date everywhere, and then `dateShortSmart` read it in the
+ * profile zone and showed the NEXT day in UTC+12..+14. The calendar sibling,
+ * `dateShortSmartCalendar`, reads the key in UTC. This fails on any
+ * `dateShortSmart(`/`dateShort(`/`date(` call whose argument builds a noon
+ * anchor, and on the old local-noon form (`T12:00:00` with no zone), which a
+ * browser reads in its own zone.
+ *
+ * A file whose `fmt` comes from `makeBucketLabelFormatters` is skipped: that
+ * formatter set is pinned to UTC, so a noon anchor is already its calendar
+ * date there.
+ */
+describe("a stated date is formatted on its calendar date", () => {
+  const ZONED_CALL = /\bfmt\.(?:dateShortSmart|dateShort|date)\s*\(/g;
+  const CALENDAR_CALL = /\bfmt\.dateShortSmartCalendar\s*\(/g;
+  const NOON_ANCHOR = /T12:00:00/;
+
+  function scan() {
+    const files = execFileSync(
+      "grep",
+      ["-rlE", "fmt\\.date", "src", "--include=*.ts", "--include=*.tsx"],
+      { cwd: REPO_ROOT, encoding: "utf8" },
+    )
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .filter((f) => !f.includes("__tests__"));
+    const offenders: string[] = [];
+    let calendarCalls = 0;
+    for (const file of files) {
+      const source = readFileSync(resolve(REPO_ROOT, file), "utf8");
+      calendarCalls += (source.match(CALENDAR_CALL) ?? []).length;
+      if (/const fmt = makeBucketLabelFormatters\(/.test(source)) continue;
+      ZONED_CALL.lastIndex = 0;
+      for (let m = ZONED_CALL.exec(source); m; m = ZONED_CALL.exec(source)) {
+        const args = argumentList(source, m.index + m[0].length - 1);
+        if (NOON_ANCHOR.test(args)) {
+          offenders.push(
+            `${file}:${source.slice(0, m.index).split("\n").length}`,
+          );
+        }
+      }
+    }
+    return { offenders, calendarCalls };
+  }
+
+  it("finds the calendar formatter in use (the matcher still matches)", () => {
+    expect(scan().calendarCalls).toBeGreaterThanOrEqual(6);
+  });
+
+  it("never hands a noon anchor to a zone-aware formatter", () => {
+    expect(scan().offenders).toEqual([]);
+  });
+
+  it("the matcher flags the shape it exists for", () => {
+    const source = "fmt.dateShortSmart(`${d}T12:00:00Z`)";
+    ZONED_CALL.lastIndex = 0;
+    const m = ZONED_CALL.exec(source);
+    expect(m).not.toBeNull();
+    expect(
+      NOON_ANCHOR.test(argumentList(source, m!.index + m![0].length - 1)),
+    ).toBe(true);
+  });
+});
