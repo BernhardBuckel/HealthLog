@@ -798,7 +798,13 @@
     "unitRatio": "ratio",
     "unitRating": "nivel",
     "typeWho5Score": "Puntuación WHO-5",
-    "typeSciScore": "Puntuación SCI"
+    "typeSciScore": "Puntuación SCI",
+    "durationReadAs": "Se lee como {duration}",
+    "durationHoursMinutes": "{hours} h {minutes} min",
+    "durationHoursOnly": "{hours} h",
+    "durationMinutesOnly": "{minutes} min",
+    "durationInvalid": "Escribe una duración como 7,5, 7:30 o 7h 30m.",
+    "durationTooLong": "Una entrada no puede durar más de 24 horas."
   },
   "metricCatalog": {
     "title": "Lo que HealthLog puede registrar",

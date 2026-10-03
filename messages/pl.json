@@ -798,7 +798,13 @@
     "unitRatio": "stosunek",
     "unitRating": "poziom",
     "typeWho5Score": "Wynik WHO-5",
-    "typeSciScore": "Wynik SCI"
+    "typeSciScore": "Wynik SCI",
+    "durationReadAs": "Odczytano jako {duration}",
+    "durationHoursMinutes": "{hours} godz. {minutes} min",
+    "durationHoursOnly": "{hours} godz.",
+    "durationMinutesOnly": "{minutes} min",
+    "durationInvalid": "Wpisz czas trwania, np. 7,5, 7:30 lub 7h 30m.",
+    "durationTooLong": "Jeden wpis nie może przekraczać 24 godzin."
   },
   "metricCatalog": {
     "title": "Co HealthLog potrafi śledzić",

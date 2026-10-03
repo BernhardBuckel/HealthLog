@@ -798,7 +798,13 @@
     "unitRatio": "Verhältnis",
     "unitRating": "Stufe",
     "typeWho5Score": "WHO-5-Wert",
-    "typeSciScore": "SCI-Wert"
+    "typeSciScore": "SCI-Wert",
+    "durationReadAs": "Gelesen als {duration}",
+    "durationHoursMinutes": "{hours} Std. {minutes} Min.",
+    "durationHoursOnly": "{hours} Std.",
+    "durationMinutesOnly": "{minutes} Min.",
+    "durationInvalid": "Gib eine Dauer ein, zum Beispiel 7,5, 7:30 oder 7h 30m.",
+    "durationTooLong": "Ein Eintrag kann nicht länger als 24 Stunden sein."
   },
   "metricCatalog": {
     "title": "Was HealthLog erfassen kann",
