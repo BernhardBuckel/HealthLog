@@ -18,6 +18,7 @@ import { z } from "zod/v4";
 import { ocrCommitSchema } from "@/lib/validations/labs-ocr";
 
 import { aiExtractionRefusals } from "./ai-extraction-refusals";
+import { aiRunAccepted } from "./ai-run-accepted";
 import { aiCapabilityState } from "./profile";
 import {
   dataEnvelope,
@@ -80,7 +81,7 @@ const extractedRow = z
       "One proposed reading transcribed from the upload. UNTRUSTED model output annotated server-side: `biomarkerMatch` flags whether the analyte links an existing catalog marker; `duplicateOf` is the id of a live reading this row likely duplicates (the review row defaults to unchecked when set); `confidence` is the model's per-field self-score (low fields are flagged for the human). Nothing is written until the commit route confirms.",
   });
 
-const extractResponse = z
+export const ocrExtractResponse = z
   .object({
     reportDate: z.string().nullable(),
     providerType: z.string(),
@@ -98,7 +99,7 @@ const extractResponse = z
   .meta({
     id: "OcrExtractResponse",
     description:
-      "The proposed rows for the human review screen. NEVER written to the database — extraction is read-only and the raw upload is held in memory only.",
+      "The proposed rows for the human review screen, served by `GET /api/ai-runs/{id}` for a `LABS_OCR_EXTRACT` run. Never written to the person's record; the commit route is the only write.",
   });
 
 const committedRow = z
@@ -177,7 +178,7 @@ export const ocrPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Labs"],
       summary: "Extract lab readings from a photo, PDF, or OCR'd text",
       description:
-        "Read-only (NOT idempotent) extraction. Two modes by content-type. VISION (`multipart/form-data`): a `file` (JPEG/PNG/WebP, or PDF — read natively on Anthropic, else rasterized to page images for any other vision provider; ≤ 12 MiB) is run through the user's vision-capable provider; the upload lives in memory only and is never persisted or logged. TEXT (`application/json`, opt-in local OCR): the browser OCR's the image (tesseract.js) and POSTs `{ mode: \"text\", text }` — only the extracted text reaches the server, so a text-only provider (e.g. ChatGPT-OAuth) reaches the same review/commit flow. Both modes are model work and answer under the `labsOcr` capability (the operator's reading-documents switch, the labs module, and — because a lab report is a document — an active `ai_extraction` or `ai_full` consent receipt for any provider that leaves the machine, checked for the provider actually picked: the first vision-capable entry in vision mode, the chain head in text mode). No provider is 422 `labs.ocr.providerUnsupported`; text mode without the local-OCR opt-in is 422 `labs.ocr.localOcrDisabled`. Then both pass a per-user hourly rate bucket (default 6, operator-tunable via `LABS_OCR_LIMIT_PER_HOUR`; a slot is only consumed when the scan reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-*` triple and `meta.retryAt`) and the per-day token budget, and return proposed rows for the mandatory human review screen — nothing is written. Extracted content is treated as untrusted (prompt-injection); the review step is the safety boundary.",
+        "Read-only (NOT idempotent) extraction. Two modes by content-type. VISION (`multipart/form-data`): a `file` (JPEG/PNG/WebP, or PDF — read natively on Anthropic, else rasterized to page images for any other vision provider; ≤ 12 MiB) is run through the user's vision-capable provider; the upload is never logged. TEXT (`application/json`, opt-in local OCR): the browser OCR's the image (tesseract.js) and POSTs `{ mode: \"text\", text }` — only the extracted text reaches the server, so a text-only provider (e.g. ChatGPT-OAuth) reaches the same review/commit flow. Both modes are model work and answer under the `labsOcr` capability (the operator's reading-documents switch, the labs module, and — because a lab report is a document — an active `ai_extraction` or `ai_full` consent receipt for any provider that leaves the machine, checked for the provider actually picked: the first vision-capable entry in vision mode, the chain head in text mode). No provider is 422 `labs.ocr.providerUnsupported`; text mode without the local-OCR opt-in is 422 `labs.ocr.localOcrDisabled`. Then both pass a per-user hourly rate bucket (default 6, operator-tunable via `LABS_OCR_LIMIT_PER_HOUR`; a slot is only consumed when the scan reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-*` triple and `meta.retryAt`) and the per-day token budget, and the read is queued: since v1.40 the route answers 202 with a run id and `GET /api/ai-runs/{id}` serves the proposed rows (`OcrExtractResponse`) for the mandatory human review screen. The upload or text is held encrypted in the run until it is read, then dropped; the run is deleted an hour after it ends. Nothing is written to the record — the commit route is the only write. A file too large is 413 `labs.ocr.fileTooLarge`, an unknown type 415 `labs.ocr.fileType`, both before anything is queued. Extracted content is treated as untrusted (prompt-injection); the review step is the safety boundary.",
       requestBody: {
         required: true,
         content: {
@@ -204,14 +205,7 @@ export const ocrPaths: NonNullable<ZodOpenApiObject["paths"]> = {
         },
       },
       responses: {
-        "200": {
-          description: "Proposed rows for review.",
-          content: {
-            "application/json": {
-              schema: dataEnvelope(extractResponse, "OcrExtractEnvelope"),
-            },
-          },
-        },
+        ...aiRunAccepted,
         ...aiExtractionRefusals("labsOcr"),
         ...stdResponses,
       },

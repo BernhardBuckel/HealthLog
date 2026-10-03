@@ -82,6 +82,10 @@ export function extractErrorMessage(
         return t("labs.ocr.consentRequired");
       case "ai.provider.none":
         return t("labs.ocr.providerUnsupported");
+      case "aiRuns.workerUnavailable":
+        return t("aiRuns.errorWorkerUnavailable");
+      case "aiRuns.timedOut":
+        return t("aiRuns.errorTimedOut");
       default:
         break;
     }
@@ -332,6 +336,17 @@ export function OcrReviewDialog({
                     ? t("labs.ocr.readingOnDevice")
                     : t("labs.ocr.extracting")}
                 </span>
+                {extract.runPhase !== "idle" ? (
+                  <span
+                    role="status"
+                    data-slot="ocr-run-phase"
+                    className="text-muted-foreground text-xs"
+                  >
+                    {extract.runPhase === "waitingForWorker"
+                      ? t("aiRuns.waitingForWorker")
+                      : t("aiRuns.backgroundScan")}
+                  </span>
+                ) : null}
               </>
             ) : (
               <>

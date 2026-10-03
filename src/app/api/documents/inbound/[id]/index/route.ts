@@ -19,46 +19,52 @@
  * the lab / extract text mode already uses — no provider egress at all.
  *
  * Persists ONLY AES-256-GCM ciphertext text + opaque HMAC token hashes (A4).
+ *
+ * v1.40 — `Prefer: respond-async` (RFC 7240) runs the read in the background
+ * worker: every refusal that can be answered quickly is still answered here,
+ * then the route answers 202 with a run id and `GET /api/ai-runs/{id}` serves
+ * the same body this route answers with synchronously. Without the header the
+ * route behaves exactly as before; the iPhone app relies on that. Both paths
+ * run one body (`executeDocumentIndex`).
  */
+import { Buffer } from "node:buffer";
+
 import { NextRequest } from "next/server";
 
 import { apiHandler, requireAuth } from "@/lib/api-handler";
 import {
   apiError,
-  apiSuccess,
   apiValidationError,
   getClientIp,
   safeJson,
   sanitiseZodIssues,
 } from "@/lib/api-response";
-import { AI_BUDGETS } from "@/lib/ai/ai-budgets";
 import { requireAiCapability } from "@/lib/ai/capabilities/gate";
 import {
   buildDateKey,
-  reconcileSpend,
   reserveBudget,
   resolveCostOwner,
   resolveDailyCap,
 } from "@/lib/ai/coach/budget";
-import { auditLog } from "@/lib/auth/audit";
 import {
   checkDocumentAiRateLimit,
   documentAiRateLimited,
   DOCUMENT_AI_TEXT_BODY_MAX_BYTES,
   loadOwnedDocument,
-  prepareVisionInput,
   refundDocumentAiSlot,
   type LoadedDocument,
 } from "@/lib/documents/ai-route-support";
-import { maybeAutoStageLabFacts } from "@/lib/documents/auto-stage-labs";
-import { upsertContentIndex } from "@/lib/documents/content-index";
-import { recordIndexAttempt } from "@/lib/documents/index-document";
 import {
-  DocumentDescribeError,
-  transcribeDocument,
-} from "@/lib/documents/describe";
+  acceptedRunResponse,
+  outcomeResponse,
+  prefersRespondAsync,
+} from "@/lib/documents/ai-runs/http";
+import {
+  DOCUMENT_INDEX_RESERVE_TOKENS,
+  executeDocumentIndex,
+} from "@/lib/documents/ai-runs/index-run";
+import { findLiveDocumentRun, startAiRun } from "@/lib/documents/ai-runs/start";
 import { requireDocumentVisionProvider } from "@/lib/documents/provider-order";
-import { annotate } from "@/lib/logging/context";
 import { requireModuleEnabled } from "@/lib/modules/gate";
 import { prisma } from "@/lib/db";
 import { inboundTextExtractSchema } from "@/lib/validations/inbound-documents";
@@ -82,57 +88,26 @@ export const POST = apiHandler(
       });
     }
 
+    const background = prefersRespondAsync(request);
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
-      return handleTextIndex(request, user.id, document);
+      return handleTextIndex(request, user.id, document, background);
     }
-    return handleVisionIndex(request, user.id, document);
+    return handleVisionIndex(request, user.id, document, background);
   },
 );
 
-async function finishIndex(
-  request: NextRequest,
+/**
+ * A read of this document already queued or running: attach to it rather than
+ * charge a second one. Background path only; the synchronous path keeps its
+ * behaviour of one request, one read.
+ */
+async function liveRunResponse(
   userId: string,
   documentId: string,
-  source: "vision" | "text-ocr",
-  tokenCount: number,
-): Promise<Response> {
-  // Refs #776 — the manual route is the second writer of the attempt record
-  // (the auto job + backfill share `indexLoadedDocument`): a success clears
-  // any stored failure reason so the detail view stops explaining a problem
-  // that no longer exists.
-  await recordIndexAttempt(userId, documentId, {
-    indexed: true,
-    source,
-    tokenCount,
-  });
-  // Read with AI is the person reading the document on purpose, so an
-  // import's hold on automatic AI reading (`aiRead=defer`) ends here, before
-  // the lab staging below that would otherwise refuse it.
-  await prisma.inboundDocument.updateMany({
-    where: { id: documentId, userId, aiReadDeferred: true },
-    data: { aiReadDeferred: false },
-  });
-  await auditLog("documents.inbound.index", {
-    userId,
-    ipAddress: getClientIp(request),
-    details: { documentId, source, tokens: tokenCount },
-  });
-  annotate({
-    action: { name: "documents.contentIndex.upsert" },
-    meta: { documentId, source, tokens: tokenCount },
-  });
-  // A manual read continues into the SAME lab staging the automatic index
-  // worker performs, so a skipped or failed auto run is recoverable per
-  // document without a re-upload. Every guard lives inside the helper (both
-  // modules on, still STORED with no facts, provider + consent, looks like a
-  // lab report) — a non-lab document is a tagged no-op, and a staging failure
-  // never fails the index that just succeeded.
-  const staging = await maybeAutoStageLabFacts(userId, documentId).catch(
-    () => null,
-  );
-  const labFactsStaged = staging?.staged === true ? staging.facts : 0;
-  return apiSuccess({ documentId, indexed: true, tokenCount, labFactsStaged });
+): Promise<Response | null> {
+  const live = await findLiveDocumentRun(userId, documentId, "DOCUMENT_INDEX");
+  return live ? acceptedRunResponse(live) : null;
 }
 
 /** TEXT mode — index browser-OCR'd text (no provider egress). */
@@ -140,6 +115,7 @@ async function handleTextIndex(
   request: NextRequest,
   userId: string,
   document: LoadedDocument,
+  background: boolean,
 ): Promise<Response> {
   const row = await prisma.user.findUnique({
     where: { id: userId },
@@ -149,6 +125,11 @@ async function handleTextIndex(
     return apiError("Local OCR is not enabled", 422, {
       errorCode: "documents.inbound.localOcrDisabled",
     });
+  }
+
+  if (background) {
+    const live = await liveRunResponse(userId, document.id);
+    if (live) return live;
   }
 
   const rl = await checkDocumentAiRateLimit(userId);
@@ -174,14 +155,27 @@ async function handleTextIndex(
     );
   }
 
-  const { tokenCount } = await upsertContentIndex({
-    userId,
-    documentId: document.id,
-    text: parsed.data.text,
-    source: "text-ocr",
-    providerType: null,
-  });
-  return finishIndex(request, userId, document.id, "text-ocr", tokenCount);
+  if (background) {
+    // The text is indexed in the worker, which then continues into the same
+    // lab staging (model calls) the synchronous path makes.
+    return startAiRun({
+      userId,
+      kind: "DOCUMENT_INDEX",
+      documentId: document.id,
+      params: { mode: "text" },
+      input: Buffer.from(parsed.data.text, "utf8"),
+      refundSlot: () => refundDocumentAiSlot(userId),
+    });
+  }
+
+  return outcomeResponse(
+    await executeDocumentIndex({
+      userId,
+      document,
+      input: { mode: "text", text: parsed.data.text },
+      origin: { ipAddress: getClientIp(request), worker: false },
+    }),
+  );
 }
 
 /** VISION mode — transcribe the stored original, then index the text. */
@@ -189,6 +183,7 @@ async function handleVisionIndex(
   request: NextRequest,
   userId: string,
   document: LoadedDocument,
+  background: boolean,
 ): Promise<Response> {
   // Transcribing the stored original is model work; indexing text the browser
   // already read (the text mode above) is not, and stays open with AI off so
@@ -197,59 +192,18 @@ async function handleVisionIndex(
   await requireAiCapability("documentAi", { pickDecides: true });
   const pick = await requireDocumentVisionProvider(userId);
 
+  if (background) {
+    const live = await liveRunResponse(userId, document.id);
+    if (live) return live;
+  }
+
   const rl = await checkDocumentAiRateLimit(userId);
   if (!rl.allowed) return documentAiRateLimited(rl);
-
-  const vision = await prepareVisionInput(document, pick.pdfSupported);
-  if (!vision.ok) {
-    // Preparation failed before any provider dispatch — the slot goes back.
-    // Refs #776 — each failure is also recorded on the row so the detail view
-    // can explain the missing index after the toast is gone.
-    await refundDocumentAiSlot(userId);
-    if (vision.reason === "pdfNeedsAnthropic") {
-      await recordIndexAttempt(userId, document.id, {
-        indexed: false,
-        reason: "pdf-needs-anthropic",
-      });
-      return apiError(
-        "PDF scanning needs a Claude vision provider; use local OCR instead.",
-        422,
-        { errorCode: "documents.inbound.pdfNeedsAnthropic" },
-      );
-    }
-    if (vision.reason === "rasterFailed") {
-      await recordIndexAttempt(userId, document.id, {
-        indexed: false,
-        reason: "raster-failed",
-      });
-      return apiError("The PDF pages couldn't be rendered for scanning.", 422, {
-        errorCode: "documents.inbound.extractFailed",
-      });
-    }
-    if (vision.reason === "fileType") {
-      await recordIndexAttempt(userId, document.id, {
-        indexed: false,
-        reason: "local-unsupported",
-      });
-      return apiError(
-        "This document can't be scanned. Use local OCR (text mode).",
-        422,
-        { errorCode: "documents.inbound.fileType" },
-      );
-    }
-    await recordIndexAttempt(userId, document.id, {
-      indexed: false,
-      reason: "decrypt-error",
-    });
-    return apiError("Couldn't read the stored document.", 422, {
-      errorCode: "documents.inbound.extractFailed",
-    });
-  }
 
   const dateKey = buildDateKey();
   const reservation = await reserveBudget(
     userId,
-    AI_BUDGETS.documentTranscribe.maxTokens,
+    DOCUMENT_INDEX_RESERVE_TOKENS,
     dateKey,
     resolveDailyCap([{ providerType: pick.entry.providerType }]),
     resolveCostOwner([{ providerType: pick.entry.providerType }]),
@@ -261,66 +215,30 @@ async function handleVisionIndex(
       errorCode: "documents.inbound.budgetExceeded",
     });
   }
+  const budget = {
+    reserved: reservation.reserved,
+    owner: reservation.owner,
+    dateKey,
+  };
 
-  try {
-    const { text } = await transcribeDocument({
-      provider: pick.entry.instance,
-      providerType: pick.providerType,
-      images: vision.images,
-      documents: vision.documents,
-    });
-    await reconcileSpend(
+  if (background) {
+    // The worker picks the provider again and re-checks the wire for it right
+    // before the stored original leaves.
+    return startAiRun({
       userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-    // Refs #776 — the empty-transcription guard, same contract as the auto
-    // path (`tryProviderIndex`): a provider answer with no text must never
-    // become a "successful" empty index. The spend stays charged (the
-    // provider was called); the honest answer is an error plus the recorded
-    // reason.
-    if (text.trim().length === 0) {
-      await recordIndexAttempt(userId, document.id, {
-        indexed: false,
-        reason: "empty-transcription",
-      });
-      return apiError(
-        "The provider returned no text for this document. Try a clearer copy.",
-        422,
-        { errorCode: "documents.inbound.extractFailed" },
-      );
-    }
-    const { tokenCount } = await upsertContentIndex({
-      userId,
+      kind: "DOCUMENT_INDEX",
       documentId: document.id,
-      text,
-      source: "vision",
-      providerType: pick.providerType,
-    });
-    return finishIndex(request, userId, document.id, "vision", tokenCount);
-  } catch (err) {
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    await recordIndexAttempt(userId, document.id, {
-      indexed: false,
-      reason: "provider-error",
-    });
-    if (err instanceof DocumentDescribeError) {
-      return apiError("Couldn't read the document. Try a clearer copy.", 422, {
-        errorCode: "documents.inbound.extractFailed",
-      });
-    }
-    annotate({
-      action: { name: "documents.contentIndex.failed" },
-      meta: { reason: "provider_error", mode: "vision" },
-    });
-    return apiError("Couldn't read the document. Try a clearer copy.", 502, {
-      errorCode: "documents.inbound.extractFailed",
+      params: { mode: "vision", budget },
+      refundSlot: () => refundDocumentAiSlot(userId),
     });
   }
+
+  return outcomeResponse(
+    await executeDocumentIndex({
+      userId,
+      document,
+      input: { mode: "vision", pick, budget },
+      origin: { ipAddress: getClientIp(request), worker: false },
+    }),
+  );
 }

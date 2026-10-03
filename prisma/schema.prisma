@@ -942,6 +942,7 @@ model User {
   // v1.39.3 — the person's own connection to a Paperless-ngx or Papra
   // instance for the document picker. See DocumentSourceConnection.
   documentSourceConnections                 DocumentSourceConnection[]
+  documentAiRuns                            DocumentAiRun[]
   extractedFacts                            ExtractedFact[]
   documentConditionLinks                    DocumentConditionLink[]
   documentContentIndexes                    DocumentContentIndex[]
@@ -8190,6 +8191,8 @@ model InboundDocument {
   shareLinks      ClinicianShareLinkDocument[]
   /// Further import source keys that resolved to this document by content.
   sourceAliases   DocumentSourceAlias[]
+  /// Background AI reads of this document (v1.40). Transient; cascades.
+  aiRuns          DocumentAiRun[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -8986,4 +8989,76 @@ model OnboardingRecord {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("onboarding_records")
+}
+
+/// v1.40 — what a background document AI run is doing.
+enum DocumentAiRunKind {
+  /// "Read with AI": transcribe the stored original into the content index,
+  /// then continue into lab staging.
+  DOCUMENT_INDEX
+  /// A lab report scan (photo, PDF or browser-read text) into proposed rows
+  /// for the review screen. Nothing is written until the person commits.
+  LABS_OCR_EXTRACT
+
+  @@map("document_ai_run_kind")
+}
+
+/// v1.40 — where a background document AI run stands.
+enum DocumentAiRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+
+  @@map("document_ai_run_status")
+}
+
+/// v1.40 — one model read that runs in the background instead of inside the
+/// request that asked for it, so a proxy that cuts long requests cannot cut
+/// the read. The request answers 202 with the run id; the client polls
+/// `GET /api/ai-runs/{id}`. A ticket, not a record: the input is dropped the
+/// moment the run finishes and the whole row is deleted an hour later
+/// (`document-ai-run-reaper`). Never in a backup.
+model DocumentAiRun {
+  id              String              @id @default(cuid())
+  userId          String              @map("user_id")
+  kind            DocumentAiRunKind
+  /// The document a document run reads. Null for a lab scan, whose input is
+  /// the upload itself.
+  documentId      String?             @map("document_id")
+  status          DocumentAiRunStatus @default(QUEUED)
+  /// How to run it: the input mode, the upload's sniffed MIME, the budget
+  /// reservation taken at enqueue. Never health data.
+  paramsJson      Json                @map("params_json")
+  /// AES-256-GCM (`encryptBytes`, labelled) of the input the worker needs and
+  /// cannot read anywhere else: the uploaded scan, or the text the browser
+  /// read off it. Null for a run that reads a stored document, and set to
+  /// null when the run finishes.
+  inputEncrypted  Bytes?              @map("input_encrypted")
+  /// AES-256-GCM (`encryptBytes`, labelled) of the result as JSON. It holds
+  /// model text and lab values. Served by the poll route until the row goes.
+  resultEncrypted Bytes?              @map("result_encrypted")
+  /// The failure code a client branches on, the same code the synchronous
+  /// route would have answered with.
+  errorCode       String?             @map("error_code")
+  /// The HTTP status the synchronous route would have answered with, so a
+  /// client handles a failed run as it handled the failed request.
+  errorStatus     Int?                @map("error_status")
+  /// The failure in one sanitised sentence. Never upstream text.
+  errorMessage    String?             @map("error_message")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  startedAt       DateTime?           @map("started_at")
+  finishedAt      DateTime?           @map("finished_at")
+  /// The next deadline the reaper acts on: queued runs fail as
+  /// `aiRuns.workerUnavailable`, running ones as `aiRuns.timedOut`, finished
+  /// ones are deleted.
+  expiresAt       DateTime            @map("expires_at")
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document InboundDocument? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([documentId, kind, status])
+  @@index([status, expiresAt])
+  @@map("document_ai_runs")
 }

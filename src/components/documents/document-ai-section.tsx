@@ -33,6 +33,7 @@
 import { FileText, ScanText, WandSparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { AiRunPhase } from "@/hooks/use-ai-run";
 import { useTranslations } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import {
@@ -77,6 +78,7 @@ export function DocumentAiSection({
   contentIndexSource,
   lastIndexOutcome = null,
   indexPending,
+  indexRunPhase = "idle",
   onIndex,
 }: {
   aiEnabled: boolean;
@@ -120,6 +122,8 @@ export function DocumentAiSection({
    */
   lastIndexOutcome?: DocumentIndexOutcomeValue | null;
   indexPending: boolean;
+  /** v1.40 — where a background read stands, for the calm line under it. */
+  indexRunPhase?: AiRunPhase;
   onIndex: () => void;
 }) {
   const { t } = useTranslations();
@@ -246,6 +250,18 @@ export function DocumentAiSection({
                 {readLabel}
               </Button>
             </div>
+          ) : null}
+
+          {indexRunPhase !== "idle" ? (
+            <p
+              role="status"
+              data-slot="document-index-run-phase"
+              className="text-muted-foreground text-xs"
+            >
+              {indexRunPhase === "waitingForWorker"
+                ? t("aiRuns.waitingForWorker")
+                : t("aiRuns.backgroundDocument")}
+            </p>
           ) : null}
 
           {indexOutcomeText ? (

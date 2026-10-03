@@ -15,6 +15,7 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
 import { adminKeys } from "./admin";
+import { aiRunKeys } from "./ai-runs";
 import { allergyKeys } from "./allergies";
 import { authKeys } from "./auth";
 import { coachKeys } from "./coach";
@@ -74,6 +75,7 @@ export const queryKeys = {
   ...profileKeys,
   ...sharingKeys,
   ...vaccinationKeys,
+  ...aiRunKeys,
 };
 
 export { recordSettingsKeys } from "./record-settings";
