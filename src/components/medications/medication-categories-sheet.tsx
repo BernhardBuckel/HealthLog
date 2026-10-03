@@ -20,7 +20,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QueryErrorRow } from "@/components/ui/query-error-row";
@@ -134,19 +133,23 @@ function CategoryRow({
         className="text-muted-foreground size-4 shrink-0"
         aria-hidden="true"
       />
-      <span className="min-w-0 flex-1 truncate text-sm" title={category.label}>
-        {category.label}
-      </span>
-      {!category.isActive && (
-        <Badge variant="secondary">
-          {t("medications.category.custom.hidden")}
-        </Badge>
-      )}
-      <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-        {t("medications.category.custom.count", {
-          count: String(category.medicationCount),
-        })}
-      </span>
+      {/* Label on its own line with the count and the hidden state under
+          it, the course list's row anatomy: three 44 px actions leave a
+          390 px row too little width to share with a meta column. */}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm" title={category.label}>
+          {category.label}
+        </p>
+        <p className="text-muted-foreground text-xs tabular-nums">
+          {category.isActive
+            ? t("medications.category.custom.count", {
+                count: String(category.medicationCount),
+              })
+            : `${t("medications.category.custom.count", {
+                count: String(category.medicationCount),
+              })}, ${t("medications.category.custom.hidden")}`}
+        </p>
+      </div>
       <Button
         type="button"
         variant="ghost"
