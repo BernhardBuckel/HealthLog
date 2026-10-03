@@ -19,10 +19,8 @@ import {
 } from "@/components/ui/popover";
 import { ApiError } from "@/lib/api/api-fetch";
 import { useTranslations } from "@/lib/i18n/context";
-import { SYMPTOM_ICON_ALLOWLIST } from "@/lib/symptoms/shared";
-import { cn } from "@/lib/utils";
 
-import { symptomIcon } from "./symptom-icons";
+import { SymptomIconPicker } from "./symptom-icon-picker";
 import { useCreateSymptomDefinition } from "./use-symptoms";
 
 export function AddSymptomChip({
@@ -101,34 +99,11 @@ export function AddSymptomChip({
         </div>
         <div className="space-y-1.5">
           <p className="text-xs font-medium">{t("symptoms.iconLabel")}</p>
-          <div
-            className="flex flex-wrap gap-1.5"
-            role="radiogroup"
-            aria-label={t("symptoms.iconLabel")}
-          >
-            {SYMPTOM_ICON_ALLOWLIST.map((name) => {
-              const IconC = symptomIcon(name);
-              const selected = icon === name;
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  aria-label={t(`symptoms.icons.${name}`)}
-                  onClick={() => setIcon(name)}
-                  className={cn(
-                    "focus-visible:ring-ring/50 grid size-11 place-items-center rounded-md border transition-colors focus-visible:ring-2 focus-visible:outline-none sm:size-9",
-                    selected
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:bg-accent",
-                  )}
-                >
-                  <IconC className="size-4" aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
+          <SymptomIconPicker
+            value={icon}
+            onChange={setIcon}
+            label={t("symptoms.iconLabel")}
+          />
         </div>
         {create.isError ? (
           <p className="text-destructive text-sm" role="alert">
