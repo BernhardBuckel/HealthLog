@@ -16,6 +16,7 @@ function render(uploadItems: UploadQueueItem[]) {
   return renderToStaticMarkup(
     <I18nProvider initialLocale="en">
       <DocumentTimeline
+        timezone="UTC"
         documents={[]}
         uploadItems={uploadItems}
         onDismissUpload={() => {}}

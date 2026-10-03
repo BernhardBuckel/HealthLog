@@ -55,7 +55,10 @@ export function DocumentTimeline({
   onDelete,
   highlightId,
   onPrefetch,
+  timezone,
 }: {
+  /** The reader's profile zone; an undated document files under its upload day there. */
+  timezone: string;
   documents: InboundDocumentDto[];
   uploadItems: UploadQueueItem[];
   onDismissUpload: (localId: string) => void;
@@ -93,8 +96,8 @@ export function DocumentTimeline({
   }, []);
 
   const items = useMemo(
-    () => buildTimelineItems(documents, columns),
-    [documents, columns],
+    () => buildTimelineItems(documents, columns, timezone),
+    [documents, columns, timezone],
   );
 
   // The timeline does not start at the scrollport's top edge (page header,

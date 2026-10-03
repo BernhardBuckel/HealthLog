@@ -14,6 +14,7 @@ import {
   type InboundDocumentKindValue,
 } from "@/lib/validations/inbound-documents";
 import type { DocumentVaultFilters } from "@/lib/query-keys/documents";
+import { userDayKey } from "@/lib/tz/format";
 
 const KIND_SET = new Set<string>(INBOUND_DOCUMENT_KINDS);
 
@@ -114,15 +115,23 @@ export function buildVaultListApiSearch(
 }
 
 /** The date a document files under — its user filing date, else upload day. */
-export function documentDateKey(doc: InboundDocumentDto): string {
+export function documentDateKey(
+  doc: InboundDocumentDto,
+  timezone: string,
+): string {
   if (doc.documentDate) return doc.documentDate;
-  // createdAt is an ISO timestamp; the leading YYYY-MM-DD is the upload day.
-  return doc.createdAt.slice(0, 10);
+  // An undated document files under its upload day in the reader's zone: the
+  // leading YYYY-MM-DD of `createdAt` is the UTC day, which puts an upload
+  // late on the last evening of a month west of UTC into the next month.
+  return userDayKey(new Date(doc.createdAt), timezone);
 }
 
 /** The YYYY-MM month bucket a document files under. */
-export function documentMonthKey(doc: InboundDocumentDto): string {
-  return documentDateKey(doc).slice(0, 7);
+export function documentMonthKey(
+  doc: InboundDocumentDto,
+  timezone: string,
+): string {
+  return documentDateKey(doc, timezone).slice(0, 7);
 }
 
 /**
@@ -186,6 +195,7 @@ export type TimelineItem =
 export function buildTimelineItems(
   documents: InboundDocumentDto[],
   columns: number,
+  timezone: string,
 ): TimelineItem[] {
   const cols = Math.max(1, columns);
   const items: TimelineItem[] = [];
@@ -200,7 +210,7 @@ export function buildTimelineItems(
   };
 
   for (const doc of documents) {
-    const key = documentMonthKey(doc);
+    const key = documentMonthKey(doc, timezone);
     if (key !== month) {
       flushRow();
       month = key;
