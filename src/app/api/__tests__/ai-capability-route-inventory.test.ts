@@ -20,6 +20,11 @@
  * files (`tests/integration/ai-optional-*.test.ts`) prove behaviour; this
  * proves no route escapes classification and no data route grows a gate.
  *
+ * 5. Every kind of background run (`DOCUMENT_AI_RUN_KINDS`) is queued by a
+ *    route on `AI_ROUTES` that asks the capability the worker asks again for
+ *    that kind (`DOCUMENT_AI_RUN_CAPABILITY`), so a run cannot answer to a
+ *    different switch than the request that started it.
+ *
  * Mutation checks (each turned this file red by name): adding
  * `await requireAiCapability("statusText")` to `insights/ecg/route.ts`;
  * removing the capability call from `insights/chat/route.ts`; swapping
@@ -31,6 +36,11 @@ import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { AI_CAPABILITY_KEYS } from "@/lib/ai/capabilities/types";
+import {
+  DOCUMENT_AI_RUN_CAPABILITY,
+  DOCUMENT_AI_RUN_KINDS,
+  type DocumentAiRunKindValue,
+} from "@/lib/documents/ai-runs/types";
 
 import { AI_ROUTES, DATA_ROUTES } from "./ai-route-inventory";
 
@@ -153,4 +163,28 @@ describe("AI capability route inventory", () => {
     const both = Object.keys(DATA_ROUTES).filter((path) => path in AI_ROUTES);
     expect(both).toEqual([]);
   });
+});
+
+/** The route that queues each kind of background run. */
+const RUN_QUEUED_BY: Record<DocumentAiRunKindValue, string> = {
+  DOCUMENT_INDEX: "src/app/api/documents/inbound/[id]/index/route.ts",
+  LABS_OCR_EXTRACT: "src/app/api/labs/ocr/extract/route.ts",
+  DOCUMENT_SUMMARY: "src/app/api/documents/inbound/[id]/summary/route.ts",
+  DOCUMENT_SUGGEST: "src/app/api/documents/inbound/[id]/suggest/route.ts",
+};
+
+describe("background run kinds", () => {
+  it.each(DOCUMENT_AI_RUN_KINDS)(
+    "%s is queued by an AI route under the capability the worker re-checks",
+    (kind) => {
+      const path = RUN_QUEUED_BY[kind];
+      const entry = AI_ROUTES[path];
+      expect(entry, `${path} is not on AI_ROUTES`).toBeDefined();
+      expect(entry.capabilities).toContain(DOCUMENT_AI_RUN_CAPABILITY[kind]);
+      expect(
+        new RegExp(`kind:\\s*"${kind}"`).test(code(path)),
+        `${path} does not queue ${kind}`,
+      ).toBe(true);
+    },
+  );
 });

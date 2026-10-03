@@ -8031,6 +8031,9 @@ enum InboundDocumentKind {
 /// every fact, DISCARDED on a soft delete.
 enum InboundDocumentStatus {
   STORED
+  /// @internal: reserved, no writer. An extraction in flight is the state of
+  /// its background run (`DocumentAiRun`), not of the document, so the vault
+  /// never shows a status nothing renders.
   EXTRACTING
   EXTRACTED
   FAILED
@@ -9033,6 +9036,12 @@ enum DocumentAiRunKind {
   /// A lab report scan (photo, PDF or browser-read text) into proposed rows
   /// for the review screen. Nothing is written until the person commits.
   LABS_OCR_EXTRACT
+  /// A plain-language summary or the transcribed text of a stored document;
+  /// stored on the document only when the request asked for that.
+  DOCUMENT_SUMMARY
+  /// Filing suggestions (title, kind, date) for a stored document. Drafts
+  /// only: nothing is written to the document.
+  DOCUMENT_SUGGEST
 
   @@map("document_ai_run_kind")
 }

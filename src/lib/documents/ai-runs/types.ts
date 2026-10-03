@@ -8,13 +8,32 @@
  * `GET /api/ai-runs/{id}` until the run is terminal. The result lives in the
  * row for an hour after it finishes and then the row is deleted.
  */
+import type { AiCapabilityKey } from "@/lib/ai/capabilities/types";
+import type { Locale } from "@/lib/i18n/config";
+import type { InboundDocumentKindValue } from "@/lib/validations/inbound-documents";
 import type { OcrExtractResponseDto } from "@/lib/validations/labs-ocr";
 
 export const DOCUMENT_AI_RUN_KINDS = [
   "DOCUMENT_INDEX",
   "LABS_OCR_EXTRACT",
+  "DOCUMENT_SUMMARY",
+  "DOCUMENT_SUGGEST",
 ] as const;
 export type DocumentAiRunKindValue = (typeof DOCUMENT_AI_RUN_KINDS)[number];
+
+/**
+ * The capability each kind of run answers to: the one its queuing route asks,
+ * asked again by the worker for the record before anything leaves.
+ */
+export const DOCUMENT_AI_RUN_CAPABILITY: Record<
+  DocumentAiRunKindValue,
+  AiCapabilityKey
+> = {
+  DOCUMENT_INDEX: "documentAi",
+  LABS_OCR_EXTRACT: "labsOcr",
+  DOCUMENT_SUMMARY: "documentAi",
+  DOCUMENT_SUGGEST: "documentAi",
+};
 
 export const DOCUMENT_AI_RUN_STATUSES = [
   "QUEUED",
@@ -64,6 +83,13 @@ export interface AiRunParams {
   mime?: "image/jpeg" | "image/png" | "image/webp" | "application/pdf";
   /** Present when the enqueue reserved budget for a provider call. */
   budget?: AiRunBudget;
+  /** A summary run: what to produce, whether to store it, and in which language. */
+  summary?: {
+    output: "summary" | "text";
+    persist: boolean;
+    replace: boolean;
+    locale: Locale;
+  };
 }
 
 /** "Read with AI": the same body the synchronous index route answers with. */
@@ -74,7 +100,25 @@ export interface DocumentIndexRunResult {
   labFactsStaged: number;
 }
 
-export type AiRunResult = DocumentIndexRunResult | OcrExtractResponseDto;
+/** A summary run: the summary route's body. */
+export type DocumentSummaryRunResult =
+  | { summary: string; persistence?: "stored" | "withheld" | "failed" }
+  | { text: string };
+
+/** A suggest run: the suggest route's body (drafts, nothing written). */
+export interface DocumentSuggestRunResult {
+  suggestions: {
+    title: string | null;
+    kind: InboundDocumentKindValue | null;
+    documentDate: string | null;
+  };
+}
+
+export type AiRunResult =
+  | DocumentIndexRunResult
+  | OcrExtractResponseDto
+  | DocumentSummaryRunResult
+  | DocumentSuggestRunResult;
 
 /**
  * What one run body produced: the success body, or the failure the

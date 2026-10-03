@@ -14284,7 +14284,7 @@ paths:
             schema:
               $ref: "#/components/schemas/OcrTextExtractRequest"
       responses:
-        "202": &a38
+        "202": &a36
           description: Queued for the background worker. Every refusal the route can answer quickly (capability, provider, rate
             limit, budget, validation) has already been answered; anything that goes wrong from here is reported on the
             run.
@@ -16722,7 +16722,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InboundExtractEnvelope"
         "401": *a1
-        "403": &a36
+        "403": &a37
           description: "AI refusal: the `documentAi` capability is unavailable for this record. The envelope carries
             `meta.errorCode`, `meta.capability` and `meta.reason` (one of `AiUnavailableReason`).
             `assistant.disabled.documentAi` — the operator turned off reading documents, or every AI feature (the master
@@ -16746,7 +16746,7 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "422": *a4
         "429": *a5
-        "503": &a37
+        "503": &a38
           description: "`ai.unavailable` — the inputs behind the AI capability could not be read, and the answer failed closed.
             Nothing was sent. Retry later."
           content:
@@ -16766,160 +16766,18 @@ paths:
         only consumed when the request reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-Limit`
         / `-Remaining` / `-Reset` triple, and `meta.retryAt`). WRITES NOTHING — never stages facts, never flips status;
         the user reviews and saves. 422 (`documents.inbound.providerUnsupported`) with no provider configured. Never
-        interprets or diagnoses; the title is a neutral filing label."
+        interprets or diagnoses; the title is a neutral filing label. With `Prefer: respond-async` (v1.40) the read runs
+        in the background: after the same quick refusals the route answers 202 with a run id, a second request while a
+        suggestion read of this document over the same transport is queued or running answers with that run, and `GET
+        /api/ai-runs/{id}` serves this body as the run's `result`."
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                mode:
-                  type: string
-                  const: text
-                text:
-                  type: string
-                kind:
-                  type: string
-                  enum:
-                    - DOCTOR_REPORT
-                    - DISCHARGE_LETTER
-                    - LAB_RESULT
-                    - IMAGING
-                    - PRESCRIPTION
-                    - REFERRAL
-                    - INSURANCE
-                    - VACCINATION
-                    - OTHER
-              required:
-                - mode
-                - text
-      responses:
-        "200":
-          description: The filing-metadata suggestion (drafts).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DocumentSuggestEnvelope"
-        "401": *a1
-        "403": *a36
-        "422": *a4
-        "429": *a5
-        "503": *a37
-  /api/documents/inbound/{id}/summary:
-    post:
-      tags:
-        - Documents
-      summary: Summarise or transcribe a document
-      description: 'On-demand description of a stored document. `?mode=summary` (default) returns a short plain-language
-        summary of WHAT the document is; it remains transient unless `persist=true` fills the empty stored-summary slot,
-        while `persist=true&replace=true` explicitly replaces an existing summary. `?mode=text` returns transient raw
-        transcribed text. Neither result reaches coach memory, snapshots, structured stores, or the search index. The
-        summary is descriptive only and never a diagnosis. Same VISION (empty body) / TEXT (`application/json` `{ mode:
-        "text", text }`, opt-in local OCR) dispatch as extract. Answers under the `documentAi` capability (403 with the
-        capability envelope when it is closed), then rate / budget gated. 422 `documents.inbound.providerUnsupported`
-        with no provider.'
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: mode
-          in: query
-          required: false
-          schema:
-            type: string
-            enum:
-              - summary
-              - text
-            default: summary
-          description: "`summary` (plain-language description) or `text` (raw)."
-        - name: persist
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: "For summary mode only: persist into an empty stored-summary slot."
-        - name: replace
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: With `persist=true`, explicitly replace an existing stored summary.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                mode:
-                  type: string
-                  const: text
-                text:
-                  type: string
-                kind:
-                  type: string
-                  enum:
-                    - DOCTOR_REPORT
-                    - DISCHARGE_LETTER
-                    - LAB_RESULT
-                    - IMAGING
-                    - PRESCRIPTION
-                    - REFERRAL
-                    - INSURANCE
-                    - VACCINATION
-                    - OTHER
-              required:
-                - mode
-                - text
-      responses:
-        "200":
-          description: The summary and its persistence outcome, or transient extracted text.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DocumentSummaryEnvelope"
-        "401": *a1
-        "403": *a36
-        "422": *a4
-        "429": *a5
-        "503": *a37
-  /api/documents/inbound/{id}/index:
-    post:
-      tags:
-        - Documents
-      summary: Build / refresh the content-search index
-      description: "Populates or refreshes one document's content-search index so search matches INSIDE its body. VISION
-        (empty body) decrypts the stored original and runs one provider transcription (answers under the `documentAi`
-        capability — 403 with the capability envelope when it is closed, including a missing `ai_extraction` / `ai_full`
-        receipt for a provider that leaves the machine — then rate / budget gated); TEXT (`application/json` `{ mode:
-        \"text\", text }`, opt-in local OCR) indexes browser-OCR'd text with no provider egress and stays available with
-        AI off, so search keeps working. Persists ONLY AES-256-GCM ciphertext of the text plus opaque HMAC token hashes
-        — no plaintext body, no plaintext token. Idempotent; re-indexing overwrites in place. A successful index
-        continues into the same lab auto-staging the background worker performs (still-STORED lab-looking document with
-        no facts, both modules on, provider + consent eligible); `labFactsStaged` reports how many facts were staged
-        PENDING for review — confirmation stays the only write into Labs. With `Prefer: respond-async` (v1.40) the read
-        runs in the background: after the same quick refusals the route answers 202 with a run id, a second request
-        while a read of this document is queued or running answers with that run, and `GET /api/ai-runs/{id}` serves
-        this body as the run's `result`. Text mode honours the preference too, because the lab staging it continues into
-        is model work."
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: Prefer
+        - &a39
+          name: Prefer
           in: header
           required: false
           schema:
@@ -16959,17 +16817,173 @@ paths:
                 - text
       responses:
         "200":
+          description: The filing-metadata suggestion (drafts).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentSuggestEnvelope"
+        "202": *a36
+        "401": *a1
+        "403": *a37
+        "422": *a4
+        "429": *a5
+        "503": *a38
+  /api/documents/inbound/{id}/summary:
+    post:
+      tags:
+        - Documents
+      summary: Summarise or transcribe a document
+      description: "On-demand description of a stored document. `?mode=summary` (default) returns a short plain-language
+        summary of WHAT the document is; it remains transient unless `persist=true` fills the empty stored-summary slot,
+        while `persist=true&replace=true` explicitly replaces an existing summary. `?mode=text` returns transient raw
+        transcribed text. Neither result reaches coach memory, snapshots, structured stores, or the search index. The
+        summary is descriptive only and never a diagnosis. Same VISION (empty body) / TEXT (`application/json` `{ mode:
+        \"text\", text }`, opt-in local OCR) dispatch as extract. Answers under the `documentAi` capability (403 with
+        the capability envelope when it is closed), then rate / budget gated. 422
+        `documents.inbound.providerUnsupported` with no provider. With `Prefer: respond-async` (v1.40) the read runs in
+        the background: after the same quick refusals the route answers 202 with a run id, and `GET /api/ai-runs/{id}`
+        serves this body as the run's `result`. A second request while a read with the same `mode`, `persist` and
+        `replace` is queued or running answers with that run. With `persist=true` the document's `summaryState` is
+        PENDING while the run is queued or running (unless a summary is already stored) and becomes UNAVAILABLE when the
+        run fails. `mode=text` over posted text calls no model and is answered synchronously either way (no
+        `Preference-Applied`)."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: mode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - summary
+              - text
+            default: summary
+          description: "`summary` (plain-language description) or `text` (raw)."
+        - name: persist
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: "For summary mode only: persist into an empty stored-summary slot."
+        - name: replace
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: With `persist=true`, explicitly replace an existing stored summary.
+        - *a39
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  const: text
+                text:
+                  type: string
+                kind:
+                  type: string
+                  enum:
+                    - DOCTOR_REPORT
+                    - DISCHARGE_LETTER
+                    - LAB_RESULT
+                    - IMAGING
+                    - PRESCRIPTION
+                    - REFERRAL
+                    - INSURANCE
+                    - VACCINATION
+                    - OTHER
+              required:
+                - mode
+                - text
+      responses:
+        "200":
+          description: The summary and its persistence outcome, or transient extracted text.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentSummaryEnvelope"
+        "202": *a36
+        "401": *a1
+        "403": *a37
+        "422": *a4
+        "429": *a5
+        "503": *a38
+  /api/documents/inbound/{id}/index:
+    post:
+      tags:
+        - Documents
+      summary: Build / refresh the content-search index
+      description: "Populates or refreshes one document's content-search index so search matches INSIDE its body. VISION
+        (empty body) decrypts the stored original and runs one provider transcription (answers under the `documentAi`
+        capability — 403 with the capability envelope when it is closed, including a missing `ai_extraction` / `ai_full`
+        receipt for a provider that leaves the machine — then rate / budget gated); TEXT (`application/json` `{ mode:
+        \"text\", text }`, opt-in local OCR) indexes browser-OCR'd text with no provider egress and stays available with
+        AI off, so search keeps working. Persists ONLY AES-256-GCM ciphertext of the text plus opaque HMAC token hashes
+        — no plaintext body, no plaintext token. Idempotent; re-indexing overwrites in place. A successful index
+        continues into the same lab auto-staging the background worker performs (still-STORED lab-looking document with
+        no facts, both modules on, provider + consent eligible); `labFactsStaged` reports how many facts were staged
+        PENDING for review — confirmation stays the only write into Labs. With `Prefer: respond-async` (v1.40) the read
+        runs in the background: after the same quick refusals the route answers 202 with a run id, a second request
+        while a read of this document is queued or running answers with that run, and `GET /api/ai-runs/{id}` serves
+        this body as the run's `result`. Text mode honours the preference too, because the lab staging it continues into
+        is model work."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - *a39
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  const: text
+                text:
+                  type: string
+                kind:
+                  type: string
+                  enum:
+                    - DOCTOR_REPORT
+                    - DISCHARGE_LETTER
+                    - LAB_RESULT
+                    - IMAGING
+                    - PRESCRIPTION
+                    - REFERRAL
+                    - INSURANCE
+                    - VACCINATION
+                    - OTHER
+              required:
+                - mode
+                - text
+      responses:
+        "200":
           description: The document was indexed.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/DocumentIndexEnvelope"
-        "202": *a38
+        "202": *a36
         "401": *a1
-        "403": *a36
+        "403": *a37
         "422": *a4
         "429": *a5
-        "503": *a37
+        "503": *a38
   /api/documents/inbound/{id}/chat:
     post:
       tags:
@@ -17009,10 +17023,10 @@ paths:
                 type: string
                 description: "SSE frames: `data: <json>\\n\\n`. See the operation description for the per-`type` frame shapes."
         "401": *a1
-        "403": *a36
+        "403": *a37
         "422": *a4
         "429": *a5
-        "503": *a37
+        "503": *a38
     get:
       tags:
         - Documents
@@ -17075,10 +17089,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentReindexEnvelope"
         "401": *a1
-        "403": *a36
+        "403": *a37
         "422": *a4
         "429": *a5
-        "503": *a37
+        "503": *a38
   /api/documents/inbound/{id}/facts/{factId}:
     patch:
       tags:
@@ -17185,7 +17199,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateCustomMetricResponse"
         "401": *a1
-        "409": &a40
+        "409": &a41
           description: A custom metric with this name already exists for the caller.
           content:
             application/json:
@@ -17214,7 +17228,7 @@ paths:
                 $ref: "#/components/schemas/GetCustomMetricResponse"
         "401": *a1
         "403": *a11
-        "404": &a39
+        "404": &a40
           description: Custom metric not found (or owned by another user).
           content:
             application/json:
@@ -17248,8 +17262,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/UpdateCustomMetricResponse"
         "401": *a1
-        "404": *a39
-        "409": *a40
+        "404": *a40
+        "409": *a41
         "422": *a4
         "429": *a5
     delete:
@@ -17272,7 +17286,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteCustomMetricResponse"
         "401": *a1
-        "404": *a39
+        "404": *a40
         "422": *a4
         "429": *a5
   /api/custom-metrics/{id}/entries:
@@ -17316,7 +17330,7 @@ paths:
                 $ref: "#/components/schemas/ListCustomMetricEntriesEnvelope"
         "401": *a1
         "403": *a11
-        "404": *a39
+        "404": *a40
         "422": *a4
         "429": *a5
     post:
@@ -17345,7 +17359,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateCustomMetricEntryResponse"
         "401": *a1
-        "404": *a39
+        "404": *a40
         "409": *a7
         "422": *a4
         "429": *a12
@@ -17381,7 +17395,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/UpdateCustomMetricEntryResponse"
         "401": *a1
-        "404": &a41
+        "404": &a42
           description: Custom metric entry not found (or owned by another user).
           content:
             application/json:
@@ -17414,7 +17428,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteCustomMetricEntryResponse"
         "401": *a1
-        "404": *a41
+        "404": *a42
         "422": *a4
         "429": *a5
   /api/custom-metrics/{id}/entries/restore:
@@ -17826,7 +17840,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientOverviewEnvelope"
         "401": *a1
-        "403": &a42
+        "403": &a43
           description: >-
             The opt-in `nutrients` module is off for this account (errorCode `module.disabled`). Stop syncing and do not
             retry; offer the enable-in-settings hint. Only run the HealthKit read-authorization flow while the module is
@@ -17881,7 +17895,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientDailySeriesEnvelope"
         "401": *a1
-        "403": *a42
+        "403": *a43
         "422": *a4
         "429": *a5
   /api/nutrients/water:
@@ -17910,7 +17924,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientWaterWriteEnvelope"
         "401": *a1
-        "403": *a42
+        "403": *a43
         "409": *a7
         "422": *a4
         "429": *a5
@@ -18412,26 +18426,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WithingsCredentialsUpdateEnvelope"
-        "400": &a43
+        "400": &a44
           description: Body is not parseable JSON.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "413": &a44
+        "413": &a45
           description: Body exceeds 64 KiB.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "415": &a45
+        "415": &a46
           description: Content-Type is not `application/json`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": &a46
+        "422": &a47
           description: "`clientId` and `clientSecret` are both required and each must be 1–200 characters. The envelope carries a
             single fixed message, not per-field issues."
           content:
@@ -18617,11 +18631,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FitbitCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -18764,11 +18778,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GoogleHealthCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -18921,11 +18935,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OuraCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -19001,21 +19015,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/OuraTestEnvelope"
         "401": *a1
-        "422": &a47
+        "422": &a48
           description: No usable connection for this provider — nothing stored, or the stored grant could no longer be resolved
             into an access token. `meta.errorCode` = `not_configured`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "429": &a48
+        "429": &a49
           description: More than 5 requests in 60 s from this user. `meta.errorCode` = `rate_limited_self` — this is the local
             limiter, distinct from a `rate_limited` 502 which is the provider's.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "502": &a49
+        "502": &a50
           description: "The probe did not complete. `meta.errorCode` names the class: `credentials_rejected` (the provider
             answered 401/403 — the stored grant is gone), `rate_limited` (the PROVIDER answered 429, which is not this
             endpoint's own limiter), `upstream_error` (5xx), `timeout` (no answer within 5 s), `connection_failed`
@@ -19060,11 +19074,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PolarCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -19140,9 +19154,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PolarTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/strava/credentials:
     get:
       tags:
@@ -19178,11 +19192,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StravaCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -19260,9 +19274,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/StravaTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/integrations/status:
     get:
       tags:
@@ -19298,7 +19312,7 @@ paths:
                 $ref: "#/components/schemas/FitbitResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a48
+        "429": *a49
   /api/integrations/fitbit/test:
     post:
       tags:
@@ -19316,9 +19330,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/FitbitIntegrationTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/integrations/google-health/resume:
     post:
       tags:
@@ -19335,7 +19349,7 @@ paths:
                 $ref: "#/components/schemas/GoogleHealthResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a48
+        "429": *a49
   /api/integrations/google-health/test:
     post:
       tags:
@@ -19368,9 +19382,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/integrations/whoop/resume:
     post:
       tags:
@@ -19387,7 +19401,7 @@ paths:
                 $ref: "#/components/schemas/WhoopResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a48
+        "429": *a49
   /api/integrations/whoop/test:
     post:
       tags:
@@ -19404,9 +19418,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/WhoopIntegrationTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/integrations/withings/resume:
     post:
       tags:
@@ -19424,7 +19438,7 @@ paths:
                 $ref: "#/components/schemas/WithingsResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a48
+        "429": *a49
   /api/integrations/withings/test:
     post:
       tags:
@@ -19442,8 +19456,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/WithingsIntegrationTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
+        "422": *a48
+        "429": *a49
         "502":
           description: "The probe did not complete. The shared codes apply (`credentials_rejected`, `rate_limited`,
             `upstream_error`, `timeout`, `connection_failed`) and this path adds one of its own:
@@ -19683,7 +19697,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RecordActivityEnvelope"
         "401": *a1
-        "403": &a50
+        "403": &a51
           description: Refused. `meta.errorCode` is `sharing.not_permitted` when the request was made while acting on another
             account (grant management is never delegable), or `sharing.access.denied` when the caller may not act as the
             account they named. The latter is byte-identical for an account that does not exist and one that granted
@@ -19708,7 +19722,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AccountGrantListEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "422": *a4
         "429": *a5
     post:
@@ -19810,7 +19824,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AcceptedAccountGrantEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "404":
           description: No such invitation for this account.
           content:
@@ -19854,7 +19868,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RevokedAccountGrantEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "404":
           description: No such grant on this account's record.
           content:
@@ -19895,7 +19909,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RenouncedAccountGrantEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "404":
           description: No such grant held by this account.
           content:
@@ -20277,7 +20291,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "409":
           description: "The record this browser session is on is not the record the request asserted. `meta.errorCode` is
             `sharing.session.changed`. It is not a refusal of access — the caller may well be entitled to both records —
@@ -20607,7 +20621,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectionListEnvelope"
         "401": *a1
-        "403": &a51
+        "403": &a52
           description: The operator has disabled the API instance-wide. Every route in this module refuses while that setting is
             off, for a cookie session as well as for a Bearer token; it is not a per-user permission and retrying will
             not help.
@@ -20640,7 +20654,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectionRevokeEnvelope"
         "401": *a1
-        "403": *a51
+        "403": *a52
         "404":
           description: No live connection with this id for this caller — also the answer for an already-revoked one, so a repeat
             revoke is 404 rather than an idempotent 200.
@@ -20667,7 +20681,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectorTokenListEnvelope"
         "401": *a1
-        "403": *a51
+        "403": *a52
         "422": *a4
         "429": *a5
     post:
@@ -20700,7 +20714,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "403": *a51
+        "403": *a52
         "413":
           description: Body exceeds 16 KiB.
           content:
@@ -20743,7 +20757,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectorTokenRevokeEnvelope"
         "401": *a1
-        "403": *a51
+        "403": *a52
         "404":
           description: No `health:read` token with this id for this caller. An already-revoked token is still found, so a repeat
             revoke answers 200.
@@ -20801,7 +20815,7 @@ paths:
       description: Returns the named family's resolved settings for the record the session is acting on. Cookie session or
         Bearer, while acting on a managed record the caller guards.
       parameters:
-        - &a52
+        - &a53
           name: family
           in: path
           required: true
@@ -20845,7 +20859,7 @@ paths:
         ride the audit row. Body capped at 64 KiB. Cookie session or Bearer, while acting on a managed record the caller
         guards.
       parameters:
-        - *a52
+        - *a53
       requestBody:
         required: true
         content:
@@ -21382,13 +21396,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupDocument"
-        "403": &a53
+        "403": &a54
           description: Caller is not an admin. `requireAdmin()` is cookie-only, so a Bearer token lands here whatever its scope.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "404": &a54
+        "404": &a55
           description: No stored copy with this id.
           content:
             application/json:
@@ -21462,8 +21476,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "403": *a53
-        "404": *a54
+        "403": *a54
+        "404": *a55
         "409":
           description: A restore of the same account is already queued or running (`meta.errorCode` = `backup.restore.active`,
             `meta.jobId` names it), the stored copy was replaced by a newer one while it was being checked
@@ -21507,7 +21521,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupRestoreJobListResponse"
-        "403": *a53
+        "403": *a54
   /api/admin/backups/restores/{jobId}:
     get:
       tags:
@@ -21530,7 +21544,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupRestoreJobResponse"
-        "403": *a53
+        "403": *a54
         "404":
           description: No restore job with this id.
           content:
@@ -21549,7 +21563,7 @@ paths:
         request leaves the server. Needs neither the Documents module nor the list: with the list unset, `available` is
         false and any connection still stored is listed (with `originAllowed: false`) so it can be removed. Cookie
         session only; not delegable."
-      security: &a55
+      security: &a56
         - cookieAuth: []
       responses:
         "200":
@@ -21559,7 +21573,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourcesStatusEnvelope"
         "401": *a1
-        "403": &a56
+        "403": &a57
           description: "Refused before any request to the source: `documents.sources.browserOnly` for a Bearer caller,
             `sharing.not_permitted` while acting on another person's record (a delegate or guardian never uses the
             owner's archive), or `module.disabled` when the Documents module is off."
@@ -21582,9 +21596,9 @@ paths:
         `documents.sources.tokenRequired`), so a stored token is never sent to an address it was not saved for. A Papra
         organization id is letters, digits, `_` and `-`. The token is stored encrypted (AES-256-GCM) and never returned.
         Ten saves and tests a minute per person. Cookie session only; not delegable."
-      security: *a55
+      security: *a56
       parameters:
-        - &a57
+        - &a58
           name: system
           in: path
           required: true
@@ -21623,8 +21637,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceConnectionEnvelope"
         "401": *a1
-        "403": *a56
-        "404": &a58
+        "403": *a57
+        "404": &a59
           description: "`documents.sources.unavailable`: the operator has not listed any origin in `DOCUMENT_SOURCE_ORIGINS`, so
             the picker is off. `documents.sources.notConnected`: no connection is saved for this system.
             `documents.sources.notFound`: the source has no such document, or (Papra) no such organization, including
@@ -21643,7 +21657,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "429": *a5
-        "502": &a59
+        "502": &a60
           description: "The source could not answer usefully, with the reason in `meta.errorCode` and, when the source answered at
             all, its HTTP status in `meta.upstreamStatus` (its body is never passed on): `documents.sources.unreachable`
             (no connection, timeout, or a destination refused at dial time), `documents.sources.redirected` (the source
@@ -21662,9 +21676,9 @@ paths:
       description: Deletes the caller's connection for this system, and its token with it. Works even after the operator
         removed the origin from the list, and with the Documents module switched off. `disconnected` is false when there
         was nothing to delete. Cookie session only; not delegable.
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
       responses:
         "200":
           description: Removed, or there was nothing to remove.
@@ -21673,7 +21687,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceDisconnectEnvelope"
         "401": *a1
-        "403": *a56
+        "403": *a57
         "422": *a4
         "429": *a5
   /api/documents/sources/{system}/test:
@@ -21684,9 +21698,9 @@ paths:
       description: One request to the source with the stored token. Answers `ok` with the round-trip time and stamps
         `lastVerifiedAt`, or the reason in `meta.errorCode`. Shares the save's allowance of ten a minute. Cookie session
         only; not delegable.
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
       responses:
         "200":
           description: The source answered.
@@ -21695,9 +21709,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceTestEnvelope"
         "401": *a1
-        "403": *a56
-        "404": *a58
-        "422": &a60
+        "403": *a57
+        "404": *a59
+        "422": &a61
           description: "`documents.sources.originNotAllowed`: the base address's origin is not on the operator's list (checked on
             every request, so a connection saved earlier is cut off once its origin is removed), or another validation
             failure."
@@ -21706,7 +21720,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "429": *a5
-        "502": *a59
+        "502": *a60
   /api/documents/sources/{system}/tags:
     get:
       tags:
@@ -21714,9 +21728,9 @@ paths:
       summary: Tags of a connected archive
       description: The source's tags for the picker's filter, the first 250 by name, in the source's own ids. Shares the
         search allowance of sixty a minute. Cookie session only; not delegable.
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
       responses:
         "200":
           description: The tags.
@@ -21725,11 +21739,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceTagsEnvelope"
         "401": *a1
-        "403": *a56
-        "404": *a58
-        "422": *a60
+        "403": *a57
+        "404": *a59
+        "422": *a61
         "429": *a5
-        "502": *a59
+        "502": *a60
   /api/documents/sources/{system}/search:
     get:
       tags:
@@ -21743,9 +21757,9 @@ paths:
         under that source key: `new`, `imported` with the vault document's `documentId`, or `deleted` (deleted in
         HealthLog; importing it again stores nothing). Nothing is stored. Sixty searches a minute, shared with the tag
         read. Cookie session only; not delegable."
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
         - name: q
           in: query
           required: false
@@ -21786,11 +21800,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceSearchEnvelope"
         "401": *a1
-        "403": *a56
-        "404": *a58
-        "422": *a60
+        "403": *a57
+        "404": *a59
+        "422": *a61
         "429": *a5
-        "502": *a59
+        "502": *a60
   /api/documents/sources/{system}/import:
     post:
       tags:
@@ -21809,9 +21823,9 @@ paths:
         fetched), including a duplicate. `kind` sets the document type (default OTHER). Automatic AI reading follows the
         person's own setting. Counts against the person's upload allowance (60 an hour) and storage quota. 201 for a new
         document, 200 otherwise. Cookie session only; not delegable."
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
       requestBody:
         required: true
         content:
@@ -21868,7 +21882,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceImportEnvelope"
         "401": *a1
-        "403": *a56
+        "403": *a57
         "404":
           description: "`documents.sources.unavailable`: the operator has not listed any origin in `DOCUMENT_SOURCE_ORIGINS`, so
             the picker is off. `documents.sources.notConnected`: no connection is saved for this system.
@@ -21899,7 +21913,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": *a60
+        "422": *a61
         "429":
           description: "`documents.inbound.rateLimited` (the person's hourly upload allowance, with the rate-limit headers) or
             `documents.inbound.uploadBusy` (too many uploads in progress; `Retry-After: 1`)."
@@ -21907,7 +21921,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "502": *a59
+        "502": *a60
   /api/bugreport:
     post:
       security: []
@@ -63653,6 +63667,8 @@ components:
           enum:
             - DOCUMENT_INDEX
             - LABS_OCR_EXTRACT
+            - DOCUMENT_SUMMARY
+            - DOCUMENT_SUGGEST
         documentId:
           anyOf:
             - type: string
@@ -63670,9 +63686,13 @@ components:
             - anyOf:
                 - $ref: "#/components/schemas/DocumentIndexResponse"
                 - $ref: "#/components/schemas/OcrExtractResponse"
+                - $ref: "#/components/schemas/DocumentSummaryResponse"
+                - $ref: "#/components/schemas/DocumentSuggestResponse"
             - type: "null"
           description: "Present once `status` is `SUCCEEDED`: the body the queuing route answers with synchronously.
-            `DOCUMENT_INDEX` carries `DocumentIndexResponse`, `LABS_OCR_EXTRACT` carries `OcrExtractResponse`."
+            `DOCUMENT_INDEX` carries `DocumentIndexResponse`, `LABS_OCR_EXTRACT` carries `OcrExtractResponse`,
+            `DOCUMENT_SUMMARY` carries `DocumentSummaryResponse`, `DOCUMENT_SUGGEST` carries `DocumentSuggestResponse`.
+            Decode by `kind`; treat an unknown `kind` as a run this client did not start."
         error:
           anyOf:
             - type: object
@@ -63881,6 +63901,56 @@ components:
         reading this row likely duplicates (the review row defaults to unchecked when set); `confidence` is the model's
         per-field self-score (low fields are flagged for the human). Nothing is written until the commit route
         confirms."
+    DocumentSummaryResponse:
+      type: object
+      properties:
+        summary:
+          type: string
+        text:
+          type: string
+        persistence:
+          type: string
+          enum:
+            - stored
+            - withheld
+            - failed
+      additionalProperties: false
+    DocumentSuggestResponse:
+      type: object
+      properties:
+        suggestions:
+          type: object
+          properties:
+            title:
+              anyOf:
+                - type: string
+                - type: "null"
+            kind:
+              anyOf:
+                - type: string
+                  enum:
+                    - DOCTOR_REPORT
+                    - DISCHARGE_LETTER
+                    - LAB_RESULT
+                    - IMAGING
+                    - PRESCRIPTION
+                    - REFERRAL
+                    - INSURANCE
+                    - VACCINATION
+                    - OTHER
+                - type: "null"
+            documentDate:
+              anyOf:
+                - type: string
+                - type: "null"
+          required:
+            - title
+            - kind
+            - documentDate
+          additionalProperties: false
+      required:
+        - suggestions
+      additionalProperties: false
     ListBiomarkersEnvelope:
       type: object
       properties:
@@ -67515,42 +67585,6 @@ components:
         - data
         - error
       additionalProperties: false
-    DocumentSuggestResponse:
-      type: object
-      properties:
-        suggestions:
-          type: object
-          properties:
-            title:
-              anyOf:
-                - type: string
-                - type: "null"
-            kind:
-              anyOf:
-                - type: string
-                  enum:
-                    - DOCTOR_REPORT
-                    - DISCHARGE_LETTER
-                    - LAB_RESULT
-                    - IMAGING
-                    - PRESCRIPTION
-                    - REFERRAL
-                    - INSURANCE
-                    - VACCINATION
-                    - OTHER
-                - type: "null"
-            documentDate:
-              anyOf:
-                - type: string
-                - type: "null"
-          required:
-            - title
-            - kind
-            - documentDate
-          additionalProperties: false
-      required:
-        - suggestions
-      additionalProperties: false
     DocumentSummaryEnvelope:
       type: object
       properties:
@@ -67567,20 +67601,6 @@ components:
       required:
         - data
         - error
-      additionalProperties: false
-    DocumentSummaryResponse:
-      type: object
-      properties:
-        summary:
-          type: string
-        text:
-          type: string
-        persistence:
-          type: string
-          enum:
-            - stored
-            - withheld
-            - failed
       additionalProperties: false
     DocumentIndexEnvelope:
       type: object

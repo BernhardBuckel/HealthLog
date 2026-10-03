@@ -12,6 +12,8 @@
  *     user applies it (and the title lands in the editable field, not on disk).
  *   - `DocumentSummaryPanel` — the transient summary / extracted-text panel with
  *     the persistent "not saved · not a diagnosis" note.
+ *   - `AiRunPhaseNote` — the calm line under an action while its read runs in
+ *     the background (v1.40), shared by every document AI action.
  */
 import { Sparkles } from "lucide-react";
 import { Check, FileText, X } from "lucide-react";
@@ -19,6 +21,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { AiRunPhase } from "@/hooks/use-ai-run";
 import { useTranslations } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import {
@@ -27,6 +30,37 @@ import {
 } from "@/lib/validations/inbound-documents";
 
 import type { DocumentDescribeResult } from "./use-document-assist";
+
+/**
+ * The line under a document AI action while its read runs in the background,
+ * or nothing when no read is running.
+ *
+ * `outcome` keeps the sentence true: a read whose result lands on the document
+ * (the index, a stored summary, staged facts) tells the person they may leave;
+ * a read whose answer lives only on this screen (suggestions, a transient
+ * summary or transcription) does not promise that, because leaving drops it.
+ */
+export function AiRunPhaseNote({
+  phase,
+  outcome,
+  slot,
+}: {
+  phase: AiRunPhase;
+  outcome: "savedWithDocument" | "shownHere";
+  slot: string;
+}) {
+  const { t } = useTranslations();
+  if (phase === "idle") return null;
+  return (
+    <p role="status" data-slot={slot} className="text-muted-foreground text-xs">
+      {phase === "waitingForWorker"
+        ? t("aiRuns.waitingForWorker")
+        : outcome === "savedWithDocument"
+          ? t("aiRuns.backgroundDocument")
+          : t("aiRuns.backgroundScan")}
+    </p>
+  );
+}
 
 /**
  * Calm pointer to the AI settings, shown when assist is unavailable. When the

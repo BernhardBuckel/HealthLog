@@ -287,6 +287,26 @@ const documentUploadEnvelope = dataEnvelope(
   "DocumentUploadEnvelope",
 );
 
+/** The suggest route's body; also a `DOCUMENT_SUGGEST` run's result. */
+export const documentSuggestResponse = z
+  .object({
+    suggestions: z.object({
+      title: z.string().nullable(),
+      kind: kindEnum.nullable(),
+      documentDate: z.string().nullable(),
+    }),
+  })
+  .meta({ id: "DocumentSuggestResponse" });
+
+/** The summary route's body; also a `DOCUMENT_SUMMARY` run's result. */
+export const documentSummaryResponse = z
+  .object({
+    summary: z.string().optional(),
+    text: z.string().optional(),
+    persistence: z.enum(["stored", "withheld", "failed"]).optional(),
+  })
+  .meta({ id: "DocumentSummaryResponse" });
+
 /** The index route's body; also a `DOCUMENT_INDEX` run's result. */
 export const documentIndexResponse = z
   .object({
@@ -954,9 +974,10 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Documents"],
       summary: "Suggest filing metadata (drafts only)",
       description:
-        'Optional AI assist on an already-stored document. Runs ONE provider call over the stored original (VISION, empty body) or browser-OCR\'d text (TEXT, `application/json` `{ mode: "text", text }`, opt-in local OCR) and returns a `{ title, kind, documentDate }` DRAFT for the edit form. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated (shares the per-user document-AI bucket with extract/summary/index — default 6/hour, operator-tunable via `DOCUMENT_AI_LIMIT_PER_HOUR`; a slot is only consumed when the request reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-Limit` / `-Remaining` / `-Reset` triple, and `meta.retryAt`). WRITES NOTHING — never stages facts, never flips status; the user reviews and saves. 422 (`documents.inbound.providerUnsupported`) with no provider configured. Never interprets or diagnoses; the title is a neutral filing label.',
+        "Optional AI assist on an already-stored document. Runs ONE provider call over the stored original (VISION, empty body) or browser-OCR'd text (TEXT, `application/json` `{ mode: \"text\", text }`, opt-in local OCR) and returns a `{ title, kind, documentDate }` DRAFT for the edit form. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated (shares the per-user document-AI bucket with extract/summary/index — default 6/hour, operator-tunable via `DOCUMENT_AI_LIMIT_PER_HOUR`; a slot is only consumed when the request reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-Limit` / `-Remaining` / `-Reset` triple, and `meta.retryAt`). WRITES NOTHING — never stages facts, never flips status; the user reviews and saves. 422 (`documents.inbound.providerUnsupported`) with no provider configured. Never interprets or diagnoses; the title is a neutral filing label. With `Prefer: respond-async` (v1.40) the read runs in the background: after the same quick refusals the route answers 202 with a run id, a second request while a suggestion read of this document over the same transport is queued or running answers with that run, and `GET /api/ai-runs/{id}` serves this body as the run's `result`.",
       parameters: [
         { name: "id", in: "path", required: true, schema: { type: "string" } },
+        preferRespondAsyncParameter,
       ],
       requestBody: {
         required: false,
@@ -976,20 +997,13 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           content: {
             "application/json": {
               schema: dataEnvelope(
-                z
-                  .object({
-                    suggestions: z.object({
-                      title: z.string().nullable(),
-                      kind: kindEnum.nullable(),
-                      documentDate: z.string().nullable(),
-                    }),
-                  })
-                  .meta({ id: "DocumentSuggestResponse" }),
+                documentSuggestResponse,
                 "DocumentSuggestEnvelope",
               ),
             },
           },
         },
+        ...aiRunAccepted,
         ...aiExtractionRefusals("documentAi"),
         ...stdResponses,
       },
@@ -1000,7 +1014,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Documents"],
       summary: "Summarise or transcribe a document",
       description:
-        'On-demand description of a stored document. `?mode=summary` (default) returns a short plain-language summary of WHAT the document is; it remains transient unless `persist=true` fills the empty stored-summary slot, while `persist=true&replace=true` explicitly replaces an existing summary. `?mode=text` returns transient raw transcribed text. Neither result reaches coach memory, snapshots, structured stores, or the search index. The summary is descriptive only and never a diagnosis. Same VISION (empty body) / TEXT (`application/json` `{ mode: "text", text }`, opt-in local OCR) dispatch as extract. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated. 422 `documents.inbound.providerUnsupported` with no provider.',
+        "On-demand description of a stored document. `?mode=summary` (default) returns a short plain-language summary of WHAT the document is; it remains transient unless `persist=true` fills the empty stored-summary slot, while `persist=true&replace=true` explicitly replaces an existing summary. `?mode=text` returns transient raw transcribed text. Neither result reaches coach memory, snapshots, structured stores, or the search index. The summary is descriptive only and never a diagnosis. Same VISION (empty body) / TEXT (`application/json` `{ mode: \"text\", text }`, opt-in local OCR) dispatch as extract. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated. 422 `documents.inbound.providerUnsupported` with no provider. With `Prefer: respond-async` (v1.40) the read runs in the background: after the same quick refusals the route answers 202 with a run id, and `GET /api/ai-runs/{id}` serves this body as the run's `result`. A second request while a read with the same `mode`, `persist` and `replace` is queued or running answers with that run. With `persist=true` the document's `summaryState` is PENDING while the run is queued or running (unless a summary is already stored) and becomes UNAVAILABLE when the run fails. `mode=text` over posted text calls no model and is answered synchronously either way (no `Preference-Applied`).",
       parameters: [
         { name: "id", in: "path", required: true, schema: { type: "string" } },
         {
@@ -1031,6 +1045,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           description:
             "With `persist=true`, explicitly replace an existing stored summary.",
         },
+        preferRespondAsyncParameter,
       ],
       requestBody: {
         required: false,
@@ -1051,20 +1066,13 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           content: {
             "application/json": {
               schema: dataEnvelope(
-                z
-                  .object({
-                    summary: z.string().optional(),
-                    text: z.string().optional(),
-                    persistence: z
-                      .enum(["stored", "withheld", "failed"])
-                      .optional(),
-                  })
-                  .meta({ id: "DocumentSummaryResponse" }),
+                documentSummaryResponse,
                 "DocumentSummaryEnvelope",
               ),
             },
           },
         },
+        ...aiRunAccepted,
         ...aiExtractionRefusals("documentAi"),
         ...stdResponses,
       },

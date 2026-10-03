@@ -45,6 +45,15 @@ import {
   executeDocumentIndex,
 } from "@/lib/documents/ai-runs/index-run";
 import {
+  DOCUMENT_SUGGEST_MODEL_CALLS,
+  executeDocumentSuggest,
+} from "@/lib/documents/ai-runs/suggest-run";
+import {
+  DOCUMENT_SUMMARY_MODEL_CALLS,
+  executeDocumentSummary,
+  markQueuedSummaryUnavailable,
+} from "@/lib/documents/ai-runs/summary-run";
+import {
   claimAiRun,
   completeAiRun,
   failAiRun,
@@ -55,11 +64,17 @@ import {
 import {
   AI_RUN_ERROR_CODES,
   AI_RUN_MARGIN_MS,
+  DOCUMENT_AI_RUN_CAPABILITY,
+  type AiRunBudget,
   type AiRunOutcome,
   type AiRunResult,
   type DocumentAiRunKindValue,
 } from "@/lib/documents/ai-runs/types";
-import { requireDocumentVisionProvider } from "@/lib/documents/provider-order";
+import {
+  requireDocumentTextProvider,
+  requireDocumentVisionProvider,
+} from "@/lib/documents/provider-order";
+import { coerceLocale } from "@/lib/i18n/config";
 import { getGlobalBoss } from "@/lib/jobs/boss-instance";
 import { jobDeadline } from "@/lib/jobs/job-budget";
 import { jobDone, type JobOutcome } from "@/lib/jobs/job-outcome";
@@ -88,10 +103,7 @@ export interface DocumentAiRunPayload {
 }
 
 /** The capability each kind of run answers to. */
-const RUN_CAPABILITY: Record<DocumentAiRunKindValue, AiCapabilityKey> = {
-  DOCUMENT_INDEX: "documentAi",
-  LABS_OCR_EXTRACT: "labsOcr",
-};
+const RUN_CAPABILITY = DOCUMENT_AI_RUN_CAPABILITY;
 
 /**
  * Hand a created run to the worker. False when no queue is reachable; the
@@ -262,6 +274,155 @@ async function runLabsOcr(
   });
 }
 
+/** The owned document a run reads, or the route's own 404 when it is gone. */
+async function loadRunDocument(run: ClaimedAiRun) {
+  const document = run.documentId
+    ? await loadOwnedDocument(run.userId, run.documentId)
+    : null;
+  if (document) return document;
+  // The reservation goes back in `runDocumentAiRun`'s catch.
+  throw new RunRefused({
+    status: 404,
+    message: "Document not found",
+    errorCode: "documents.inbound.notFound",
+  });
+}
+
+/** The reservation a provider read was queued with. */
+function runBudget(run: ClaimedAiRun): AiRunBudget {
+  if (!run.params.budget)
+    throw new Error("document read without a reservation");
+  return run.params.budget;
+}
+
+/**
+ * Pick the provider for a document read the way its route does, re-check the
+ * capability and the wire for exactly that provider, and arm the deadline for
+ * the calls the read can make.
+ */
+async function pickForDocumentRead(
+  run: ClaimedAiRun,
+  modelCalls: number,
+  deadlineAt: number | undefined,
+  now: () => number,
+) {
+  if (run.params.mode === "text") {
+    const pick = await requireDocumentTextProvider(run.userId);
+    await assertRunMayEgress("documentAi", run.userId, [pick.providerType]);
+    await armDeadline(
+      run.id,
+      callTimeoutMs({}, pick.entry.instance.responseTimeoutSeconds),
+      modelCalls,
+      deadlineAt,
+      now,
+    );
+    return { mode: "text" as const, pick };
+  }
+  const pick = await requireDocumentVisionProvider(run.userId);
+  await assertRunMayEgress("documentAi", run.userId, [pick.providerType]);
+  await armDeadline(
+    run.id,
+    callTimeoutMs({}, pick.entry.instance.responseTimeoutSeconds),
+    modelCalls,
+    deadlineAt,
+    now,
+  );
+  return { mode: "vision" as const, pick };
+}
+
+/** The text the browser read, sealed into the run by the queuing route. */
+function runText(run: ClaimedAiRun): string {
+  if (!run.input) throw new Error("text read without an input");
+  return run.input.toString("utf8");
+}
+
+async function runDocumentSummaryRead(
+  run: ClaimedAiRun,
+  deadlineAt: number | undefined,
+  now: () => number,
+): Promise<AiRunOutcome<AiRunResult>> {
+  const options = run.params.summary;
+  if (!options) throw new Error("summary run without its options");
+  const document = await loadRunDocument(run);
+  const read = await pickForDocumentRead(
+    run,
+    DOCUMENT_SUMMARY_MODEL_CALLS,
+    deadlineAt,
+    now,
+  );
+  const budget = runBudget(run);
+  return executeDocumentSummary({
+    userId: run.userId,
+    document,
+    input:
+      read.mode === "text"
+        ? { mode: "text", text: runText(run), pick: read.pick, budget }
+        : { mode: "vision", pick: read.pick, budget },
+    output: options.output,
+    locale: coerceLocale(options.locale),
+    persist: options.persist ? { replaceExisting: options.replace } : null,
+    origin: { ipAddress: null, worker: true },
+  });
+}
+
+async function runDocumentSuggestRead(
+  run: ClaimedAiRun,
+  deadlineAt: number | undefined,
+  now: () => number,
+): Promise<AiRunOutcome<AiRunResult>> {
+  const document = await loadRunDocument(run);
+  const read = await pickForDocumentRead(
+    run,
+    DOCUMENT_SUGGEST_MODEL_CALLS,
+    deadlineAt,
+    now,
+  );
+  const budget = runBudget(run);
+  return executeDocumentSuggest({
+    userId: run.userId,
+    document,
+    input:
+      read.mode === "text"
+        ? { mode: "text", text: runText(run), pick: read.pick, budget }
+        : { mode: "vision", pick: read.pick, budget },
+    origin: { ipAddress: null, worker: true },
+  });
+}
+
+type RunDispatcher = (
+  run: ClaimedAiRun,
+  deadlineAt: number | undefined,
+  now: () => number,
+) => Promise<AiRunOutcome<AiRunResult>>;
+
+/**
+ * The body each kind of run executes. Every dispatcher that sends anything to
+ * a model re-checks the capability and the wire for its provider first
+ * (`assertRunMayEgress`); `ai-egress-capability-guard.test.ts` holds that.
+ */
+const RUN_DISPATCH: Record<DocumentAiRunKindValue, RunDispatcher> = {
+  DOCUMENT_INDEX: runDocumentIndex,
+  LABS_OCR_EXTRACT: runLabsOcr,
+  DOCUMENT_SUMMARY: runDocumentSummaryRead,
+  DOCUMENT_SUGGEST: runDocumentSuggestRead,
+};
+
+/**
+ * What a failed run leaves behind besides itself. A summary that was to be
+ * stored had its document marked PENDING at enqueue; a failure says it could
+ * not be produced rather than leaving "being prepared" until the hourly
+ * reaper notices.
+ */
+async function afterRunFailed(run: ClaimedAiRun): Promise<void> {
+  if (
+    run.kind === "DOCUMENT_SUMMARY" &&
+    run.params.summary?.persist &&
+    run.documentId
+  ) {
+    await markQueuedSummaryUnavailable(run.userId, run.documentId);
+  }
+}
+
 export type DocumentAiRunResult = "succeeded" | "failed" | "skipped";
 
 /**
@@ -281,10 +442,7 @@ export async function runDocumentAiRun(
 
   let outcome: AiRunOutcome<AiRunResult>;
   try {
-    outcome =
-      run.kind === "DOCUMENT_INDEX"
-        ? await runDocumentIndex(run, deadlineAt, now)
-        : await runLabsOcr(run, deadlineAt, now);
+    outcome = await RUN_DISPATCH[run.kind](run, deadlineAt, now);
   } catch (err) {
     // Everything that throws here threw before the body took over the
     // reservation, so it goes back here.
@@ -298,6 +456,7 @@ export async function runDocumentAiRun(
         message: "The background read failed.",
       };
     await failAiRun(run.id, failure, "RUNNING", new Date(now()));
+    await afterRunFailed(run);
     annotate({
       action: { name: "ai_runs.failed" },
       meta: {
@@ -311,6 +470,13 @@ export async function runDocumentAiRun(
 
   if (outcome.ok) {
     await completeAiRun(run.id, outcome.data, new Date(now()));
+    if (
+      "persistence" in outcome.data &&
+      outcome.data.persistence === "failed"
+    ) {
+      // The summary was read but could not be stored on the document.
+      await afterRunFailed(run);
+    }
     annotate({
       action: { name: "ai_runs.succeeded" },
       meta: { kind: run.kind },
@@ -327,6 +493,7 @@ export async function runDocumentAiRun(
     "RUNNING",
     new Date(now()),
   );
+  await afterRunFailed(run);
   annotate({
     action: { name: "ai_runs.failed" },
     meta: { kind: run.kind, errorCode: outcome.errorCode },

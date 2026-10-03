@@ -16,6 +16,10 @@
  *      anything reaches a model.
  *   6. The reaper fails a run no worker took (and hands its reservation back)
  *      and deletes a finished run an hour after it ended.
+ *   7. Summary and suggestion runs (0370) round-trip the routes' own bodies; a
+ *      summary that is to be stored marks the document PENDING while queued,
+ *      READY when it lands and UNAVAILABLE when the run fails; a transient one
+ *      leaves the state alone and never attaches to a stored one.
  */
 import { Buffer } from "node:buffer";
 
@@ -68,6 +72,18 @@ vi.mock("@/lib/documents/describe", async (importOriginal) => ({
   transcribeDocument: vi.fn(async () => ({
     text: "Entlassbrief Leukozyten erhoeht",
   })),
+  runDocumentSummary: vi.fn(async () => ({
+    summary: "A hospital discharge letter.",
+    blocked: null,
+  })),
+}));
+vi.mock("@/lib/documents/assist", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/documents/assist")>()),
+  runDocumentAssist: vi.fn(async () => ({
+    title: "Discharge letter",
+    kind: "DISCHARGE_LETTER",
+    documentDate: "2027-01-10",
+  })),
 }));
 vi.mock("@/lib/labs/ocr-extract", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/labs/ocr-extract")>()),
@@ -84,7 +100,11 @@ vi.mock("@/lib/documents/auto-stage-labs", () => ({
   })),
 }));
 
-import { transcribeDocument } from "@/lib/documents/describe";
+import { runDocumentAssist } from "@/lib/documents/assist";
+import {
+  runDocumentSummary,
+  transcribeDocument,
+} from "@/lib/documents/describe";
 import { runOcrExtraction } from "@/lib/labs/ocr-extract";
 
 const PNG = Buffer.from(
@@ -186,6 +206,40 @@ async function postLabScanText(text: string) {
   return { status: res.status, body: (await res.json()) as Envelope };
 }
 
+async function postDocumentAi(
+  documentId: string,
+  path: string,
+  prefer: boolean,
+) {
+  const route = path.startsWith("summary")
+    ? await import("@/app/api/documents/inbound/[id]/summary/route")
+    : await import("@/app/api/documents/inbound/[id]/suggest/route");
+  const { NextRequest } = await import("next/server");
+  const res = await route.POST(
+    new NextRequest(
+      `http://localhost/api/documents/inbound/${documentId}/${path}`,
+      {
+        method: "POST",
+        headers: prefer ? { prefer: "respond-async" } : {},
+      },
+    ) as never,
+    { params: Promise.resolve({ id: documentId }) } as never,
+  );
+  return {
+    status: res.status,
+    headers: res.headers,
+    body: (await res.json()) as Envelope,
+  };
+}
+
+async function summaryState(documentId: string) {
+  const row = await getPrismaClient().inboundDocument.findUniqueOrThrow({
+    where: { id: documentId },
+    select: { summaryState: true, summaryEncrypted: true },
+  });
+  return { state: row.summaryState, stored: row.summaryEncrypted !== null };
+}
+
 async function poll(runId: string) {
   const { GET } = await import("@/app/api/ai-runs/[id]/route");
   const res = await GET(
@@ -211,6 +265,8 @@ beforeEach(async () => {
   send.mockClear();
   vi.mocked(transcribeDocument).mockClear();
   vi.mocked(runOcrExtraction).mockClear();
+  vi.mocked(runDocumentSummary).mockClear();
+  vi.mocked(runDocumentAssist).mockClear();
 });
 
 describe("Read with AI in the background", () => {
@@ -447,5 +503,180 @@ describe("the reaper", () => {
         where: { id: runId },
       }),
     ).toBeNull();
+  });
+});
+
+describe("a summary in the background", () => {
+  it("marks a stored summary PENDING while queued and READY when it lands", async () => {
+    const user = await makeUser();
+    await grantConsent(user.id);
+    const document = await storeDocument(user.id);
+    await signIn(user.id);
+
+    const queued = await postDocumentAi(
+      document.id,
+      "summary?mode=summary&persist=true",
+      true,
+    );
+    expect(queued.status).toBe(202);
+    expect(queued.headers.get("preference-applied")).toBe("respond-async");
+    const { runId } = queued.body.data as { runId: string };
+    expect(runDocumentSummary).not.toHaveBeenCalled();
+    expect(await summaryState(document.id)).toEqual({
+      state: "PENDING",
+      stored: false,
+    });
+
+    // A second press for the same stored summary attaches; a transient
+    // summary of the same document is its own run.
+    const again = await postDocumentAi(
+      document.id,
+      "summary?mode=summary&persist=true",
+      true,
+    );
+    expect((again.body.data as { runId: string }).runId).toBe(runId);
+    const transient = await postDocumentAi(
+      document.id,
+      "summary?mode=summary",
+      true,
+    );
+    expect(transient.status).toBe(202);
+    expect((transient.body.data as { runId: string }).runId).not.toBe(runId);
+
+    expect(await work(runId)).toBe("succeeded");
+    expect(runDocumentSummary).toHaveBeenCalledOnce();
+    const done = await poll(runId);
+    expect(done.body.data).toMatchObject({
+      status: "SUCCEEDED",
+      kind: "DOCUMENT_SUMMARY",
+      documentId: document.id,
+      result: {
+        summary: "A hospital discharge letter.",
+        persistence: "stored",
+      },
+    });
+    expect(await summaryState(document.id)).toEqual({
+      state: "READY",
+      stored: true,
+    });
+  });
+
+  it("marks a stored summary UNAVAILABLE when its run fails", async () => {
+    const user = await makeUser();
+    await grantConsent(user.id);
+    const document = await storeDocument(user.id);
+    await signIn(user.id);
+    vi.mocked(runDocumentSummary).mockRejectedValueOnce(
+      new Error("provider down"),
+    );
+
+    const queued = await postDocumentAi(
+      document.id,
+      "summary?mode=summary&persist=true",
+      true,
+    );
+    const { runId } = queued.body.data as { runId: string };
+    expect(await work(runId)).toBe("failed");
+    const done = await poll(runId);
+    expect(done.body.data).toMatchObject({
+      status: "FAILED",
+      error: { code: "documents.inbound.extractFailed", status: 502 },
+    });
+    expect(await summaryState(document.id)).toEqual({
+      state: "UNAVAILABLE",
+      stored: false,
+    });
+  });
+
+  it("leaves the document's summary state alone for a transient summary", async () => {
+    const user = await makeUser();
+    await grantConsent(user.id);
+    const document = await storeDocument(user.id);
+    await signIn(user.id);
+    vi.mocked(runDocumentSummary).mockRejectedValueOnce(
+      new Error("provider down"),
+    );
+
+    const queued = await postDocumentAi(
+      document.id,
+      "summary?mode=summary",
+      true,
+    );
+    const { runId } = queued.body.data as { runId: string };
+    expect(await summaryState(document.id)).toEqual({
+      state: "NONE",
+      stored: false,
+    });
+    expect(await work(runId)).toBe("failed");
+    expect(await summaryState(document.id)).toEqual({
+      state: "NONE",
+      stored: false,
+    });
+  });
+
+  it("answers synchronously, exactly as before, without the header", async () => {
+    const user = await makeUser();
+    await grantConsent(user.id);
+    const document = await storeDocument(user.id);
+    await signIn(user.id);
+
+    const res = await postDocumentAi(document.id, "summary?mode=text", false);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("preference-applied")).toBeNull();
+    expect(res.body.data).toEqual({ text: "Entlassbrief Leukozyten erhoeht" });
+    expect(send).not.toHaveBeenCalled();
+    expect(await getPrismaClient().documentAiRun.count()).toBe(0);
+  });
+});
+
+describe("filing suggestions in the background", () => {
+  it("queues, reads in the worker, writes nothing to the document", async () => {
+    const user = await makeUser();
+    await grantConsent(user.id);
+    const document = await storeDocument(user.id);
+    await signIn(user.id);
+
+    const queued = await postDocumentAi(document.id, "suggest", true);
+    expect(queued.status).toBe(202);
+    const { runId } = queued.body.data as { runId: string };
+    expect(await work(runId)).toBe("succeeded");
+    expect(runDocumentAssist).toHaveBeenCalledOnce();
+
+    const done = await poll(runId);
+    expect(done.body.data).toMatchObject({
+      status: "SUCCEEDED",
+      kind: "DOCUMENT_SUGGEST",
+      result: {
+        suggestions: {
+          title: "Discharge letter",
+          kind: "DISCHARGE_LETTER",
+          documentDate: "2027-01-10",
+        },
+      },
+    });
+    const after = await getPrismaClient().inboundDocument.findUniqueOrThrow({
+      where: { id: document.id },
+    });
+    expect(after.kind).toBe("OTHER");
+    expect(after.title).toBeNull();
+  });
+
+  it("is a 404 for another account's document and its run", async () => {
+    const owner = await makeUser();
+    await grantConsent(owner.id);
+    const document = await storeDocument(owner.id);
+    await signIn(owner.id);
+    const queued = await postDocumentAi(document.id, "suggest", true);
+    const { runId } = queued.body.data as { runId: string };
+
+    const other = await makeUser();
+    await grantConsent(other.id);
+    await signIn(other.id);
+    const foreignPost = await postDocumentAi(document.id, "suggest", true);
+    expect(foreignPost.status).toBe(404);
+    expect(foreignPost.body.meta?.errorCode).toBe("documents.inbound.notFound");
+    const foreignPoll = await poll(runId);
+    expect(foreignPoll.status).toBe(404);
+    expect(foreignPoll.body.meta?.errorCode).toBe("aiRuns.notFound");
   });
 });

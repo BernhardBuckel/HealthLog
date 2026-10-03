@@ -18,7 +18,18 @@
  * Same VISION/TEXT dispatch and gauntlet as the extract route. The document is
  * UNTRUSTED (prompt-injection): the server never acts on an instruction inside
  * it. With no provider configured this 422s; nothing is stored either way.
+ *
+ * v1.40 — `Prefer: respond-async` (RFC 7240) runs the read in the background
+ * worker: every refusal that can be answered quickly is still answered here,
+ * then the route answers 202 with a run id and `GET /api/ai-runs/{id}` serves
+ * the same body this route answers with synchronously. A summary that is to
+ * be stored marks the document PENDING while it is queued. Without the header
+ * the route behaves exactly as before; the iPhone app relies on that. Both
+ * paths run one body (`executeDocumentSummary`). A transcription of text the
+ * browser already read calls no model and is answered here either way.
  */
+import { Buffer } from "node:buffer";
+
 import { NextRequest } from "next/server";
 
 import { apiHandler, requireAuth } from "@/lib/api-handler";
@@ -32,9 +43,9 @@ import {
 } from "@/lib/api-response";
 import { AI_BUDGETS } from "@/lib/ai/ai-budgets";
 import { requireAiCapability } from "@/lib/ai/capabilities/gate";
+import type { ProviderChainType } from "@/lib/ai/provider-chain";
 import {
   buildDateKey,
-  reconcileSpend,
   reserveBudget,
   resolveCostOwner,
   resolveDailyCap,
@@ -45,19 +56,23 @@ import {
   documentAiRateLimited,
   DOCUMENT_AI_TEXT_BODY_MAX_BYTES,
   loadOwnedDocument,
-  prepareVisionInput,
   refundDocumentAiSlot,
   type LoadedDocument,
 } from "@/lib/documents/ai-route-support";
 import {
-  DocumentDescribeError,
-  runDocumentSummary,
-  documentSummaryBlockedCopy,
-  transcribeDocument,
-  type DescribeInput,
-} from "@/lib/documents/describe";
-import { encryptDocumentSummary } from "@/lib/documents/store";
-import type { OutboundReason } from "@/lib/ai/safety/outbound-screen";
+  acceptedRunResponse,
+  outcomeResponse,
+  prefersRespondAsync,
+} from "@/lib/documents/ai-runs/http";
+import { findLiveDocumentRun, startAiRun } from "@/lib/documents/ai-runs/start";
+import {
+  executeDocumentSummary,
+  markSummaryQueued,
+  type DocumentSummaryInput,
+  type SummaryPersistence,
+} from "@/lib/documents/ai-runs/summary-run";
+import type { AiRunBudget, AiRunParams } from "@/lib/documents/ai-runs/types";
+import { transcribeDocument } from "@/lib/documents/describe";
 import {
   requireDocumentTextProvider,
   requireDocumentVisionProvider,
@@ -78,11 +93,15 @@ export const dynamic = "force-dynamic";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-type SummaryPersistenceTarget = {
+/** What one request asks for, read once from the query and the headers. */
+interface SummaryRequest {
   userId: string;
-  documentId: string;
-  replaceExisting: boolean;
-};
+  document: LoadedDocument;
+  mode: DocumentSummaryMode;
+  locale: Locale;
+  persist: SummaryPersistence | null;
+  background: boolean;
+}
 
 function resolveMode(request: NextRequest): DocumentSummaryMode {
   const raw = new URL(request.url).searchParams.get("mode");
@@ -96,100 +115,6 @@ function resolvePersistRequested(request: NextRequest): boolean {
 
 function resolveReplaceExisting(request: NextRequest): boolean {
   return new URL(request.url).searchParams.get("replace") === "true";
-}
-
-/**
- * Run the requested describe call (summary or raw text) over the input.
- *
- * Ordinary action-row summaries and raw transcription remain session-only.
- * The document summary block opts into persistence so an empty document can be
- * repaired and an existing stored summary can be explicitly regenerated.
- */
-async function describe(
-  mode: DocumentSummaryMode,
-  input: DescribeInput,
-  locale: Locale,
-  persist: SummaryPersistenceTarget | null,
-): Promise<
-  | {
-      summary: string;
-      persistence?: "stored" | "withheld" | "failed";
-    }
-  | { text: string }
-> {
-  if (mode === "text") return transcribeDocument(input);
-  // A normal summary request fills an empty slot only. Replacement is reserved
-  // for the document detail's explicit "Generate again" action.
-  const { summary, blocked } = await runDocumentSummary({ ...input, locale });
-  const persistence = persist
-    ? await persistSummary(persist, summary, blocked)
-    : undefined;
-  return {
-    summary: blocked ? documentSummaryBlockedCopy(locale) : summary,
-    ...(persistence ? { persistence } : {}),
-  };
-}
-
-/**
- * Store a screened-clean summary, or record the refusal as a state.
- *
- * A blocked summary NEVER lands as text — the honest statement the caller shows
- * is generated copy for this response, not the model's prose, and persisting it
- * would put a refusal where a summary belongs. Only the WITHHELD state is kept,
- * and it is not terminal: the user can ask again.
- *
- * Storing is best-effort. The user is waiting on the summary they can already
- * read in the response; a failed write must not turn that into an error.
- */
-async function persistSummary(
-  target: SummaryPersistenceTarget,
-  summary: string,
-  blocked: OutboundReason | null,
-): Promise<"stored" | "withheld" | "failed"> {
-  try {
-    if (blocked) {
-      await prisma.inboundDocument.updateMany({
-        where: {
-          id: target.documentId,
-          userId: target.userId,
-          deletedAt: null,
-          summaryState: { not: "READY" },
-        },
-        // An explicit request is the person reading it on purpose, so an
-        // import's hold on automatic AI reading ends here.
-        data: { summaryState: "WITHHELD", aiReadDeferred: false },
-      });
-      return "withheld";
-    }
-    // Preserve a previously stored summary unless the caller explicitly chose
-    // the replacement action. Failed or screened attempts never reach this
-    // write, so the previous clean summary remains available in those cases.
-    const written = await prisma.inboundDocument.updateMany({
-      where: {
-        id: target.documentId,
-        userId: target.userId,
-        deletedAt: null,
-        ...(target.replaceExisting ? {} : { summaryEncrypted: null }),
-      },
-      data: {
-        summaryEncrypted: encryptDocumentSummary(summary),
-        summaryGeneratedAt: new Date(),
-        summaryState: "READY",
-        aiReadDeferred: false,
-      },
-    });
-    annotate({
-      action: { name: "documents.summary.persisted" },
-      meta: { documentId: target.documentId, stored: written.count > 0 },
-    });
-    return written.count > 0 ? "stored" : "failed";
-  } catch {
-    annotate({
-      action: { name: "documents.summary.persistFailed" },
-      meta: { documentId: target.documentId },
-    });
-    return blocked ? "withheld" : "failed";
-  }
 }
 
 /** The budget the requested mode charges. */
@@ -219,13 +144,11 @@ export const POST = apiHandler(
     }
 
     const mode = resolveMode(request);
-    const persist: SummaryPersistenceTarget | null =
+    // A normal summary request fills an empty slot only. Replacement is
+    // reserved for the document detail's explicit "Generate again" action.
+    const persist: SummaryPersistence | null =
       mode === "summary" && resolvePersistRequested(request)
-        ? {
-            userId: user.id,
-            documentId: document.id,
-            replaceExisting: resolveReplaceExisting(request),
-          }
+        ? { replaceExisting: resolveReplaceExisting(request) }
         : null;
     // The outbound screen on the summary needs the reader's locale to pick its
     // pattern banks; resolve it once here and thread it into both describe legs.
@@ -233,57 +156,112 @@ export const POST = apiHandler(
       request,
       userLocale: user.locale ?? null,
     });
-    const contentType = request.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
-      return handleTextSummary(
-        request,
-        user.id,
-        document,
-        mode,
-        locale,
-        persist,
-      );
-    }
-    return handleVisionSummary(
-      request,
-      user.id,
+    const ask: SummaryRequest = {
+      userId: user.id,
       document,
       mode,
       locale,
       persist,
-    );
+      background: prefersRespondAsync(request),
+    };
+    const contentType = request.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      return handleTextSummary(request, ask);
+    }
+    return handleVisionSummary(request, ask);
   },
 );
 
-async function finishSummary(
-  request: NextRequest,
-  userId: string,
-  documentId: string,
+/** The run parameters for this request (never health data). */
+function runParams(
+  ask: SummaryRequest,
   inputMode: "vision" | "text",
-  mode: DocumentSummaryMode,
-  result: { summary: string } | { text: string },
+  budget: AiRunBudget,
+): AiRunParams {
+  return {
+    mode: inputMode,
+    budget,
+    summary: {
+      output: ask.mode,
+      persist: ask.persist !== null,
+      replace: ask.persist?.replaceExisting ?? false,
+      locale: ask.locale,
+    },
+  };
+}
+
+/**
+ * A run that will produce the same thing, already queued or running: attach
+ * to it rather than charge a second one. Background path only.
+ */
+async function liveRunResponse(
+  ask: SummaryRequest,
+  inputMode: "vision" | "text",
+): Promise<Response | null> {
+  const live = await findLiveDocumentRun(
+    ask.userId,
+    ask.document.id,
+    "DOCUMENT_SUMMARY",
+    (params) =>
+      params.mode === inputMode &&
+      params.summary?.output === ask.mode &&
+      params.summary.persist === (ask.persist !== null) &&
+      params.summary.replace === (ask.persist?.replaceExisting ?? false),
+  );
+  return live ? acceptedRunResponse(live) : null;
+}
+
+/** Reserve the read's budget; null (slot refunded) when the day is spent. */
+async function reserveFor(
+  ask: SummaryRequest,
+  providerType: ProviderChainType,
+): Promise<AiRunBudget | null> {
+  const dateKey = buildDateKey();
+  const reservation = await reserveBudget(
+    ask.userId,
+    budgetFor(ask.mode),
+    dateKey,
+    resolveDailyCap([{ providerType }]),
+    resolveCostOwner([{ providerType }]),
+    "coach",
+  );
+  if (!reservation.allowed) {
+    await refundDocumentAiSlot(ask.userId);
+    return null;
+  }
+  return { reserved: reservation.reserved, owner: reservation.owner, dateKey };
+}
+
+function budgetExceeded(): Response {
+  return apiError("Your AI usage budget for today is reached.", 429, {
+    errorCode: "documents.inbound.budgetExceeded",
+  });
+}
+
+/** Queue the read; a summary that is to be stored is marked PENDING first. */
+async function queueSummary(
+  ask: SummaryRequest,
+  inputMode: "vision" | "text",
+  budget: AiRunBudget,
+  text: string | null,
 ): Promise<Response> {
-  await auditLog("documents.inbound.summary", {
-    userId,
-    ipAddress: getClientIp(request),
-    details: { documentId, mode, inputMode },
+  if (ask.persist) await markSummaryQueued(ask.userId, ask.document.id);
+  return startAiRun({
+    userId: ask.userId,
+    kind: "DOCUMENT_SUMMARY",
+    documentId: ask.document.id,
+    params: runParams(ask, inputMode, budget),
+    input: text === null ? null : Buffer.from(text, "utf8"),
+    refundSlot: () => refundDocumentAiSlot(ask.userId),
   });
-  annotate({
-    action: { name: "documents.summary.serve" },
-    meta: { documentId, mode, inputMode },
-  });
-  return apiSuccess(result);
 }
 
 /** TEXT mode — summarise / echo in-browser-OCR'd text. */
 async function handleTextSummary(
   request: NextRequest,
-  userId: string,
-  document: LoadedDocument,
-  mode: DocumentSummaryMode,
-  locale: Locale,
-  persist: SummaryPersistenceTarget | null,
+  ask: SummaryRequest,
 ): Promise<Response> {
+  const { userId, document, mode } = ask;
   const row = await prisma.user.findUnique({
     where: { id: userId },
     select: { labsLocalOcrEnabled: true },
@@ -292,6 +270,11 @@ async function handleTextSummary(
     return apiError("Local OCR is not enabled", 422, {
       errorCode: "documents.inbound.localOcrDisabled",
     });
+  }
+
+  if (ask.background && mode !== "text") {
+    const live = await liveRunResponse(ask, "text");
+    if (live) return live;
   }
 
   const rl = await checkDocumentAiRateLimit(userId);
@@ -319,13 +302,24 @@ async function handleTextSummary(
 
   // `mode=text` over posted OCR text is a pure echo — the text IS the
   // transcription. No provider egress, no consent, no budget: session-only.
+  // There is nothing to run in the background, so the preference is not
+  // applied and the answer comes straight back.
   if (mode === "text") {
     const result = await transcribeDocument({
       provider: {} as never,
       providerType: "local-ocr",
       ocrText: parsed.data.text,
     });
-    return finishSummary(request, userId, document.id, "text", mode, result);
+    await auditLog("documents.inbound.summary", {
+      userId,
+      ipAddress: getClientIp(request),
+      details: { documentId: document.id, mode, inputMode: "text" },
+    });
+    annotate({
+      action: { name: "documents.summary.serve" },
+      meta: { documentId: document.id, mode, inputMode: "text" },
+    });
+    return apiSuccess(result);
   }
 
   let pick: Awaited<ReturnType<typeof requireDocumentTextProvider>>;
@@ -337,145 +331,65 @@ async function handleTextSummary(
     throw err;
   }
 
-  const dateKey = buildDateKey();
-  const reservation = await reserveBudget(
-    userId,
-    budgetFor(mode),
-    dateKey,
-    resolveDailyCap([{ providerType: pick.entry.providerType }]),
-    resolveCostOwner([{ providerType: pick.entry.providerType }]),
-    "coach",
-  );
-  if (!reservation.allowed) {
-    await refundDocumentAiSlot(userId);
-    return apiError("Your AI usage budget for today is reached.", 429, {
-      errorCode: "documents.inbound.budgetExceeded",
-    });
+  const budget = await reserveFor(ask, pick.entry.providerType);
+  if (!budget) return budgetExceeded();
+
+  if (ask.background) {
+    // The worker picks the provider again and re-checks the wire for it right
+    // before the text leaves.
+    return queueSummary(ask, "text", budget, parsed.data.text);
   }
 
-  try {
-    const result = await describe(
-      mode,
-      {
-        provider: pick.entry.instance,
-        providerType: pick.providerType,
-        ocrText: parsed.data.text,
-      },
-      locale,
-      persist,
-    );
-    await reconcileSpend(
-      userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-    return finishSummary(request, userId, document.id, "text", mode, result);
-  } catch (err) {
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    return summaryError(err, "text");
-  }
+  return runNow(request, ask, {
+    mode: "text",
+    text: parsed.data.text,
+    pick,
+    budget,
+  });
 }
 
 /** VISION mode — summarise / transcribe the stored original. */
 async function handleVisionSummary(
   request: NextRequest,
-  userId: string,
-  document: LoadedDocument,
-  mode: DocumentSummaryMode,
-  locale: Locale,
-  persist: SummaryPersistenceTarget | null,
+  ask: SummaryRequest,
 ): Promise<Response> {
-  const pick = await requireDocumentVisionProvider(userId);
+  const pick = await requireDocumentVisionProvider(ask.userId);
 
-  const rl = await checkDocumentAiRateLimit(userId);
+  if (ask.background) {
+    const live = await liveRunResponse(ask, "vision");
+    if (live) return live;
+  }
+
+  const rl = await checkDocumentAiRateLimit(ask.userId);
   if (!rl.allowed) return documentAiRateLimited(rl);
 
-  const vision = await prepareVisionInput(document, pick.pdfSupported);
-  if (!vision.ok) {
-    // Preparation failed before any provider dispatch — the slot goes back.
-    await refundDocumentAiSlot(userId);
-    if (vision.reason === "pdfNeedsAnthropic") {
-      return apiError(
-        "PDF scanning needs a Claude vision provider; use local OCR instead.",
-        422,
-        { errorCode: "documents.inbound.pdfNeedsAnthropic" },
-      );
-    }
-    if (vision.reason === "fileType") {
-      return apiError(
-        "This document can't be scanned. Use local OCR (text mode).",
-        422,
-        { errorCode: "documents.inbound.fileType" },
-      );
-    }
-    return apiError("Couldn't read the stored document.", 422, {
-      errorCode: "documents.inbound.extractFailed",
-    });
+  const budget = await reserveFor(ask, pick.entry.providerType);
+  if (!budget) return budgetExceeded();
+
+  if (ask.background) {
+    // The worker decrypts the stored original itself, after it has picked
+    // the provider again and re-checked the wire for it.
+    return queueSummary(ask, "vision", budget, null);
   }
 
-  const dateKey = buildDateKey();
-  const reservation = await reserveBudget(
-    userId,
-    budgetFor(mode),
-    dateKey,
-    resolveDailyCap([{ providerType: pick.entry.providerType }]),
-    resolveCostOwner([{ providerType: pick.entry.providerType }]),
-    "coach",
-  );
-  if (!reservation.allowed) {
-    await refundDocumentAiSlot(userId);
-    return apiError("Your AI usage budget for today is reached.", 429, {
-      errorCode: "documents.inbound.budgetExceeded",
-    });
-  }
-
-  try {
-    const result = await describe(
-      mode,
-      {
-        provider: pick.entry.instance,
-        providerType: pick.providerType,
-        images: vision.images,
-        documents: vision.documents,
-      },
-      locale,
-      persist,
-    );
-    await reconcileSpend(
-      userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-    return finishSummary(request, userId, document.id, "vision", mode, result);
-  } catch (err) {
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    return summaryError(err, "vision");
-  }
+  return runNow(request, ask, { mode: "vision", pick, budget });
 }
 
-function summaryError(err: unknown, mode: "vision" | "text"): Response {
-  if (err instanceof DocumentDescribeError) {
-    return apiError("Couldn't read the document. Try a clearer copy.", 422, {
-      errorCode: "documents.inbound.extractFailed",
-    });
-  }
-  annotate({
-    action: { name: "documents.summary.failed" },
-    meta: { reason: "provider_error", mode },
-  });
-  return apiError("Couldn't read the document. Try a clearer copy.", 502, {
-    errorCode: "documents.inbound.extractFailed",
-  });
+/** The synchronous path: run the shared body inside this request. */
+async function runNow(
+  request: NextRequest,
+  ask: SummaryRequest,
+  input: DocumentSummaryInput,
+): Promise<Response> {
+  return outcomeResponse(
+    await executeDocumentSummary({
+      userId: ask.userId,
+      document: ask.document,
+      input,
+      output: ask.mode,
+      locale: ask.locale,
+      persist: ask.persist,
+      origin: { ipAddress: getClientIp(request), worker: false },
+    }),
+  );
 }
