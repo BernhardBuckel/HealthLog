@@ -951,7 +951,10 @@ function missedFromLedger(
   });
   const bands: SlotBand[] = [];
   for (const g of groups) {
-    if (g.hasExpectedSlots) bands.push(...g.bands);
+    // v1.40 (#1024) — only slots on a course day, as the compliance ledger.
+    if (g.hasExpectedSlots) {
+      bands.push(...g.bands.filter((b) => onCourseDay(engineCtx, b.at)));
+    }
   }
   const intakes: HistoryIntake[] = events
     .filter((e) => e.scheduledFor >= from && e.scheduledFor <= asOf)
@@ -967,9 +970,5 @@ function missedFromLedger(
     asOf,
     engineCtx.createdAt,
   );
-  return rows.filter(
-    (r) =>
-      r.status === "missed" &&
-      (r.kind !== "slot" || onCourseDay(engineCtx, r.at)),
-  ).length;
+  return rows.filter((r) => r.status === "missed").length;
 }

@@ -308,6 +308,51 @@ describe("course writes keep the projection", () => {
     ]);
   });
 
+  it("lists every course's slots in the dose history, none in the gap", async () => {
+    // Daily 08:00 UTC (the account is on UTC). Course A five days, the third
+    // missed; a gap; course B five days, all taken. Both ended before today.
+    const shift = (days: number) =>
+      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+    const med = await makeMedication({
+      startsOn: shift(-20),
+      endsOn: shift(-16),
+    });
+    await postCourse(med.id, { startsOn: shift(-10), endsOn: shift(-6) });
+    const taken = [-20, -19, -17, -16, -10, -9, -8, -7, -6].map(shift);
+    await getPrismaClient().medicationIntakeEvent.createMany({
+      data: taken.map((day) => ({
+        userId: OWNER,
+        medicationId: med.id,
+        scheduledFor: new Date(`${day}T08:00:00.000Z`),
+        takenAt: new Date(`${day}T08:02:00.000Z`),
+      })),
+    });
+    // The medication existed long before course A.
+    await getPrismaClient().medication.update({
+      where: { id: med.id },
+      data: { createdAt: new Date(Date.now() - 40 * 86_400_000) },
+    });
+
+    const { GET } =
+      await import("@/app/api/medications/[id]/dose-history/route");
+    const body = await (
+      await GET(req("GET", `/api/medications/${med.id}/dose-history`), {
+        params: Promise.resolve({ id: med.id }),
+      })
+    ).json();
+    const slots = (
+      body.data.rows as Array<{ kind: string; at: string; status: string }>
+    ).filter((r) => r.kind === "slot");
+    const days = slots.map((r) => r.at.slice(0, 10)).sort();
+    const courseDays = [-20, -19, -18, -17, -16, -10, -9, -8, -7, -6].map(
+      shift,
+    );
+    expect(days).toEqual(courseDays.sort());
+    expect(
+      slots.filter((r) => r.status === "missed").map((r) => r.at.slice(0, 10)),
+    ).toEqual([shift(-18)]);
+  });
+
   it("lets the medication's own PUT edit the latest course", async () => {
     const med = await makeMedication({
       startsOn: "2026-03-01",

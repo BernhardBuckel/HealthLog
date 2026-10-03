@@ -175,7 +175,13 @@ export function buildComplianceLedgerRows(
   // excluded from the denominator, exactly as the literature requires.
   const bands: SlotBand[] = [];
   for (const g of groups) {
-    if (g.hasExpectedSlots) bands.push(...g.bands);
+    // v1.40 (#1024) — a slot on a day between two courses was never
+    // expected. Dropped before the reconstruction, so a dose logged in the
+    // gap stays in the ledger as the off-schedule take it is (outside the
+    // denominator), which is also how the dose history shows it.
+    if (g.hasExpectedSlots) {
+      bands.push(...g.bands.filter((b) => slotInsideCourses(ctx, b.at)));
+    }
   }
 
   const intakes: HistoryIntake[] = events
@@ -193,19 +199,7 @@ export function buildComplianceLedgerRows(
   // Slots before the medication's creation count only when a recorded dose
   // claims them, so a caller's window reaching past the creation never
   // mints phantom misses (#1028).
-  const reconstructed = reconstructDoseHistory(
-    bands,
-    intakes,
-    now,
-    ctx.createdAt,
-  );
-
-  // v1.40 (#1024) — an expected slot on a day between two courses was never
-  // expected: drop it. Only slot rows go; a dose logged in the gap stays as
-  // the recorded intake it is.
-  const rows = reconstructed.filter(
-    (row) => row.kind !== "slot" || slotInsideCourses(ctx, row.at),
-  );
+  const rows = reconstructDoseHistory(bands, intakes, now, ctx.createdAt);
 
   // v1.25 H-MED1 — drop expected dose slots whose anchor falls inside a
   // pause interval. While a medication is paused no dose is expected, so a

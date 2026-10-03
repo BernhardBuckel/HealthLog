@@ -192,7 +192,9 @@ export interface ComplianceMedicationContext {
  * v1.40 (#1024) — the window the retrospective minters expand over: the span
  * of every course when there are several, else the medication's own window.
  */
-export function complianceMintWindow(ctx: ComplianceMedicationContext): {
+export function complianceMintWindow(
+  ctx: Pick<ComplianceMedicationContext, "startsOn" | "endsOn" | "courses">,
+): {
   startsOn: Date | null;
   endsOn: Date | null;
 } {
@@ -215,7 +217,7 @@ export function complianceMintWindow(ctx: ComplianceMedicationContext): {
  * projection window already bounds the expansion).
  */
 export function slotInsideCourses(
-  ctx: ComplianceMedicationContext,
+  ctx: Pick<ComplianceMedicationContext, "timeZone" | "courses">,
   at: Date,
 ): boolean {
   const courses = ctx.courses;
