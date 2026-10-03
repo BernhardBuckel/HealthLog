@@ -9042,6 +9042,9 @@ enum DocumentAiRunKind {
   /// Filing suggestions (title, kind, date) for a stored document. Drafts
   /// only: nothing is written to the document.
   DOCUMENT_SUGGEST
+  /// Structured facts read out of a stored document, staged PENDING for the
+  /// review step. The confirm route stays the only write into the record.
+  DOCUMENT_EXTRACT
 
   @@map("document_ai_run_kind")
 }

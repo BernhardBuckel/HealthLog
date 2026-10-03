@@ -287,6 +287,23 @@ const documentUploadEnvelope = dataEnvelope(
   "DocumentUploadEnvelope",
 );
 
+/**
+ * A `DOCUMENT_EXTRACT` run's result. Smaller than the synchronous extract
+ * body: the facts are staged on the document and read from it.
+ */
+export const documentExtractRunResult = z
+  .object({
+    documentId: z.string(),
+    factsStaged: z
+      .number()
+      .int()
+      .describe(
+        "How many facts were staged PENDING for review. Read them from `GET /api/documents/inbound/{id}`; the confirm route stays the only write into the record.",
+      ),
+    status: statusEnum,
+  })
+  .meta({ id: "DocumentExtractRunResult" });
+
 /** The suggest route's body; also a `DOCUMENT_SUGGEST` run's result. */
 export const documentSuggestResponse = z
   .object({
@@ -919,7 +936,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Documents"],
       summary: "Extract facts from a stored document",
       description:
-        'Optional AI enhancement on an already-stored document. Runs the dedicated OCR/vision provider over the stored original and stages STRUCTURED FACTS for review. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated. With no provider configured this returns 422 (`documents.inbound.providerUnsupported`, with `meta.capability` and `meta.reason = "no_provider"`) — the stored document is untouched, only the enhancement fails. Three modes: VISION (empty body) decrypts and scans the stored original (PDF needs an Anthropic vision provider); TEXT (`application/json`, opt-in local OCR) `{ mode: "text", text }` structures browser-OCR\'d text; STORED (`application/json`) `{ mode: "stored" }` structures the document\'s own stored extracted text (its content index) — the manual recovery for a skipped/failed automatic staging run, 422 `documents.inbound.notIndexed` when no stored text exists. Extraction reproduces what the document states — it never interprets. Nothing reaches the structured stores here; the confirm route is the only write path.',
+        'Optional AI enhancement on an already-stored document. Runs the dedicated OCR/vision provider over the stored original and stages STRUCTURED FACTS for review. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated. With no provider configured this returns 422 (`documents.inbound.providerUnsupported`, with `meta.capability` and `meta.reason = "no_provider"`) — the stored document is untouched, only the enhancement fails. Three modes: VISION (empty body) decrypts and scans the stored original (PDF needs an Anthropic vision provider); TEXT (`application/json`, opt-in local OCR) `{ mode: "text", text }` structures browser-OCR\'d text; STORED (`application/json`) `{ mode: "stored" }` structures the document\'s own stored extracted text (its content index) — the manual recovery for a skipped/failed automatic staging run, 422 `documents.inbound.notIndexed` when no stored text exists. Extraction reproduces what the document states — it never interprets. Nothing reaches the structured stores here; the confirm route is the only write path. With `Prefer: respond-async` (v1.40) the extraction runs in the background: after the same quick refusals the route answers 202 with a run id, a second request while an extraction of this document from the same input is queued or running answers with that run, and `GET /api/ai-runs/{id}` serves `DocumentExtractRunResult` (`{ documentId, factsStaged, status }`, not the document detail) as the run\'s `result`. Staging re-checks the document under a row lock, so a review finished while the read ran fails the run with `documents.inbound.alreadyPartlyConfirmed` (409) or `documents.inbound.alreadyConfirmed` (422) and leaves the review untouched; the synchronous form answers the same in that race.',
       parameters: [
         {
           name: "id",
@@ -927,6 +944,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           required: true,
           schema: { type: "string" },
         },
+        preferRespondAsyncParameter,
       ],
       requestBody: {
         required: false,
@@ -964,6 +982,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
             "Re-extraction refused: at least one fact on this document is already APPROVED. `meta.errorCode` = `documents.inbound.alreadyPartlyConfirmed`. Re-extracting would sever committed-record provenance and duplicate committed records, so the user must finish reviewing or discard the document first.",
           content: { "application/json": { schema: errorEnvelope } },
         },
+        ...aiRunAccepted,
         ...aiExtractionRefusals("documentAi"),
         ...stdResponses,
       },

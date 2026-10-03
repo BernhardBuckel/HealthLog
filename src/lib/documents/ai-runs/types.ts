@@ -10,7 +10,10 @@
  */
 import type { AiCapabilityKey } from "@/lib/ai/capabilities/types";
 import type { Locale } from "@/lib/i18n/config";
-import type { InboundDocumentKindValue } from "@/lib/validations/inbound-documents";
+import type {
+  InboundDocumentKindValue,
+  InboundDocumentStatusValue,
+} from "@/lib/validations/inbound-documents";
 import type { OcrExtractResponseDto } from "@/lib/validations/labs-ocr";
 
 export const DOCUMENT_AI_RUN_KINDS = [
@@ -18,6 +21,7 @@ export const DOCUMENT_AI_RUN_KINDS = [
   "LABS_OCR_EXTRACT",
   "DOCUMENT_SUMMARY",
   "DOCUMENT_SUGGEST",
+  "DOCUMENT_EXTRACT",
 ] as const;
 export type DocumentAiRunKindValue = (typeof DOCUMENT_AI_RUN_KINDS)[number];
 
@@ -33,6 +37,7 @@ export const DOCUMENT_AI_RUN_CAPABILITY: Record<
   LABS_OCR_EXTRACT: "labsOcr",
   DOCUMENT_SUMMARY: "documentAi",
   DOCUMENT_SUGGEST: "documentAi",
+  DOCUMENT_EXTRACT: "documentAi",
 };
 
 export const DOCUMENT_AI_RUN_STATUSES = [
@@ -90,6 +95,8 @@ export interface AiRunParams {
     replace: boolean;
     locale: Locale;
   };
+  /** An extract run: which text it structures. `stored` reads the content index. */
+  extract?: { input: "text" | "stored" | "vision" };
 }
 
 /** "Read with AI": the same body the synchronous index route answers with. */
@@ -114,11 +121,23 @@ export interface DocumentSuggestRunResult {
   };
 }
 
+/**
+ * An extract run. Smaller than the synchronous route's body (the whole
+ * document detail): the facts are staged on the document, and the client
+ * reads them from there.
+ */
+export interface DocumentExtractRunResult {
+  documentId: string;
+  factsStaged: number;
+  status: InboundDocumentStatusValue;
+}
+
 export type AiRunResult =
   | DocumentIndexRunResult
   | OcrExtractResponseDto
   | DocumentSummaryRunResult
-  | DocumentSuggestRunResult;
+  | DocumentSuggestRunResult
+  | DocumentExtractRunResult;
 
 /**
  * What one run body produced: the success body, or the failure the

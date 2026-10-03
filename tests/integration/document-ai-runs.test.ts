@@ -16,6 +16,9 @@
  *      anything reaches a model.
  *   6. The reaper fails a run no worker took (and hands its reservation back)
  *      and deletes a finished run an hour after it ended.
+ *   8. A stored-text extraction stages its facts from the worker, and a
+ *      review finished while the read ran is never overwritten: staging
+ *      re-checks the document under a row lock and fails the run instead.
  *   7. Summary and suggestion runs (0370) round-trip the routes' own bodies; a
  *      summary that is to be stored marks the document PENDING while queued,
  *      READY when it lands and UNAVAILABLE when the run fails; a transient one
@@ -93,6 +96,29 @@ vi.mock("@/lib/labs/ocr-extract", async (importOriginal) => ({
     rows: [],
   })),
 }));
+vi.mock("@/lib/documents/extract", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/documents/extract")>()),
+  runInboundExtraction: vi.fn(async () => ({
+    reportDate: "2027-01-10",
+    kind: "OTHER",
+    providerType: "anthropic",
+    facts: [
+      {
+        factType: "OBSERVATION",
+        confidence: 0.95,
+        needsReview: false,
+        data: { label: "Hemoglobin", value: 13.9, unit: "g/dL" },
+        provenance: {
+          sourceText: "Hemoglobin 13.9 g/dL",
+          anchored: true,
+          sourceOffset: 0,
+          page: null,
+          confidence: 0.95,
+        },
+      },
+    ],
+  })),
+}));
 vi.mock("@/lib/documents/auto-stage-labs", () => ({
   maybeAutoStageLabFacts: vi.fn(async () => ({
     staged: false,
@@ -105,6 +131,7 @@ import {
   runDocumentSummary,
   transcribeDocument,
 } from "@/lib/documents/describe";
+import { runInboundExtraction } from "@/lib/documents/extract";
 import { runOcrExtraction } from "@/lib/labs/ocr-extract";
 
 const PNG = Buffer.from(
@@ -267,6 +294,7 @@ beforeEach(async () => {
   vi.mocked(runOcrExtraction).mockClear();
   vi.mocked(runDocumentSummary).mockClear();
   vi.mocked(runDocumentAssist).mockClear();
+  vi.mocked(runInboundExtraction).mockClear();
 });
 
 describe("Read with AI in the background", () => {
@@ -678,5 +706,145 @@ describe("filing suggestions in the background", () => {
     const foreignPoll = await poll(runId);
     expect(foreignPoll.status).toBe(404);
     expect(foreignPoll.body.meta?.errorCode).toBe("aiRuns.notFound");
+  });
+});
+
+async function postStoredExtract(documentId: string, prefer: boolean) {
+  const { POST } =
+    await import("@/app/api/documents/inbound/[id]/extract/route");
+  const { NextRequest } = await import("next/server");
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (prefer) headers.prefer = "respond-async";
+  const res = await POST(
+    new NextRequest(
+      `http://localhost/api/documents/inbound/${documentId}/extract`,
+      { method: "POST", headers, body: JSON.stringify({ mode: "stored" }) },
+    ) as never,
+    { params: Promise.resolve({ id: documentId }) } as never,
+  );
+  return { status: res.status, body: (await res.json()) as Envelope };
+}
+
+async function indexedDocument(userId: string) {
+  const document = await storeDocument(userId);
+  const { upsertContentIndex } = await import("@/lib/documents/content-index");
+  await upsertContentIndex({
+    userId,
+    documentId: document.id,
+    text: "Hemoglobin 13.9 g/dL reference range 12-16",
+    source: "text-ocr",
+    providerType: null,
+  });
+  return document;
+}
+
+describe("fact extraction in the background", () => {
+  it("stages the facts in the worker and serves the count", async () => {
+    const user = await makeUser();
+    await grantConsent(user.id);
+    const document = await indexedDocument(user.id);
+    await signIn(user.id);
+
+    const queued = await postStoredExtract(document.id, true);
+    expect(queued.status).toBe(202);
+    const { runId } = queued.body.data as { runId: string };
+    const stored = await getPrismaClient().documentAiRun.findUniqueOrThrow({
+      where: { id: runId },
+    });
+    // The worker reads the content index itself; nothing is sealed.
+    expect(stored.inputEncrypted).toBeNull();
+    expect(runInboundExtraction).not.toHaveBeenCalled();
+
+    expect(await work(runId)).toBe("succeeded");
+    expect(runInboundExtraction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ocrText: expect.stringContaining("Hemoglobin 13.9"),
+      }),
+    );
+    const done = await poll(runId);
+    expect(done.body.data).toMatchObject({
+      status: "SUCCEEDED",
+      kind: "DOCUMENT_EXTRACT",
+      result: {
+        documentId: document.id,
+        factsStaged: 1,
+        status: "EXTRACTED",
+      },
+    });
+    const facts = await getPrismaClient().extractedFact.findMany({
+      where: { documentId: document.id },
+    });
+    expect(facts.map((f) => f.status)).toEqual(["PENDING"]);
+  });
+
+  it("never replaces a review that was finished while the read ran", async () => {
+    const user = await makeUser();
+    await grantConsent(user.id);
+    const document = await indexedDocument(user.id);
+    await signIn(user.id);
+
+    const queued = await postStoredExtract(document.id, true);
+    const { runId } = queued.body.data as { runId: string };
+
+    // The person approves a fact from an earlier staging before the worker
+    // gets to the run.
+    const { encryptFactData, encryptFactProvenance } =
+      await import("@/lib/documents/store");
+    const approved = await getPrismaClient().extractedFact.create({
+      data: {
+        documentId: document.id,
+        userId: user.id,
+        factType: "OBSERVATION",
+        status: "APPROVED",
+        confidence: 0.9,
+        needsReview: false,
+        dataEncrypted: encryptFactData({
+          label: "Glucose",
+          value: 95,
+          unit: "mg/dL",
+        } as never),
+        provenanceEncrypted: encryptFactProvenance({
+          sourceText: "Glucose 95",
+          anchored: true,
+          sourceOffset: 0,
+          page: null,
+          confidence: 0.9,
+        } as never),
+      },
+    });
+
+    expect(await work(runId)).toBe("failed");
+    const done = await poll(runId);
+    expect(done.body.data).toMatchObject({
+      status: "FAILED",
+      error: {
+        code: "documents.inbound.alreadyPartlyConfirmed",
+        status: 409,
+      },
+    });
+    const facts = await getPrismaClient().extractedFact.findMany({
+      where: { documentId: document.id },
+    });
+    expect(facts.map((f) => [f.id, f.status])).toEqual([
+      [approved.id, "APPROVED"],
+    ]);
+  });
+
+  it("answers with the document detail, exactly as before, without the header", async () => {
+    const user = await makeUser();
+    await grantConsent(user.id);
+    const document = await indexedDocument(user.id);
+    await signIn(user.id);
+
+    const res = await postStoredExtract(document.id, false);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      id: document.id,
+      status: "EXTRACTED",
+    });
+    expect((res.body.data as { facts: unknown[] }).facts).toHaveLength(1);
+    expect(await getPrismaClient().documentAiRun.count()).toBe(0);
   });
 });

@@ -39,7 +39,12 @@ import {
 import { callTimeoutMs } from "@/lib/ai/effective-timeout";
 import { prisma } from "@/lib/db";
 import { loadOwnedDocument } from "@/lib/documents/ai-route-support";
+import { loadDocumentChatText } from "@/lib/documents/content-index";
 import { refusalAsFailure } from "@/lib/documents/ai-runs/http";
+import {
+  DOCUMENT_EXTRACT_MODEL_CALLS,
+  executeDocumentExtract,
+} from "@/lib/documents/ai-runs/extract-run";
 import {
   DOCUMENT_INDEX_MODEL_CALLS,
   executeDocumentIndex,
@@ -389,6 +394,62 @@ async function runDocumentSuggestRead(
   });
 }
 
+/** The text an extract run structures: the sealed browser text, or the content index. */
+async function extractText(run: ClaimedAiRun): Promise<string> {
+  if (run.params.extract?.input !== "stored") return runText(run);
+  const chat = run.documentId
+    ? await loadDocumentChatText(run.userId, run.documentId)
+    : null;
+  if (!chat || !chat.text.trim()) {
+    throw new RunRefused({
+      status: 422,
+      message: "Read the document first, then extract.",
+      errorCode: "documents.inbound.notIndexed",
+    });
+  }
+  return chat.text;
+}
+
+async function runDocumentExtractRead(
+  run: ClaimedAiRun,
+  deadlineAt: number | undefined,
+  now: () => number,
+): Promise<AiRunOutcome<AiRunResult>> {
+  const document = await loadRunDocument(run);
+  const text = run.params.mode === "text" ? await extractText(run) : null;
+  const read = await pickForDocumentRead(
+    run,
+    DOCUMENT_EXTRACT_MODEL_CALLS,
+    deadlineAt,
+    now,
+  );
+  const budget = runBudget(run);
+  const outcome = await executeDocumentExtract({
+    userId: run.userId,
+    document,
+    input:
+      read.mode === "text"
+        ? {
+            mode: run.params.extract?.input === "stored" ? "stored" : "text",
+            text: text ?? "",
+            pick: read.pick,
+            budget,
+          }
+        : { mode: "vision", pick: read.pick, budget },
+    origin: { ipAddress: null, worker: true },
+  });
+  if (!outcome.ok) return outcome;
+  // The facts are staged on the document; the run carries only the count.
+  return {
+    ok: true,
+    data: {
+      documentId: outcome.data.id,
+      factsStaged: outcome.data.facts.length,
+      status: outcome.data.status,
+    },
+  };
+}
+
 type RunDispatcher = (
   run: ClaimedAiRun,
   deadlineAt: number | undefined,
@@ -405,6 +466,7 @@ const RUN_DISPATCH: Record<DocumentAiRunKindValue, RunDispatcher> = {
   LABS_OCR_EXTRACT: runLabsOcr,
   DOCUMENT_SUMMARY: runDocumentSummaryRead,
   DOCUMENT_SUGGEST: runDocumentSuggestRead,
+  DOCUMENT_EXTRACT: runDocumentExtractRead,
 };
 
 /**

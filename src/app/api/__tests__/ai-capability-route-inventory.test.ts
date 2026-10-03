@@ -171,6 +171,7 @@ const RUN_QUEUED_BY: Record<DocumentAiRunKindValue, string> = {
   LABS_OCR_EXTRACT: "src/app/api/labs/ocr/extract/route.ts",
   DOCUMENT_SUMMARY: "src/app/api/documents/inbound/[id]/summary/route.ts",
   DOCUMENT_SUGGEST: "src/app/api/documents/inbound/[id]/suggest/route.ts",
+  DOCUMENT_EXTRACT: "src/app/api/documents/inbound/[id]/extract/route.ts",
 };
 
 describe("background run kinds", () => {

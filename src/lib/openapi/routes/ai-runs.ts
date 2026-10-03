@@ -7,16 +7,18 @@
  * Part of the OpenAPI route table; aggregated in `./index.ts`.
  *
  * iOS coordination (v1.40): `POST /api/documents/inbound/{id}/index`,
- * `…/summary` and `…/suggest` keep their 200 bodies when the request carries
- * no `Prefer` header. A client that
- * sends `Prefer: respond-async` gets 202 with a run id and polls the run here;
- * the result is the same body the route would have answered with.
+ * `…/summary`, `…/suggest` and `…/extract` keep their 200 bodies when the
+ * request carries no `Prefer` header. A client that sends
+ * `Prefer: respond-async` gets 202 with a run id and polls the run here; the
+ * result is the body the route would have answered with, except for extract,
+ * whose run carries `DocumentExtractRunResult`.
  * `POST /api/labs/ocr/extract` (web only) always answers 202.
  */
 import type { ZodOpenApiObject } from "zod-openapi";
 import { z } from "zod/v4";
 
 import {
+  documentExtractRunResult,
   documentIndexResponse,
   documentSuggestResponse,
   documentSummaryResponse,
@@ -32,6 +34,7 @@ const aiRun = z
       "LABS_OCR_EXTRACT",
       "DOCUMENT_SUMMARY",
       "DOCUMENT_SUGGEST",
+      "DOCUMENT_EXTRACT",
     ]),
     documentId: z
       .string()
@@ -44,10 +47,11 @@ const aiRun = z
         ocrExtractResponse,
         documentSummaryResponse,
         documentSuggestResponse,
+        documentExtractRunResult,
       ])
       .nullable()
       .describe(
-        "Present once `status` is `SUCCEEDED`: the body the queuing route answers with synchronously. `DOCUMENT_INDEX` carries `DocumentIndexResponse`, `LABS_OCR_EXTRACT` carries `OcrExtractResponse`, `DOCUMENT_SUMMARY` carries `DocumentSummaryResponse`, `DOCUMENT_SUGGEST` carries `DocumentSuggestResponse`. Decode by `kind`; treat an unknown `kind` as a run this client did not start.",
+        "Present once `status` is `SUCCEEDED`: the body the queuing route answers with synchronously. `DOCUMENT_INDEX` carries `DocumentIndexResponse`, `LABS_OCR_EXTRACT` carries `OcrExtractResponse`, `DOCUMENT_SUMMARY` carries `DocumentSummaryResponse`, `DOCUMENT_SUGGEST` carries `DocumentSuggestResponse`, `DOCUMENT_EXTRACT` carries `DocumentExtractRunResult` (not the extract route's detail body). Decode by `kind`; treat an unknown `kind` as a run this client did not start.",
       ),
     error: z
       .object({

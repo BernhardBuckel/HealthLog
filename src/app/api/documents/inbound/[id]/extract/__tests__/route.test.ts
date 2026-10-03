@@ -19,8 +19,11 @@ import { NextRequest } from "next/server";
  */
 
 vi.mock("@/lib/db", () => {
+  // The staging transaction locks the document row and asks again whether
+  // it may stage (a review can finish while a background read runs).
   const tx = {
-    extractedFact: { deleteMany: vi.fn() },
+    $queryRaw: vi.fn(async () => [{ status: "STORED" }]),
+    extractedFact: { deleteMany: vi.fn(), count: vi.fn(async () => 0) },
     inboundDocument: { update: vi.fn(), findUniqueOrThrow: vi.fn() },
   };
   return {
@@ -123,7 +126,11 @@ import { AiUnavailableError } from "@/lib/ai/capabilities/refusal";
 const tx = (
   prisma as unknown as {
     __tx: {
-      extractedFact: { deleteMany: ReturnType<typeof vi.fn> };
+      $queryRaw: ReturnType<typeof vi.fn>;
+      extractedFact: {
+        deleteMany: ReturnType<typeof vi.fn>;
+        count: ReturnType<typeof vi.fn>;
+      };
       inboundDocument: {
         update: ReturnType<typeof vi.fn>;
         findUniqueOrThrow: ReturnType<typeof vi.fn>;
@@ -302,6 +309,27 @@ describe("POST /api/documents/inbound/[id]/extract — stored mode", () => {
         details: expect.objectContaining({ mode: "stored" }),
       }),
     );
+  });
+
+  it("refuses to stage when a fact was approved while the read ran, keeping the review", async () => {
+    tx.extractedFact.count.mockResolvedValueOnce(1);
+    const res = await POST(storedReq("doc-1") as never, ctx("doc-1") as never);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.meta.errorCode).toBe(
+      "documents.inbound.alreadyPartlyConfirmed",
+    );
+    expect(tx.extractedFact.deleteMany).not.toHaveBeenCalled();
+    expect(tx.inboundDocument.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses to stage when the document was confirmed while the read ran", async () => {
+    tx.$queryRaw.mockResolvedValueOnce([{ status: "CONFIRMED" }]);
+    const res = await POST(storedReq("doc-1") as never, ctx("doc-1") as never);
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.meta.errorCode).toBe("documents.inbound.alreadyConfirmed");
+    expect(tx.extractedFact.deleteMany).not.toHaveBeenCalled();
   });
 
   it("422s (notIndexed) without stored text, before any bucket charge", async () => {

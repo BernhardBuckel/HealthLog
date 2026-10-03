@@ -46,6 +46,7 @@ import type {
   ObservationFactData,
 } from "@/lib/validations/inbound-documents";
 
+import { AiRunPhaseNote } from "./document-ai-panels";
 import { useDocumentAiErrorText } from "./use-document-assist";
 import {
   useConfirmFacts,
@@ -625,12 +626,12 @@ export function DocumentFactsSection({
               storedExtract.mutate(
                 { documentId: doc.id },
                 {
-                  onSuccess: (detail) => {
+                  onSuccess: (result) => {
                     setFailures({});
                     setIncluded({});
-                    if (
-                      detail.facts.some((fact) => fact.status === "PENDING")
-                    ) {
+                    // The staged facts arrive with the document refetch the
+                    // hook starts; the review opens onto them.
+                    if (result.factsStaged > 0) {
                       setOpen(true);
                     } else {
                       toast.info(t("documents.review.extractEmpty"));
@@ -654,9 +655,19 @@ export function DocumentFactsSection({
               ? t("documents.review.extracting")
               : t("documents.review.extract")}
           </Button>
-          <p className="text-muted-foreground text-xs">
-            {t("documents.review.extractHint")}
-          </p>
+          {storedExtract.runPhase === "idle" ? (
+            <p className="text-muted-foreground text-xs">
+              {t("documents.review.extractHint")}
+            </p>
+          ) : (
+            // While the read runs, the hint gives way to where it stands:
+            // one muted line, the same one every document read shows.
+            <AiRunPhaseNote
+              phase={storedExtract.runPhase}
+              outcome="savedWithDocument"
+              slot="document-facts-extract-run-phase"
+            />
+          )}
         </div>
       )}
     </div>

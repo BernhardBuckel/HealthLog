@@ -79,6 +79,16 @@ vi.mock("@/lib/documents/ai-runs/suggest-run", () => ({
   executeDocumentSuggest: (...a: unknown[]) => executeDocumentSuggest(...a),
 }));
 
+const executeDocumentExtract = vi.fn();
+vi.mock("@/lib/documents/ai-runs/extract-run", () => ({
+  DOCUMENT_EXTRACT_MODEL_CALLS: 2,
+  executeDocumentExtract: (...a: unknown[]) => executeDocumentExtract(...a),
+}));
+const loadDocumentChatText = vi.fn();
+vi.mock("@/lib/documents/content-index", () => ({
+  loadDocumentChatText: (...a: unknown[]) => loadDocumentChatText(...a),
+}));
+
 const loadOwnedDocument = vi.fn();
 vi.mock("@/lib/documents/ai-route-support", () => ({
   loadOwnedDocument: (...a: unknown[]) => loadOwnedDocument(...a),
@@ -552,5 +562,111 @@ describe("summary and suggestion runs", () => {
     expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
     expect(executeDocumentSuggest).not.toHaveBeenCalled();
     expect(markQueuedSummaryUnavailable).not.toHaveBeenCalled();
+  });
+});
+
+describe("extract runs", () => {
+  const extractRun = (input: "stored" | "vision" | "text") =>
+    claimed({
+      kind: "DOCUMENT_EXTRACT",
+      params: {
+        mode: input === "vision" ? "vision" : "text",
+        budget,
+        extract: { input },
+      },
+      input: input === "text" ? Buffer.from("Hb 14 g/dL") : null,
+    });
+
+  beforeEach(() => {
+    executeDocumentExtract.mockResolvedValue({
+      ok: true,
+      data: {
+        id: "d1",
+        status: "EXTRACTED",
+        facts: [{ id: "f1" }, { id: "f2" }],
+      },
+    });
+    loadDocumentChatText.mockResolvedValue({ text: "Hb 14 g/dL" });
+    requireDocumentTextProvider.mockResolvedValue({
+      entry: {
+        providerType: "local",
+        instance: { responseTimeoutSeconds: 100 },
+      },
+      providerType: "local",
+    });
+  });
+
+  it("stores only the count and the status, with two calls' deadline", async () => {
+    claimAiRun.mockResolvedValue(extractRun("vision"));
+    requireDocumentVisionProvider.mockResolvedValue(visionPick(300));
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe(
+      "succeeded",
+    );
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "run1", status: "RUNNING" },
+      data: { expiresAt: new Date(NOW + 2 * 300_000 + 60_000) },
+    });
+    expect(completeAiRun).toHaveBeenCalledWith(
+      "run1",
+      { documentId: "d1", factsStaged: 2, status: "EXTRACTED" },
+      new Date(NOW),
+    );
+  });
+
+  it("reads the stored text for a stored extract and re-checks the text provider's wire", async () => {
+    claimAiRun.mockResolvedValue(extractRun("stored"));
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe(
+      "succeeded",
+    );
+    expect(loadDocumentChatText).toHaveBeenCalledWith("u1", "d1");
+    expect(aiEgressRefusal).toHaveBeenCalledWith("documentAi", "u1", ["local"]);
+    expect(executeDocumentExtract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ mode: "stored", text: "Hb 14 g/dL" }),
+      }),
+    );
+  });
+
+  it("fails a stored extract whose text is gone, before any provider pick", async () => {
+    claimAiRun.mockResolvedValue(extractRun("stored"));
+    loadDocumentChatText.mockResolvedValue(null);
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(requireDocumentTextProvider).not.toHaveBeenCalled();
+    expect(executeDocumentExtract).not.toHaveBeenCalled();
+    expect(settleAiRunBudget).toHaveBeenCalledOnce();
+    expect(failAiRun).toHaveBeenCalledWith(
+      "run1",
+      expect.objectContaining({
+        status: 422,
+        errorCode: "documents.inbound.notIndexed",
+      }),
+      "RUNNING",
+      new Date(NOW),
+    );
+  });
+
+  it("stores the staging refusal when a review finished while the read ran", async () => {
+    claimAiRun.mockResolvedValue(extractRun("text"));
+    executeDocumentExtract.mockResolvedValue({
+      ok: false,
+      status: 409,
+      message: "Some facts from this document are already confirmed.",
+      errorCode: "documents.inbound.alreadyPartlyConfirmed",
+    });
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(executeDocumentExtract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ mode: "text", text: "Hb 14 g/dL" }),
+      }),
+    );
+    expect(failAiRun).toHaveBeenCalledWith(
+      "run1",
+      expect.objectContaining({
+        status: 409,
+        errorCode: "documents.inbound.alreadyPartlyConfirmed",
+      }),
+      "RUNNING",
+      new Date(NOW),
+    );
   });
 });
