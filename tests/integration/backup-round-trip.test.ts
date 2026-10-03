@@ -66,7 +66,7 @@ import {
 } from "@/lib/withings/ecg-waveform-codec";
 import { buildFullBackupPayload } from "@/lib/export/full-backup-payload";
 import {
-  getMedicationCategories,
+  resolveMedicationCategories,
   setMedicationCategory,
 } from "@/lib/medication-category";
 import { UNREADABLE_EXPORT_MARKER } from "@/lib/export/unreadable-marker";
@@ -188,6 +188,7 @@ const COACH_RESULTS_JSON = JSON.stringify([
     chart: { kind: "line", x: "period", series: ["sys"] },
   },
 ]);
+const ROUND_TRIP_CATEGORY_KEY = "custom:5f0c6a52-6a43-4f63-9b39-0c1f4d7e2a10";
 const DOSE_CHANGE_NOTE = "titration note, encrypted at rest";
 const EXTRACTED_FACT_SPAN = "Ferritin  91 ng/mL   (30 - 400)";
 const SIDE_EFFECT_NOTE = "nausea for two hours after the evening dose";
@@ -223,6 +224,8 @@ const COUNT_BACK: Record<
   // No own `userId` column — reached through the drug, like the schedules.
   MedicationCategoryAssignment: (p, userId) =>
     p.medicationCategoryAssignment.count({ where: { medication: { userId } } }),
+  MedicationCategoryLabel: (p, userId) =>
+    p.medicationCategoryLabel.count({ where: { userId } }),
   MoodEntry: (p, userId) => p.moodEntry.count({ where: { userId } }),
   MoodContext: (p, userId) => p.moodContext.count({ where: { userId } }),
   MoodEntryTagLink: (p, userId) =>
@@ -427,9 +430,18 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
     },
   });
   // Not OTHER: a missing row already reads as OTHER, so only a chosen value
-  // proves the category came back.
+  // proves the category came back. A category the person named, so the
+  // assignment can only resolve if the label came back before it.
+  await prisma.medicationCategoryLabel.create({
+    data: {
+      userId: OWNER_ID,
+      key: ROUND_TRIP_CATEGORY_KEY,
+      labelEncrypted: encryptToBytes("Heart and circulation"),
+      sortOrder: 2,
+    },
+  });
   await prisma.medicationCategoryAssignment.create({
-    data: { medicationId: medication.id, category: "THYROID" },
+    data: { medicationId: medication.id, category: ROUND_TRIP_CATEGORY_KEY },
   });
   // The one row in this fixture that is also checked field by field after the
   // restore — see the assertion at the end of the test for why.
@@ -2809,8 +2821,22 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       await prisma.medication.create({
         data: { userId: OWNER_ID, name: "Unfiled", dose: "1 tab" },
       });
+      const travel = await prisma.medication.create({
+        data: { userId: OWNER_ID, name: "Tamiflu", dose: "75 mg" },
+      });
       await setMedicationCategory(thyroid.id, "THYROID");
       await setMedicationCategory(mood.id, "MENTAL_HEALTH");
+      // v1.40 — a category the person named. Hidden, because a hidden
+      // category still files the medication and must travel with it.
+      await prisma.medicationCategoryLabel.create({
+        data: {
+          userId: OWNER_ID,
+          key: ROUND_TRIP_CATEGORY_KEY,
+          labelEncrypted: encryptToBytes("Travel kit"),
+          isActive: false,
+        },
+      });
+      await setMedicationCategory(travel.id, ROUND_TRIP_CATEGORY_KEY);
 
       const { payload } = await buildFullBackupPayload(prisma, OWNER_ID, {
         purpose,
@@ -2824,7 +2850,17 @@ describe("every model the plan claims two-ended survives a real restore", () => 
         Levothyroxine: "THYROID",
         Sertraline: "MENTAL_HEALTH",
         Unfiled: "OTHER",
+        Tamiflu: ROUND_TRIP_CATEGORY_KEY,
       });
+      expect(payload.customMedicationCategories).toEqual([
+        {
+          key: ROUND_TRIP_CATEGORY_KEY,
+          label: "Travel kit",
+          sortOrder: 0,
+          isActive: false,
+          createdAt: expect.any(String),
+        },
+      ]);
 
       await prisma.user.delete({ where: { id: OWNER_ID } });
       await createOwner(prisma);
@@ -2849,16 +2885,24 @@ describe("every model the plan claims two-ended survives a real restore", () => 
         where: { userId: OWNER_ID },
         select: { id: true, name: true },
       });
-      const categories = await getMedicationCategories(
+      const categories = await resolveMedicationCategories(
         restored.map((m) => m.id),
       );
       expect(
         Object.fromEntries(restored.map((m) => [m.name, categories[m.id]])),
       ).toEqual({
-        Levothyroxine: "THYROID",
-        Sertraline: "MENTAL_HEALTH",
-        Unfiled: "OTHER",
+        Levothyroxine: { category: "THYROID", categoryLabel: null },
+        Sertraline: { category: "MENTAL_HEALTH", categoryLabel: null },
+        Unfiled: { category: "OTHER", categoryLabel: null },
+        Tamiflu: {
+          category: ROUND_TRIP_CATEGORY_KEY,
+          categoryLabel: "Travel kit",
+        },
       });
+      const label = await prisma.medicationCategoryLabel.findUniqueOrThrow({
+        where: { key: ROUND_TRIP_CATEGORY_KEY },
+      });
+      expect(label.isActive).toBe(false);
     },
   );
 

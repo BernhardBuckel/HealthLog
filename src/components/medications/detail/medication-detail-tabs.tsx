@@ -135,6 +135,8 @@ export interface MedicationDetailSnapshot {
   name: string;
   dose: string;
   category: string;
+  /** v1.40 — the label of a custom category; null for a built-in one. */
+  categoryLabel?: string | null;
   treatmentClass?: string;
   deliveryForm?: string;
   dosesPerUnit?: number | null;

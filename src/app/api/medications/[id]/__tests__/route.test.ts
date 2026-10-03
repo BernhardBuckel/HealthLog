@@ -52,7 +52,9 @@ vi.mock("@/lib/rollups/medication-compliance-rollups", () => ({
 vi.mock("@/lib/medication-category", () => ({
   deleteMedicationCategory: vi.fn().mockResolvedValue(undefined),
   getMedicationCategories: vi.fn().mockResolvedValue({}),
-  setMedicationCategory: vi.fn().mockResolvedValue(undefined),
+  resolveMedicationCategories: vi.fn().mockResolvedValue({}),
+  isAssignableCategory: vi.fn().mockResolvedValue(true),
+  setMedicationCategory: vi.fn().mockResolvedValue("OTHER"),
 }));
 vi.mock("@/lib/logging/transports", () => ({ emitIfSampled: vi.fn() }));
 vi.mock("@/lib/db-compat", () => ({
@@ -70,7 +72,12 @@ vi.mock("next/headers", () => ({
 import { PUT } from "../route";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth/session";
-import { getMedicationCategories } from "@/lib/medication-category";
+import {
+  getMedicationCategories,
+  isAssignableCategory,
+  resolveMedicationCategories,
+  setMedicationCategory,
+} from "@/lib/medication-category";
 import { auditLog } from "@/lib/auth/audit";
 import {
   dayKeyForScheduledFor,
@@ -95,6 +102,12 @@ const ROUTE_CTX = { params: Promise.resolve({ id: "m1" }) };
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
+  // v1.40 — the category helpers' defaults, which `resetAllMocks` clears.
+  vi.mocked(resolveMedicationCategories).mockResolvedValue({});
+  vi.mocked(isAssignableCategory).mockResolvedValue(true);
+  vi.mocked(setMedicationCategory).mockImplementation(
+    async (_id, category) => (category ?? "OTHER") as never,
+  );
   vi.mocked(prisma.medication.findUnique).mockResolvedValue({
     id: "m1",
     userId: "user-1",

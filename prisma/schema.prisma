@@ -720,6 +720,7 @@ model User {
   medications                               Medication[]
   intakeEvents                              MedicationIntakeEvent[]
   medicationPauseEras                       MedicationPauseEra[]
+  medicationCategoryLabels                  MedicationCategoryLabel[]
   apiTokens                                 ApiToken[]
   // v1.24 — MCP remote OAuth 2.1 connections (1:N). Each row is a granted
   // authorization for an MCP client, audience-bound to health:read/health:write.
@@ -2830,6 +2831,34 @@ model MedicationCategoryAssignment {
 
   @@index([category])
   @@map("medication_categories")
+}
+
+/// v1.40 (#1041) — a medication category the person named themselves, shown
+/// next to the built-in ones. A medication filed under it carries the row's
+/// `key` (`custom:<uuid>`) in `MedicationCategoryAssignment.category`; the
+/// list and detail DTOs publish the decrypted label as `categoryLabel`.
+/// Deleting a label moves its medications to OTHER in the same transaction,
+/// so the app never writes a dangling key; one a restore leaves behind reads
+/// as OTHER. Capped at 20 per account.
+model MedicationCategoryLabel {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  /// `custom:<uuid>`, the handle the category column, the backup and the
+  /// iPhone app use. Never reused.
+  key            String   @unique
+  /// The person's own label, AES-256-GCM at rest. Never logged or audited.
+  labelEncrypted Bytes    @map("label_encrypted")
+  /// Position in the picker and the filter row, ascending.
+  sortOrder      Int      @default(0) @map("sort_order")
+  /// false = hidden from the picker; medications filed under it keep it.
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("medication_category_labels")
 }
 
 /// v1.28 — the user's explicit override of a medication's efficacy target,

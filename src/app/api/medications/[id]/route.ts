@@ -14,7 +14,8 @@ import { updateMedicationSchema } from "@/lib/validations/medication";
 import { invalidateUserMedications } from "@/lib/cache/invalidate";
 import {
   deleteMedicationCategory,
-  getMedicationCategories,
+  isAssignableCategory,
+  resolveMedicationCategories,
   setMedicationCategory,
 } from "@/lib/medication-category";
 import { serializeScheduleRecurrence } from "@/lib/medication-schedule";
@@ -103,9 +104,11 @@ export const GET = apiHandler(
     }
 
     let category = "OTHER";
+    let categoryLabel: string | null = null;
     try {
-      const categories = await getMedicationCategories([id]);
-      category = categories[id] ?? "OTHER";
+      const categories = await resolveMedicationCategories([id]);
+      category = categories[id]?.category ?? "OTHER";
+      categoryLabel = categories[id]?.categoryLabel ?? null;
     } catch {
       // Category enrichment is optional
     }
@@ -242,6 +245,7 @@ export const GET = apiHandler(
       // intake tracking is off (see `scheduleWireFields`).
       ...scheduleWireFields(medication.trackIntake, schedulesDto),
       category,
+      categoryLabel,
       nextDueAt: display ? display.at.toISOString() : null,
       nextDueOverdue: display?.overdue ?? false,
       // v1.39.4 (#1040) — see `resolveIntakeActionability`.
@@ -382,6 +386,16 @@ export const PUT = apiHandler(
       trackIntake,
       reminderGraceMinutes: topLevelGraceMinutes,
     } = input;
+
+    // v1.40 (#1041) — a custom category must be one of this record's own.
+    if (
+      category !== undefined &&
+      !(await isAssignableCategory(user.id, category))
+    ) {
+      return apiError("Unknown medication category", 422, {
+        errorCode: "medications.category.unknown",
+      });
+    }
 
     // v1.39.1 (#1033) — intake tracking transition. Off keeps the schedule
     // as a record; the live era from here on expects nothing.
@@ -988,10 +1002,9 @@ export const PUT = apiHandler(
       }
     }
 
-    const normalizedCategory =
-      category !== undefined
-        ? await setMedicationCategory(id, category)
-        : ((await getMedicationCategories([id]))[id] ?? "OTHER");
+    if (category !== undefined) await setMedicationCategory(id, category);
+    const resolvedCategory = (await resolveMedicationCategories([id]))[id];
+    const normalizedCategory = resolvedCategory?.category ?? "OTHER";
 
     await auditLog("medication.update", {
       userId: user.id,
@@ -1054,6 +1067,7 @@ export const PUT = apiHandler(
         ),
       ),
       category: normalizedCategory,
+      categoryLabel: resolvedCategory?.categoryLabel ?? null,
     });
   },
 );

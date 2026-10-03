@@ -249,6 +249,9 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
     ],
     medication: ["medication.intake.import.invalid_format"],
     medications: [
+      "medications.category.invalid",
+      "medications.category.limitReached",
+      "medications.category.unknown",
       "medications.intake.bulk.apple_health_not_mirrored",
       "medications.intake.bulk.invalid",
       "medications.intake.bulk.too_large",

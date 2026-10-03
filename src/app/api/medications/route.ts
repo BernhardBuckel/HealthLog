@@ -10,13 +10,17 @@ import {
   returnAllZodIssues,
   safeJson,
 } from "@/lib/api-response";
-import { createMedicationSchema } from "@/lib/validations/medication";
+import {
+  createMedicationSchema,
+  isCustomMedicationCategoryKey,
+} from "@/lib/validations/medication";
 import {
   unstableExternalIdMeta,
   unstableExternalIdShape,
 } from "@/lib/validations/external-id";
 import {
-  getMedicationCategories,
+  isAssignableCategory,
+  resolveMedicationCategories,
   setMedicationCategory,
 } from "@/lib/medication-category";
 import { serializeScheduleRecurrence } from "@/lib/medication-schedule";
@@ -78,9 +82,11 @@ async function respondWithExistingMirror(
   },
 ): Promise<Response> {
   let category = "OTHER";
+  let categoryLabel: string | null = null;
   try {
-    const categories = await getMedicationCategories([medication.id]);
-    category = categories[medication.id] ?? "OTHER";
+    const categories = await resolveMedicationCategories([medication.id]);
+    category = categories[medication.id]?.category ?? "OTHER";
+    categoryLabel = categories[medication.id]?.categoryLabel ?? null;
   } catch {
     getEvent()?.addWarning("Medication categories could not be loaded");
   }
@@ -107,6 +113,7 @@ async function respondWithExistingMirror(
       ),
     ),
     category,
+    categoryLabel,
   });
 }
 
@@ -173,6 +180,16 @@ async function postMedication(request: NextRequest): Promise<Response> {
     asNeeded,
     trackIntake,
   } = parsed.data;
+
+  // v1.40 (#1041) — a custom category must be one of this record's own.
+  if (
+    category !== undefined &&
+    !(await isAssignableCategory(user.id, category))
+  ) {
+    return apiError("Unknown medication category", 422, {
+      errorCode: "medications.category.unknown",
+    });
+  }
 
   // v1.28 — idempotent mirror create. A mirrored medication (Apple
   // Health) is keyed by the `(userId, externalSource, externalId)`
@@ -413,6 +430,10 @@ async function postMedication(request: NextRequest): Promise<Response> {
     medication.id,
     category,
   );
+  const categoryLabel = isCustomMedicationCategoryKey(normalizedCategory)
+    ? ((await resolveMedicationCategories([medication.id]))[medication.id]
+        ?.categoryLabel ?? null)
+    : null;
 
   await auditLog("medication.create", {
     userId: user.id,
@@ -446,6 +467,7 @@ async function postMedication(request: NextRequest): Promise<Response> {
         ),
       ),
       category: normalizedCategory,
+      categoryLabel,
     },
     201,
   );

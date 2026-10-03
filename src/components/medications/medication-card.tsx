@@ -63,6 +63,8 @@ interface Medication {
   name: string;
   dose: string;
   category: string;
+  /** v1.40 — the label of a custom category; null for a built-in one. */
+  categoryLabel?: string | null;
   /**
    * v1.4.25 W4d — Prisma treatment-class discriminator. When set to
    * "GLP1" the parent should render the {@link Glp1MedicationCard}
@@ -254,7 +256,11 @@ export function MedicationCard({
   // background/border tint. Defaults to "upcoming" (calm) when the display
   // block is absent (older mocks).
   const doseStatus = display?.currentDose.status ?? "upcoming";
-  const categoryLabel = getMedicationCategoryLabel(medication.category, t);
+  const categoryLabel = getMedicationCategoryLabel(
+    medication.category,
+    t,
+    medication.categoryLabel,
+  );
   const sortedSchedules = [...medication.schedules].sort(
     (a, b) =>
       a.windowStart.localeCompare(b.windowStart) ||

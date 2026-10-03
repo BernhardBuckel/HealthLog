@@ -107,7 +107,11 @@ import { restoreAwardsData } from "@/lib/export/awards-backup";
 import { restoreEnvironmentData } from "@/lib/export/environment-backup";
 import { restoreEcgData } from "@/lib/export/ecg-backup";
 import { restoredMedicationCreatedAt } from "@/lib/export/medication-created-at";
-import { setMedicationCategory } from "@/lib/medication-category";
+import {
+  encryptCategoryLabel,
+  mintCustomMedicationCategoryKey,
+  setMedicationCategory,
+} from "@/lib/medication-category";
 import { invalidateUserData } from "@/lib/cache/invalidate";
 import { TOMBSTONE_RETENTION_DAYS } from "@/lib/auth/native-client";
 import { stampSyncReset } from "@/lib/sync/reset";
@@ -1049,6 +1053,34 @@ export async function restoreBackup(
         // is where an operator has to go to see what the position meant, and
         // an id would be one the restore never wrote.
         const unresolvedRevisionLinks: string[] = [];
+        // v1.40 (#1041) — the account's own medication categories, before
+        // the medications that name them by key. Delete-then-recreate like
+        // the medications themselves. A key held by another account on this
+        // instance (a portable file from elsewhere) is re-minted, and the
+        // medications below are mapped onto the new key.
+        await tx.medicationCategoryLabel.deleteMany({
+          where: { userId: ownerId },
+        });
+        const categoryKeyRemap = new Map<string, string>();
+        for (const c of payload.customMedicationCategories) {
+          const taken = await tx.medicationCategoryLabel.findUnique({
+            where: { key: c.key },
+            select: { id: true },
+          });
+          const key = taken ? mintCustomMedicationCategoryKey() : c.key;
+          if (key !== c.key) categoryKeyRemap.set(c.key, key);
+          await tx.medicationCategoryLabel.create({
+            data: {
+              userId: ownerId,
+              key,
+              labelEncrypted: encryptCategoryLabel(c.label),
+              sortOrder: c.sortOrder,
+              isActive: c.isActive,
+              ...(c.createdAt ? { createdAt: new Date(c.createdAt) } : {}),
+            },
+          });
+        }
+
         let medicationIndex = 0;
         reportSection("medications");
         const restoreStartedAt = new Date();
@@ -1262,7 +1294,11 @@ export async function restoreBackup(
           // medication id, so it is written after the row exists and inside the
           // same transaction. OTHER is what a missing row already reads as.
           if (m.category && m.category !== "OTHER") {
-            await setMedicationCategory(created.id, m.category, tx);
+            await setMedicationCategory(
+              created.id,
+              categoryKeyRemap.get(m.category) ?? m.category,
+              tx,
+            );
           }
 
           // ── The archived schedule eras, in two passes ────────────────

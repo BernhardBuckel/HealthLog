@@ -14,7 +14,10 @@
  */
 import { prisma } from "@/lib/db";
 import { annotate, getEvent } from "@/lib/logging/context";
-import { getMedicationCategories } from "@/lib/medication-category";
+import {
+  resolveMedicationCategories,
+  type ResolvedMedicationCategory,
+} from "@/lib/medication-category";
 import {
   effectiveUnitsPerDose,
   estimateUnitsRunwayDays,
@@ -200,9 +203,11 @@ export async function buildMedicationsList(
   }
   const trackedMedIds = new Set(inventoryCounts.map((e) => e.medicationId));
 
-  let categoryMap: Record<string, string> = {};
+  let categoryMap: Record<string, ResolvedMedicationCategory> = {};
   try {
-    categoryMap = await getMedicationCategories(medications.map((m) => m.id));
+    categoryMap = await resolveMedicationCategories(
+      medications.map((m) => m.id),
+    );
   } catch {
     getEvent()?.addWarning("Medication categories could not be loaded");
   }
@@ -300,7 +305,10 @@ export async function buildMedicationsList(
       // v1.39.1 (#1033) — `schedules: []` plus `recordedSchedules` when
       // intake tracking is off (see `scheduleWireFields`).
       ...scheduleWireFields(m.trackIntake, schedulesDto),
-      category: categoryMap[m.id] ?? "OTHER",
+      category: categoryMap[m.id]?.category ?? "OTHER",
+      // v1.40 (#1041) — the decrypted label of a custom category; null for
+      // a built-in one, which every client localises from `category`.
+      categoryLabel: categoryMap[m.id]?.categoryLabel ?? null,
       // v1.32.25 — provenance echo. Surfacing the mirror source lets the
       // web UI and an operator tell an externally-mirrored row (today only
       // Apple Health) from a native HealthLog medication. NULL for a native

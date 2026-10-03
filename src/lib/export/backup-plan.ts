@@ -83,6 +83,9 @@ export const BACKED_UP_MODELS = [
   // formats and is written back in the restore transaction. Without it every
   // restored medication reads as Other.
   "MedicationCategoryAssignment",
+  // The categories the person named themselves (v1.40, #1041). A medication
+  // filed under one carries its key; without the row the key reads as Other.
+  "MedicationCategoryLabel",
 
   // ── Mood ──────────────────────────────────────────────────────────────────
   "MoodEntry",
@@ -310,6 +313,7 @@ export const TWO_ENDED_MODELS = [
   "MedicationPauseEra",
   "MedicationDoseChange",
   "MedicationCategoryAssignment",
+  "MedicationCategoryLabel",
   "MoodEntry",
   "MoodContext",
   "MoodEntryTagLink",

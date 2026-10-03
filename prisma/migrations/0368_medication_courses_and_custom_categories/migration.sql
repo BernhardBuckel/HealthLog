@@ -18,3 +18,25 @@ CREATE TABLE IF NOT EXISTS "medication_categories" (
 
 CREATE INDEX IF NOT EXISTS "medication_categories_category_idx"
   ON "medication_categories"("category");
+
+-- Custom medication categories (#1041): the person's own labels, shown next
+-- to the built-in ones. A medication filed under one carries its `key` in
+-- `medication_categories.category`. Idempotent.
+CREATE TABLE IF NOT EXISTS "medication_category_labels" (
+  "id" TEXT NOT NULL,
+  "user_id" TEXT NOT NULL,
+  "key" TEXT NOT NULL,
+  "label_encrypted" BYTEA NOT NULL,
+  "sort_order" INTEGER NOT NULL DEFAULT 0,
+  "is_active" BOOLEAN NOT NULL DEFAULT true,
+  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "medication_category_labels_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "medication_category_labels_user_id_fkey"
+    FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "medication_category_labels_key_key"
+  ON "medication_category_labels"("key");
+CREATE INDEX IF NOT EXISTS "medication_category_labels_user_id_sort_order_idx"
+  ON "medication_category_labels"("user_id", "sort_order");

@@ -122,7 +122,10 @@ import {
   buildAccountSettingsBackupSection,
   type AccountSettingsBackupSection,
 } from "@/lib/export/account-settings-backup";
-import { getMedicationCategories } from "@/lib/medication-category";
+import {
+  getMedicationCategories,
+  readMedicationCategoryLabelsForBackup,
+} from "@/lib/medication-category";
 
 export interface FullBackupCounts
   extends
@@ -970,6 +973,12 @@ export async function buildFullBackupPayload(
     medications.map((m) => m.id),
     prisma,
   );
+  // v1.40 (#1041) — the account's own categories, restored before the
+  // medications that name them by key. Labels travel decrypted so a file
+  // restores on an instance with a different key; every one is carried,
+  // hidden ones included, because a medication can still be filed under it.
+  const customMedicationCategories =
+    await readMedicationCategoryLabelsForBackup(userId, prisma);
 
   // Where each archived era sits in its OWN drug's ordered list. Built once
   // here rather than per row, and scoped per medication because the supersede
@@ -1001,6 +1010,7 @@ export async function buildFullBackupPayload(
         : null,
     ...accountSettingsSection,
     measurements: bulk.measurements,
+    customMedicationCategories,
     medications: medications.map((m) => ({
       ...(disasterRecovery
         ? {

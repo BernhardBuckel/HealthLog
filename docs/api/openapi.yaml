@@ -5800,7 +5800,8 @@ paths:
         duplicate. v1.32.25 — a NEW mirror create is refused with 422 (`meta.errorCode =
         medications.mirror.limit_exceeded`) once the caller already holds 30 medications mirrored from the same external
         source; an idempotent re-post of a medication already mirrored is unaffected, and native creates are never
-        gated.
+        gated. v1.40 — `category` may be the key of one of the caller's own categories; any other `custom:` key is 422
+        `medications.category.unknown`.
       parameters:
         - *a6
       requestBody:
@@ -5819,6 +5820,124 @@ paths:
         "401": *a1
         "403": *a11
         "409": *a7
+        "422": *a4
+        "429": *a5
+  /api/medications/categories:
+    get:
+      tags:
+        - Medications
+      summary: List the record's own medication categories
+      description: v1.40 (#1041) — every custom category of the record, hidden ones included, in picker order (`sortOrder`,
+        then creation), each with the number of medications filed under it. The built-in categories are not listed; they
+        are the fixed values of `MedicationCategory`. Delegable at READ level over the `medications` section.
+      responses:
+        "200":
+          description: The custom categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMedicationCategoriesResponse"
+        "401": *a1
+        "403": *a11
+        "422": *a4
+        "429": *a5
+    post:
+      tags:
+        - Medications
+      summary: Create a custom medication category
+      description: "v1.40 (#1041) — mints a `custom:<uuid>` key and stores the label encrypted. At most 20 per account, hidden
+        ones included: one more is 422 `medications.category.limitReached`; an invalid body is 422
+        `medications.category.invalid`. Rate-limited 30/min keyed on the actor. Delegable at MANAGE level over the
+        `medications` section. The label never reaches an audit row."
+      parameters:
+        - *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMedicationCategoryRequest"
+      responses:
+        "201":
+          description: The new category.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateMedicationCategoryResponse"
+        "401": *a1
+        "403": *a11
+        "409": *a7
+        "422": *a4
+        "429": *a5
+  /api/medications/categories/{key}:
+    patch:
+      tags:
+        - Medications
+      summary: Rename, reorder or hide a custom medication category
+      description: v1.40 (#1041) — field-by-field update of one of the record's own categories. Another account's key, or a
+        built-in value, is 404. Rate-limited 30/min keyed on the actor. Delegable at MANAGE level over the `medications`
+        section.
+      parameters:
+        - in: path
+          name: key
+          schema:
+            type: string
+            description: "`custom:<uuid>`, the category's key."
+          required: true
+          description: "`custom:<uuid>`, the category's key."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMedicationCategoryRequest"
+      responses:
+        "200":
+          description: The updated category.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateMedicationCategoryResponse"
+        "401": *a1
+        "403": *a11
+        "404":
+          description: Not one of the record's own categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    delete:
+      tags:
+        - Medications
+      summary: Delete a custom medication category
+      description: v1.40 (#1041) — deletes the category and, in the same transaction, moves every medication filed under it to
+        OTHER; `movedCount` says how many moved. No medication is left pointing at a key that no longer exists. Another
+        account's key, or a built-in value, is 404. Delegable at MANAGE level over the `medications` section.
+      parameters:
+        - in: path
+          name: key
+          schema:
+            type: string
+            description: "`custom:<uuid>`, the category's key."
+          required: true
+          description: "`custom:<uuid>`, the category's key."
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteMedicationCategoryResponse"
+        "401": *a1
+        "403": *a11
+        "404":
+          description: Not one of the record's own categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "422": *a4
         "429": *a5
   /api/medications/layout:
@@ -5932,7 +6051,9 @@ paths:
       description: Every field on the body is optional; omitted fields are left untouched. Supplying `schedules` REPLACES the
         medication's full schedule list (the route deletes existing rows before re-creating). Flipping `active` to false
         stamps `pausedAt`; flipping back to true clears it. v1.5 invariants on the `schedules` array match `POST
-        /api/medications`. Audits as `medication.update`.
+        /api/medications`. Audits as `medication.update`. v1.40 — an absent `category` leaves the stored one untouched
+        (send it only when the person changed it); a `custom:` key that is not the caller's is 422
+        `medications.category.unknown`.
       parameters:
         - in: path
           name: id
@@ -24281,22 +24402,28 @@ components:
           minLength: 1
           maxLength: 50
         category:
-          type: string
-          enum:
-            - BLOOD_PRESSURE
-            - VITAMIN
-            - SUPPLEMENT
-            - PAIN_RELIEF
-            - ALLERGY
-            - DIGESTIVE
-            - THYROID
-            - HORMONE
-            - SKIN
-            - SLEEP_AID
-            - DIABETES
-            - ANTIBIOTIC
-            - MENTAL_HEALTH
-            - OTHER
+          anyOf:
+            - type: string
+              enum:
+                - BLOOD_PRESSURE
+                - VITAMIN
+                - SUPPLEMENT
+                - PAIN_RELIEF
+                - ALLERGY
+                - DIGESTIVE
+                - THYROID
+                - HORMONE
+                - SKIN
+                - SLEEP_AID
+                - DIABETES
+                - ANTIBIOTIC
+                - MENTAL_HEALTH
+                - OTHER
+            - type: string
+              pattern: ^custom:[0-9a-f-]{36}$
+          description: A built-in clinical category (BLOOD_PRESSURE, VITAMIN, SUPPLEMENT, PAIN_RELIEF, ALLERGY, DIGESTIVE,
+            THYROID, HORMONE, SKIN, SLEEP_AID, DIABETES, ANTIBIOTIC, MENTAL_HEALTH, OTHER) or `custom:<uuid>`, the key
+            of one of the caller's own categories.
         treatmentClass:
           type: string
           enum:
@@ -24568,6 +24695,31 @@ components:
       description: One explicit per-dose on-time intake window. `timeOfDay` matches a schedule dose time; `[start, end]`
         (HH:mm, user local, `start <= end`) is the on-time band. Outside it the cadence-derived late tail applies, then
         ad-hoc.
+    CreateMedicationCategoryRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 40
+      required:
+        - label
+      description: v1.40 — name a new medication category. The label is trimmed, 1 to 40 characters, and encrypted at rest.
+    UpdateMedicationCategoryRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 40
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        isActive:
+          type: boolean
+      description: "v1.40 — rename, reorder or hide a custom medication category. At least one field. Hiding (`isActive:
+        false`) removes it from the picker; medications filed under it keep it."
     MedicationListLayoutPutBody:
       type: object
       properties:
@@ -24618,22 +24770,28 @@ components:
           minLength: 1
           maxLength: 50
         category:
-          type: string
-          enum:
-            - BLOOD_PRESSURE
-            - VITAMIN
-            - SUPPLEMENT
-            - PAIN_RELIEF
-            - ALLERGY
-            - DIGESTIVE
-            - THYROID
-            - HORMONE
-            - SKIN
-            - SLEEP_AID
-            - DIABETES
-            - ANTIBIOTIC
-            - MENTAL_HEALTH
-            - OTHER
+          anyOf:
+            - type: string
+              enum:
+                - BLOOD_PRESSURE
+                - VITAMIN
+                - SUPPLEMENT
+                - PAIN_RELIEF
+                - ALLERGY
+                - DIGESTIVE
+                - THYROID
+                - HORMONE
+                - SKIN
+                - SLEEP_AID
+                - DIABETES
+                - ANTIBIOTIC
+                - MENTAL_HEALTH
+                - OTHER
+            - type: string
+              pattern: ^custom:[0-9a-f-]{36}$
+          description: A built-in clinical category (BLOOD_PRESSURE, VITAMIN, SUPPLEMENT, PAIN_RELIEF, ALLERGY, DIGESTIVE,
+            THYROID, HORMONE, SKIN, SLEEP_AID, DIABETES, ANTIBIOTIC, MENTAL_HEALTH, OTHER) or `custom:<uuid>`, the key
+            of one of the caller's own categories.
         treatmentClass:
           type: string
           enum:
@@ -31924,7 +32082,8 @@ components:
                 measurement.batch.too_large, measurement.bulk-delete.invalid, measurement.create.invalid,
                 measurement.create.source_not_permitted, measurement.delete.too_large, measurement.duplicate_timestamp,
                 measurement.restore.invalid, measurement.update.server_owned_source; medication —
-                medication.intake.import.invalid_format; medications —
+                medication.intake.import.invalid_format; medications — medications.category.invalid,
+                medications.category.limitReached, medications.category.unknown,
                 medications.intake.bulk.apple_health_not_mirrored, medications.intake.bulk.invalid,
                 medications.intake.bulk.too_large, medications.intake.force_slot.invalid,
                 medications.intake.force_slot.occupied, medications.intake.injection_site.disallowed,
@@ -35246,6 +35405,36 @@ components:
               - inventoryEvents
               - efficacyTargets
               - scheduleRevisions
+            additionalProperties: {}
+        customMedicationCategories:
+          default: []
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+                pattern: ^custom:[0-9a-f-]{36}$
+              label:
+                type: string
+                minLength: 1
+                maxLength: 40
+              sortOrder:
+                default: 0
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              isActive:
+                default: true
+                type: boolean
+              createdAt:
+                type: string
+                minLength: 1
+            required:
+              - key
+              - label
+              - sortOrder
+              - isActive
             additionalProperties: {}
         intakeEvents:
           default: []
@@ -38816,6 +39005,7 @@ components:
         - accountSettings
         - measurements
         - medications
+        - customMedicationCategories
         - intakeEvents
         - moodEntries
         - cycleProfile
@@ -44576,6 +44766,12 @@ components:
             $ref: "#/components/schemas/MedicationScheduleOutput"
         category:
           $ref: "#/components/schemas/MedicationCategory"
+        categoryLabel:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: v1.40 — the decrypted label of a custom category (`category` = `custom:<uuid>`); null for a built-in
+            category, which a client localises from `category`. Read-only.
         externalSource:
           anyOf:
             - type: string
@@ -44668,6 +44864,7 @@ components:
         - updatedAt
         - schedules
         - category
+        - categoryLabel
         - externalSource
         - courseStatus
         - intakeActionable
@@ -44685,22 +44882,11 @@ components:
         `Medication` component for their semantics.
     MedicationCategory:
       type: string
-      enum:
-        - BLOOD_PRESSURE
-        - VITAMIN
-        - SUPPLEMENT
-        - PAIN_RELIEF
-        - ALLERGY
-        - DIGESTIVE
-        - THYROID
-        - HORMONE
-        - SKIN
-        - SLEEP_AID
-        - DIABETES
-        - ANTIBIOTIC
-        - MENTAL_HEALTH
-        - OTHER
-      description: Clinical taxonomy stored in the `medication_categories` side-table. Orthogonal to `MedicationTreatmentClass`.
+      description: Clinical category. One of the built-in values (BLOOD_PRESSURE, VITAMIN, SUPPLEMENT, PAIN_RELIEF, ALLERGY,
+        DIGESTIVE, THYROID, HORMONE, SKIN, SLEEP_AID, DIABETES, ANTIBIOTIC, MENTAL_HEALTH, OTHER) or, since v1.40,
+        `custom:<uuid>`, the key of one of the caller's own categories (see `GET /api/medications/categories`), whose
+        label rides beside it as `categoryLabel`. A client must decode an unknown value tolerantly and must not write
+        `category` back unless the person changed it. Orthogonal to `MedicationTreatmentClass`.
     CreateMedicationResponse:
       type: object
       properties:
@@ -44862,6 +45048,12 @@ components:
             $ref: "#/components/schemas/MedicationScheduleOutput"
         category:
           $ref: "#/components/schemas/MedicationCategory"
+        categoryLabel:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: v1.40 — the decrypted label of a custom category (`category` = `custom:<uuid>`); null for a built-in
+            category, which a client localises from `category`. Read-only.
         courseStatus:
           type: string
           enum:
@@ -44922,6 +45114,7 @@ components:
         - updatedAt
         - schedules
         - category
+        - categoryLabel
         - courseStatus
         - intakeActionable
         - stockUnitsRemaining
@@ -44930,6 +45123,125 @@ components:
       additionalProperties: false
       description: Detail variant of the medication resource enriched with the joined `category`. The base medication fields
         are inlined; see the `Medication` component for their semantics.
+    ListMedicationCategoriesResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/MedicationCategoryLabel"
+          required:
+            - categories
+          additionalProperties: false
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    MedicationCategoryLabel:
+      type: object
+      properties:
+        key:
+          type: string
+          description: "`custom:<uuid>`, the value a medication's `category` carries when it is filed under this category."
+        label:
+          type: string
+          description: The person's own label, 1 to 40 characters.
+        sortOrder:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: Position in the picker and the filter row, ascending.
+        isActive:
+          type: boolean
+          description: false = hidden from the picker. Medications filed under a hidden category keep it.
+        medicationCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: How many of the record's medications are filed under it.
+      required:
+        - key
+        - label
+        - sortOrder
+        - isActive
+        - medicationCount
+      additionalProperties: false
+      description: v1.40 (#1041) — a medication category the person named themselves, shown next to the built-in ones. At most
+        20 per account (hidden ones count).
+    CreateMedicationCategoryResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/MedicationCategoryLabel"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    UpdateMedicationCategoryResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/MedicationCategoryLabel"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    DeleteMedicationCategoryResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            key:
+              type: string
+            movedCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+              description: Medications moved to OTHER.
+          required:
+            - key
+            - movedCount
+          additionalProperties: false
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
     MedicationListLayoutResponse:
       type: object
       properties:

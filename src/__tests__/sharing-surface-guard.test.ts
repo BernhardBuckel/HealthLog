@@ -1023,6 +1023,10 @@ const DELEGABLE_ROUTES: Record<string, DelegableEntry> = {
     domain: "medications",
     why: "The record's medication cabinet. The cached list projection keys on the same resolved id it scopes to, so the owner's cell holds the owner's data. Returns no ingest endpoint and no token count — the route that does is refused.",
   },
+  "app/api/medications/categories/route.ts": {
+    domain: "medications",
+    why: "The record's own medication category vocabulary, read and added to from the wizard. The labels and the per-category counts are scoped to the resolved id; renaming and deleting live in the owner-only `[key]` sibling.",
+  },
   "app/api/medications/[id]/route.ts": {
     domain: "medications",
     why: "One medication of the record, fetch-then-guard against the resolved user before anything is serialised.",
@@ -1646,6 +1650,11 @@ const DELEGABLE_MANAGE_ROUTES: Record<string, ManageEntry> = {
     conditions: ["C1"],
     why: "Adding to the record's own symptom vocabulary. C1.",
   },
+  "app/api/medications/categories/route.ts": {
+    domain: "medications",
+    conditions: ["C1"],
+    why: "Adding to the record's own medication category vocabulary, the cycle symptom precedent. C1.",
+  },
   "app/api/medications/[id]/route.ts": {
     domain: "medications",
     conditions: ["C4", "C7"],
@@ -1960,8 +1969,12 @@ const ACTOR_ROUTES: Record<string, string> = {
  * v1.39.2 -- the body-site view adds one: a read on the record list in the
  * visits' domain, with conditions joined only under an illness grant.
  * 231 -> 232.
+ *
+ * v1.40 -- the custom medication categories add two: the vocabulary read on
+ * the record list and its create on the manage literal, the cycle symptom
+ * precedent. Rename and delete stay owner-only. 232 -> 234.
  */
-const FROZEN_ENTRY_COUNT = 232;
+const FROZEN_ENTRY_COUNT = 234;
 
 /**
  * The two surfaces that authenticate a Bearer token outside `requireAuth` —
@@ -2722,7 +2735,7 @@ describe("(g) the MANAGE route set is frozen", () => {
 
   it("keeps the admitted mutation inventory complete and discoverable", () => {
     expect(ADMITTED_MUTATING_HANDLERS.length).toBeGreaterThan(0);
-    expect(ADMITTED_MUTATING_HANDLERS.length).toBe(77);
+    expect(ADMITTED_MUTATING_HANDLERS.length).toBe(78);
 
     const expected = ADMITTED_MUTATING_HANDLERS.map(
       ({ handlerModule, action, level }) =>

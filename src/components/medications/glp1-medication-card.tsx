@@ -96,6 +96,8 @@ export interface Glp1Medication {
   name: string;
   dose: string;
   category: string;
+  /** v1.40 — the label of a custom category; null for a built-in one. */
+  categoryLabel?: string | null;
   treatmentClass?: string;
   dosesPerUnit?: number | null;
   /** v1.6.0 — route of administration (drives the injection-site prompt). */
@@ -476,7 +478,11 @@ export function Glp1MedicationCard({
     />
   );
 
-  const categoryLabel = getMedicationCategoryLabel(medication.category, t);
+  const categoryLabel = getMedicationCategoryLabel(
+    medication.category,
+    t,
+    medication.categoryLabel,
+  );
 
   // The upcoming-injection line value. The card owns this VALUE content —
   // the liked relative-day phrasing ("Samstag 13.7. (in 7 Tagen)") — while

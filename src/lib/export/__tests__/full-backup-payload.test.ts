@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 // through it is proven in tests/integration/backup-round-trip.test.ts.
 vi.mock("@/lib/medication-category", () => ({
   getMedicationCategories: vi.fn(async () => ({})),
+  readMedicationCategoryLabelsForBackup: vi.fn(async () => []),
   setMedicationCategory: vi.fn(async () => "OTHER"),
 }));
 vi.mock("@/lib/export/paged-measurements", () => ({

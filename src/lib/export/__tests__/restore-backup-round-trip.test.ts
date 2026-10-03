@@ -35,6 +35,9 @@ const mocks = vi.hoisted(() => ({
 // through it is proven in tests/integration/backup-round-trip.test.ts.
 vi.mock("@/lib/medication-category", () => ({
   getMedicationCategories: vi.fn(async () => ({})),
+  readMedicationCategoryLabelsForBackup: vi.fn(async () => []),
+  encryptCategoryLabel: vi.fn(() => new Uint8Array()),
+  mintCustomMedicationCategoryKey: vi.fn(() => "custom:minted"),
   setMedicationCategory: vi.fn(async () => "OTHER"),
 }));
 vi.mock("@/lib/db", () => ({

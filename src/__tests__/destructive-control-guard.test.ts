@@ -468,6 +468,14 @@ const REGISTRY: DestructiveEntry[] = [
     confirm: ["AlertDialog"],
   },
   {
+    file: "components/medications/use-medication-categories.ts",
+    destroys:
+      "one of the person's own medication categories; the medications filed under it move to Other, they are not deleted",
+    triggers: ["components/medications/medication-categories-sheet.tsx"],
+    recovery: "permanent",
+    confirm: ["AlertDialog"],
+  },
+  {
     file: "components/medications/use-medication-intake.ts",
     destroys: "an intake event recorded seconds ago",
     recovery: "tombstoned-no-restore",

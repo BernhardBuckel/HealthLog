@@ -333,6 +333,22 @@ const medicationEfficacyTargetSchema = z
   })
   .passthrough();
 
+/**
+ * v1.40 (#1041) — a medication category the account named itself. Carried
+ * with its decrypted label (the label is re-encrypted on restore under the
+ * restoring instance's key) and restored BEFORE the medications, whose
+ * `category` names it by `key`.
+ */
+const customMedicationCategorySchema = z
+  .object({
+    key: z.string().regex(/^custom:[0-9a-f-]{36}$/),
+    label: z.string().trim().min(1).max(40),
+    sortOrder: z.number().int().min(0).default(0),
+    isActive: z.boolean().default(true),
+    createdAt: isoDateTime.optional(),
+  })
+  .passthrough();
+
 const medicationSchema = z
   .object({
     id: z.string().min(1).optional(),
@@ -361,7 +377,8 @@ const medicationSchema = z
     // v1.39.4 — the clinical category. Absent in older files. A string, not
     // the enum: a file from a newer server may name a category this one does
     // not know, and the restore reads that as OTHER rather than refusing the
-    // whole file.
+    // whole file. Since v1.40 it may be `custom:<uuid>`, the key of an entry
+    // in `customMedicationCategories`.
     category: z.string().max(64).optional(),
     deliveryForm: z.enum(MedicationDeliveryForm).optional(),
     trackInjectionSites: z.boolean().optional(),
@@ -1834,6 +1851,10 @@ export const backupPayloadSchema = z
     accountSettings: accountSettingsBackupSchema.nullable().default(null),
     measurements: z.array(measurementSchema).default([]),
     medications: z.array(medicationSchema).default([]),
+    // v1.40 — absent in older files, which carry no custom category either.
+    customMedicationCategories: z
+      .array(customMedicationCategorySchema)
+      .default([]),
     intakeEvents: z.array(intakeEventSchema).default([]),
     moodEntries: z.array(moodEntrySchema).default([]),
     // v1.15.0 — cycle-tracking tables. Default to empty arrays / null so a

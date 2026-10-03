@@ -210,10 +210,11 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
     kind: "string",
   },
 
-  // ───── Custom labels (mood + cycle) ─────
+  // ───── Custom labels (mood, cycle, medication categories) ─────
   { model: "MoodTag", field: "labelEncrypted", kind: "string" },
   { model: "MoodTagCategory", field: "labelEncrypted", kind: "string" },
   { model: "CycleSymptom", field: "labelEncrypted", kind: "string" },
+  { model: "MedicationCategoryLabel", field: "labelEncrypted", kind: "bytes" },
 
   // ───── Notification + push secrets ─────
   { model: "NotificationChannel", field: "config", kind: "string" },
