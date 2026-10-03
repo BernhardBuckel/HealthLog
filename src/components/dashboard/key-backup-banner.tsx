@@ -31,7 +31,7 @@ export function KeyBackupBanner({ isAdmin }: { isAdmin: boolean }) {
       </div>
       <Link
         href="/admin/encryption"
-        className="text-primary text-sm font-medium underline-offset-4 hover:underline"
+        className="text-primary inline-flex min-h-11 items-center text-sm font-medium underline-offset-4 hover:underline"
       >
         {t("dashboard.keyBackupBanner.action")}
       </Link>
