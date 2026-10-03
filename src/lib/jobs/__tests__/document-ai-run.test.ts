@@ -13,7 +13,11 @@
  * in `assertRunMayEgress` turns "refuses when consent was withdrawn" red;
  * deleting the `aiCapabilityForJob` check turns "refuses when the operator
  * turned reading off" red; dropping the `ends > deadlineAt` comparison turns
- * "refuses a read that cannot fit" red.
+ * "refuses a read that cannot fit" red. For the summary and suggest kinds:
+ * deleting `afterRunFailed` (or its `markQueuedSummaryUnavailable` call)
+ * turns "a stored summary that fails is marked UNAVAILABLE" red, and deleting
+ * the `assertRunMayEgress` call in `pickForDocumentRead`'s text branch turns
+ * "a text suggestion re-checks the wire" red.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,9 +42,12 @@ vi.mock("@/lib/ai/capabilities/egress", () => ({
 }));
 
 const requireDocumentVisionProvider = vi.fn();
+const requireDocumentTextProvider = vi.fn();
 vi.mock("@/lib/documents/provider-order", () => ({
   requireDocumentVisionProvider: (...a: unknown[]) =>
     requireDocumentVisionProvider(...a),
+  requireDocumentTextProvider: (...a: unknown[]) =>
+    requireDocumentTextProvider(...a),
 }));
 const requireLabsOcrProvider = vi.fn();
 vi.mock("@/lib/labs/ocr-capability", () => ({
@@ -56,6 +63,30 @@ const executeOcrExtraction = vi.fn();
 vi.mock("@/lib/labs/ocr-run", () => ({
   OCR_EXTRACT_MODEL_CALLS: 2,
   executeOcrExtraction: (...a: unknown[]) => executeOcrExtraction(...a),
+}));
+
+const executeDocumentSummary = vi.fn();
+const markQueuedSummaryUnavailable = vi.fn();
+vi.mock("@/lib/documents/ai-runs/summary-run", () => ({
+  DOCUMENT_SUMMARY_MODEL_CALLS: 1,
+  executeDocumentSummary: (...a: unknown[]) => executeDocumentSummary(...a),
+  markQueuedSummaryUnavailable: (...a: unknown[]) =>
+    markQueuedSummaryUnavailable(...a),
+}));
+const executeDocumentSuggest = vi.fn();
+vi.mock("@/lib/documents/ai-runs/suggest-run", () => ({
+  DOCUMENT_SUGGEST_MODEL_CALLS: 1,
+  executeDocumentSuggest: (...a: unknown[]) => executeDocumentSuggest(...a),
+}));
+
+const executeDocumentExtract = vi.fn();
+vi.mock("@/lib/documents/ai-runs/extract-run", () => ({
+  DOCUMENT_EXTRACT_MODEL_CALLS: 2,
+  executeDocumentExtract: (...a: unknown[]) => executeDocumentExtract(...a),
+}));
+const loadDocumentChatText = vi.fn();
+vi.mock("@/lib/documents/content-index", () => ({
+  loadDocumentChatText: (...a: unknown[]) => loadDocumentChatText(...a),
 }));
 
 const loadOwnedDocument = vi.fn();
@@ -331,5 +362,311 @@ describe("handleDocumentAiRunJobs", () => {
       ok: true,
       did: { jobs: 2, processed: 1, failed: 0, skipped: 1 },
     });
+  });
+});
+
+describe("summary and suggestion runs", () => {
+  const summaryRun = (overrides: Record<string, unknown> = {}) =>
+    claimed({
+      kind: "DOCUMENT_SUMMARY",
+      params: {
+        mode: "vision",
+        budget,
+        summary: {
+          output: "summary",
+          persist: true,
+          replace: false,
+          locale: "de",
+        },
+      },
+      ...overrides,
+    });
+
+  beforeEach(() => {
+    executeDocumentSummary.mockResolvedValue({
+      ok: true,
+      data: { summary: "Ein Arztbrief.", persistence: "stored" },
+    });
+    executeDocumentSuggest.mockResolvedValue({
+      ok: true,
+      data: {
+        suggestions: { title: "Brief", kind: "OTHER", documentDate: null },
+      },
+    });
+    requireDocumentTextProvider.mockResolvedValue({
+      entry: {
+        providerType: "local",
+        instance: { responseTimeoutSeconds: 90 },
+      },
+      providerType: "local",
+    });
+  });
+
+  it("reads a summary after the re-check, with one call's deadline and its options", async () => {
+    claimAiRun.mockResolvedValue(summaryRun());
+    requireDocumentVisionProvider.mockResolvedValue(visionPick(300));
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe(
+      "succeeded",
+    );
+    expect(aiCapabilityForJob).toHaveBeenCalledWith("u1", "documentAi");
+    expect(aiEgressRefusal).toHaveBeenCalledWith("documentAi", "u1", [
+      "anthropic",
+    ]);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "run1", status: "RUNNING" },
+      data: { expiresAt: new Date(NOW + 300_000 + 60_000) },
+    });
+    expect(executeDocumentSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ mode: "vision", budget }),
+        output: "summary",
+        locale: "de",
+        persist: { replaceExisting: false },
+        origin: { ipAddress: null, worker: true },
+      }),
+    );
+    expect(completeAiRun).toHaveBeenCalledWith(
+      "run1",
+      { summary: "Ein Arztbrief.", persistence: "stored" },
+      new Date(NOW),
+    );
+    expect(markQueuedSummaryUnavailable).not.toHaveBeenCalled();
+  });
+
+  it("refuses a summary when consent was withdrawn while it waited, and marks it UNAVAILABLE", async () => {
+    claimAiRun.mockResolvedValue(summaryRun());
+    aiEgressRefusal.mockResolvedValue(
+      new AiUnavailableError("documentAi", "consent_required"),
+    );
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(executeDocumentSummary).not.toHaveBeenCalled();
+    expect(settleAiRunBudget).toHaveBeenCalledWith("u1", budget, 0, null);
+    expect(markQueuedSummaryUnavailable).toHaveBeenCalledWith("u1", "d1");
+  });
+
+  it("a stored summary that fails is marked UNAVAILABLE", async () => {
+    claimAiRun.mockResolvedValue(summaryRun());
+    executeDocumentSummary.mockResolvedValue({
+      ok: false,
+      status: 502,
+      message: "Couldn't read the document. Try a clearer copy.",
+      errorCode: "documents.inbound.extractFailed",
+    });
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(markQueuedSummaryUnavailable).toHaveBeenCalledWith("u1", "d1");
+  });
+
+  it("a stored summary that could not be written is marked UNAVAILABLE", async () => {
+    claimAiRun.mockResolvedValue(summaryRun());
+    executeDocumentSummary.mockResolvedValue({
+      ok: true,
+      data: { summary: "Ein Arztbrief.", persistence: "failed" },
+    });
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe(
+      "succeeded",
+    );
+    expect(markQueuedSummaryUnavailable).toHaveBeenCalledWith("u1", "d1");
+  });
+
+  it("a transient summary that fails leaves the document's state alone", async () => {
+    claimAiRun.mockResolvedValue(
+      summaryRun({
+        params: {
+          mode: "vision",
+          budget,
+          summary: {
+            output: "text",
+            persist: false,
+            replace: false,
+            locale: "en",
+          },
+        },
+      }),
+    );
+    executeDocumentSummary.mockResolvedValue({
+      ok: false,
+      status: 502,
+      message: "Couldn't read the document. Try a clearer copy.",
+      errorCode: "documents.inbound.extractFailed",
+    });
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(markQueuedSummaryUnavailable).not.toHaveBeenCalled();
+  });
+
+  it("refuses a summary that cannot fit the job's expiry", async () => {
+    claimAiRun.mockResolvedValue(summaryRun());
+    requireDocumentVisionProvider.mockResolvedValue(visionPick(600));
+    // One call at ten minutes plus the margin does not fit in ten minutes.
+    expect(await runDocumentAiRun("run1", NOW + 10 * 60_000, now)).toBe(
+      "failed",
+    );
+    expect(executeDocumentSummary).not.toHaveBeenCalled();
+    expect(failAiRun).toHaveBeenCalledWith(
+      "run1",
+      expect.objectContaining({ errorCode: "aiRuns.timedOut", status: 504 }),
+      "RUNNING",
+      new Date(NOW),
+    );
+  });
+
+  it("fails a summary whose document is gone, settling the reservation once", async () => {
+    claimAiRun.mockResolvedValue(summaryRun());
+    loadOwnedDocument.mockResolvedValue(null);
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(settleAiRunBudget).toHaveBeenCalledOnce();
+    expect(failAiRun).toHaveBeenCalledWith(
+      "run1",
+      expect.objectContaining({
+        status: 404,
+        errorCode: "documents.inbound.notFound",
+      }),
+      "RUNNING",
+      new Date(NOW),
+    );
+  });
+
+  it("a text suggestion re-checks the wire for the text provider and reads the sealed text", async () => {
+    claimAiRun.mockResolvedValue(
+      claimed({
+        kind: "DOCUMENT_SUGGEST",
+        params: { mode: "text", budget },
+        input: Buffer.from("Arbeitsunfähigkeitsbescheinigung"),
+      }),
+    );
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe(
+      "succeeded",
+    );
+    expect(aiEgressRefusal).toHaveBeenCalledWith("documentAi", "u1", ["local"]);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "run1", status: "RUNNING" },
+      data: { expiresAt: new Date(NOW + 90_000 + 60_000) },
+    });
+    expect(executeDocumentSuggest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({
+          mode: "text",
+          text: "Arbeitsunfähigkeitsbescheinigung",
+        }),
+      }),
+    );
+  });
+
+  it("refuses a suggestion when the operator turned reading off", async () => {
+    claimAiRun.mockResolvedValue(
+      claimed({ kind: "DOCUMENT_SUGGEST", params: { mode: "vision", budget } }),
+    );
+    aiCapabilityForJob.mockResolvedValue({
+      available: false,
+      reason: "operator_disabled",
+    });
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(executeDocumentSuggest).not.toHaveBeenCalled();
+    expect(markQueuedSummaryUnavailable).not.toHaveBeenCalled();
+  });
+});
+
+describe("extract runs", () => {
+  const extractRun = (input: "stored" | "vision" | "text") =>
+    claimed({
+      kind: "DOCUMENT_EXTRACT",
+      params: {
+        mode: input === "vision" ? "vision" : "text",
+        budget,
+        extract: { input },
+      },
+      input: input === "text" ? Buffer.from("Hb 14 g/dL") : null,
+    });
+
+  beforeEach(() => {
+    executeDocumentExtract.mockResolvedValue({
+      ok: true,
+      data: {
+        id: "d1",
+        status: "EXTRACTED",
+        facts: [{ id: "f1" }, { id: "f2" }],
+      },
+    });
+    loadDocumentChatText.mockResolvedValue({ text: "Hb 14 g/dL" });
+    requireDocumentTextProvider.mockResolvedValue({
+      entry: {
+        providerType: "local",
+        instance: { responseTimeoutSeconds: 100 },
+      },
+      providerType: "local",
+    });
+  });
+
+  it("stores only the count and the status, with two calls' deadline", async () => {
+    claimAiRun.mockResolvedValue(extractRun("vision"));
+    requireDocumentVisionProvider.mockResolvedValue(visionPick(300));
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe(
+      "succeeded",
+    );
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "run1", status: "RUNNING" },
+      data: { expiresAt: new Date(NOW + 2 * 300_000 + 60_000) },
+    });
+    expect(completeAiRun).toHaveBeenCalledWith(
+      "run1",
+      { documentId: "d1", factsStaged: 2, status: "EXTRACTED" },
+      new Date(NOW),
+    );
+  });
+
+  it("reads the stored text for a stored extract and re-checks the text provider's wire", async () => {
+    claimAiRun.mockResolvedValue(extractRun("stored"));
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe(
+      "succeeded",
+    );
+    expect(loadDocumentChatText).toHaveBeenCalledWith("u1", "d1");
+    expect(aiEgressRefusal).toHaveBeenCalledWith("documentAi", "u1", ["local"]);
+    expect(executeDocumentExtract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ mode: "stored", text: "Hb 14 g/dL" }),
+      }),
+    );
+  });
+
+  it("fails a stored extract whose text is gone, before any provider pick", async () => {
+    claimAiRun.mockResolvedValue(extractRun("stored"));
+    loadDocumentChatText.mockResolvedValue(null);
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(requireDocumentTextProvider).not.toHaveBeenCalled();
+    expect(executeDocumentExtract).not.toHaveBeenCalled();
+    expect(settleAiRunBudget).toHaveBeenCalledOnce();
+    expect(failAiRun).toHaveBeenCalledWith(
+      "run1",
+      expect.objectContaining({
+        status: 422,
+        errorCode: "documents.inbound.notIndexed",
+      }),
+      "RUNNING",
+      new Date(NOW),
+    );
+  });
+
+  it("stores the staging refusal when a review finished while the read ran", async () => {
+    claimAiRun.mockResolvedValue(extractRun("text"));
+    executeDocumentExtract.mockResolvedValue({
+      ok: false,
+      status: 409,
+      message: "Some facts from this document are already confirmed.",
+      errorCode: "documents.inbound.alreadyPartlyConfirmed",
+    });
+    expect(await runDocumentAiRun("run1", NOW + 2_700_000, now)).toBe("failed");
+    expect(executeDocumentExtract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ mode: "text", text: "Hb 14 g/dL" }),
+      }),
+    );
+    expect(failAiRun).toHaveBeenCalledWith(
+      "run1",
+      expect.objectContaining({
+        status: 409,
+        errorCode: "documents.inbound.alreadyPartlyConfirmed",
+      }),
+      "RUNNING",
+      new Date(NOW),
+    );
   });
 });

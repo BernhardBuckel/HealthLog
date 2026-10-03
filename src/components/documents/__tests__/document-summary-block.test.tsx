@@ -163,3 +163,15 @@ describe("DocumentSummaryBlock — the action", () => {
     );
   });
 });
+
+describe("DocumentSummaryBlock — a background read (v1.40)", () => {
+  it("says the read runs in the background and is stored with the document", () => {
+    const html = base({ isGenerating: true, runPhase: "background" });
+    expect(html).toContain('data-slot="document-detail-summary-run-phase"');
+    expect(html).toContain("You can leave this page");
+  });
+
+  it("renders no note while nothing runs", () => {
+    expect(base()).not.toContain("run-phase");
+  });
+});

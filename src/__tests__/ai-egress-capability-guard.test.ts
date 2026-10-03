@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { DOCUMENT_AI_RUN_KINDS } from "@/lib/documents/ai-runs/types";
 import type { runStatusCompletion } from "@/lib/insights/status-provider";
 
 import { walkSourceFiles } from "./helpers/source-files";
@@ -163,7 +164,7 @@ const EGRESS_SITES: Record<string, EgressSite> = {
  */
 const WORKER_REACHERS: Record<string, string> = {
   "lib/jobs/document-ai-run.ts":
-    "Background document reads and lab scans (v1.40): `transcribeDocument` and `runOcrExtraction` through the shared run bodies.",
+    "Background document reads and lab scans (v1.40): `transcribeDocument`, `runDocumentSummary`, `runDocumentAssist` and `runOcrExtraction` through the shared run bodies.",
 };
 
 const JOB_CAPABILITY = /\baiCapabilityForJob\s*\(/;
@@ -188,6 +189,50 @@ describe("workers that reach an admitted helper", () => {
     expect(JOB_CAPABILITY.test(planted)).toBe(true);
     expect(WIRE_RECHECK.test(planted)).toBe(false);
   });
+});
+
+/** The body of one top-level `async function name(` in a source text. */
+function functionBody(text: string, name: string): string | null {
+  const start = text.search(new RegExp(`async function ${name}\\s*\\(`));
+  if (start < 0) return null;
+  const end = text.indexOf("\n}\n", start);
+  return end < 0 ? null : text.slice(start, end);
+}
+
+describe("every kind of background run re-checks before its read", () => {
+  const worker = code("lib/jobs/document-ai-run.ts");
+  const table = /const RUN_DISPATCH[^=]*=\s*\{([\s\S]*?)\};/.exec(worker);
+  const entries = [...(table?.[1] ?? "").matchAll(/(\w+):\s*(\w+),/g)].map(
+    (m) => ({ kind: m[1], dispatcher: m[2] }),
+  );
+
+  it("finds the dispatch table (an empty match is a failure, not a pass)", () => {
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("dispatches every run kind", () => {
+    expect(entries.map((e) => e.kind).sort()).toEqual(
+      [...DOCUMENT_AI_RUN_KINDS].sort(),
+    );
+  });
+
+  it("the shared document pick re-checks the wire on both transports", () => {
+    const pick = functionBody(worker, "pickForDocumentRead") ?? "";
+    expect(pick.match(/\bassertRunMayEgress\s*\(/g)?.length ?? 0).toBe(2);
+  });
+
+  it.each(DOCUMENT_AI_RUN_KINDS)(
+    "%s re-checks the capability and the wire before the body runs",
+    (kind) => {
+      const entry = entries.find((e) => e.kind === kind);
+      const body = entry ? functionBody(worker, entry.dispatcher) : null;
+      expect(body, `${kind}: dispatcher not found`).not.toBeNull();
+      expect(
+        /\b(?:assertRunMayEgress|pickForDocumentRead)\s*\(/.test(body ?? ""),
+        `${kind}: its dispatcher sends to a model without assertRunMayEgress`,
+      ).toBe(true);
+    },
+  );
 });
 
 describe("AI egress call sites", () => {

@@ -10316,7 +10316,8 @@
       "PRESCRIPTION": "Recepta",
       "REFERRAL": "Skierowanie",
       "INSURANCE": "Ubezpieczenie",
-      "VACCINATION": "Szczepienie"
+      "VACCINATION": "Szczepienie",
+      "SICK_NOTE": "Zwolnienie lekarskie"
     },
     "filter": {
       "searchLabel": "Szukaj dokumentów",

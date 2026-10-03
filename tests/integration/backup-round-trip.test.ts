@@ -3846,3 +3846,55 @@ describe("the account's own settings survive a real restore", () => {
     ).toEqual([]);
   });
 });
+
+describe("a document kind added after the backup format", () => {
+  it("restores a sick note as a sick note", async () => {
+    const prisma = getPrismaClient();
+    await seedAdminSession(prisma);
+    await createOwner(prisma);
+    const documentBytes = encryptBytes(Buffer.from("sick note fixture"));
+    const contentEncrypted = new Uint8Array(
+      new ArrayBuffer(documentBytes.byteLength),
+    );
+    contentEncrypted.set(documentBytes);
+    await prisma.inboundDocument.create({
+      data: {
+        userId: OWNER_ID,
+        kind: "SICK_NOTE",
+        title: "Certificate of incapacity",
+        mimeType: "application/pdf",
+        byteSize: documentBytes.byteLength,
+        contentEncrypted,
+        contentCodec: "binary2",
+      },
+    });
+
+    const { payload } = await buildFullBackupPayload(prisma, OWNER_ID, {
+      purpose: "disaster-recovery",
+    });
+    await prisma.user.delete({ where: { id: OWNER_ID } });
+    await createOwner(prisma);
+    const backup = await prisma.dataBackup.create({
+      data: {
+        userId: OWNER_ID,
+        type: "TWO_ENDED_ROUND_TRIP",
+        data: encrypt(JSON.stringify(payload)),
+      },
+    });
+    const response = await POST(
+      new Request(`http://localhost/api/admin/backups/${backup.id}/restore`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: "RESTORE" }),
+      }) as never,
+      { params: Promise.resolve({ id: backup.id }) },
+    );
+    expect(response.status, JSON.stringify(await response.json())).toBe(200);
+
+    const restored = await prisma.inboundDocument.findFirstOrThrow({
+      where: { userId: OWNER_ID },
+    });
+    expect(restored.kind).toBe("SICK_NOTE");
+    expect(restored.title).toBe("Certificate of incapacity");
+  });
+});

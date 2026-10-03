@@ -57,6 +57,7 @@ export const INBOUND_DOCUMENT_KINDS = [
   "REFERRAL",
   "INSURANCE",
   "VACCINATION",
+  "SICK_NOTE",
   "OTHER",
 ] as const;
 export type InboundDocumentKindValue = (typeof INBOUND_DOCUMENT_KINDS)[number];
