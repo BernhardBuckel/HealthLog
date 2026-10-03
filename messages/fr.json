@@ -11481,5 +11481,12 @@
     "linkedLabel": "Éléments liés",
     "conditionSince": "Depuis le {onset}",
     "conditionDates": "Du {onset} au {resolved}"
+  },
+  "aiRuns": {
+    "backgroundDocument": "Lecture en arrière-plan. Vous pouvez quitter cette page ; le résultat est enregistré avec le document.",
+    "backgroundScan": "Lecture en arrière-plan. Avec un modèle lent, cela peut prendre quelques minutes.",
+    "waitingForWorker": "En attente du traitement en arrière-plan. Si rien ne change, le worker du serveur n'est peut-être pas lancé.",
+    "errorWorkerUnavailable": "Le traitement en arrière-plan n'est pas disponible pour le moment. Réessayez dans un instant ou demandez à la personne qui gère le serveur de le vérifier.",
+    "errorTimedOut": "La lecture a pris plus de temps que votre délai de réponse IA ne le permet. Réessayez ou augmentez ce délai dans les réglages IA."
   }
 }

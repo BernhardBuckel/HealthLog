@@ -194,6 +194,14 @@ export const AI_ROUTES: Readonly<Record<string, AiRouteEntry>> = {
  * claim the guard checks against the file.
  */
 export const DATA_ROUTES: Readonly<Record<string, string>> = {
+  // v1.40 — the poll for a background document AI run. A plain read of a row
+  // the caller created: every capability question was asked when the run was
+  // queued and again in the worker before anything left, and serving the
+  // answer to a read the person already asked for calls no model. Not
+  // `aiCapabilityToServe` either: a run result is the caller's own request
+  // result, not stored model text shown later.
+  "src/app/api/ai-runs/[id]/route.ts":
+    "The caller's own background run: status, result, failure.",
   // The design's list of formerly AI-gated data reads and writes.
   "src/app/api/insights/derived/batch/route.ts":
     "Deterministic scores and assessments for the whole grid.",

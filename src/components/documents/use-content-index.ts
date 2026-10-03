@@ -17,6 +17,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useAiProviderState } from "@/hooks/use-ai-capability";
+import { useAiRunPhase } from "@/hooks/use-ai-run";
 import { apiPost } from "@/lib/api/api-fetch";
 import { invalidateKeys, queryKeys } from "@/lib/query-keys";
 
@@ -27,21 +28,34 @@ import {
   type DocumentIndexResult,
 } from "./document-ai-transport";
 
-/** Index / re-index one document for content search. */
+/**
+ * Index / re-index one document for content search. The read runs in the
+ * background (v1.40); `runPhase` says so while it does, so the screen can tell
+ * the person they may leave: the index and any staged lab values land on the
+ * document whether or not anyone is still watching.
+ */
 export function useIndexDocument() {
   const queryClient = useQueryClient();
   const { responseTimeoutMs } = useAiProviderState();
-  return useMutation<
+  const { phase, onQueued, onProgress, reset } = useAiRunPhase();
+  const mutation = useMutation<
     DocumentIndexResult,
     Error,
     { mode: DocumentAiMode; target: DocumentAiTarget }
   >({
     mutationFn: ({ mode, target }) =>
-      runDocumentIndex({ mode, target, responseTimeoutMs }),
+      runDocumentIndex({
+        mode,
+        target,
+        responseTimeoutMs,
+        background: { queryClient, onQueued, onProgress },
+      }),
+    onSettled: reset,
     onSuccess: () => {
       void invalidateKeys(queryClient, [queryKeys.documents()]);
     },
   });
+  return { ...mutation, runPhase: mutation.isPending ? phase : "idle" };
 }
 
 /**

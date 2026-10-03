@@ -107,7 +107,7 @@ const EGRESS_SITES: Record<string, EgressSite> = {
   "lib/documents/describe.ts": {
     recheck: false,
     reason:
-      "Document summary; reached from the summary route and the summary job, which resolve `documentAi` first.",
+      "Document summary and transcription; reached from the summary and index routes, the summary job, and the background run worker (`lib/jobs/document-ai-run.ts`), which resolve `documentAi` first.",
   },
   "lib/documents/extract.ts": {
     recheck: false,
@@ -117,7 +117,7 @@ const EGRESS_SITES: Record<string, EgressSite> = {
   "lib/labs/ocr-extract.ts": {
     recheck: false,
     reason:
-      "Lab report scan; reached from the labs OCR route, which gates `labsOcr`.",
+      "Lab report scan; reached from the background run worker (`lib/jobs/document-ai-run.ts`) for a scan the labs OCR route queued under `labsOcr`.",
   },
   "app/api/medications/extract/route.ts": {
     recheck: false,
@@ -153,6 +153,42 @@ const EGRESS_SITES: Record<string, EgressSite> = {
       "The offline evaluation harness's live scenario run, called only by judge.ts; never on a request or job path.",
   },
 };
+
+/**
+ * Background workers that reach one of the admitted helpers above with no
+ * request around them. The route that queued the work asked the capability
+ * once; the worker runs later, after a switch may have been turned off or
+ * consent withdrawn, so it must ask again for the record and re-check the wire
+ * for the provider it picked.
+ */
+const WORKER_REACHERS: Record<string, string> = {
+  "lib/jobs/document-ai-run.ts":
+    "Background document reads and lab scans (v1.40): `transcribeDocument` and `runOcrExtraction` through the shared run bodies.",
+};
+
+const JOB_CAPABILITY = /\baiCapabilityForJob\s*\(/;
+const WIRE_RECHECK = /\baiEgressRefusal\s*\(/;
+
+describe("workers that reach an admitted helper", () => {
+  it.each(Object.keys(WORKER_REACHERS))(
+    "%s asks the capability for the record and re-checks the wire",
+    (rel) => {
+      const text = code(rel);
+      expect(JOB_CAPABILITY.test(text), `${rel}: no aiCapabilityForJob`).toBe(
+        true,
+      );
+      expect(WIRE_RECHECK.test(text), `${rel}: no aiEgressRefusal`).toBe(true);
+    },
+  );
+
+  it("a worker whose re-check is only in a comment fails the matcher", () => {
+    const planted = stripComments(
+      "// aiEgressRefusal(key, userId, types)\nawait aiCapabilityForJob(userId, key);",
+    );
+    expect(JOB_CAPABILITY.test(planted)).toBe(true);
+    expect(WIRE_RECHECK.test(planted)).toBe(false);
+  });
+});
 
 describe("AI egress call sites", () => {
   const found = sourceFiles().filter((rel) => EGRESS_CALL.test(code(rel)));

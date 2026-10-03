@@ -160,6 +160,10 @@ export const WIPE_MODELS = [
   // credential to another system behind an account that erased everything.
   "DocumentSourceConnection",
   "ExtractedFact",
+  // v1.40 — background AI runs over a document or a lab scan. A queued scan
+  // holds the uploaded report until it is read, and a finished run holds what
+  // was read off it; a child of the document, so it goes before it.
+  "DocumentAiRun",
   "ImportJob",
 
   // ── AI ──────────────────────────────────────────────────────────────────
