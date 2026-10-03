@@ -31,3 +31,11 @@ CVE-2026-48815
 # entry, the matching `auditConfig.ignoreGhsas` entry in pnpm-workspace.yaml,
 # and raise the floor once node-forge 1.4.1 is out.
 CVE-2026-85393
+
+# braces <= 3.0.3 stack overflow on deeply nested patterns (CVE-2026-93687).
+# braces arrives only through micromatch -> fast-glob in development tools
+# (@next/eslint-plugin-next, @ts-morph/common, the shadcn CLI); `pnpm why
+# braces --prod` is empty and the production image does not contain it, and
+# those tools only expand patterns written in this repository. No fixed
+# release is published (latest is 3.0.3). Remove this entry once one is.
+CVE-2026-93687

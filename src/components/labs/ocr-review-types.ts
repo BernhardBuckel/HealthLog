@@ -7,6 +7,8 @@
  */
 import type { OcrExtractedRowDto } from "@/lib/validations/labs-ocr";
 
+import { readingUnitDiffers } from "./ocr-review-validation";
+
 export interface OcrReviewRow {
   /** Stable client key for the list (the analyte+index at seed time). */
   key: string;
@@ -22,6 +24,11 @@ export interface OcrReviewRow {
   takenAt: string | null;
   confidence: OcrExtractedRowDto["confidence"];
   biomarkerMatch: "new" | "existing";
+  /**
+   * The unit the matched marker is tracked in; null for a marker that does not
+   * exist yet. A numeric row whose `unit` differs from it cannot be saved.
+   */
+  markerUnit: string | null;
   /** Non-null when the server flagged a likely duplicate of a live reading. */
   duplicateOf: string | null;
   /** Whether the row is selected for saving. Defaults false for duplicates. */
@@ -45,8 +52,18 @@ export function seedReviewRows(
     takenAt: row.takenAt ?? fallbackDate,
     confidence: row.confidence,
     biomarkerMatch: row.biomarkerMatch,
+    markerUnit: row.markerUnit,
     duplicateOf: row.duplicateOf,
-    // A flagged duplicate starts unchecked; everything else starts confirmed.
-    confirmed: row.duplicateOf === null,
+    // A flagged duplicate starts unchecked, and so does a reading in another
+    // unit than its marker's (it carries a badge saying why, and ticking it
+    // marks the unit field until it is fixed); everything else starts
+    // confirmed.
+    confirmed:
+      row.duplicateOf === null &&
+      !readingUnitDiffers({
+        valueText: row.valueText,
+        unit: row.unit,
+        markerUnit: row.markerUnit,
+      }),
   }));
 }

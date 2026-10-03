@@ -32,7 +32,7 @@ import { Label } from "@/components/ui/label";
 import { useTranslations } from "@/lib/i18n/context";
 
 import type { OcrReviewRow } from "./ocr-review-types";
-import type { OcrRowErrors } from "./ocr-review-validation";
+import { readingUnitDiffers, type OcrRowErrors } from "./ocr-review-validation";
 
 /** Below this per-field confidence the field is flagged for a second look. */
 const CONFIDENCE_THRESHOLD = 0.6;
@@ -65,10 +65,21 @@ export function OcrRowEditor({
           "aria-describedby": `${fieldId}-${field}-error`,
         }
       : {};
-  const fieldError = (field: keyof OcrRowErrors, messageKey: string) =>
+  const fieldError = (
+    field: keyof OcrRowErrors,
+    messageKey: string,
+    params?: Record<string, string>,
+  ) =>
     errors?.[field] ? (
-      <FieldError id={`${fieldId}-${field}-error`} message={t(messageKey)} />
+      <FieldError
+        id={`${fieldId}-${field}-error`}
+        message={t(messageKey, params)}
+      />
     ) : null;
+  // Stated before Save, not only after a failed attempt: a reading in another
+  // unit than its marker's cannot be written, and the person should see why
+  // the row is unticked (or will not save) while they are still reading it.
+  const unitDiffers = readingUnitDiffers(row);
 
   const isQualitative = row.valueText !== null && row.valueText !== undefined;
   const lowValueConfidence =
@@ -158,6 +169,17 @@ export function OcrRowEditor({
                   {t("labs.ocr.duplicateWarning")}
                 </Badge>
               ) : null}
+              {unitDiffers ? (
+                <Badge variant="secondary" className="max-w-full">
+                  <Ruler aria-hidden />
+                  <span className="truncate">
+                    {t("labs.ocr.unitDiffersBadge", {
+                      markerUnit: row.markerUnit ?? "",
+                      unit: (row.unit ?? "").trim(),
+                    })}
+                  </span>
+                </Badge>
+              ) : null}
               {lowRowConfidence ? (
                 <Badge variant="secondary" className="text-muted-foreground">
                   <AlertCircle aria-hidden />
@@ -224,9 +246,14 @@ export function OcrRowEditor({
                     id={`${fieldId}-unit`}
                     value={row.unit ?? ""}
                     onChange={(e) => onChange({ ...row, unit: e.target.value })}
-                    {...invalidProps("unit")}
+                    {...invalidProps(
+                      errors?.unitMismatch ? "unitMismatch" : "unit",
+                    )}
                   />
                   {fieldError("unit", "labs.ocr.errorUnit")}
+                  {fieldError("unitMismatch", "labs.ocr.errorUnitMismatch", {
+                    markerUnit: row.markerUnit ?? "",
+                  })}
                 </div>
               </>
             )}
