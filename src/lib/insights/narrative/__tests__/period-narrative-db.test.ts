@@ -49,6 +49,7 @@ vi.mock("@/lib/db", () => ({
       findMany: (a: unknown) => environmentContextFindMany(a),
     },
     customMetric: { findMany: (a: unknown) => customMetricFindMany(a) },
+    symptomDefinition: { findMany: async () => [] },
   },
 }));
 

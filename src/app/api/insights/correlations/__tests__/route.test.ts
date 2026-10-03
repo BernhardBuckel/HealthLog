@@ -31,6 +31,7 @@ vi.mock("@/lib/db", () => ({
     // channel produces a point.
     environmentContext: { findMany: vi.fn().mockResolvedValue([]) },
     customMetric: { findMany: vi.fn().mockResolvedValue([]) },
+    symptomDefinition: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 
@@ -153,6 +154,7 @@ beforeEach(() => {
     prisma.environmentContext.findMany as ReturnType<typeof vi.fn>
   ).mockResolvedValue([]);
   vi.mocked(prisma.customMetric.findMany).mockResolvedValue([] as never);
+  vi.mocked(prisma.symptomDefinition.findMany).mockResolvedValue([] as never);
 });
 
 const callGet = GET as unknown as (req: NextRequest) => Promise<Response>;

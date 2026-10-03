@@ -91,6 +91,7 @@ describe("T1 — only the assembler fetches discovery channels", () => {
     "fetchSymptomSeries",
     "fetchEnvironmentSeries",
     "fetchCustomMetricBehaviourSeries",
+    "fetchSymptomEventSeries",
     "fetchMoodWindowSeries",
     "fetchMoodFactorWindowSeries",
     "fetchMeasurementDailySeriesTiered",

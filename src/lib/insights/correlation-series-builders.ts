@@ -35,6 +35,7 @@
  * mirroring how the engine itself is pure over `NamedSeries[]`.
  */
 import { dayKeyForUserTz } from "@/lib/measurements/consolidation-tz";
+import { shiftDateKey } from "@/lib/tz/format";
 import type { DoseHistoryRow } from "@/lib/medications/scheduling/dose-history";
 import {
   MEDICATION_COMPLIANCE_CHANNEL_KEY,
@@ -190,4 +191,54 @@ export function buildSymptomSeverityDailySeries(args: {
     .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
 
   return { key: SYMPTOM_SEVERITY_CHANNEL_KEY, role, points };
+}
+
+/** One occurrence of a person-defined symptom, as the builder reads it. */
+export interface SymptomEventRow {
+  at: Date;
+  intensity: number;
+}
+
+/**
+ * Build one `SYMPTOM:<definitionId>` outcome series from that symptom's
+ * occurrences (v1.40).
+ *
+ * The daily value is the day's HIGHEST intensity (0-10) in the person's zone:
+ * two attacks in a day are as bad as the worse one. Days with no occurrence
+ * are 0, but only between the first and the last logged day: inside that span
+ * the person was tracking the symptom and its absence is a real zero, outside
+ * it nothing says whether they were tracking at all. One logged day yields a
+ * one-point series, which the n >= 20 floor then drops. Pure.
+ */
+export function buildSymptomEventDailySeries(args: {
+  key: string;
+  label: string | undefined;
+  events: SymptomEventRow[];
+  tz: string;
+}): NamedSeries {
+  const { key, label, events, tz } = args;
+  const byDay = new Map<string, number>();
+  for (const event of events) {
+    if (!Number.isFinite(event.intensity)) continue;
+    const day = dayKey(event.at, tz);
+    const prev = byDay.get(day);
+    byDay.set(
+      day,
+      prev == null ? event.intensity : Math.max(prev, event.intensity),
+    );
+  }
+  const keys = [...byDay.keys()].sort();
+  const points: DailySeriesPoint[] = [];
+  if (keys.length > 0) {
+    const last = keys[keys.length - 1];
+    for (let day = keys[0]; day <= last; day = shiftDateKey(day, 1)) {
+      points.push({ day, value: byDay.get(day) ?? 0 });
+    }
+  }
+  return {
+    key,
+    ...(label !== undefined ? { label } : {}),
+    role: "outcome",
+    points,
+  };
 }
