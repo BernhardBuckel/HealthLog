@@ -2277,6 +2277,32 @@
       "placeholder": "ad es. 1,5 o 1 1/2",
       "invalid": "Inserisci un numero maggiore di 0 e fino a 100, ad esempio 1,5 o 1 1/2.",
       "preview": "Conta come {value} per dose"
+    },
+    "category": {
+      "custom": {
+        "add": "Nuova categoria",
+        "label": "Nome della categoria",
+        "labelPlaceholder": "es. Kit da viaggio",
+        "create": "Aggiungi",
+        "limitReached": "Hai raggiunto il limite di 20 categorie personali.",
+        "saveFailed": "Il salvataggio non è riuscito. Riprova.",
+        "bpGateNote": "L'analisi della pressione conta solo i farmaci nella categoria integrata Pressione sanguigna.",
+        "manage": "Gestisci categorie",
+        "manageDescription": "Le tue categorie, accanto a quelle integrate.",
+        "hidden": "Nascosta",
+        "count": "{count} farmaci",
+        "rename": "Rinomina",
+        "hide": "Nascondi nella selezione",
+        "show": "Mostra nella selezione",
+        "delete": "Elimina",
+        "deleteTitle": "Eliminare questa categoria?",
+        "deleteBody": "{count} farmaci di questa categoria passano in Altro. I farmaci restano.",
+        "movedToOther": "Categoria eliminata. {count} farmaci passano in Altro."
+      },
+      "filter": {
+        "label": "Categoria",
+        "all": "Tutte le categorie"
+      }
     }
   },
   "charts": {
@@ -11269,7 +11295,8 @@
       "documentDiscard": "{name} ha scartato un documento",
       "medicationIntakeImportFinished": "L'importazione delle dosi avviata da {name} è terminata",
       "medicationOneShotReconciled": "Un farmaco monodose è stato riaperto o chiuso dopo una dose registrata da {name}",
-      "vaccinationBoosterPlanned": "{name} ha pianificato un richiamo"
+      "vaccinationBoosterPlanned": "{name} ha pianificato un richiamo",
+      "medicationCategoryCreate": "{name} ha aggiunto una categoria di farmaci"
     },
     "section": {
       "measurements": {

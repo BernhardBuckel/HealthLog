@@ -2277,6 +2277,32 @@
       "placeholder": "p. ej., 1,5 o 1 1/2",
       "invalid": "Introduce un número mayor que 0 y hasta 100, por ejemplo 1,5 o 1 1/2.",
       "preview": "Cuenta como {value} por dosis"
+    },
+    "category": {
+      "custom": {
+        "add": "Nueva categoría",
+        "label": "Nombre de la categoría",
+        "labelPlaceholder": "p. ej. Botiquín de viaje",
+        "create": "Añadir",
+        "limitReached": "Has alcanzado el límite de 20 categorías propias.",
+        "saveFailed": "No se ha guardado. Inténtalo de nuevo.",
+        "bpGateNote": "El análisis de la presión arterial solo cuenta los medicamentos de la categoría integrada Presión arterial.",
+        "manage": "Gestionar categorías",
+        "manageDescription": "Tus propias categorías, junto a las integradas.",
+        "hidden": "Oculta",
+        "count": "{count} medicamentos",
+        "rename": "Renombrar",
+        "hide": "Ocultar en el selector",
+        "show": "Mostrar en el selector",
+        "delete": "Eliminar",
+        "deleteTitle": "¿Eliminar esta categoría?",
+        "deleteBody": "{count} medicamentos de esta categoría pasan a Otros. Los medicamentos se conservan.",
+        "movedToOther": "Categoría eliminada. {count} medicamentos pasan a Otros."
+      },
+      "filter": {
+        "label": "Categoría",
+        "all": "Todas las categorías"
+      }
     }
   },
   "charts": {
@@ -11269,7 +11295,8 @@
       "documentDiscard": "{name} descartó un documento",
       "medicationIntakeImportFinished": "La importación de dosis que inició {name} ha terminado",
       "medicationOneShotReconciled": "Un medicamento de una sola toma se abrió o se cerró tras una dosis que registró {name}",
-      "vaccinationBoosterPlanned": "{name} planificó un refuerzo"
+      "vaccinationBoosterPlanned": "{name} planificó un refuerzo",
+      "medicationCategoryCreate": "{name} añadió una categoría de medicamentos"
     },
     "section": {
       "measurements": {

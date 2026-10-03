@@ -2277,6 +2277,32 @@
       "placeholder": "z. B. 1,5 oder 1 1/2",
       "invalid": "Gib eine Zahl über 0 und bis 100 ein, zum Beispiel 1,5 oder 1 1/2.",
       "preview": "Zählt als {value} pro Dosis"
+    },
+    "category": {
+      "custom": {
+        "add": "Neue Kategorie",
+        "label": "Name der Kategorie",
+        "labelPlaceholder": "z. B. Reiseapotheke",
+        "create": "Hinzufügen",
+        "limitReached": "Du hast die Grenze von 20 eigenen Kategorien erreicht.",
+        "saveFailed": "Das wurde nicht gespeichert. Bitte versuch es noch einmal.",
+        "bpGateNote": "Die Blutdruck-Auswertung zählt nur Medikamente in der eingebauten Kategorie Blutdruck.",
+        "manage": "Kategorien verwalten",
+        "manageDescription": "Deine eigenen Kategorien, neben den eingebauten.",
+        "hidden": "Ausgeblendet",
+        "count": "{count} Medikamente",
+        "rename": "Umbenennen",
+        "hide": "In der Auswahl ausblenden",
+        "show": "In der Auswahl zeigen",
+        "delete": "Löschen",
+        "deleteTitle": "Diese Kategorie löschen?",
+        "deleteBody": "{count} Medikamente in dieser Kategorie wandern zu Sonstige. Die Medikamente selbst bleiben.",
+        "movedToOther": "Kategorie gelöscht. {count} Medikamente sind jetzt unter Sonstige."
+      },
+      "filter": {
+        "label": "Kategorie",
+        "all": "Alle Kategorien"
+      }
     }
   },
   "charts": {
@@ -11269,7 +11295,8 @@
       "documentDiscard": "{name} hat ein Dokument verworfen",
       "medicationIntakeImportFinished": "Der von {name} gestartete Einnahme-Import ist fertig",
       "medicationOneShotReconciled": "Ein einmaliges Medikament wurde nach einer Einnahme von {name} geöffnet oder geschlossen",
-      "vaccinationBoosterPlanned": "{name} hat eine Auffrischung geplant"
+      "vaccinationBoosterPlanned": "{name} hat eine Auffrischung geplant",
+      "medicationCategoryCreate": "{name} hat eine Medikamentenkategorie angelegt"
     },
     "section": {
       "measurements": {

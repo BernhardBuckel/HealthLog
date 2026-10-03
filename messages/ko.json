@@ -2277,6 +2277,32 @@
       "placeholder": "예: 1.5 또는 1 1/2",
       "invalid": "0보다 크고 100 이하인 숫자를 입력하세요. 예: 1.5 또는 1 1/2",
       "preview": "1회분당 {value}(으)로 계산돼요"
+    },
+    "category": {
+      "custom": {
+        "add": "새 카테고리",
+        "label": "카테고리 이름",
+        "labelPlaceholder": "예: 여행용 상비약",
+        "create": "추가",
+        "limitReached": "나만의 카테고리는 최대 20개까지 만들 수 있어요.",
+        "saveFailed": "저장하지 못했어요. 다시 시도해 주세요.",
+        "bpGateNote": "혈압 분석은 기본 제공되는 혈압 카테고리의 약만 계산해요.",
+        "manage": "카테고리 관리",
+        "manageDescription": "기본 카테고리 옆에 보이는 나만의 카테고리예요.",
+        "hidden": "숨김",
+        "count": "약 {count}개",
+        "rename": "이름 바꾸기",
+        "hide": "선택 목록에서 숨기기",
+        "show": "선택 목록에 표시",
+        "delete": "삭제",
+        "deleteTitle": "이 카테고리를 삭제할까요?",
+        "deleteBody": "이 카테고리의 약 {count}개가 기타로 옮겨져요. 약 자체는 그대로 남아요.",
+        "movedToOther": "카테고리를 삭제했어요. 약 {count}개가 기타로 옮겨졌어요."
+      },
+      "filter": {
+        "label": "카테고리",
+        "all": "모든 카테고리"
+      }
     }
   },
   "charts": {
@@ -11269,7 +11295,8 @@
       "documentDiscard": "{name} 님이 문서를 폐기했어요",
       "medicationIntakeImportFinished": "{name} 님이 시작한 복용 기록 불러오기가 끝났어요",
       "medicationOneShotReconciled": "{name} 님이 기록한 복용에 따라 일회성 약이 시작되거나 종료됐어요",
-      "vaccinationBoosterPlanned": "{name} 님이 추가 접종을 계획했어요"
+      "vaccinationBoosterPlanned": "{name} 님이 추가 접종을 계획했어요",
+      "medicationCategoryCreate": "{name} 님이 약 카테고리를 추가했어요"
     },
     "section": {
       "measurements": {

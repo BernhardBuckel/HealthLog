@@ -2277,6 +2277,32 @@
       "placeholder": "np. 1,5 lub 1 1/2",
       "invalid": "Wpisz liczbę większą od 0 i nie większą niż 100, na przykład 1,5 lub 1 1/2.",
       "preview": "Liczy się jako {value} na dawkę"
+    },
+    "category": {
+      "custom": {
+        "add": "Nowa kategoria",
+        "label": "Nazwa kategorii",
+        "labelPlaceholder": "np. Apteczka podróżna",
+        "create": "Dodaj",
+        "limitReached": "Osiągnięto limit 20 własnych kategorii.",
+        "saveFailed": "Nie udało się zapisać. Spróbuj ponownie.",
+        "bpGateNote": "Analiza ciśnienia uwzględnia tylko leki z wbudowanej kategorii Ciśnienie krwi.",
+        "manage": "Zarządzaj kategoriami",
+        "manageDescription": "Twoje własne kategorie, obok wbudowanych.",
+        "hidden": "Ukryta",
+        "count": "Leki: {count}",
+        "rename": "Zmień nazwę",
+        "hide": "Ukryj w wyborze",
+        "show": "Pokaż w wyborze",
+        "delete": "Usuń",
+        "deleteTitle": "Usunąć tę kategorię?",
+        "deleteBody": "Leki w tej kategorii ({count}) przejdą do kategorii Inne. Same leki zostaną.",
+        "movedToOther": "Kategoria usunięta. Leki przeniesione do kategorii Inne: {count}."
+      },
+      "filter": {
+        "label": "Kategoria",
+        "all": "Wszystkie kategorie"
+      }
     }
   },
   "charts": {
@@ -11269,7 +11295,8 @@
       "documentDiscard": "{name} odrzucił dokument",
       "medicationIntakeImportFinished": "Import przyjęć rozpoczęty przez {name} zakończył się",
       "medicationOneShotReconciled": "Lek jednorazowy został otwarty lub zamknięty po dawce zapisanej przez {name}",
-      "vaccinationBoosterPlanned": "{name} zaplanował dawkę przypominającą"
+      "vaccinationBoosterPlanned": "{name} zaplanował dawkę przypominającą",
+      "medicationCategoryCreate": "{name} dodał kategorię leków"
     },
     "section": {
       "measurements": {

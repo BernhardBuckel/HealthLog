@@ -2277,6 +2277,32 @@
       "placeholder": "p. ex. 1,5 ou 1 1/2",
       "invalid": "Saisissez un nombre supérieur à 0 et jusqu’à 100, par exemple 1,5 ou 1 1/2.",
       "preview": "Compte comme {value} par dose"
+    },
+    "category": {
+      "custom": {
+        "add": "Nouvelle catégorie",
+        "label": "Nom de la catégorie",
+        "labelPlaceholder": "p. ex. Trousse de voyage",
+        "create": "Ajouter",
+        "limitReached": "Tu as atteint la limite de 20 catégories personnelles.",
+        "saveFailed": "L'enregistrement a échoué. Réessaie.",
+        "bpGateNote": "L'analyse de la tension ne compte que les médicaments de la catégorie intégrée Tension artérielle.",
+        "manage": "Gérer les catégories",
+        "manageDescription": "Tes propres catégories, à côté des catégories intégrées.",
+        "hidden": "Masquée",
+        "count": "{count} médicaments",
+        "rename": "Renommer",
+        "hide": "Masquer dans le sélecteur",
+        "show": "Afficher dans le sélecteur",
+        "delete": "Supprimer",
+        "deleteTitle": "Supprimer cette catégorie ?",
+        "deleteBody": "{count} médicaments de cette catégorie passent dans Autre. Les médicaments eux-mêmes restent.",
+        "movedToOther": "Catégorie supprimée. {count} médicaments passent dans Autre."
+      },
+      "filter": {
+        "label": "Catégorie",
+        "all": "Toutes les catégories"
+      }
     }
   },
   "charts": {
@@ -11269,7 +11295,8 @@
       "documentDiscard": "{name} a écarté un document",
       "medicationIntakeImportFinished": "L'import de prises lancé par {name} est terminé",
       "medicationOneShotReconciled": "Un médicament à prise unique a été rouvert ou clos après une prise enregistrée par {name}",
-      "vaccinationBoosterPlanned": "{name} a planifié un rappel"
+      "vaccinationBoosterPlanned": "{name} a planifié un rappel",
+      "medicationCategoryCreate": "{name} a ajouté une catégorie de médicaments"
     },
     "section": {
       "measurements": {
