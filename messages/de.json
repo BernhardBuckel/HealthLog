@@ -351,7 +351,9 @@
       },
       "contacts": "Notfallkontakte",
       "notes": "Weitere Hinweise"
-    }
+    },
+    "courseRange": "Einnahmephase {start} bis {end}",
+    "courseSince": "Einnahmephase seit {start}"
   },
   "errorBoundary": {
     "title": "Da ist etwas schiefgelaufen",
@@ -2302,6 +2304,38 @@
       "filter": {
         "label": "Kategorie",
         "all": "Alle Kategorien"
+      }
+    },
+    "course": {
+      "endedOn": "Letzte Einnahmephase endete am {date}",
+      "nth": "Phase {n}",
+      "startNew": "Neue Einnahmephase starten",
+      "editTitle": "Einnahmephase bearbeiten",
+      "startsOn": "Erster Tag",
+      "endsOn": "Letzter Tag (optional)",
+      "note": "Notiz (optional)",
+      "notePlaceholder": "z. B. die Grippe im März",
+      "title": "Einnahmephasen",
+      "helper": "Wann du es genommen hast. Einnahmen werden nur innerhalb einer Phase erwartet.",
+      "none": "Durchgehend genommen, keine einzelnen Phasen.",
+      "range": "{start} bis {end}",
+      "since": "Seit {start}",
+      "meta": "Phase {n}, {status}, {taken} Einnahmen",
+      "status": {
+        "current": "läuft",
+        "upcoming": "geplant",
+        "ended": "beendet"
+      },
+      "delete": "Phase löschen",
+      "deleteTitle": "Diese Einnahmephase löschen?",
+      "deleteBody": "Die Daten verschwinden, deine erfassten Einnahmen bleiben im Verlauf.",
+      "deleteLastConfirm": "Das ist die einzige Phase. Ohne sie gilt das Medikament als durchgehend genommen, seit du es angelegt hast. Die erfassten Einnahmen bleiben.",
+      "error": {
+        "overlap": "Diese Phase überschneidet sich mit einer anderen.",
+        "currentOpen": "Beende die laufende Phase, bevor du eine danach anlegst.",
+        "oneShot": "Ein einmaliges Medikament hat nur eine Phase.",
+        "invalidRange": "Der letzte Tag kann nicht vor dem ersten liegen.",
+        "generic": "Das wurde nicht gespeichert. Bitte versuch es noch einmal."
       }
     }
   },
@@ -8362,7 +8396,10 @@
     "doses": {
       "title": "Erfasste Dosen",
       "showing": "Angezeigt werden die {shown} jüngsten von {total} erfassten Dosen."
-    }
+    },
+    "course": "Phase {n}",
+    "courseRange": "{start} bis {end}",
+    "courseSince": "seit {start}"
   },
   "cycle": {
     "symptomCategory": {

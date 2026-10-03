@@ -351,7 +351,9 @@
       },
       "contacts": "Kontakty w nagłych wypadkach",
       "notes": "Dodatkowe uwagi"
-    }
+    },
+    "courseRange": "Kuracja od {start} do {end}",
+    "courseSince": "Kuracja od {start}"
   },
   "errorBoundary": {
     "title": "Coś poszło nie tak",
@@ -2302,6 +2304,38 @@
       "filter": {
         "label": "Kategoria",
         "all": "Wszystkie kategorie"
+      }
+    },
+    "course": {
+      "endedOn": "Ostatnia kuracja zakończyła się {date}",
+      "nth": "Kuracja {n}",
+      "startNew": "Rozpocznij nową kurację",
+      "editTitle": "Edytuj kurację",
+      "startsOn": "Pierwszy dzień",
+      "endsOn": "Ostatni dzień (opcjonalnie)",
+      "note": "Notatka (opcjonalnie)",
+      "notePlaceholder": "np. grypa w marcu",
+      "title": "Kuracje",
+      "helper": "Kiedy go przyjmowano. Dawki są oczekiwane tylko w trakcie kuracji.",
+      "none": "Przyjmowany stale, bez osobnych kuracji.",
+      "range": "Od {start} do {end}",
+      "since": "Od {start}",
+      "meta": "Kuracja {n}, {status}, przyjęte dawki: {taken}",
+      "status": {
+        "current": "trwa",
+        "upcoming": "zaplanowana",
+        "ended": "zakończona"
+      },
+      "delete": "Usuń kurację",
+      "deleteTitle": "Usunąć tę kurację?",
+      "deleteBody": "Daty zostaną usunięte; zapisane dawki zostaną w historii.",
+      "deleteLastConfirm": "To jedyna kuracja. Bez niej lek liczy się jako przyjmowany stale od dodania. Zapisane dawki zostaną.",
+      "error": {
+        "overlap": "Ta kuracja pokrywa się z inną.",
+        "currentOpen": "Zakończ trwającą kurację, zanim dodasz kolejną po niej.",
+        "oneShot": "Lek jednorazowy ma tylko jedną kurację.",
+        "invalidRange": "Ostatni dzień nie może być przed pierwszym.",
+        "generic": "Nie udało się zapisać. Spróbuj ponownie."
       }
     }
   },
@@ -8362,7 +8396,10 @@
     "doses": {
       "title": "Zarejestrowane dawki",
       "showing": "Pokazano {shown} najnowszych z {total} zarejestrowanych dawek."
-    }
+    },
+    "course": "Kuracja {n}",
+    "courseRange": "od {start} do {end}",
+    "courseSince": "od {start}"
   },
   "cycle": {
     "symptomCategory": {

@@ -351,7 +351,9 @@
       },
       "contacts": "Contatti di emergenza",
       "notes": "Note aggiuntive"
-    }
+    },
+    "courseRange": "Ciclo dal {start} al {end}",
+    "courseSince": "Ciclo dal {start}"
   },
   "errorBoundary": {
     "title": "Qualcosa è andato storto",
@@ -2302,6 +2304,38 @@
       "filter": {
         "label": "Categoria",
         "all": "Tutte le categorie"
+      }
+    },
+    "course": {
+      "endedOn": "Ultimo ciclo terminato il {date}",
+      "nth": "Ciclo {n}",
+      "startNew": "Inizia un nuovo ciclo",
+      "editTitle": "Modifica ciclo",
+      "startsOn": "Primo giorno",
+      "endsOn": "Ultimo giorno (facoltativo)",
+      "note": "Nota (facoltativa)",
+      "notePlaceholder": "es. l’influenza di marzo",
+      "title": "Cicli",
+      "helper": "Quando l’hai preso. Le assunzioni sono previste solo dentro un ciclo.",
+      "none": "Preso in modo continuo, senza cicli separati.",
+      "range": "Dal {start} al {end}",
+      "since": "Dal {start}",
+      "meta": "Ciclo {n}, {status}, {taken} assunzioni",
+      "status": {
+        "current": "in corso",
+        "upcoming": "previsto",
+        "ended": "concluso"
+      },
+      "delete": "Elimina ciclo",
+      "deleteTitle": "Eliminare questo ciclo?",
+      "deleteBody": "Le date vengono rimosse; le assunzioni registrate restano nello storico.",
+      "deleteLastConfirm": "È l’unico ciclo. Senza di esso il farmaco risulta preso in modo continuo da quando l’hai aggiunto. Le assunzioni registrate restano.",
+      "error": {
+        "overlap": "Questo ciclo si sovrappone a un altro.",
+        "currentOpen": "Concludi il ciclo in corso prima di aggiungerne uno dopo.",
+        "oneShot": "Un farmaco una tantum ha un solo ciclo.",
+        "invalidRange": "L’ultimo giorno non può precedere il primo.",
+        "generic": "Il salvataggio non è riuscito. Riprova."
       }
     }
   },
@@ -8362,7 +8396,10 @@
     "doses": {
       "title": "Dosi registrate",
       "showing": "Sono mostrate le {shown} dosi più recenti su {total} registrate."
-    }
+    },
+    "course": "Ciclo {n}",
+    "courseRange": "dal {start} al {end}",
+    "courseSince": "dal {start}"
   },
   "cycle": {
     "symptomCategory": {

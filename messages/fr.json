@@ -351,7 +351,9 @@
       },
       "contacts": "Contacts d'urgence",
       "notes": "Notes complémentaires"
-    }
+    },
+    "courseRange": "Traitement du {start} au {end}",
+    "courseSince": "Traitement depuis le {start}"
   },
   "errorBoundary": {
     "title": "Une erreur est survenue",
@@ -2302,6 +2304,38 @@
       "filter": {
         "label": "Catégorie",
         "all": "Toutes les catégories"
+      }
+    },
+    "course": {
+      "endedOn": "Dernier traitement terminé le {date}",
+      "nth": "Traitement {n}",
+      "startNew": "Commencer un nouveau traitement",
+      "editTitle": "Modifier le traitement",
+      "startsOn": "Premier jour",
+      "endsOn": "Dernier jour (facultatif)",
+      "note": "Note (facultatif)",
+      "notePlaceholder": "p. ex. la grippe de mars",
+      "title": "Traitements",
+      "helper": "Quand tu l’as pris. Les prises ne sont attendues que pendant un traitement.",
+      "none": "Pris en continu, sans traitements séparés.",
+      "range": "Du {start} au {end}",
+      "since": "Depuis le {start}",
+      "meta": "Traitement {n}, {status}, {taken} prises",
+      "status": {
+        "current": "en cours",
+        "upcoming": "à venir",
+        "ended": "terminé"
+      },
+      "delete": "Supprimer le traitement",
+      "deleteTitle": "Supprimer ce traitement ?",
+      "deleteBody": "Les dates disparaissent ; les prises enregistrées restent dans l’historique.",
+      "deleteLastConfirm": "C’est le seul traitement. Sans lui, le médicament compte comme pris en continu depuis son ajout. Les prises enregistrées restent.",
+      "error": {
+        "overlap": "Ce traitement chevauche un autre.",
+        "currentOpen": "Termine le traitement en cours avant d’en ajouter un après.",
+        "oneShot": "Un médicament ponctuel n’a qu’un seul traitement.",
+        "invalidRange": "Le dernier jour ne peut pas précéder le premier.",
+        "generic": "L’enregistrement a échoué. Réessaie."
       }
     }
   },
@@ -8362,7 +8396,10 @@
     "doses": {
       "title": "Doses enregistrées",
       "showing": "Affichage des {shown} doses les plus récentes sur {total} enregistrées."
-    }
+    },
+    "course": "Traitement {n}",
+    "courseRange": "du {start} au {end}",
+    "courseSince": "depuis le {start}"
   },
   "cycle": {
     "symptomCategory": {

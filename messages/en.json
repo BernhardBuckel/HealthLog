@@ -351,7 +351,9 @@
     "immunizationsColDate": "Date",
     "immunizationsColVaccine": "Vaccine",
     "immunizationsColDose": "Dose",
-    "immunizationsColLot": "Lot"
+    "immunizationsColLot": "Lot",
+    "courseRange": "Course {start} to {end}",
+    "courseSince": "Course since {start}"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -2302,6 +2304,38 @@
       "filter": {
         "label": "Category",
         "all": "All categories"
+      }
+    },
+    "course": {
+      "endedOn": "Last course ended {date}",
+      "nth": "Course {n}",
+      "startNew": "Start a new course",
+      "editTitle": "Edit course",
+      "startsOn": "First day",
+      "endsOn": "Last day (optional)",
+      "note": "Note (optional)",
+      "notePlaceholder": "e.g. the flu in March",
+      "title": "Courses",
+      "helper": "When you took it. Doses are expected only inside a course.",
+      "none": "Taken continuously, no separate courses.",
+      "range": "{start} to {end}",
+      "since": "Since {start}",
+      "meta": "Course {n}, {status}, {taken} doses taken",
+      "status": {
+        "current": "running",
+        "upcoming": "upcoming",
+        "ended": "ended"
+      },
+      "delete": "Delete course",
+      "deleteTitle": "Delete this course?",
+      "deleteBody": "The dates go; the doses you logged stay in the history.",
+      "deleteLastConfirm": "This is the only course. Without it the medication counts as taken continuously since you added it. The logged doses stay.",
+      "error": {
+        "overlap": "This course shares days with another one.",
+        "currentOpen": "End the running course before adding one after it.",
+        "oneShot": "A one-time medication has a single course.",
+        "invalidRange": "The last day cannot be before the first.",
+        "generic": "That did not save. Please try again."
       }
     }
   },
@@ -8362,7 +8396,10 @@
     "doses": {
       "title": "Logged doses",
       "showing": "Showing the {shown} most recent of {total} logged doses."
-    }
+    },
+    "course": "Course {n}",
+    "courseRange": "{start} to {end}",
+    "courseSince": "since {start}"
   },
   "cycle": {
     "symptomCategory": {
