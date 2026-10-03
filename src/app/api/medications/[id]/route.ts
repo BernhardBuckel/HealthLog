@@ -21,6 +21,7 @@ import {
 import { serializeScheduleRecurrence } from "@/lib/medication-schedule";
 import {
   checkCurrentWindow,
+  CourseWriteError,
   courseRefusalResponse,
   resolveCourseFields,
   setCurrentWindow,
@@ -957,8 +958,10 @@ export const PUT = apiHandler(
       // v1.5 scheduling primitives — pass-through when supplied.
       // `startsOn` / `endsOn` are `Date | null | undefined` (the
       // schema lets the user clear them explicitly with null).
-      ...(startsOn !== undefined && { startsOn }),
-      ...(normalisedEndsOn !== undefined && { endsOn: normalisedEndsOn }),
+      // v1.40 (#1024) — `startsOn` / `endsOn` are not written here: the
+      // course writer below writes them together with the course they
+      // project, in one transaction, so the row and its courses cannot
+      // disagree if one of the two writes fails.
       ...(oneShot !== undefined && { oneShot }),
       // v1.16.11 — as-needed flag, field-by-field (the invariants above
       // already guaranteed the medication ends schedule-consistent).
@@ -1055,13 +1058,24 @@ export const PUT = apiHandler(
     // v1.40 (#1024) — write the window onto the latest course and project it
     // back, then serve the projected row.
     if (touchesWindow) {
-      const projected = await setCurrentWindow({
-        userId: user.id,
-        medicationId: id,
-        timeZone: courseTz,
-        ...nextWindow,
-      });
-      if (projected) medication = { ...medication, ...projected };
+      let projected;
+      try {
+        projected = await setCurrentWindow({
+          userId: user.id,
+          medicationId: id,
+          timeZone: courseTz,
+          ...nextWindow,
+        });
+      } catch (err) {
+        // A concurrent course write landed between the check above and this
+        // transaction. Nothing of the window was written.
+        if (err instanceof CourseWriteError) {
+          const r = courseRefusalResponse(err.refusal);
+          return apiError(r.message, r.status, { errorCode: r.errorCode });
+        }
+        throw err;
+      }
+      medication = { ...medication, ...projected };
     }
 
     // v1.40 (#1041) — an iPhone app build that predates custom categories

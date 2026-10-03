@@ -328,7 +328,7 @@ function windowAsCourse(
  */
 export async function setCurrentWindow(
   args: WriteContext & { startsOn: Date | null; endsOn: Date | null },
-): Promise<ProjectedWindow | null> {
+): Promise<ProjectedWindow> {
   const todayKey = userDayKey(args.now ?? new Date(), args.timeZone);
   return prisma.$transaction(async (tx) => {
     await lockMedication(tx, args.medicationId);
@@ -340,7 +340,7 @@ export async function setCurrentWindow(
     const latest = sortCourses(courses).at(-1);
 
     if (args.startsOn === null && args.endsOn === null) {
-      if (!latest) return null;
+      if (!latest) return project(tx, args.medicationId);
       if (courses.length > 1) throw new CourseWriteError("windowRequired");
       await tx.medicationCourse.delete({ where: { id: latest.id } });
       return project(tx, args.medicationId);
