@@ -10,7 +10,10 @@ import {
 } from "@/lib/api-response";
 import { annotate } from "@/lib/logging/context";
 import { resolveProviderChain } from "@/lib/ai/provider";
-import { getLastWorkingProvider } from "@/lib/ai/provider-runner";
+import {
+  forgetLastWorkingProvider,
+  getLastWorkingProvider,
+} from "@/lib/ai/provider-runner";
 import { prisma } from "@/lib/db";
 import {
   parseProviderChain,
@@ -149,6 +152,7 @@ export const PUT = apiHandler(async (request: NextRequest) => {
     where: { id: user.id },
     data: { aiProviderChain: normalised },
   });
+  forgetLastWorkingProvider(user.id);
 
   annotate({
     meta: {

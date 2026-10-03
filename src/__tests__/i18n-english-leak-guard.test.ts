@@ -99,6 +99,8 @@ const LEGIT_IDENTICAL = new Set<string>([
   "labs.catalog.hs-crp",
   "measurements.typeHrvRmssd",
   "measurements.typeVo2Max",
+  // "{hours} h {minutes} min": the SI symbols for hour and minute.
+  "measurements.durationHoursMinutes",
   "settings.sections.sources.metrics.vo2Max",
   // Brand / product / proper nouns.
   "settings.googleHealth",

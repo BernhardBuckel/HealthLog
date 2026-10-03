@@ -31,6 +31,7 @@ import { cleanupExpiredIdempotencyKeys } from "@/lib/jobs/idempotency-cleanup";
 import { cleanupExpiredMcpTokens } from "@/lib/jobs/mcp-token-cleanup";
 import { cleanupOldAuditLogs } from "@/lib/jobs/audit-log-cleanup";
 import { cleanupOldCoachMessages } from "@/lib/jobs/coach-message-cleanup";
+import { cleanupOldWorkoutInsightClaims } from "@/lib/jobs/workout-insight-claim-cleanup";
 import { cleanupExpiredWithingsOAuthStates } from "@/lib/jobs/withings-oauth-state-cleanup";
 import { cleanupExpiredOidcNativeHandoffs } from "@/lib/jobs/oidc-handoff-cleanup";
 import {
@@ -393,6 +394,30 @@ export async function handleCoachMessageCleanup(
       return jobFailed("coach-message cleanup failed", err);
     }
   });
+}
+
+export interface WorkoutInsightClaimCleanupPayload {
+  triggeredAt: string;
+}
+
+export async function handleWorkoutInsightClaimCleanup(
+  jobs: Job<WorkoutInsightClaimCleanupPayload>[],
+): Promise<JobOutcome> {
+  void jobs;
+  return withBackgroundEvent(
+    "job.workout_insight_claim_cleanup",
+    async (evt) => {
+      const p = getWorkerPrisma();
+      try {
+        const deleted = await cleanupOldWorkoutInsightClaims(p);
+        evt.addMeta("workout_insight_claim_cleanup_deleted", deleted);
+        return jobDone({ deleted });
+      } catch (err) {
+        evt.addWarning(`workout-insight-claim-cleanup failed: ${err}`);
+        return jobFailed("workout-insight-claim cleanup failed", err);
+      }
+    },
+  );
 }
 
 export interface McpTokenCleanupPayload {

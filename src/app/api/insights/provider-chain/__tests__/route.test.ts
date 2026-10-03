@@ -30,6 +30,7 @@ vi.mock("@/lib/ai/provider", () => ({
 
 vi.mock("@/lib/ai/provider-runner", () => ({
   getLastWorkingProvider: vi.fn(),
+  forgetLastWorkingProvider: vi.fn(),
 }));
 
 vi.mock("@/lib/logging/context", () => ({

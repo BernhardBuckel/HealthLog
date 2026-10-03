@@ -11,8 +11,9 @@
  *     a paragraph that outlived its workout would be an orphaned description of
  *     a session the user believes they erased. That is a data-retention claim,
  *     not a tidiness one, and only the database enforces it.
- *   - **The daily-cap count** reads an index over `(user_id, generated_at)`.
- *     Whether the window actually selects the right rows is a SQL fact.
+ *   - **The daily-cap count** reads the claim ledger, which outlives a deleted
+ *     workout (`ON DELETE SET NULL`). Whether a delete frees a slot is an FK
+ *     fact, so only the database can prove it does not.
  *
  * Every test writes through Prisma the way the worker does, so a schema change
  * that dropped a constraint fails here rather than in production.
@@ -21,6 +22,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { getPrismaClient, truncateAllTables } from "./setup";
 import { claimWorkoutInsightGeneration } from "@/lib/jobs/workout-insight-generate";
+import { cleanupOldWorkoutInsightClaims } from "@/lib/jobs/workout-insight-claim-cleanup";
 
 beforeEach(async () => {
   await truncateAllTables(getPrismaClient());
@@ -189,67 +191,8 @@ describe("WorkoutInsight — cascade", () => {
   });
 });
 
-describe("WorkoutInsight — the daily-cap count", () => {
-  it("counts only this user's rows inside the window", async () => {
-    const prisma = getPrismaClient();
-    const mine = await createUser("wi-cap-mine");
-    const other = await createUser("wi-cap-other");
-
-    // Three of mine today, one of mine yesterday, one belonging to someone else.
-    const today = new Date("2026-07-18T09:00:00Z");
-    for (let i = 0; i < 3; i++) {
-      const w = await createWorkout(
-        mine.id,
-        new Date(today.getTime() + i * 3600_000),
-        `ext-today-${i}`,
-      );
-      await prisma.workoutInsight.create({
-        data: insightData(
-          mine.id,
-          w.id,
-          new Date(today.getTime() + i * 3600_000),
-        ),
-      });
-    }
-    const yesterdayWorkout = await createWorkout(
-      mine.id,
-      new Date("2026-07-17T09:00:00Z"),
-      "ext-yesterday",
-    );
-    await prisma.workoutInsight.create({
-      data: insightData(
-        mine.id,
-        yesterdayWorkout.id,
-        new Date("2026-07-17T09:30:00Z"),
-      ),
-    });
-    const otherWorkout = await createWorkout(
-      other.id,
-      new Date("2026-07-18T09:00:00Z"),
-      "ext-other",
-    );
-    await prisma.workoutInsight.create({
-      data: insightData(
-        other.id,
-        otherWorkout.id,
-        new Date("2026-07-18T10:00:00Z"),
-      ),
-    });
-
-    const dayStart = new Date("2026-07-18T00:00:00Z");
-    const count = await prisma.workoutInsight.count({
-      where: { userId: mine.id, generatedAt: { gte: dayStart } },
-    });
-
-    // Not 4 (yesterday's is outside the window) and not 5 (the other user's is
-    // outside the tenancy narrow).
-    expect(count).toBe(3);
-  });
-});
-
 describe("WorkoutInsightGenerationClaim — concurrent ownership and cap", () => {
   const now = new Date("2026-07-18T15:00:00.000Z");
-  const dayStart = new Date("2026-07-17T22:00:00.000Z");
   const localDate = "2026-07-18";
 
   it("atomically grants at most four different workouts for one user-local day", async () => {
@@ -271,7 +214,6 @@ describe("WorkoutInsightGenerationClaim — concurrent ownership and cap", () =>
           userId: user.id,
           workoutId: workout.id,
           localDate,
-          dayStart,
           now,
         }),
       ),
@@ -315,7 +257,6 @@ describe("WorkoutInsightGenerationClaim — concurrent ownership and cap", () =>
       userId: user.id,
       workoutId: workout.id,
       localDate,
-      dayStart,
       now,
     });
 
@@ -329,49 +270,132 @@ describe("WorkoutInsightGenerationClaim — concurrent ownership and cap", () =>
     expect(rows[0]?.claimId).toBe(outcome.claimId);
   });
 
-  it("counts a pre-migration insight row against the local-day cap", async () => {
+  it("keeps a deleted workout's slot spent, so a re-add hits the cap", async () => {
+    // Generate four, delete them all, add a fifth: the deletes must not buy
+    // the day's slots back. The claim row outlives its workout with a null
+    // workout id and is still counted.
     const prisma = getPrismaClient();
-    const user = await createUser("wi-legacy-cap");
-    const legacyWorkout = await createWorkout(
-      user.id,
-      new Date("2026-07-18T07:00:00.000Z"),
-      "ext-legacy",
-    );
-    await prisma.workoutInsight.create({
-      data: insightData(
-        user.id,
-        legacyWorkout.id,
-        new Date("2026-07-18T08:00:00.000Z"),
-      ),
-    });
-    const candidates = await Promise.all(
+    const user = await createUser("wi-delete-cap");
+    const first = await Promise.all(
       Array.from({ length: 4 }, (_, index) =>
         createWorkout(
           user.id,
           new Date(`2026-07-18T${10 + index}:00:00.000Z`),
-          `ext-new-${index}`,
+          `ext-first-${index}`,
         ),
       ),
     );
+    for (const workout of first) {
+      const outcome = await claimWorkoutInsightGeneration({
+        userId: user.id,
+        workoutId: workout.id,
+        localDate,
+        now,
+      });
+      expect(outcome.status).toBe("claimed");
+      // The worker marks the provider call and completes the claim.
+      await prisma.workoutInsightGenerationClaim.update({
+        where: { workoutId: workout.id },
+        data: {
+          providerInvokedAt: now,
+          completedAt: now,
+          claimId: null,
+          claimedAt: null,
+        },
+      });
+      await prisma.workoutInsight.create({
+        data: insightData(user.id, workout.id, now),
+      });
+    }
 
-    const outcomes = await Promise.all(
-      candidates.map((workout) =>
-        claimWorkoutInsightGeneration({
+    await prisma.workout.deleteMany({
+      where: { id: { in: first.map((w) => w.id) } },
+    });
+
+    expect(await prisma.workoutInsight.count()).toBe(0);
+    const orphans = await prisma.workoutInsightGenerationClaim.findMany({
+      where: { userId: user.id },
+    });
+    expect(orphans).toHaveLength(4);
+    expect(orphans.every((row) => row.workoutId === null)).toBe(true);
+
+    const readded = await createWorkout(
+      user.id,
+      new Date("2026-07-18T14:30:00.000Z"),
+      "ext-readded",
+    );
+    const outcome = await claimWorkoutInsightGeneration({
+      userId: user.id,
+      workoutId: readded.id,
+      localDate,
+      now,
+    });
+    expect(outcome).toEqual({ status: "skipped", reason: "daily_cap" });
+  });
+
+  it("does not count a lapsed lease that never reached the provider", async () => {
+    const prisma = getPrismaClient();
+    const user = await createUser("wi-lapsed-lease");
+    const lapsed = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        createWorkout(
+          user.id,
+          new Date(Date.UTC(2026, 6, 18, 6 + index)),
+          `ext-lapsed-${index}`,
+        ),
+      ),
+    );
+    for (const workout of lapsed) {
+      await prisma.workoutInsightGenerationClaim.create({
+        data: {
           userId: user.id,
           workoutId: workout.id,
           localDate,
-          dayStart,
-          now,
-        }),
-      ),
+          claimId: `dead-${workout.id}`,
+          claimedAt: new Date("2026-07-18T12:00:00.000Z"),
+        },
+      });
+    }
+    const fresh = await createWorkout(
+      user.id,
+      new Date("2026-07-18T14:00:00.000Z"),
+      "ext-fresh",
     );
 
-    expect(
-      outcomes.filter((outcome) => outcome.status === "claimed"),
-    ).toHaveLength(3);
-    expect(outcomes).toContainEqual({
-      status: "skipped",
-      reason: "daily_cap",
+    const outcome = await claimWorkoutInsightGeneration({
+      userId: user.id,
+      workoutId: fresh.id,
+      localDate,
+      now,
     });
+    expect(outcome.status).toBe("claimed");
+  });
+});
+
+describe("WorkoutInsightGenerationClaim — retention", () => {
+  it("drops rows untouched for a week and keeps the rest", async () => {
+    const prisma = getPrismaClient();
+    const user = await createUser("wi-claim-retention");
+    const now = new Date();
+    const old = await prisma.workoutInsightGenerationClaim.create({
+      data: { userId: user.id, workoutId: null, localDate: "2000-01-01" },
+    });
+    const recent = await prisma.workoutInsightGenerationClaim.create({
+      data: { userId: user.id, workoutId: null, localDate: "2000-01-02" },
+    });
+    // `updated_at` is Prisma-managed; age one row through raw SQL.
+    await prisma.$executeRaw`
+      UPDATE "workout_insight_generation_claims"
+         SET "updated_at" = ${new Date(now.getTime() - 8 * 86_400_000)}
+       WHERE "id" = ${old.id}
+    `;
+
+    const deleted = await cleanupOldWorkoutInsightClaims(prisma, now);
+
+    expect(deleted).toBe(1);
+    const left = await prisma.workoutInsightGenerationClaim.findMany({
+      select: { id: true },
+    });
+    expect(left).toEqual([{ id: recent.id }]);
   });
 });

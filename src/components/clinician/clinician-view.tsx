@@ -149,7 +149,9 @@ export function ClinicianView({
   const fmt = makeFormatters(locale, timezone, timeFormat, dateFormat);
   const fmtDate = (iso: string) => fmt.date(new Date(iso));
   const fmtDateTime = (iso: string) => fmt.dateTime(new Date(iso));
-  const fmtNum = (n: number) => Math.round(n * 100) / 100;
+  // Two decimals at most, in the owner's locale: a German reader gets
+  // "80,5", not the "80.5" a bare number prints.
+  const fmtNum = (n: number) => fmt.number(Math.round(n * 100) / 100);
   const scope = makeLeafScope(selection, unavailableLeaves);
 
   return (
@@ -207,7 +209,7 @@ export function ClinicianView({
               >
                 <StatRow
                   label={t("clinicianView.bmi")}
-                  value={String(fmtNum(report.bmi))}
+                  value={fmtNum(report.bmi)}
                 />
               </Section>
             ) : null}

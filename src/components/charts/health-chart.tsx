@@ -2,6 +2,10 @@
 
 import { chartSeriesParams } from "@/components/charts/chart-series-request";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import {
+  localDayKeyFor,
+  openEndedFetchWindow,
+} from "@/lib/charts/fetch-window";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
@@ -750,8 +754,14 @@ export function HealthChart({
   // across the whole history (downsampled by tier) rather than the most
   // recent ~365 daily buckets. The client folds those coarse buckets and
   // `bucketTimeSeries` re-buckets to the visible range as before.
+  //
+  // The window ends at the end of TODAY in the profile time zone, not at the
+  // mount instant: a reading saved after the chart mounted (measuredAt = now)
+  // has to fall inside the window the invalidated query refetches. `todayKey`
+  // re-derives on every render, so the window stays put all day (a stable
+  // cache key) and moves on by itself after midnight.
+  const todayKey = localDayKeyFor(new Date(), userTimezone);
   const fetchWindow = useMemo(() => {
-    const to = new Date();
     const windowDays = rangePoints > 0 ? rangePoints : ALL_RANGE_DAYS;
     const compareShift =
       effectiveCompareBaseline === "lastMonth"
@@ -759,17 +769,12 @@ export function HealthChart({
         : effectiveCompareBaseline === "lastYear"
           ? 365
           : 0;
-    const totalDays = windowDays + compareShift;
-    const from = new Date(to.getTime() - totalDays * 86_400_000);
-    // Use ISO strings so the cache key is stable across the day; the
-    // server treats `to` as the upper bound and the chart re-applies the
-    // same day window client-side (see `visibleSlice`).
-    return {
-      from: from.toISOString(),
-      to: to.toISOString(),
-      windowDays: totalDays,
-    };
-  }, [rangePoints, effectiveCompareBaseline]);
+    return openEndedFetchWindow(
+      windowDays + compareShift,
+      todayKey,
+      userTimezone,
+    );
+  }, [rangePoints, effectiveCompareBaseline, userTimezone, todayKey]);
 
   // v1.18.6 — honour the dashboard's batched slice ONLY for windows over
   // 7 days and ONLY when EVERY non-sleep type the chart renders is present

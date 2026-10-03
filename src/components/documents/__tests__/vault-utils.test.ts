@@ -133,7 +133,7 @@ describe("timeline items", () => {
       doc({ id: "c", documentDate: "2026-03-10" }),
       doc({ id: "d", documentDate: "2026-02-28" }),
     ];
-    const items = buildTimelineItems(docs, 2);
+    const items = buildTimelineItems(docs, 2, "UTC");
     expect(items.map((i) => i.type)).toEqual([
       "month",
       "row",
@@ -149,16 +149,37 @@ describe("timeline items", () => {
 
   it("files an undated document under its upload day", () => {
     const d = doc({ documentDate: null, createdAt: "2026-01-05T10:00:00Z" });
-    expect(documentDateKey(d)).toBe("2026-01-05");
-    const items = buildTimelineItems([d], 3);
+    expect(documentDateKey(d, "UTC")).toBe("2026-01-05");
+    const items = buildTimelineItems([d], 3, "UTC");
     expect(items[0]).toEqual({ type: "month", key: "2026-01" });
+  });
+
+  it("files an undated upload under the reader's day, not the UTC day", () => {
+    // 22:30 on 31 January in Los Angeles is already 1 February in UTC.
+    const d = doc({ documentDate: null, createdAt: "2026-02-01T06:30:00Z" });
+    expect(documentDateKey(d, "America/Los_Angeles")).toBe("2026-01-31");
+    expect(buildTimelineItems([d], 3, "America/Los_Angeles")[0]).toEqual({
+      type: "month",
+      key: "2026-01",
+    });
+    // And 1 March at 00:30 in Kiritimati is still 28 February in UTC.
+    const e = doc({ documentDate: null, createdAt: "2026-02-28T10:30:00Z" });
+    expect(documentDateKey(e, "Pacific/Kiritimati")).toBe("2026-03-01");
+  });
+
+  it("keeps a stated document date whatever the zone", () => {
+    const d = doc({
+      documentDate: "2026-01-31",
+      createdAt: "2026-02-01T06:30:00Z",
+    });
+    expect(documentDateKey(d, "Pacific/Kiritimati")).toBe("2026-01-31");
   });
 
   it("keeps the DOM bounded: item count scales with rows, not documents", () => {
     const docs = Array.from({ length: 1000 }, (_, i) =>
       doc({ id: `d${i}`, documentDate: "2026-03-01" }),
     );
-    const items = buildTimelineItems(docs, 4);
+    const items = buildTimelineItems(docs, 4, "UTC");
     // 1 month header + 250 rows — the virtualizer then windows over these.
     expect(items).toHaveLength(251);
   });

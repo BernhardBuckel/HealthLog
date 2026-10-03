@@ -135,6 +135,11 @@
         "required": "Potwierdź obecne hasło, aby to zmienić.",
         "failed": "Weryfikacja nie powiodła się. Nic nie zostało zmienione."
       }
+    },
+    "biomarkers": {
+      "unit": {
+        "locked": "Ten marker ma już wyniki, więc nie możesz zmienić jego jednostki. Zapisane wartości byłyby pokazywane w nowej jednostce bez przeliczenia."
+      }
     }
   },
   "doctorReport": {
@@ -805,7 +810,13 @@
     "unitRatio": "stosunek",
     "unitRating": "poziom",
     "typeWho5Score": "Wynik WHO-5",
-    "typeSciScore": "Wynik SCI"
+    "typeSciScore": "Wynik SCI",
+    "durationReadAs": "Odczytano jako {duration}",
+    "durationHoursMinutes": "{hours} godz. {minutes} min",
+    "durationHoursOnly": "{hours} godz.",
+    "durationMinutesOnly": "{minutes} min",
+    "durationInvalid": "Wpisz czas trwania, np. 7,5, 7:30 lub 7h 30m.",
+    "durationTooLong": "Jeden wpis nie może przekraczać 24 godzin."
   },
   "metricCatalog": {
     "title": "Co HealthLog potrafi śledzić",
@@ -8980,6 +8991,7 @@
         "namePlaceholder": "np. Cholesterol LDL",
         "unit": "Jednostka",
         "unitPlaceholder": "np. mg/dl",
+        "unitLockedHint": "Gdy ten marker ma już wyniki, jego jednostka pozostaje bez zmian. W przeciwnym razie zapisane wartości byłyby pokazywane w nowej jednostce bez przeliczenia.",
         "panel": "Panel",
         "panelPlaceholder": "np. Lipidy",
         "lowerBound": "Dolna granica",

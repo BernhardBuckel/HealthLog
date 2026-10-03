@@ -115,7 +115,10 @@ async function runAdmitted(
       return;
     }
     case "lab-biomarker-backfill": {
-      const { markers, linked } = await runLabBiomarkerBackfillForUser(userId);
+      const { markers, linked } = await runLabBiomarkerBackfillForUser(
+        userId,
+        shouldStop,
+      );
       totals.markers += markers;
       totals.linked += linked;
       workerLog(

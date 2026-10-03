@@ -55,7 +55,6 @@ import { withBackgroundEvent } from "@/lib/logging/background";
 import { aiCapabilityForJob } from "@/lib/ai/capabilities/gate";
 import { userDayKey } from "@/lib/tz/format";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
-import { startOfLocalDayInTz } from "@/lib/tz/local-day";
 import { buildWorkoutHrSeries } from "@/lib/workouts/hr-series";
 import {
   buildWorkoutInsightEvidence,
@@ -98,9 +97,41 @@ type ClaimWorkoutInsightGenerationArgs = {
   userId: string;
   workoutId: string;
   localDate: string;
-  dayStart: Date;
   now: Date;
 };
+
+/**
+ * Which claim rows spend one of the day's slots.
+ *
+ * The claim row is the ledger. A slot is spent by every attempt that reached
+ * the provider (completed or not, and whether or not its workout still exists:
+ * deleting a workout nulls the claim's `workout_id` instead of removing the
+ * row, so the delete cannot buy the slot back) plus every live lease that may
+ * still reach the provider. A lease past its expiry that never invoked the
+ * provider spent nothing and is reclaimable. Rows older than a week are
+ * dropped by `workout-insight-claim-cleanup`.
+ */
+export function workoutInsightCapWhere({
+  userId,
+  localDate,
+  staleBefore,
+  excludeClaimRowId,
+}: {
+  userId: string;
+  localDate: string;
+  staleBefore: Date;
+  excludeClaimRowId?: string;
+}) {
+  return {
+    userId,
+    localDate,
+    ...(excludeClaimRowId ? { id: { not: excludeClaimRowId } } : {}),
+    OR: [
+      { providerInvokedAt: { not: null } },
+      { claimId: { not: null }, claimedAt: { gte: staleBefore } },
+    ],
+  };
+}
 
 /**
  * Serialize the local-day capacity check with the durable claim insert.
@@ -112,7 +143,6 @@ export async function claimWorkoutInsightGeneration({
   userId,
   workoutId,
   localDate,
-  dayStart,
   now,
 }: ClaimWorkoutInsightGenerationArgs): Promise<WorkoutInsightClaimResult> {
   const claimId = randomUUID();
@@ -153,20 +183,15 @@ export async function claimWorkoutInsightGeneration({
       return { status: "skipped", reason: "already_claimed" };
     }
 
-    const [generatedToday, claimedToday] = await Promise.all([
-      tx.workoutInsight.count({
-        where: { userId, generatedAt: { gte: dayStart } },
+    const spentToday = await tx.workoutInsightGenerationClaim.count({
+      where: workoutInsightCapWhere({
+        userId,
+        localDate,
+        staleBefore,
+        excludeClaimRowId: existing?.id,
       }),
-      tx.workoutInsightGenerationClaim.count({
-        where: {
-          userId,
-          localDate,
-          completedAt: null,
-          ...(existing ? { workoutId: { not: workoutId } } : {}),
-        },
-      }),
-    ]);
-    if (generatedToday + claimedToday >= MAX_INSIGHTS_PER_DAY) {
+    });
+    if (spentToday >= MAX_INSIGHTS_PER_DAY) {
       return { status: "skipped", reason: "daily_cap" };
     }
 
@@ -270,13 +295,11 @@ export async function runWorkoutInsightGenerate(
   // The capacity check and durable claim write are one serialized PostgreSQL
   // transaction. A count performed before the write would let concurrent
   // workouts all observe the same free slot and exceed the cap.
-  const dayStart = startOfLocalDayInTz(now, tz);
   const localDate = userDayKey(now, tz);
   const claim = await claimWorkoutInsightGeneration({
     userId,
     workoutId,
     localDate,
-    dayStart,
     now,
   });
   if (claim.status === "skipped") {

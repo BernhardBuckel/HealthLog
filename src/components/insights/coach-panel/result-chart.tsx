@@ -84,7 +84,7 @@ function usePeriodLabel(): (key: string) => string {
     });
     return (key: string) => {
       if (DAY_KEY.test(key)) {
-        return fmt.dateShortSmart(new Date(`${key}T12:00:00Z`));
+        return fmt.dateShortSmartCalendar(key);
       }
       if (MONTH_KEY.test(key)) {
         return month.format(new Date(`${key}-01T12:00:00Z`));

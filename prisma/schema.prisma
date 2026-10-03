@@ -2410,7 +2410,10 @@ model WorkoutInsight {
 model WorkoutInsightGenerationClaim {
   id                String    @id @default(cuid())
   userId            String    @map("user_id")
-  workoutId         String    @unique @map("workout_id")
+  /// Null once the workout is deleted. The row stays as the day's ledger so
+  /// the delete cannot free an insight slot; the retention job drops it after
+  /// a week.
+  workoutId         String?   @unique @map("workout_id")
   localDate         String    @map("local_date")
   claimId           String?   @unique @map("claim_id")
   claimedAt         DateTime? @map("claimed_at")
@@ -2419,8 +2422,8 @@ model WorkoutInsightGenerationClaim {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workout Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workout Workout? @relation(fields: [workoutId], references: [id], onDelete: SetNull)
 
   @@index([userId, localDate])
   @@map("workout_insight_generation_claims")

@@ -38,7 +38,7 @@ function DayLogRow({ log }: { log: IllnessDayLogDTO }) {
   return (
     <div className="border-border/60 space-y-2 border-l-2 pl-3">
       <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-        {fmt.dateShortSmart(`${log.date}T12:00:00`)}
+        {fmt.dateShortSmartCalendar(log.date)}
       </p>
 
       {log.symptoms.length > 0 ? (

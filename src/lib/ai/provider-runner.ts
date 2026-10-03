@@ -98,6 +98,15 @@ export function getLastWorkingProvider(
   return entry.providerType;
 }
 
+/**
+ * Drop one user's "last working provider" memo. Called when the person saves
+ * a new chain: the memo reorders the chain they just arranged, and a provider
+ * they removed or disabled must not keep leading it for up to an hour.
+ */
+export function forgetLastWorkingProvider(userId: string): void {
+  lastWorkingCache.delete(userId);
+}
+
 function rememberWorkingProvider(
   userId: string,
   providerType: ProviderChainType,

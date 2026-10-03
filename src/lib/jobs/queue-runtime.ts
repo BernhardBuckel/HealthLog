@@ -292,6 +292,7 @@ export const QUEUE_RUNTIME: Readonly<Record<string, QueueRuntime>> = {
   "idempotency-cleanup": short("One retention DELETE."),
   "step-up-elevation-cleanup": short("One retention DELETE."),
   "coach-message-cleanup": short("One retention DELETE."),
+  "workout-insight-claim-cleanup": short("One retention DELETE."),
   "mcp-token-cleanup": short("One retention DELETE."),
   "audit-log-cleanup": short("At most 40 batches of 5 000 rows per leg."),
   "measurement-tombstone-cleanup": short(

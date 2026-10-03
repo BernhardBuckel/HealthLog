@@ -135,6 +135,11 @@
         "required": "변경하려면 현재 비밀번호를 확인하세요.",
         "failed": "확인에 실패했습니다. 아무것도 변경되지 않았습니다."
       }
+    },
+    "biomarkers": {
+      "unit": {
+        "locked": "이 마커에는 이미 기록된 값이 있어서 단위를 바꿀 수 없어요. 저장된 값이 변환되지 않은 채 새 단위로 표시되기 때문이에요."
+      }
     }
   },
   "doctorReport": {
@@ -805,7 +810,13 @@
     "unitRatio": "비율",
     "unitRating": "단계",
     "typeWho5Score": "WHO-5 점수",
-    "typeSciScore": "SCI 점수"
+    "typeSciScore": "SCI 점수",
+    "durationReadAs": "{duration}(으)로 읽었어요",
+    "durationHoursMinutes": "{hours}시간 {minutes}분",
+    "durationHoursOnly": "{hours}시간",
+    "durationMinutesOnly": "{minutes}분",
+    "durationInvalid": "7.5, 7:30, 7h 30m처럼 시간을 입력해 주세요.",
+    "durationTooLong": "한 번에 24시간보다 길게 입력할 수 없어요."
   },
   "metricCatalog": {
     "title": "HealthLog가 기록할 수 있는 것",
@@ -8980,6 +8991,7 @@
         "namePlaceholder": "예: LDL 콜레스테롤",
         "unit": "단위",
         "unitPlaceholder": "예: mg/dL",
+        "unitLockedHint": "이 마커에 기록된 값이 있으면 단위는 그대로 유지돼요. 그렇지 않으면 저장된 값이 변환되지 않은 채 새 단위로 표시돼요.",
         "panel": "패널",
         "panelPlaceholder": "예: 지질",
         "lowerBound": "참고 하한",

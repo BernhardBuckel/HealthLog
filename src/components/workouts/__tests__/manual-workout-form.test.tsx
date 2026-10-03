@@ -138,6 +138,18 @@ describe("saveManualWorkout — the wire", () => {
     ).resolves.toBe("duplicate");
   });
 
+  it("treats an edited resubmit (`updated`) as saved and refreshes", async () => {
+    fetchSpy.mockResolvedValue(
+      envelope({ entries: [{ index: 0, status: "updated" }] }),
+    );
+    const client = fakeClient();
+
+    await expect(
+      saveManualWorkout(ENTRY, client as unknown as QueryClient),
+    ).resolves.toBe("updated");
+    expect(client.invalidateQueries).toHaveBeenCalled();
+  });
+
   it("throws when the route skipped the entry, and refreshes nothing", async () => {
     fetchSpy.mockResolvedValue(
       envelope({ entries: [{ index: 0, status: "skipped" }] }),

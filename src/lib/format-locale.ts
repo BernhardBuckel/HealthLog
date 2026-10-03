@@ -150,6 +150,15 @@ export interface Formatters {
    * überall" year-disambiguation rule.
    */
   dateShortSmart: (value: DateInput) => string;
+  /**
+   * `dateShortSmart` for a STATED calendar date: a day key anchored at noon
+   * UTC (`YYYY-MM-DDT12:00:00Z`), or the bare `YYYY-MM-DD` key itself. Read
+   * in UTC so the date never moves: the zone-aware `dateShortSmart` shows a
+   * noon-UTC anchor as the next day in UTC+12..+14 (and an evening anchor as
+   * the previous day west of UTC-12). The year rule is the same: the year is
+   * added when the date falls outside the reader's current year.
+   */
+  dateShortSmartCalendar: (value: DateInput) => string;
   /** Full date + time; hour cycle follows the `timeFormat` preference. */
   dateTime: (value: DateInput) => string;
   /** Time only, e.g. "14:30" or "2:30 PM" per the `timeFormat` preference. */
@@ -252,6 +261,27 @@ export function makeFormatters(
         ...(isCurrentYearInTz(d, tz, dateLocale)
           ? {}
           : { year: "numeric" as const }),
+      }).format(d);
+    },
+
+    dateShortSmartCalendar: (value) => {
+      const d =
+        typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+          ? new Date(`${value}T12:00:00.000Z`)
+          : asDate(value);
+      const year = getDateTimeFormat(dateLocale, {
+        timeZone: "UTC",
+        year: "numeric",
+      }).format(d);
+      const currentYear = getDateTimeFormat(dateLocale, {
+        timeZone: tz,
+        year: "numeric",
+      }).format(new Date());
+      return getDateTimeFormat(dateLocale, {
+        timeZone: "UTC",
+        day: "2-digit",
+        month: "2-digit",
+        ...(year === currentYear ? {} : { year: "numeric" as const }),
       }).format(d);
     },
 

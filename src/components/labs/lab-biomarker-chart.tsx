@@ -18,6 +18,7 @@ import { CHART_HEIGHT_PX } from "@/lib/charts/constants";
 import { prefersReducedMotion } from "@/lib/charts/reduced-motion";
 import { formatReferenceRange } from "@/lib/labs/reference-range";
 import { useTranslations, useFormatters } from "@/lib/i18n/context";
+import { isNoonUtcAnchor } from "@/lib/tz/date-only";
 
 import { RichChartTooltip, type RichTooltipRow } from "../charts/chart-tooltip";
 import type { LabResultDto } from "./types";
@@ -93,6 +94,15 @@ export function LabBiomarkerChart({
   const { t } = useTranslations();
   const labNumber = useLabNumber();
   const fmt = useFormatters();
+  // A reading from a report that states only its date is stored at noon UTC
+  // and is dated by that calendar date; one typed with its time of day is
+  // dated in the reader's zone (the rule `useLabDate` applies to the lists).
+  const labShortDate = (value: number | string) => {
+    const instant = new Date(value);
+    return isNoonUtcAnchor(instant)
+      ? fmt.dateShortSmartCalendar(instant)
+      : fmt.dateShortSmart(instant);
+  };
   const [range, setRange] = useState<RangeKey>("365");
   // Capture "now" once at mount so the recency filter stays pure across
   // re-renders (an inline `Date.now()` in render is impure).
@@ -215,7 +225,7 @@ export function LabBiomarkerChart({
                 type="number"
                 scale="time"
                 domain={["dataMin", "dataMax"]}
-                tickFormatter={(ts: number) => fmt.dateShortSmart(new Date(ts))}
+                tickFormatter={(ts: number) => labShortDate(ts)}
                 tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                 stroke="var(--border)"
                 minTickGap={32}
@@ -326,7 +336,7 @@ export function LabBiomarkerChart({
                   return (
                     <RichChartTooltip
                       active
-                      label={fmt.dateShortSmart(new Date(point.timestamp))}
+                      label={labShortDate(point.timestamp)}
                       rows={rows}
                     />
                   );
@@ -348,7 +358,7 @@ export function LabBiomarkerChart({
               {sourceBand.mixed
                 ? t("labs.chart.sourceBandMixed")
                 : t("labs.chart.sourceBandLegend", {
-                    date: fmt.dateShortSmart(new Date(sourceBand.takenAt)),
+                    date: labShortDate(sourceBand.takenAt),
                   })}
             </p>
           ) : null}

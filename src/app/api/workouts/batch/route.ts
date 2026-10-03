@@ -77,6 +77,7 @@ import {
 import { withIdempotency } from "@/lib/idempotency";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { enqueuePrDetection } from "@/lib/jobs/pr-detection";
+import { lockPersonalRecordsForUser } from "@/lib/personal-records/pr-detection-worker";
 import { invalidateUserMeasurements } from "@/lib/cache/invalidate";
 import { emitDataArrival } from "@/lib/arrivals/emit-shared";
 import { MAX_WORKOUTS_PER_BATCH } from "@/lib/validations/workout";
@@ -129,8 +130,63 @@ const MAX_BODY_BYTES = 5 * 1024 * 1024;
  * to a workout that had none, which is what lets a history sweep count
  * its own progress. `skipped` covers entries the server refused: an
  * unusable external id, or a `samples` array that failed validation.
+ * `updated` says a hand-entered workout (`manual:` id, source MANUAL) was
+ * sent again with different values and the stored row now carries them.
  */
-type EntryStatus = "inserted" | "duplicate" | "enriched" | "skipped";
+type EntryStatus =
+  "inserted" | "duplicate" | "enriched" | "updated" | "skipped";
+
+/** The workout columns a hand-entered workout's resubmit may overwrite. */
+const MANUAL_OVERWRITE_FIELDS = [
+  "sportType",
+  "startedAt",
+  "endedAt",
+  "durationSec",
+  "totalEnergyKcal",
+  "totalDistanceM",
+  "avgHeartRate",
+  "maxHeartRate",
+  "minHeartRate",
+  "stepCount",
+  "elevationM",
+  "pauseDurationSec",
+] as const;
+type ManualOverwriteField = (typeof MANUAL_OVERWRITE_FIELDS)[number];
+type ManualOverwriteValues = {
+  [K in ManualOverwriteField]: string | number | Date | null;
+};
+
+/**
+ * A workout entered by hand carries one id per form opening, and the form
+ * resends it with the edited values when the person corrects a submit. Such a
+ * resubmit is an edit of the stored row, the way a `stats:` measurement
+ * re-post is. Every other id stays first-write-wins.
+ */
+function isManualOverwrite(source: unknown, externalId: string | null) {
+  return (
+    source === "MANUAL" &&
+    externalId !== null &&
+    externalId.startsWith("manual:")
+  );
+}
+
+/** The changed columns of a manual resubmit, or null when nothing differs. */
+function manualOverwriteChanges(
+  stored: ManualOverwriteValues,
+  sent: Prisma.WorkoutCreateManyInput,
+): Partial<ManualOverwriteValues> | null {
+  const changes: Partial<ManualOverwriteValues> = {};
+  for (const field of MANUAL_OVERWRITE_FIELDS) {
+    const next = (sent[field] ?? null) as string | number | Date | null;
+    const prev = stored[field];
+    const same =
+      next instanceof Date && prev instanceof Date
+        ? next.getTime() === prev.getTime()
+        : next === prev;
+    if (!same) changes[field] = next;
+  }
+  return Object.keys(changes).length > 0 ? changes : null;
+}
 interface EntryResult {
   index: number;
   status: EntryStatus;
@@ -483,6 +539,7 @@ async function postBatch(request: NextRequest): Promise<Response> {
   let duplicateCount = droppedByWriteDedup.length;
   let insertedCount = 0;
   let enrichedCount = 0;
+  let updatedCount = 0;
   const insertedIdByIndex = new Map<number, string>();
 
   if (survivors.length > 0) {
@@ -510,16 +567,45 @@ async function postBatch(request: NextRequest): Promise<Response> {
             source: true,
             externalId: true,
             samples: { select: { workoutId: true } },
+            sportType: true,
+            startedAt: true,
+            endedAt: true,
+            durationSec: true,
+            totalEnergyKcal: true,
+            totalDistanceM: true,
+            avgHeartRate: true,
+            maxHeartRate: true,
+            minHeartRate: true,
+            stepCount: true,
+            elevationM: true,
+            pauseDurationSec: true,
           },
         })
       : [];
 
-    const existingByKey = new Map<string, { id: string; hasSeries: boolean }>();
+    const existingByKey = new Map<
+      string,
+      { id: string; hasSeries: boolean; values: ManualOverwriteValues }
+    >();
     for (const row of existing) {
       if (row.externalId === null) continue;
       existingByKey.set(`${row.source}::${row.externalId}`, {
         id: row.id,
         hasSeries: row.samples !== null,
+        values: {
+          sportType: row.sportType,
+          startedAt: row.startedAt,
+          endedAt: row.endedAt,
+          durationSec: row.durationSec,
+          totalEnergyKcal: row.totalEnergyKcal,
+          totalDistanceM: row.totalDistanceM,
+          avgHeartRate: row.avgHeartRate,
+          maxHeartRate: row.maxHeartRate,
+          minHeartRate: row.minHeartRate,
+          stepCount: row.stepCount,
+          elevationM: row.elevationM,
+          pauseDurationSec: row.pauseDurationSec,
+        },
       });
     }
 
@@ -530,6 +616,13 @@ async function postBatch(request: NextRequest): Promise<Response> {
       workoutId: string;
       samples: NonNullable<Prepared["samples"]>;
     }> = [];
+    /** Hand-entered workouts this batch edits in place. */
+    const toOverwrite: Array<{
+      index: number;
+      workoutId: string;
+      externalId: string;
+      changes: Partial<ManualOverwriteValues>;
+    }> = [];
     /** Workouts already claimed by an earlier entry of THIS batch. */
     const enrichClaimed = new Set<string>();
     for (const p of survivors) {
@@ -537,7 +630,27 @@ async function postBatch(request: NextRequest): Promise<Response> {
         ? `${p.dedupKey.source}::${p.dedupKey.externalId}`
         : null;
       const known = keyTuple !== null ? existingByKey.get(keyTuple) : undefined;
-      if (known) {
+      if (
+        known &&
+        p.dedupKey &&
+        isManualOverwrite(p.dedupKey.source, p.dedupKey.externalId)
+      ) {
+        const changes = enrichClaimed.has(known.id)
+          ? null
+          : manualOverwriteChanges(known.values, p.row);
+        if (changes) {
+          enrichClaimed.add(known.id);
+          toOverwrite.push({
+            index: p.index,
+            workoutId: known.id,
+            externalId: p.dedupKey.externalId,
+            changes,
+          });
+        } else {
+          results[p.index] = { index: p.index, status: "duplicate" };
+          duplicateCount += 1;
+        }
+      } else if (known) {
         if (p.samples && !known.hasSeries && !enrichClaimed.has(known.id)) {
           enrichClaimed.add(known.id);
           // Enrichment. The status is assigned after the write, because
@@ -560,12 +673,45 @@ async function postBatch(request: NextRequest): Promise<Response> {
       }
     }
 
-    if (toInsert.length > 0 || toEnrich.length > 0) {
+    if (toInsert.length > 0 || toEnrich.length > 0 || toOverwrite.length > 0) {
       const CHUNK = 100;
       /** Workout ids whose series row this request actually wrote. */
       const seriesLanded = new Set<string>();
+      /** Batch indices whose manual edit this request actually wrote. */
+      const overwritten = new Set<number>();
 
       await prisma.$transaction(async (tx) => {
+        // A hand-entered workout sent again with other values. Columns are
+        // copied one by one from the validated entry; the records the old
+        // values set go with them and the detection pass below re-derives
+        // the honest best, as the DELETE does.
+        if (toOverwrite.length > 0) {
+          await lockPersonalRecordsForUser(tx, user.id);
+        }
+        for (const o of toOverwrite) {
+          const data: Prisma.WorkoutUpdateManyMutationInput = {};
+          for (const field of MANUAL_OVERWRITE_FIELDS) {
+            if (field in o.changes) {
+              (data as Record<string, unknown>)[field] = o.changes[field];
+            }
+          }
+          const written = await tx.workout.updateMany({
+            where: { id: o.workoutId, userId: user.id, source: "MANUAL" },
+            data,
+          });
+          if (written.count === 1) {
+            overwritten.add(o.index);
+            await tx.personalRecord.deleteMany({
+              where: {
+                userId: user.id,
+                source: "MANUAL",
+                metricSlot: { not: null },
+                externalId: o.externalId,
+              },
+            });
+          }
+        }
+
         const withExternalId = toInsert.filter((p) => p.dedupKey !== null);
         const withoutExternalId = toInsert.filter((p) => p.dedupKey === null);
 
@@ -686,6 +832,18 @@ async function postBatch(request: NextRequest): Promise<Response> {
         if (seriesLanded.has(e.workoutId)) enrichedCount += 1;
         duplicateCount += 1;
       }
+
+      // Like an enrichment, an edit inserts no row, so it counts towards
+      // `duplicates`; the per-entry status says the stored row changed.
+      for (const o of toOverwrite) {
+        const landed = overwritten.has(o.index);
+        results[o.index] = {
+          index: o.index,
+          status: landed ? "updated" : "duplicate",
+        };
+        if (landed) updatedCount += 1;
+        duplicateCount += 1;
+      }
     }
   }
 
@@ -701,6 +859,7 @@ async function postBatch(request: NextRequest): Promise<Response> {
       inserted: insertedCount,
       duplicates: duplicateCount,
       enriched: enrichedCount,
+      updated: updatedCount,
       skipped: skipped.length,
     },
   });
@@ -739,6 +898,7 @@ async function postBatch(request: NextRequest): Promise<Response> {
       inserted: insertedCount,
       duplicates: duplicateCount,
       enriched: enrichedCount,
+      updated: updatedCount,
       skipped: skipped.length,
     },
   });
@@ -750,7 +910,7 @@ async function postBatch(request: NextRequest): Promise<Response> {
   // An enrichment changes what the workout reads as — the detail seam
   // gains its curve, the list gains its glyph — so it busts the cache
   // too, even though no workout row was written.
-  if (insertedCount > 0 || enrichedCount > 0) {
+  if (insertedCount > 0 || enrichedCount > 0 || updatedCount > 0) {
     invalidateUserMeasurements(user.id);
   }
 

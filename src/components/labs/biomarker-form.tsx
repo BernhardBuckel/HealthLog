@@ -70,6 +70,7 @@ export function BiomarkerForm({
 }: BiomarkerFormProps) {
   const { t } = useTranslations();
   const formId = useId();
+  const unitHintId = `${formId}-unit-hint`;
 
   const [name, setName] = useState(existing?.name ?? "");
   const [unit, setUnit] = useState(existing?.unit ?? "");
@@ -225,7 +226,16 @@ export function BiomarkerForm({
             placeholder={t("labs.biomarker.form.unitPlaceholder")}
             maxLength={40}
             required
+            aria-describedby={existing ? unitHintId : undefined}
           />
+          {existing ? (
+            // The server refuses a unit change while readings are linked:
+            // every reading is shown in the marker's unit, so a new unit
+            // would relabel stored numbers without converting them.
+            <p id={unitHintId} className="text-muted-foreground text-xs">
+              {t("labs.biomarker.form.unitLockedHint")}
+            </p>
+          ) : null}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="biomarker-panel">

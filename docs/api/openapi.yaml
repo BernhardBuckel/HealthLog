@@ -4749,13 +4749,14 @@ paths:
         Server-side ingest endpoint for HKWorkout records (iOS) and Withings activity rows (server-to-server). Up to 100
         workouts per call; nested route geometry (GeoJSON LineString) is capped at 20 000 points and stored in a 1:1
         `WorkoutRoute` row keyed by `workoutId`. Idempotent via the `Idempotency-Key` header (replay window 24h).
-        Per-entry status (`inserted | duplicate | enriched | skipped`) lets the iOS sync cursor checkpoint accurately.
-        An entry matching a stored workout is first-write-wins for the workout row; when it carries a `samples` array
-        and the stored workout has no heart-rate series, the series is attached and the entry reports `enriched`
-        (repeatable: a workout that already has a series is a no-op). An entry whose `samples` array fails validation is
-        refused on its own with `reason: "invalid_samples"` — the rest of the batch still lands. The request body
-        ceiling is 5 MB enforced at the HTTP layer — clients above the ceiling receive a 413 with
-        `workout.batch.payload_too_large`.
+        Per-entry status (`inserted | duplicate | enriched | updated | skipped`) lets the iOS sync cursor checkpoint
+        accurately. An entry matching a stored workout is first-write-wins for the workout row, except a hand-entered
+        one (`source: MANUAL` with a `manual:` externalId), which a resend with other values overwrites and reports
+        `updated`; when it carries a `samples` array and the stored workout has no heart-rate series, the series is
+        attached and the entry reports `enriched` (repeatable: a workout that already has a series is a no-op). An entry
+        whose `samples` array fails validation is refused on its own with `reason: "invalid_samples"` — the rest of the
+        batch still lands. The request body ceiling is 5 MB enforced at the HTTP layer — clients above the ceiling
+        receive a 413 with `workout.batch.payload_too_large`.
 
 
         **Narrow token.** Also reachable with a `workouts:write` Bearer (minted at `POST /api/tokens/workouts`), the
@@ -14471,8 +14472,11 @@ paths:
       tags:
         - Labs
       summary: Edit a biomarker
-      description: Partial edit; omitted fields are untouched, an explicit null clears `context` / `panel` / a bound. Audits
-        as `biomarker.update`.
+      description: "Partial edit; omitted fields are untouched, an explicit null clears `context` / `panel` / a bound. Audits
+        as `biomarker.update`. Since v1.40.0 a `unit` different from the stored one is refused with 422
+        `biomarkers.unit.locked` while any reading is linked to the marker (`meta.readingCount` carries how many):
+        readers label every linked reading with the marker's unit, so a change would relabel stored numbers without
+        converting them. Sending the current unit, or changing it on a marker with no readings, is accepted."
       parameters:
         - in: path
           name: id
@@ -31870,29 +31874,30 @@ components:
                 auth.reproof.required, auth.reproof.too_weak, auth.scope.insufficient, auth.session.insecure_transport,
                 auth.stepup.required, auth.token.expired, auth.token.invalid; backup — backup.foreign_reference,
                 backup.key.missing, backup.payload.undecryptable, backup.restore.active, backup.section.missing,
-                backup.upload.too_large; body-site — body-site.invalid; coach — coach.budget.exceeded,
-                coach.conversation.invalidTitle, coach.conversation.notFound, coach.fenced.attachmentConflict,
-                coach.fenced.attachmentLimit, coach.fenced.attachmentNotFound, coach.fenced.attachmentNotIndexed,
-                coach.fenced.attachmentRequired, coach.fenced.attachmentUnavailable, coach.fenced.invalid,
-                coach.request.invalid; coach-prefs — coach-prefs.body.invalid_json, coach-prefs.body.invalid_shape;
-                consent — consent.ai.required; cycle — cycle.bulk.invalid, cycle.bulk.too_large, cycle.calendar.invalid,
-                cycle.calendar.range, cycle.cycles.invalid, cycle.day-log.conflict, cycle.day-log.invalid,
-                cycle.disabled, cycle.period.invalid, cycle.symptom.custom.invalid, cycle.symptom.custom.limit;
-                cycle-prefs — cycle-prefs.body.invalid_json, cycle-prefs.invalid; disable-coach —
-                disable-coach.body.invalid_json; documents — documents.chat.conversationNotFound,
-                documents.chat.invalid, documents.inbound.alreadyConfirmed, documents.inbound.alreadyPartlyConfirmed,
-                documents.inbound.budgetExceeded, documents.inbound.decryptFailed, documents.inbound.encounterNotFound,
-                documents.inbound.episodeNotFound, documents.inbound.extractFailed, documents.inbound.factNotFound,
-                documents.inbound.factNotPending, documents.inbound.factTypeMismatch, documents.inbound.fileTooLarge,
-                documents.inbound.fileType, documents.inbound.invalidMetadata, documents.inbound.invalidQuery,
-                documents.inbound.invalidUpdate, documents.inbound.localOcrDisabled, documents.inbound.notFound,
-                documents.inbound.notIndexed, documents.inbound.pdfNeedsAnthropic,
-                documents.inbound.providerUnsupported, documents.inbound.quotaExceeded, documents.inbound.rateLimited,
-                documents.inbound.restoreDuplicate, documents.inbound.restoreGone, documents.inbound.sourceAliasLimit,
-                documents.inbound.uploadBusy, documents.inbound.uploadTimeout, documents.inbound.vaccinationNotFound,
-                documents.sources.authRefused, documents.sources.badResponse, documents.sources.browserOnly,
-                documents.sources.invalidAddress, documents.sources.linkTargetNotFound, documents.sources.notConnected,
-                documents.sources.notFound, documents.sources.organizationRequired, documents.sources.originNotAllowed,
+                backup.upload.too_large; biomarkers — biomarkers.unit.locked; body-site — body-site.invalid; coach —
+                coach.budget.exceeded, coach.conversation.invalidTitle, coach.conversation.notFound,
+                coach.fenced.attachmentConflict, coach.fenced.attachmentLimit, coach.fenced.attachmentNotFound,
+                coach.fenced.attachmentNotIndexed, coach.fenced.attachmentRequired, coach.fenced.attachmentUnavailable,
+                coach.fenced.invalid, coach.request.invalid; coach-prefs — coach-prefs.body.invalid_json,
+                coach-prefs.body.invalid_shape; consent — consent.ai.required; cycle — cycle.bulk.invalid,
+                cycle.bulk.too_large, cycle.calendar.invalid, cycle.calendar.range, cycle.cycles.invalid,
+                cycle.day-log.conflict, cycle.day-log.invalid, cycle.disabled, cycle.period.invalid,
+                cycle.symptom.custom.invalid, cycle.symptom.custom.limit; cycle-prefs — cycle-prefs.body.invalid_json,
+                cycle-prefs.invalid; disable-coach — disable-coach.body.invalid_json; documents —
+                documents.chat.conversationNotFound, documents.chat.invalid, documents.inbound.alreadyConfirmed,
+                documents.inbound.alreadyPartlyConfirmed, documents.inbound.budgetExceeded,
+                documents.inbound.decryptFailed, documents.inbound.encounterNotFound, documents.inbound.episodeNotFound,
+                documents.inbound.extractFailed, documents.inbound.factNotFound, documents.inbound.factNotPending,
+                documents.inbound.factTypeMismatch, documents.inbound.fileTooLarge, documents.inbound.fileType,
+                documents.inbound.invalidMetadata, documents.inbound.invalidQuery, documents.inbound.invalidUpdate,
+                documents.inbound.localOcrDisabled, documents.inbound.notFound, documents.inbound.notIndexed,
+                documents.inbound.pdfNeedsAnthropic, documents.inbound.providerUnsupported,
+                documents.inbound.quotaExceeded, documents.inbound.rateLimited, documents.inbound.restoreDuplicate,
+                documents.inbound.restoreGone, documents.inbound.sourceAliasLimit, documents.inbound.uploadBusy,
+                documents.inbound.uploadTimeout, documents.inbound.vaccinationNotFound, documents.sources.authRefused,
+                documents.sources.badResponse, documents.sources.browserOnly, documents.sources.invalidAddress,
+                documents.sources.linkTargetNotFound, documents.sources.notConnected, documents.sources.notFound,
+                documents.sources.organizationRequired, documents.sources.originNotAllowed,
                 documents.sources.permissionMissing, documents.sources.rateLimited, documents.sources.redirected,
                 documents.sources.tokenRequired, documents.sources.unavailable, documents.sources.unreachable,
                 documents.sources.versionTooOld; encounter — encounter.invalid, encounter.link.invalid,
@@ -43350,11 +43355,14 @@ components:
             - inserted
             - duplicate
             - enriched
+            - updated
             - skipped
           description: "`inserted`: a new workout row. `duplicate`: the workout was already stored and nothing was written.
             `enriched`: the workout was already stored and the heart-rate series this entry carried was attached to it;
             the workout row itself was not written, and the entry also counts towards the top-level `duplicates`.
-            `skipped`: the server refused the entry, see `reason`."
+            `updated` (since v1.40.0): a workout entered by hand (`source: MANUAL`, `externalId` starting `manual:`) was
+            sent again with different values and the stored row now carries them; no row was inserted, so it also counts
+            towards `duplicates`. `skipped`: the server refused the entry, see `reason`."
         reason:
           description: "Why a `skipped` entry was refused: `unstable_external_id` for an id that does not survive a client
             restart, `invalid_samples` for a heart-rate series that failed validation."
@@ -71372,8 +71380,10 @@ components:
           anyOf:
             - type: string
             - type: "null"
-          description: Explicit unit token, set only on the `sleep` card (`h`, because its value is a per-night total in hours
-            rather than the canonical SLEEP_DURATION minutes). Null on every other kind.
+          description: "Explicit unit token. When set it wins over `unitKey`. Set on the `sleep` card (`h`, because its value is a
+            per-night total in hours rather than the canonical SLEEP_DURATION minutes) and, since v1.40.0, on the
+            `glucose` card: the record owner's glucose unit (`mg/dL` or `mmol/L`), with `latestValue`, `secondaryValue`
+            and `sparkline` converted to it (mmol/L to one decimal). Null on every other kind."
         sleepStages:
           anyOf:
             - type: object

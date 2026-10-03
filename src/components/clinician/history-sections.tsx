@@ -53,7 +53,7 @@ export function LabResultsSection({
   report: DoctorReportData;
   scope: LeafScope;
   fmtDate: (iso: string) => string;
-  fmtNum: (n: number) => number;
+  fmtNum: (n: number) => string;
 }) {
   const results = report.labResults ?? [];
 
@@ -73,7 +73,7 @@ export function LabResultsSection({
           ? lab.valueText
           : `${fmtNum(lab.value as number)} ${lab.unit}`.trim();
         const range = (low: number | null, high: number | null) =>
-          formatReferenceRange(low, high, (value) => String(fmtNum(value)), {
+          formatReferenceRange(low, high, fmtNum, {
             emptyText: "",
           });
         // The window the reading was judged against, printed as the source

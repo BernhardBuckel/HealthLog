@@ -61,8 +61,14 @@ vi.mock("@/lib/logging/context", () => ({
   annotate: vi.fn(),
 }));
 
+vi.mock("@/lib/ai/provider-runner", () => ({
+  getLastWorkingProvider: vi.fn(),
+  forgetLastWorkingProvider: vi.fn(),
+}));
+
 import { PUT } from "../route";
 import { prisma } from "@/lib/db";
+import { forgetLastWorkingProvider } from "@/lib/ai/provider-runner";
 import { annotate } from "@/lib/logging/context";
 
 interface Envelope {
@@ -108,6 +114,9 @@ describe("PUT /api/insights/provider-chain", () => {
       ],
     });
     expect(annotate).toHaveBeenCalled();
+    // The remembered working provider would reorder the chain the person
+    // just arranged; a save drops it for this account.
+    expect(forgetLastWorkingProvider).toHaveBeenCalledWith("u-1");
   });
 
   it("rejects unknown provider types with 422", async () => {

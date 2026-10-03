@@ -39,6 +39,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
+import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
 import { usePullToRefresh } from "@/hooks/use-pull-to-refresh";
 import { useUrlFilterSync } from "@/hooks/use-url-filter-sync";
 import { PullToRefreshIndicator } from "@/components/ui/pull-to-refresh-indicator";
@@ -239,6 +240,7 @@ export function DocumentsView() {
   const { t } = useTranslations();
   const format = useFormatters();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const timezone = user?.timezone || DEFAULT_TIMEZONE;
   // v1.36.x — uploading a document, filing it, sharing it and asking the AI
   // about it are none of them delegated verbs. Inside somebody else's record
   // the vault reads and nothing more: no upload path, no selection, no bulk
@@ -506,11 +508,11 @@ export function DocumentsView() {
   const years = useMemo(() => {
     const set = new Set<number>();
     for (const doc of documents) {
-      set.add(Number(documentDateKey(doc).slice(0, 4)));
+      set.add(Number(documentDateKey(doc, timezone).slice(0, 4)));
     }
     if (filters.year !== undefined) set.add(filters.year);
     return [...set].sort((a, b) => b - a);
-  }, [documents, filters.year]);
+  }, [documents, filters.year, timezone]);
 
   // ── Selection + bulk actions ──────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
@@ -974,6 +976,7 @@ export function DocumentsView() {
         />
       ) : (
         <DocumentTimeline
+          timezone={timezone}
           documents={documents}
           uploadItems={upload.items}
           onDismissUpload={upload.dismiss}

@@ -29,8 +29,7 @@
  * helpers and the layout type).
  */
 import type { DashboardLayout } from "@/lib/dashboard-layout";
-import { DEFAULT_TIMEZONE, isValidTimezone, userDayKey } from "@/lib/tz/format";
-import { localDayWindow } from "@/lib/tz/local-day";
+import { endOfLocalDayUtc } from "@/lib/charts/fetch-window";
 
 /**
  * Day-span the batched dashboard series (`series-batch`) fetches. Threaded to
@@ -90,16 +89,6 @@ export function deriveBatchChartTypes(
 export interface BatchWindow {
   from: string;
   to: string;
-}
-
-/**
- * Last millisecond of the local day `now` falls on in `timezone`, as a UTC
- * instant. Falls back to the project default zone for an unusable IANA id.
- */
-function endOfLocalDayUtc(now: Date, timezone: string): Date {
-  const safeTz = isValidTimezone(timezone) ? timezone : DEFAULT_TIMEZONE;
-  const { dayEnd } = localDayWindow(userDayKey(now, safeTz), safeTz);
-  return new Date(dayEnd.getTime() - 1);
 }
 
 /**

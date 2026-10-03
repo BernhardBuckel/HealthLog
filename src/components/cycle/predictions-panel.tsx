@@ -32,12 +32,12 @@ import type { CyclePrediction, CycleHistoryResponse } from "./types";
  * locale, never the app's) with no year. Predictions run 1-2 cycles out, so
  * a window straddling New Year's would otherwise print an unadorned "Jan 3"
  * in December. Routes through the app-locale conditional-year formatter
- * instead; `dateShortSmart` already renders day+month in the locale's field
- * order and only adds the year when it differs from the current one.
+ * instead; it renders day+month in the locale's field order and only adds
+ * the year when it differs from the current one. The calendar variant reads
+ * the key in UTC, so the date never rolls a day in UTC+12..+14.
  */
 function formatDate(d: string, fmt: Formatters): string {
-  // Render at noon UTC so the YYYY-MM-DD never rolls a day across tz.
-  return fmt.dateShortSmart(`${d}T12:00:00Z`);
+  return fmt.dateShortSmartCalendar(d);
 }
 
 function confidenceTone(c: number): {

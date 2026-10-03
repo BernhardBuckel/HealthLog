@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const tx = {
+  $queryRaw: vi.fn(async () => []),
   personalRecord: { deleteMany: vi.fn() },
   workout: { delete: vi.fn() },
 };
@@ -129,14 +130,37 @@ describe("DELETE /api/workouts/{id}", () => {
     expect(tx.personalRecord.deleteMany).toHaveBeenCalledWith({
       where: {
         userId: "user-1",
-        metricSlot: { not: null },
         source: "MANUAL",
+        // Only the running slots: a cycling record set at the same instant
+        // is not this workout's.
+        metricSlot: {
+          in: [
+            "longest_run_duration",
+            "longest_distance_run",
+            "fastest_5km_time",
+          ],
+        },
         externalId: null,
         achievedAt: MANUAL_ROW.startedAt,
       },
     });
     // Nothing was removed, so nothing needs re-deriving.
     expect(enqueuePrDetection).not.toHaveBeenCalled();
+  });
+
+  it("takes the personal-records lock before it deletes anything", async () => {
+    vi.mocked(prisma.workout.findUnique).mockResolvedValue(MANUAL_ROW as never);
+
+    await del();
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    const lockOrder = tx.$queryRaw.mock.invocationCallOrder[0];
+    expect(lockOrder).toBeLessThan(
+      tx.personalRecord.deleteMany.mock.invocationCallOrder[0],
+    );
+    expect(lockOrder).toBeLessThan(
+      tx.workout.delete.mock.invocationCallOrder[0],
+    );
   });
 
   it.each(["APPLE_HEALTH", "WITHINGS", "WHOOP", "EXTERNAL"])(
