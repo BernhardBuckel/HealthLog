@@ -123,17 +123,28 @@ function assertInterval(value: string): string {
  * The user id is bound as `$1`. `rankUnqualified` must be a CASE built with
  * unqualified `"type"`/`"source"` columns. `sinceInterval` (e.g. `"90 days"`)
  * is whitelisted and, when given, scopes both the inner pick and the outer
- * filter to a trailing window.
+ * filter to a trailing window. `onlyType`, when given, scopes both halves to
+ * that one metric.
  */
 export function canonicalMeasurementsCte(
   rankUnqualified: string,
   sinceInterval?: string,
+  onlyType?: MeasurementType,
 ): string {
   const sinceInner = sinceInterval
     ? `AND "measured_at" >= NOW() - INTERVAL '${assertInterval(sinceInterval)}'`
     : "";
   const sinceOuter = sinceInterval
     ? `AND mm."measured_at" >= NOW() - INTERVAL '${assertInterval(sinceInterval)}'`
+    : "";
+  // A single-type reader (a series for one metric) scopes both halves to that
+  // type, so the pick scans one metric's rows instead of every row the user
+  // has in the window.
+  const typeInner = onlyType
+    ? `AND "type" = '${assertEnumLiteral(onlyType)}'::"measurement_type"`
+    : "";
+  const typeOuter = onlyType
+    ? `AND mm."type" = '${assertEnumLiteral(onlyType)}'::"measurement_type"`
     : "";
   return `
         SELECT mm.*
@@ -147,6 +158,7 @@ export function canonicalMeasurementsCte(
           WHERE "user_id" = $1
             AND "deleted_at" IS NULL
             ${sinceInner}
+            ${typeInner}
           ORDER BY "type", date_trunc('day', "measured_at"), (${rankUnqualified}), "source"::text
         ) c
           ON c.t = mm."type"
@@ -154,7 +166,8 @@ export function canonicalMeasurementsCte(
           AND c.canon = mm."source"
         WHERE mm."user_id" = $1
           AND mm."deleted_at" IS NULL
-          ${sinceOuter}`;
+          ${sinceOuter}
+          ${typeOuter}`;
 }
 
 /**
@@ -173,7 +186,8 @@ export function canonicalMeasurementsCte(
 export function canonicalMeasurementsFrom(
   rankUnqualified: string,
   sinceInterval?: string,
+  onlyType?: MeasurementType,
 ): string {
-  return `(${canonicalMeasurementsCte(rankUnqualified, sinceInterval)}
+  return `(${canonicalMeasurementsCte(rankUnqualified, sinceInterval, onlyType)}
       ) m`;
 }
