@@ -11414,5 +11414,12 @@
     "linkedLabel": "Powiązane wpisy",
     "conditionSince": "Od {onset}",
     "conditionDates": "Od {onset} do {resolved}"
+  },
+  "aiRuns": {
+    "backgroundDocument": "Odczyt w tle. Możesz opuścić tę stronę; wynik zostanie zapisany przy dokumencie.",
+    "backgroundScan": "Odczyt w tle. Przy wolnym modelu może to potrwać kilka minut.",
+    "waitingForWorker": "Oczekiwanie na proces w tle. Jeśli nic się nie zmienia, worker na serwerze może nie działać.",
+    "errorWorkerUnavailable": "Proces w tle jest teraz niedostępny. Spróbuj ponownie za chwilę albo poproś administratora serwera o sprawdzenie go.",
+    "errorTimedOut": "Odczyt trwał dłużej, niż pozwala ustawiony czas odpowiedzi AI. Spróbuj ponownie albo wydłuż czas odpowiedzi w ustawieniach AI."
   }
 }
