@@ -47,7 +47,7 @@ export function Glp1Section({
   report: DoctorReportData;
   scope: LeafScope;
   fmtDate: (iso: string) => string;
-  fmtNum: (n: number) => number;
+  fmtNum: (n: number) => string;
 }) {
   const glp1 = report.glp1 ?? null;
   const medications = glp1?.medications ?? [];
@@ -173,7 +173,7 @@ export function DoseLogSection({
   report: DoctorReportData;
   scope: LeafScope;
   fmtDateTime: (iso: string) => string;
-  fmtNum: (n: number) => number;
+  fmtNum: (n: number) => string;
 }) {
   const administrations = report.medicationAdministrations ?? [];
   // Newest first: a clinician reads "when did they last take it", not "when

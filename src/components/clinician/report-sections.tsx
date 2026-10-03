@@ -204,7 +204,7 @@ export function MeasurementGroups({
   t: Translate;
   report: DoctorReportData;
   scope: LeafScope;
-  fmtNum: (n: number) => number;
+  fmtNum: (n: number) => string;
 }) {
   const groups = REPORT_GROUPS.map((group) => ({
     labelKey: group.labelKey,
@@ -257,7 +257,7 @@ export function MeasurementGroups({
 function statSummary(
   t: Translate,
   unit: string,
-  values: { latest: number; avg: number; min: number; max: number },
+  values: { latest: string; avg: string; min: string; max: string },
 ): string {
   return unit
     ? t("clinicianView.statSummaryWithUnit", { ...values, unit })
@@ -279,7 +279,7 @@ export function GlucoseSection({
   t: Translate;
   report: DoctorReportData;
   scope: LeafScope;
-  fmtNum: (n: number) => number;
+  fmtNum: (n: number) => string;
 }) {
   const entries = Object.entries(report.glucoseStats).filter(
     ([, s]) => s.count > 0,
@@ -506,7 +506,7 @@ export function WellnessSection({
   t: Translate;
   report: DoctorReportData;
   scope: LeafScope;
-  fmtNum: (n: number) => number;
+  fmtNum: (n: number) => string;
 }) {
   const wellness =
     report.wellnessScores?.filter(

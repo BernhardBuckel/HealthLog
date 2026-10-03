@@ -89,7 +89,7 @@ export function MoodSection({
   t: Translate;
   report: DoctorReportData;
   scope: LeafScope;
-  fmtNum: (n: number) => number;
+  fmtNum: (n: number) => string;
 }) {
   const mood = report.mood ?? null;
   const buckets = mood ? Object.entries(mood.distribution) : [];
@@ -145,7 +145,7 @@ export function CycleSection({
   report: DoctorReportData;
   scope: LeafScope;
   fmtDate: (iso: string) => string;
-  fmtNum: (n: number) => number;
+  fmtNum: (n: number) => string;
 }) {
   const cycle = report.cycle ?? null;
   // The summary carries plain dates (YYYY-MM-DD); midday keeps the rendered

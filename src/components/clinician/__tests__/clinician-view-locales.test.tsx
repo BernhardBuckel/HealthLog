@@ -253,3 +253,31 @@ describe("<ClinicianView> resolves every label in every locale", () => {
     });
   }
 });
+
+describe("<ClinicianView> numbers follow the owner's locale", () => {
+  function text(locale: "de" | "en") {
+    const { t } = getServerTranslator(locale);
+    return renderToStaticMarkup(
+      ClinicianView({
+        t: (key, vars) => t(key, vars),
+        label: "Clinic",
+        expiresAt: "2026-03-01T00:00:00.000Z",
+        report: FULL_RECORD,
+        selection: selectionFromLeaves(ALL_LEAF_IDS),
+        locale,
+        timeFormat: "AUTO",
+        dateFormat: "AUTO",
+      }),
+    ).replace(/<[^>]*>/g, " ");
+  }
+
+  it("writes a German decimal with a comma", () => {
+    // BMI 24.5 in the fixture.
+    expect(text("de")).toContain("24,5");
+    expect(text("de")).not.toContain("24.5");
+  });
+
+  it("keeps the point for an English reader", () => {
+    expect(text("en")).toContain("24.5");
+  });
+});
