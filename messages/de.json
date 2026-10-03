@@ -10332,7 +10332,8 @@
       "PRESCRIPTION": "Rezept",
       "REFERRAL": "Überweisung",
       "INSURANCE": "Versicherung",
-      "VACCINATION": "Impfung"
+      "VACCINATION": "Impfung",
+      "SICK_NOTE": "Krankschreibung"
     },
     "filter": {
       "searchLabel": "Dokumente durchsuchen",

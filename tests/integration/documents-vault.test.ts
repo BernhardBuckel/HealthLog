@@ -735,3 +735,42 @@ describe("document vault — bulk + usage", () => {
     ]);
   });
 });
+
+describe("document vault — the sick note kind", () => {
+  it("is accepted at upload and on edit, and filters like every other kind", async () => {
+    await seedVaultUser("vault-sick-note");
+    const { post, get, patch } = await routes();
+
+    const uploaded = await post(
+      uploadRequest(PDF_SMALL, "au-bescheinigung.pdf", { kind: "SICK_NOTE" }),
+    );
+    expect(uploaded.status).toBe(201);
+    expect((await uploaded.json()).data.kind).toBe("SICK_NOTE");
+
+    const other = await post(uploadRequest(PNG_1X1, "scan.png"));
+    expect(other.status).toBe(201);
+    const otherDoc = (await other.json()).data;
+    expect(otherDoc.kind).toBe("OTHER");
+
+    const edited = await patch(
+      jsonRequest(
+        `http://localhost/api/documents/inbound/${otherDoc.id}`,
+        "PATCH",
+        { kind: "SICK_NOTE" },
+      ),
+      ctx(otherDoc.id),
+    );
+    expect(edited.status).toBe(200);
+    expect((await edited.json()).data.kind).toBe("SICK_NOTE");
+
+    const sickNotes = await get(
+      new Request("http://localhost/api/documents/inbound?kind=SICK_NOTE"),
+    );
+    expect(sickNotes.status).toBe(200);
+    expect((await sickNotes.json()).data.documents).toHaveLength(2);
+    const others = await get(
+      new Request("http://localhost/api/documents/inbound?kind=OTHER"),
+    );
+    expect((await others.json()).data.documents).toHaveLength(0);
+  });
+});

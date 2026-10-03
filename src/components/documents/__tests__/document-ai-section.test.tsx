@@ -254,3 +254,35 @@ describe("<DocumentAiSection> index outcome (#776)", () => {
     expect(html).not.toContain('data-slot="document-index-outcome"');
   });
 });
+
+describe("<DocumentAiSection> background reads (v1.40)", () => {
+  it("a running suggestion or summary says it reads in the background without promising it is kept", () => {
+    const html = render(base({ assistRunPhase: "background" }));
+    expect(html).toContain('data-slot="document-assist-run-phase"');
+    expect(html).toContain("With a slow model this can take a few minutes.");
+    expect(html).not.toContain("You can leave this page");
+  });
+
+  it("a read whose result lands on the document says the person may leave", () => {
+    const html = render(
+      base({
+        indexRunPhase: "background",
+        assistRunPhase: "background",
+      }),
+    );
+    expect(html).toContain('data-slot="document-index-run-phase"');
+    expect(html).toContain("You can leave this page");
+    // One line at a time, never two stacked notes.
+    expect(html).not.toContain('data-slot="document-assist-run-phase"');
+  });
+
+  it("says when no worker has picked the read up yet", () => {
+    const html = render(base({ assistRunPhase: "waitingForWorker" }));
+    expect(html).toContain("Waiting for the background worker.");
+  });
+
+  it("renders no note while nothing runs", () => {
+    const html = render(base());
+    expect(html).not.toContain("run-phase");
+  });
+});

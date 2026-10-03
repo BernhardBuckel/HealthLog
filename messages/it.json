@@ -10332,7 +10332,8 @@
       "PRESCRIPTION": "Prescrizione",
       "REFERRAL": "Impegnativa",
       "INSURANCE": "Assicurazione",
-      "VACCINATION": "Vaccinazione"
+      "VACCINATION": "Vaccinazione",
+      "SICK_NOTE": "Certificato di malattia"
     },
     "filter": {
       "searchLabel": "Cerca documenti",

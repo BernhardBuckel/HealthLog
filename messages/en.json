@@ -10332,7 +10332,8 @@
       "PRESCRIPTION": "Prescription",
       "REFERRAL": "Referral",
       "INSURANCE": "Insurance",
-      "VACCINATION": "Vaccination"
+      "VACCINATION": "Vaccination",
+      "SICK_NOTE": "Sick note"
     },
     "filter": {
       "searchLabel": "Search documents",

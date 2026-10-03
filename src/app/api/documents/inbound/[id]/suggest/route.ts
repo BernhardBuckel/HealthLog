@@ -11,13 +11,21 @@
  * The document is UNTRUSTED (prompt-injection): the server never acts on an
  * instruction inside it. With no provider configured this 422s the enhancement;
  * the stored document and the manual edit form are untouched.
+ *
+ * v1.40 — `Prefer: respond-async` (RFC 7240) runs the read in the background
+ * worker: every refusal that can be answered quickly is still answered here,
+ * then the route answers 202 with a run id and `GET /api/ai-runs/{id}` serves
+ * the same body this route answers with synchronously. Without the header the
+ * route behaves exactly as before; the iPhone app relies on that. Both paths
+ * run one body (`executeDocumentSuggest`).
  */
+import { Buffer } from "node:buffer";
+
 import { NextRequest } from "next/server";
 
 import { apiHandler, requireAuth } from "@/lib/api-handler";
 import {
   apiError,
-  apiSuccess,
   apiValidationError,
   getClientIp,
   safeJson,
@@ -25,33 +33,36 @@ import {
 } from "@/lib/api-response";
 import { AI_BUDGETS } from "@/lib/ai/ai-budgets";
 import { requireAiCapability } from "@/lib/ai/capabilities/gate";
+import type { ProviderChainType } from "@/lib/ai/provider-chain";
 import {
   buildDateKey,
-  reconcileSpend,
   reserveBudget,
   resolveCostOwner,
   resolveDailyCap,
 } from "@/lib/ai/coach/budget";
-import { auditLog } from "@/lib/auth/audit";
-import {
-  DocumentAssistError,
-  runDocumentAssist,
-  type DocumentSuggestion,
-} from "@/lib/documents/assist";
 import {
   checkDocumentAiRateLimit,
   documentAiRateLimited,
   DOCUMENT_AI_TEXT_BODY_MAX_BYTES,
   loadOwnedDocument,
-  prepareVisionInput,
   refundDocumentAiSlot,
   type LoadedDocument,
 } from "@/lib/documents/ai-route-support";
 import {
+  acceptedRunResponse,
+  outcomeResponse,
+  prefersRespondAsync,
+} from "@/lib/documents/ai-runs/http";
+import { findLiveDocumentRun, startAiRun } from "@/lib/documents/ai-runs/start";
+import {
+  executeDocumentSuggest,
+  type DocumentSuggestInput,
+} from "@/lib/documents/ai-runs/suggest-run";
+import type { AiRunBudget } from "@/lib/documents/ai-runs/types";
+import {
   requireDocumentTextProvider,
   requireDocumentVisionProvider,
 } from "@/lib/documents/provider-order";
-import { annotate } from "@/lib/logging/context";
 import { requireModuleEnabled } from "@/lib/modules/gate";
 import { prisma } from "@/lib/db";
 import { inboundTextExtractSchema } from "@/lib/validations/inbound-documents";
@@ -79,38 +90,75 @@ export const POST = apiHandler(
       });
     }
 
+    const background = prefersRespondAsync(request);
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
-      return handleTextSuggest(request, user.id, document);
+      return handleTextSuggest(request, user.id, document, background);
     }
-    return handleVisionSuggest(request, user.id, document);
+    return handleVisionSuggest(request, user.id, document, background);
   },
 );
 
-/** Persist the AI-budget ledger side effect + the audit trail. NEVER the row. */
-async function finishSuggest(
-  request: NextRequest,
+/**
+ * A suggestion read of this document over the same transport, already queued
+ * or running: attach to it rather than charge a second one. Background only.
+ */
+async function liveRunResponse(
   userId: string,
   documentId: string,
   mode: "vision" | "text",
-  suggestion: DocumentSuggestion,
-): Promise<Response> {
-  await auditLog("documents.inbound.suggest", {
+): Promise<Response | null> {
+  const live = await findLiveDocumentRun(
     userId,
-    ipAddress: getClientIp(request),
-    details: { documentId, mode },
+    documentId,
+    "DOCUMENT_SUGGEST",
+    (params) => params.mode === mode,
+  );
+  return live ? acceptedRunResponse(live) : null;
+}
+
+/** Reserve the read's budget; null (slot refunded) when the day is spent. */
+async function reserveFor(
+  userId: string,
+  providerType: ProviderChainType,
+): Promise<AiRunBudget | null> {
+  const dateKey = buildDateKey();
+  const reservation = await reserveBudget(
+    userId,
+    AI_BUDGETS.documentAssist.maxTokens,
+    dateKey,
+    resolveDailyCap([{ providerType }]),
+    resolveCostOwner([{ providerType }]),
+    "coach",
+  );
+  if (!reservation.allowed) {
+    await refundDocumentAiSlot(userId);
+    return null;
+  }
+  return { reserved: reservation.reserved, owner: reservation.owner, dateKey };
+}
+
+function budgetExceeded(): Response {
+  return apiError("Your AI usage budget for today is reached.", 429, {
+    errorCode: "documents.inbound.budgetExceeded",
   });
-  annotate({
-    action: { name: "documents.assist.suggest" },
-    meta: {
-      documentId,
-      mode,
-      hasTitle: suggestion.title !== null,
-      hasKind: suggestion.kind !== null,
-      hasDate: suggestion.documentDate !== null,
-    },
-  });
-  return apiSuccess({ suggestions: suggestion });
+}
+
+/** The synchronous path: run the shared body inside this request. */
+async function runNow(
+  request: NextRequest,
+  userId: string,
+  document: LoadedDocument,
+  input: DocumentSuggestInput,
+): Promise<Response> {
+  return outcomeResponse(
+    await executeDocumentSuggest({
+      userId,
+      document,
+      input,
+      origin: { ipAddress: getClientIp(request), worker: false },
+    }),
+  );
 }
 
 /** TEXT mode — suggest from in-browser-OCR'd text (opt-in local OCR). */
@@ -118,6 +166,7 @@ async function handleTextSuggest(
   request: NextRequest,
   userId: string,
   document: LoadedDocument,
+  background: boolean,
 ): Promise<Response> {
   const row = await prisma.user.findUnique({
     where: { id: userId },
@@ -130,6 +179,11 @@ async function handleTextSuggest(
   }
 
   const pick = await requireDocumentTextProvider(userId);
+
+  if (background) {
+    const live = await liveRunResponse(userId, document.id, "text");
+    if (live) return live;
+  }
 
   const rl = await checkDocumentAiRateLimit(userId);
   if (!rl.allowed) return documentAiRateLimited(rl);
@@ -154,55 +208,28 @@ async function handleTextSuggest(
     );
   }
 
-  const dateKey = buildDateKey();
-  const reservation = await reserveBudget(
-    userId,
-    AI_BUDGETS.documentAssist.maxTokens,
-    dateKey,
-    resolveDailyCap([{ providerType: pick.entry.providerType }]),
-    resolveCostOwner([{ providerType: pick.entry.providerType }]),
-    "coach",
-  );
-  if (!reservation.allowed) {
-    await refundDocumentAiSlot(userId);
-    return apiError("Your AI usage budget for today is reached.", 429, {
-      errorCode: "documents.inbound.budgetExceeded",
+  const budget = await reserveFor(userId, pick.entry.providerType);
+  if (!budget) return budgetExceeded();
+
+  if (background) {
+    // The worker picks the provider again and re-checks the wire for it right
+    // before the text leaves.
+    return startAiRun({
+      userId,
+      kind: "DOCUMENT_SUGGEST",
+      documentId: document.id,
+      params: { mode: "text", budget },
+      input: Buffer.from(parsed.data.text, "utf8"),
+      refundSlot: () => refundDocumentAiSlot(userId),
     });
   }
 
-  try {
-    const suggestion = await runDocumentAssist({
-      provider: pick.entry.instance,
-      providerType: pick.providerType,
-      ocrText: parsed.data.text,
-    });
-    await reconcileSpend(
-      userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-    return finishSuggest(request, userId, document.id, "text", suggestion);
-  } catch (err) {
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    if (err instanceof DocumentAssistError) {
-      return apiError("Couldn't read the document. Try a clearer copy.", 422, {
-        errorCode: "documents.inbound.extractFailed",
-      });
-    }
-    annotate({
-      action: { name: "documents.assist.failed" },
-      meta: { reason: "provider_error", mode: "text" },
-    });
-    return apiError("Couldn't read the document. Try a clearer copy.", 502, {
-      errorCode: "documents.inbound.extractFailed",
-    });
-  }
+  return runNow(request, userId, document, {
+    mode: "text",
+    text: parsed.data.text,
+    pick,
+    budget,
+  });
 }
 
 /** VISION mode — suggest from the stored original via the vision provider. */
@@ -210,83 +237,32 @@ async function handleVisionSuggest(
   request: NextRequest,
   userId: string,
   document: LoadedDocument,
+  background: boolean,
 ): Promise<Response> {
   const pick = await requireDocumentVisionProvider(userId);
+
+  if (background) {
+    const live = await liveRunResponse(userId, document.id, "vision");
+    if (live) return live;
+  }
 
   const rl = await checkDocumentAiRateLimit(userId);
   if (!rl.allowed) return documentAiRateLimited(rl);
 
-  const vision = await prepareVisionInput(document, pick.pdfSupported);
-  if (!vision.ok) {
-    // Preparation failed before any provider dispatch — the slot goes back.
-    await refundDocumentAiSlot(userId);
-    if (vision.reason === "pdfNeedsAnthropic") {
-      return apiError(
-        "PDF scanning needs a Claude vision provider; use local OCR instead.",
-        422,
-        { errorCode: "documents.inbound.pdfNeedsAnthropic" },
-      );
-    }
-    if (vision.reason === "fileType") {
-      return apiError(
-        "This document can't be scanned. Use local OCR (text mode).",
-        422,
-        { errorCode: "documents.inbound.fileType" },
-      );
-    }
-    return apiError("Couldn't read the stored document.", 422, {
-      errorCode: "documents.inbound.extractFailed",
-    });
-  }
+  const budget = await reserveFor(userId, pick.entry.providerType);
+  if (!budget) return budgetExceeded();
 
-  const dateKey = buildDateKey();
-  const reservation = await reserveBudget(
-    userId,
-    AI_BUDGETS.documentAssist.maxTokens,
-    dateKey,
-    resolveDailyCap([{ providerType: pick.entry.providerType }]),
-    resolveCostOwner([{ providerType: pick.entry.providerType }]),
-    "coach",
-  );
-  if (!reservation.allowed) {
-    await refundDocumentAiSlot(userId);
-    return apiError("Your AI usage budget for today is reached.", 429, {
-      errorCode: "documents.inbound.budgetExceeded",
-    });
-  }
-
-  try {
-    const suggestion = await runDocumentAssist({
-      provider: pick.entry.instance,
-      providerType: pick.providerType,
-      images: vision.images,
-      documents: vision.documents,
-    });
-    await reconcileSpend(
+  if (background) {
+    // The worker decrypts the stored original itself, after it has picked
+    // the provider again and re-checked the wire for it.
+    return startAiRun({
       userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-    return finishSuggest(request, userId, document.id, "vision", suggestion);
-  } catch (err) {
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    if (err instanceof DocumentAssistError) {
-      return apiError("Couldn't read the document. Try a clearer copy.", 422, {
-        errorCode: "documents.inbound.extractFailed",
-      });
-    }
-    annotate({
-      action: { name: "documents.assist.failed" },
-      meta: { reason: "provider_error", mode: "vision" },
-    });
-    return apiError("Couldn't read the document. Try a clearer copy.", 502, {
-      errorCode: "documents.inbound.extractFailed",
+      kind: "DOCUMENT_SUGGEST",
+      documentId: document.id,
+      params: { mode: "vision", budget },
+      refundSlot: () => refundDocumentAiSlot(userId),
     });
   }
+
+  return runNow(request, userId, document, { mode: "vision", pick, budget });
 }

@@ -125,6 +125,8 @@ describe("<DocumentFactsSection>", () => {
     expect(html).toContain("Extract lab values");
     // Honest about the mechanism: stored text, review-first, no auto-save.
     expect(html).toContain("nothing is saved automatically");
+    // No background read is running, so no run line takes the hint's place.
+    expect(html).not.toContain("document-facts-extract-run-phase");
   });
 
   it("withdraws the extract offer once facts were approved", () => {

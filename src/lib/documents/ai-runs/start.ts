@@ -23,13 +23,18 @@ import {
  * The live run of this kind for this document, if one is queued or running:
  * a second press of "Read with AI" (another tab, a double click) attaches to
  * it instead of paying for a second read.
+ *
+ * `paramsMatch` narrows the attach to a run that will produce the same thing:
+ * a summary that is to be stored must not attach to a transient transcription
+ * of the same document.
  */
 export async function findLiveDocumentRun(
   userId: string,
   documentId: string,
   kind: DocumentAiRunKindValue,
+  paramsMatch?: (params: AiRunParams) => boolean,
 ): Promise<string | null> {
-  const row = await prisma.documentAiRun.findFirst({
+  const rows = await prisma.documentAiRun.findMany({
     where: {
       userId,
       documentId,
@@ -37,10 +42,14 @@ export async function findLiveDocumentRun(
       status: { in: ["QUEUED", "RUNNING"] },
       expiresAt: { gt: new Date() },
     },
-    select: { id: true },
+    select: { id: true, paramsJson: true },
     orderBy: { createdAt: "desc" },
+    take: 10,
   });
-  return row?.id ?? null;
+  const live = paramsMatch
+    ? rows.find((row) => paramsMatch(row.paramsJson as unknown as AiRunParams))
+    : rows[0];
+  return live?.id ?? null;
 }
 
 export async function startAiRun(args: {

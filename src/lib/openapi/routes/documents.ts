@@ -287,6 +287,43 @@ const documentUploadEnvelope = dataEnvelope(
   "DocumentUploadEnvelope",
 );
 
+/**
+ * A `DOCUMENT_EXTRACT` run's result. Smaller than the synchronous extract
+ * body: the facts are staged on the document and read from it.
+ */
+export const documentExtractRunResult = z
+  .object({
+    documentId: z.string(),
+    factsStaged: z
+      .number()
+      .int()
+      .describe(
+        "How many facts were staged PENDING for review. Read them from `GET /api/documents/inbound/{id}`; the confirm route stays the only write into the record.",
+      ),
+    status: statusEnum,
+  })
+  .meta({ id: "DocumentExtractRunResult" });
+
+/** The suggest route's body; also a `DOCUMENT_SUGGEST` run's result. */
+export const documentSuggestResponse = z
+  .object({
+    suggestions: z.object({
+      title: z.string().nullable(),
+      kind: kindEnum.nullable(),
+      documentDate: z.string().nullable(),
+    }),
+  })
+  .meta({ id: "DocumentSuggestResponse" });
+
+/** The summary route's body; also a `DOCUMENT_SUMMARY` run's result. */
+export const documentSummaryResponse = z
+  .object({
+    summary: z.string().optional(),
+    text: z.string().optional(),
+    persistence: z.enum(["stored", "withheld", "failed"]).optional(),
+  })
+  .meta({ id: "DocumentSummaryResponse" });
+
 /** The index route's body; also a `DOCUMENT_INDEX` run's result. */
 export const documentIndexResponse = z
   .object({
@@ -899,7 +936,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Documents"],
       summary: "Extract facts from a stored document",
       description:
-        'Optional AI enhancement on an already-stored document. Runs the dedicated OCR/vision provider over the stored original and stages STRUCTURED FACTS for review. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated. With no provider configured this returns 422 (`documents.inbound.providerUnsupported`, with `meta.capability` and `meta.reason = "no_provider"`) — the stored document is untouched, only the enhancement fails. Three modes: VISION (empty body) decrypts and scans the stored original (PDF needs an Anthropic vision provider); TEXT (`application/json`, opt-in local OCR) `{ mode: "text", text }` structures browser-OCR\'d text; STORED (`application/json`) `{ mode: "stored" }` structures the document\'s own stored extracted text (its content index) — the manual recovery for a skipped/failed automatic staging run, 422 `documents.inbound.notIndexed` when no stored text exists. Extraction reproduces what the document states — it never interprets. Nothing reaches the structured stores here; the confirm route is the only write path.',
+        'Optional AI enhancement on an already-stored document. Runs the dedicated OCR/vision provider over the stored original and stages STRUCTURED FACTS for review. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated. With no provider configured this returns 422 (`documents.inbound.providerUnsupported`, with `meta.capability` and `meta.reason = "no_provider"`) — the stored document is untouched, only the enhancement fails. Three modes: VISION (empty body) decrypts and scans the stored original (PDF needs an Anthropic vision provider); TEXT (`application/json`, opt-in local OCR) `{ mode: "text", text }` structures browser-OCR\'d text; STORED (`application/json`) `{ mode: "stored" }` structures the document\'s own stored extracted text (its content index) — the manual recovery for a skipped/failed automatic staging run, 422 `documents.inbound.notIndexed` when no stored text exists. Extraction reproduces what the document states — it never interprets. Nothing reaches the structured stores here; the confirm route is the only write path. With `Prefer: respond-async` (v1.40) the extraction runs in the background: after the same quick refusals the route answers 202 with a run id, a second request while an extraction of this document from the same input is queued or running answers with that run, and `GET /api/ai-runs/{id}` serves `DocumentExtractRunResult` (`{ documentId, factsStaged, status }`, not the document detail) as the run\'s `result`. Staging re-checks the document under a row lock, so a review finished while the read ran fails the run with `documents.inbound.alreadyPartlyConfirmed` (409) or `documents.inbound.alreadyConfirmed` (422) and leaves the review untouched; the synchronous form answers the same in that race.',
       parameters: [
         {
           name: "id",
@@ -907,6 +944,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           required: true,
           schema: { type: "string" },
         },
+        preferRespondAsyncParameter,
       ],
       requestBody: {
         required: false,
@@ -944,6 +982,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
             "Re-extraction refused: at least one fact on this document is already APPROVED. `meta.errorCode` = `documents.inbound.alreadyPartlyConfirmed`. Re-extracting would sever committed-record provenance and duplicate committed records, so the user must finish reviewing or discard the document first.",
           content: { "application/json": { schema: errorEnvelope } },
         },
+        ...aiRunAccepted,
         ...aiExtractionRefusals("documentAi"),
         ...stdResponses,
       },
@@ -954,9 +993,10 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Documents"],
       summary: "Suggest filing metadata (drafts only)",
       description:
-        'Optional AI assist on an already-stored document. Runs ONE provider call over the stored original (VISION, empty body) or browser-OCR\'d text (TEXT, `application/json` `{ mode: "text", text }`, opt-in local OCR) and returns a `{ title, kind, documentDate }` DRAFT for the edit form. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated (shares the per-user document-AI bucket with extract/summary/index — default 6/hour, operator-tunable via `DOCUMENT_AI_LIMIT_PER_HOUR`; a slot is only consumed when the request reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-Limit` / `-Remaining` / `-Reset` triple, and `meta.retryAt`). WRITES NOTHING — never stages facts, never flips status; the user reviews and saves. 422 (`documents.inbound.providerUnsupported`) with no provider configured. Never interprets or diagnoses; the title is a neutral filing label.',
+        "Optional AI assist on an already-stored document. Runs ONE provider call over the stored original (VISION, empty body) or browser-OCR'd text (TEXT, `application/json` `{ mode: \"text\", text }`, opt-in local OCR) and returns a `{ title, kind, documentDate }` DRAFT for the edit form. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated (shares the per-user document-AI bucket with extract/summary/index — default 6/hour, operator-tunable via `DOCUMENT_AI_LIMIT_PER_HOUR`; a slot is only consumed when the request reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-Limit` / `-Remaining` / `-Reset` triple, and `meta.retryAt`). WRITES NOTHING — never stages facts, never flips status; the user reviews and saves. 422 (`documents.inbound.providerUnsupported`) with no provider configured. Never interprets or diagnoses; the title is a neutral filing label. With `Prefer: respond-async` (v1.40) the read runs in the background: after the same quick refusals the route answers 202 with a run id, a second request while a suggestion read of this document over the same transport is queued or running answers with that run, and `GET /api/ai-runs/{id}` serves this body as the run's `result`.",
       parameters: [
         { name: "id", in: "path", required: true, schema: { type: "string" } },
+        preferRespondAsyncParameter,
       ],
       requestBody: {
         required: false,
@@ -976,20 +1016,13 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           content: {
             "application/json": {
               schema: dataEnvelope(
-                z
-                  .object({
-                    suggestions: z.object({
-                      title: z.string().nullable(),
-                      kind: kindEnum.nullable(),
-                      documentDate: z.string().nullable(),
-                    }),
-                  })
-                  .meta({ id: "DocumentSuggestResponse" }),
+                documentSuggestResponse,
                 "DocumentSuggestEnvelope",
               ),
             },
           },
         },
+        ...aiRunAccepted,
         ...aiExtractionRefusals("documentAi"),
         ...stdResponses,
       },
@@ -1000,7 +1033,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Documents"],
       summary: "Summarise or transcribe a document",
       description:
-        'On-demand description of a stored document. `?mode=summary` (default) returns a short plain-language summary of WHAT the document is; it remains transient unless `persist=true` fills the empty stored-summary slot, while `persist=true&replace=true` explicitly replaces an existing summary. `?mode=text` returns transient raw transcribed text. Neither result reaches coach memory, snapshots, structured stores, or the search index. The summary is descriptive only and never a diagnosis. Same VISION (empty body) / TEXT (`application/json` `{ mode: "text", text }`, opt-in local OCR) dispatch as extract. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated. 422 `documents.inbound.providerUnsupported` with no provider.',
+        "On-demand description of a stored document. `?mode=summary` (default) returns a short plain-language summary of WHAT the document is; it remains transient unless `persist=true` fills the empty stored-summary slot, while `persist=true&replace=true` explicitly replaces an existing summary. `?mode=text` returns transient raw transcribed text. Neither result reaches coach memory, snapshots, structured stores, or the search index. The summary is descriptive only and never a diagnosis. Same VISION (empty body) / TEXT (`application/json` `{ mode: \"text\", text }`, opt-in local OCR) dispatch as extract. Answers under the `documentAi` capability (403 with the capability envelope when it is closed), then rate / budget gated. 422 `documents.inbound.providerUnsupported` with no provider. With `Prefer: respond-async` (v1.40) the read runs in the background: after the same quick refusals the route answers 202 with a run id, and `GET /api/ai-runs/{id}` serves this body as the run's `result`. A second request while a read with the same `mode`, `persist` and `replace` is queued or running answers with that run. With `persist=true` the document's `summaryState` is PENDING while the run is queued or running (unless a summary is already stored) and becomes UNAVAILABLE when the run fails. `mode=text` over posted text calls no model and is answered synchronously either way (no `Preference-Applied`).",
       parameters: [
         { name: "id", in: "path", required: true, schema: { type: "string" } },
         {
@@ -1031,6 +1064,7 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           description:
             "With `persist=true`, explicitly replace an existing stored summary.",
         },
+        preferRespondAsyncParameter,
       ],
       requestBody: {
         required: false,
@@ -1051,20 +1085,13 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           content: {
             "application/json": {
               schema: dataEnvelope(
-                z
-                  .object({
-                    summary: z.string().optional(),
-                    text: z.string().optional(),
-                    persistence: z
-                      .enum(["stored", "withheld", "failed"])
-                      .optional(),
-                  })
-                  .meta({ id: "DocumentSummaryResponse" }),
+                documentSummaryResponse,
                 "DocumentSummaryEnvelope",
               ),
             },
           },
         },
+        ...aiRunAccepted,
         ...aiExtractionRefusals("documentAi"),
         ...stdResponses,
       },

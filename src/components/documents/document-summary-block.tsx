@@ -30,8 +30,11 @@
 import { FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { AiRunPhase } from "@/hooks/use-ai-run";
 import { useTranslations } from "@/lib/i18n/context";
 import type { DocumentSummaryStateValue } from "@/lib/validations/inbound-documents";
+
+import { AiRunPhaseNote } from "./document-ai-panels";
 
 /** Copy key for a state with no summary to show. */
 function absentCopyKey(state: DocumentSummaryStateValue): string {
@@ -46,6 +49,7 @@ export function DocumentSummaryBlock({
   generatedAtLabel,
   aiEnabled,
   isGenerating,
+  runPhase = "idle",
   actionsDisabled,
   canGenerate = true,
   onGenerate,
@@ -58,6 +62,11 @@ export function DocumentSummaryBlock({
   /** Whether an AI provider is configured; false hides the action, not the state. */
   aiEnabled: boolean;
   isGenerating: boolean;
+  /**
+   * v1.40 — where the background read stands while one runs. The summary is
+   * stored on the document, so the line tells the person they may leave.
+   */
+  runPhase?: AiRunPhase;
   /** Capability still resolving — the transport mode isn't known yet. */
   actionsDisabled: boolean;
   /**
@@ -125,6 +134,11 @@ export function DocumentSummaryBlock({
             : t("documents.detail.summary.generate")}
         </Button>
       ) : null}
+      <AiRunPhaseNote
+        phase={runPhase}
+        outcome="savedWithDocument"
+        slot="document-detail-summary-run-phase"
+      />
     </section>
   );
 }

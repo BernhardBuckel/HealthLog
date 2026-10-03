@@ -10332,7 +10332,8 @@
       "PRESCRIPTION": "처방",
       "REFERRAL": "진료 의뢰서",
       "INSURANCE": "보험",
-      "VACCINATION": "예방접종"
+      "VACCINATION": "예방접종",
+      "SICK_NOTE": "병가 진단서"
     },
     "filter": {
       "searchLabel": "문서 검색",

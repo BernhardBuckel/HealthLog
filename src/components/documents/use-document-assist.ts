@@ -15,9 +15,10 @@
  */
 import { useCallback } from "react";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAiProviderState } from "@/hooks/use-ai-capability";
+import { useAiRunPhase } from "@/hooks/use-ai-run";
 import { apiGet, ApiError } from "@/lib/api/api-fetch";
 import { useTranslations } from "@/lib/i18n/context";
 import { queryKeys } from "@/lib/query-keys";
@@ -85,10 +86,15 @@ export function useDocumentsAutoAiRead(enabled: boolean) {
  * Suggest filing metadata for a stored document. Returns DRAFTS only — the
  * detail sheet prefills its edit fields and the user saves; this call writes
  * nothing.
+ *
+ * The read runs in the background (v1.40), so no proxy in front of the server
+ * can cut a slow model; `runPhase` says so while it does.
  */
 export function useSuggestDetails() {
+  const queryClient = useQueryClient();
   const { responseTimeoutMs } = useAiProviderState();
-  return useMutation<
+  const { phase, onQueued, onProgress, reset } = useAiRunPhase();
+  const mutation = useMutation<
     DocumentSuggestionDto,
     Error,
     { mode: DocumentAiMode; target: DocumentAiTarget }
@@ -100,19 +106,25 @@ export function useSuggestDetails() {
         target,
         responseTimeoutMs,
         modelCalls: 1,
+        background: { queryClient, onQueued, onProgress },
       });
       return data.suggestions;
     },
+    onSettled: reset,
   });
+  return { ...mutation, runPhase: mutation.isPending ? phase : "idle" };
 }
 
 /**
  * On-demand summary or extracted text. Both stay transient unless the document
- * summary block explicitly requests persistence or replacement.
+ * summary block explicitly requests persistence or replacement. The read runs
+ * in the background (v1.40); `runPhase` says so while it does.
  */
 export function useDocumentSummary() {
+  const queryClient = useQueryClient();
   const { responseTimeoutMs } = useAiProviderState();
-  return useMutation<
+  const { phase, onQueued, onProgress, reset } = useAiRunPhase();
+  const mutation = useMutation<
     DocumentDescribeResult,
     Error,
     {
@@ -130,8 +142,11 @@ export function useDocumentSummary() {
         target,
         responseTimeoutMs,
         modelCalls: 1,
+        background: { queryClient, onQueued, onProgress },
       }),
+    onSettled: reset,
   });
+  return { ...mutation, runPhase: mutation.isPending ? phase : "idle" };
 }
 
 /**

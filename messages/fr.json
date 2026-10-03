@@ -10332,7 +10332,8 @@
       "PRESCRIPTION": "Ordonnance",
       "REFERRAL": "Lettre d'adressage",
       "INSURANCE": "Assurance",
-      "VACCINATION": "Vaccination"
+      "VACCINATION": "Vaccination",
+      "SICK_NOTE": "Arrêt de travail"
     },
     "filter": {
       "searchLabel": "Rechercher des documents",

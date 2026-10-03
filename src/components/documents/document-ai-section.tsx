@@ -45,6 +45,7 @@ import {
 } from "@/lib/validations/inbound-documents";
 
 import {
+  AiRunPhaseNote,
   AiUnavailableHint,
   AssistSuggestionReview,
   DocumentSummaryPanel,
@@ -79,6 +80,7 @@ export function DocumentAiSection({
   lastIndexOutcome = null,
   indexPending,
   indexRunPhase = "idle",
+  assistRunPhase = "idle",
   onIndex,
 }: {
   aiEnabled: boolean;
@@ -124,6 +126,8 @@ export function DocumentAiSection({
   indexPending: boolean;
   /** v1.40 — where a background read stands, for the calm line under it. */
   indexRunPhase?: AiRunPhase;
+  /** v1.40 — the same for a suggestion or transient summary read. */
+  assistRunPhase?: AiRunPhase;
   onIndex: () => void;
 }) {
   const { t } = useTranslations();
@@ -253,16 +257,18 @@ export function DocumentAiSection({
           ) : null}
 
           {indexRunPhase !== "idle" ? (
-            <p
-              role="status"
-              data-slot="document-index-run-phase"
-              className="text-muted-foreground text-xs"
-            >
-              {indexRunPhase === "waitingForWorker"
-                ? t("aiRuns.waitingForWorker")
-                : t("aiRuns.backgroundDocument")}
-            </p>
-          ) : null}
+            <AiRunPhaseNote
+              phase={indexRunPhase}
+              outcome="savedWithDocument"
+              slot="document-index-run-phase"
+            />
+          ) : (
+            <AiRunPhaseNote
+              phase={assistRunPhase}
+              outcome="shownHere"
+              slot="document-assist-run-phase"
+            />
+          )}
 
           {indexOutcomeText ? (
             <p
