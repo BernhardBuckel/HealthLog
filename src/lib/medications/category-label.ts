@@ -53,8 +53,3 @@ export function getMedicationCategoryLabel(
   const key = MEDICATION_CATEGORY_KEYS[category] ?? "medications.categoryOther";
   return t(key);
 }
-
-/** The built-in category values, in the order the filter row lists them. */
-export const BUILT_IN_MEDICATION_CATEGORIES = Object.keys(
-  MEDICATION_CATEGORY_KEYS,
-);
