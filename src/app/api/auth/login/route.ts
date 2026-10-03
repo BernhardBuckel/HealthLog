@@ -21,6 +21,7 @@ import { consumeTrustedDevice } from "@/lib/auth/trusted-device";
 import { syncMfaEnrollCookie } from "@/lib/auth/mfa-enrollment";
 import { isOidcOnly } from "@/lib/auth/oidc";
 import { readPendingLink } from "@/lib/auth/oidc-pending-link";
+import { refuseWhenCookieCannotStick } from "@/lib/auth/transport-refusal";
 
 export const POST = apiHandler(async (request: NextRequest) => {
   // OIDC_ONLY means password login must be a dead end, not just a hidden
@@ -65,6 +66,13 @@ export const POST = apiHandler(async (request: NextRequest) => {
   });
 
   if (jsonError) return jsonError;
+
+  // A browser page on plain http:// with Secure-only cookies cannot keep the
+  // session. Refuse before the password is verified (the account throttle
+  // never counts it) and before an MFA ticket is minted.
+  const transportRefusal = refuseWhenCookieCannotStick(body);
+  if (transportRefusal) return transportRefusal;
+
   const parsed = loginPasswordSchema.safeParse(body);
 
   if (!parsed.success) {

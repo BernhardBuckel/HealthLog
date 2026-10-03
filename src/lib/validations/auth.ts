@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { isValidKvnr, normaliseKvnr } from "@/lib/validations/kvnr";
 import { webauthnKeyNameSchema } from "@/lib/validations/mfa";
+import { clientTransportSchema } from "@/lib/validations/client-transport";
 
 /** Minimum password length — must match checkPasswordStrength() in @/lib/auth/password.ts */
 const PASSWORD_MIN_LENGTH = 12;
@@ -40,7 +41,17 @@ export const registerSchema = z.object({
 export const loginPasswordSchema = z.object({
   email: z.string().trim().min(1, "Email or username required"),
   password: z.string().min(1),
+  clientTransport: clientTransportSchema.optional(),
 });
+
+/** `POST /api/auth/passkey/login-options`: an optional body, web client only. */
+export const passkeyLoginOptionsSchema = z
+  .object({ clientTransport: clientTransportSchema.optional() })
+  .meta({
+    id: "PasskeyLoginOptionsRequest",
+    description:
+      "Optional. The web client sends its page transport so a sign-in that could not keep its cookie is refused before a challenge is issued. Any other caller may send no body at all.",
+  });
 
 export const profileSchema = z.object({
   email: z.email("Invalid email address").nullable().optional(),

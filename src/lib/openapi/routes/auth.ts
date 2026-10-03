@@ -47,6 +47,7 @@ import {
   errorEnvelope,
   loginPasswordSchema,
 } from "./shared";
+import { passkeyLoginOptionsSchema } from "@/lib/validations/auth";
 
 // ── Sub-schemas owned here (route-specific shapes) ───────────────────
 
@@ -438,8 +439,23 @@ const registrationStatusResponse = z
       .describe(
         "Whether open self-registration is on. An operator who turned it off can still admit a signup through an invite token.",
       ),
+    sessionCookieSecure: z
+      .boolean()
+      .describe(
+        "Whether this server issues its session cookies with the `Secure` flag (`SESSION_COOKIE_SECURE`, else on in production). A browser on a plain `http://` page cannot keep such a cookie; the web login page compares this with its own scheme before any credential is sent.",
+      ),
   })
   .meta({ id: "RegistrationStatusResponse" });
+
+/**
+ * The browser sign-in refusal for a page whose session cookie cannot stick.
+ * Only ever returned to a caller that sent `clientTransport`.
+ */
+const insecureTransportResponse = {
+  description:
+    'Refused before anything was checked or spent: the request stated `clientTransport.protocol: "http"` on a non-loopback host while this server issues `Secure` session cookies, so the browser would drop the session. `meta.errorCode` = `auth.session.insecure_transport`, `meta.sessionCookieSecure` = `true`. No password was verified, no MFA ticket was minted or consumed, no code was spent. A request without `clientTransport` (the iOS app, scripts) is never refused this way.',
+  content: { "application/json": { schema: errorEnvelope } },
+};
 
 const apiTokenInfo = z
   .object({
@@ -701,6 +717,7 @@ export const authPaths: NonNullable<ZodOpenApiObject["paths"]> = {
         content: { "application/json": { schema: loginPasswordSchema } },
       },
       responses: {
+        "409": insecureTransportResponse,
         "200": {
           description:
             "Login succeeded (token bundle / cookie) — or a second factor is required (`meta.mfaRequired`).",
@@ -733,6 +750,7 @@ export const authPaths: NonNullable<ZodOpenApiObject["paths"]> = {
         content: { "application/json": { schema: mfaVerifySchema } },
       },
       responses: {
+        "409": insecureTransportResponse,
         "200": {
           description:
             "Second factor verified — session + optional bearer issued.",
@@ -1247,6 +1265,7 @@ export const authPaths: NonNullable<ZodOpenApiObject["paths"]> = {
         },
       },
       responses: {
+        "409": insecureTransportResponse,
         "200": {
           description:
             "Second factor verified — session + optional bearer issued.",
@@ -1613,8 +1632,15 @@ export const authPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Auth"],
       summary: "Begin a passkey sign-in (discoverable credentials)",
       description:
-        "Returns SimpleWebAuthn assertion options plus a server-issued challenge id to present at POST /api/auth/passkey/login-verify. Anonymous, takes no body, and scopes the assertion to no account — the options carry no `allowCredentials`, so the authenticator picks the credential and the endpoint is not an account-existence oracle. Rate-limited 10 / 15 min through the anonymous auth-surface bucket, which collapses every caller into one bucket if the proxy trust chain is misconfigured rather than falling open.",
+        "Returns SimpleWebAuthn assertion options plus a server-issued challenge id to present at POST /api/auth/passkey/login-verify. Anonymous, takes no body (the web client may send an optional `clientTransport`), and scopes the assertion to no account — the options carry no `allowCredentials`, so the authenticator picks the credential and the endpoint is not an account-existence oracle. Rate-limited 10 / 15 min through the anonymous auth-surface bucket, which collapses every caller into one bucket if the proxy trust chain is misconfigured rather than falling open.",
+      requestBody: {
+        required: false,
+        content: {
+          "application/json": { schema: passkeyLoginOptionsSchema },
+        },
+      },
       responses: {
+        "409": insecureTransportResponse,
         "200": {
           description: "Assertion options issued.",
           content: {
@@ -2117,12 +2143,25 @@ export const authPaths: NonNullable<ZodOpenApiObject["paths"]> = {
             .describe(
               "Browser leg only: where to land after login. Sanitised to an in-app path; ignored entirely on the native leg.",
             ),
+          client_proto: z
+            .enum(["http", "https"])
+            .optional()
+            .describe(
+              "Browser leg only: the scheme of the page the SSO button was pressed on. With `http` on a non-loopback `client_host` while the server issues `Secure` session cookies, the start redirects to `/auth/login?error=insecure_transport` instead of the provider, because the session cookie would be dropped on return.",
+            ),
+          client_host: z
+            .string()
+            .max(255)
+            .optional()
+            .describe(
+              "Browser leg only: `location.host` of that page, read together with `client_proto`.",
+            ),
         }),
       },
       responses: {
         "302": {
           description:
-            "Always a redirect. To the provider on success. On failure to `/auth/login?error=<reason>` (browser) or `healthlog://oidc-callback?error=<reason>` (native), where reason is one of `oidc_disabled`, `oidc_rate_limited`, `oidc_invalid_request`, `oidc_failed`. The provider then returns to the callback (not listed here, because the identity provider drives it rather than a client), which ends the native leg at `healthlog://oidc-callback` with `code=<hlh_…>`, with `mfa_ticket=<ticket>&methods=<list>`, or with `error=<reason>`, where reason is one of `oidc_disabled`, `oidc_rate_limited`, `oidc_denied`, `oidc_no_email`, `oidc_email_unverified`, `oidc_identity_conflict`, `oidc_link_required`, `oidc_registration_disabled`, `oidc_failed`. `oidc_link_required` means the provider's e-mail matches an existing local account that is not linked yet; the owner links it by signing in once with that account's own password or passkey in a browser. The reasons are this exact snake_case vocabulary on both legs; a client maps a value it does not know to a generic sign-in failure.",
+            "Always a redirect. To the provider on success. On failure to `/auth/login?error=<reason>` (browser) or `healthlog://oidc-callback?error=<reason>` (native), where reason is one of `oidc_disabled`, `oidc_rate_limited`, `oidc_invalid_request`, `oidc_failed`, and on the browser leg `insecure_transport` (see `client_proto`). The provider then returns to the callback (not listed here, because the identity provider drives it rather than a client), which ends the native leg at `healthlog://oidc-callback` with `code=<hlh_…>`, with `mfa_ticket=<ticket>&methods=<list>`, or with `error=<reason>`, where reason is one of `oidc_disabled`, `oidc_rate_limited`, `oidc_denied`, `oidc_no_email`, `oidc_email_unverified`, `oidc_identity_conflict`, `oidc_link_required`, `oidc_registration_disabled`, `oidc_failed`. `oidc_link_required` means the provider's e-mail matches an existing local account that is not linked yet; the owner links it by signing in once with that account's own password or passkey in a browser. The reasons are this exact snake_case vocabulary on both legs; a client maps a value it does not know to a generic sign-in failure.",
         },
       },
     },

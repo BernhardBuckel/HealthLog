@@ -207,6 +207,13 @@ ps` — the `app` healthcheck polls `/api/health` every 30 seconds
   the container unhealthy if Postgres is still
   starting. Tail `docker compose logs db` to confirm Postgres came up
   cleanly.
+- **The login page says "Signing in cannot complete on this page".** The
+  server sets its session cookie with the `Secure` flag (the production
+  default) and the page was opened over plain `http://`, where the browser
+  would drop it. Set `SESSION_COOKIE_SECURE=false` for a server reached only
+  over HTTP on a private network, or open the `https://` address (behind a TLS
+  proxy, make sure it forwards `X-Forwarded-Proto: https`). The sign-in is
+  refused before any password, code or ticket is used.
 - **OAuth callbacks loop back to localhost.** Confirm `APP_URL` and
   `NEXT_PUBLIC_APP_URL` both point at the public hostname, not at
   `localhost`, and restart `app` after the change.
