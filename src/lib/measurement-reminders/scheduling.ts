@@ -166,6 +166,9 @@ export function buildReminderRecurrence(
     },
     timeZone: tz,
     lastIntakeAt: reminder.lastSatisfiedAt,
+    // The anchor date is not a course start: the last satisfaction always
+    // anchors the next due, however long ago it was.
+    rollingAnchor: "lastIntake",
   };
 
   return { schedule, ctx };

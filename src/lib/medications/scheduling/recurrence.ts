@@ -148,6 +148,16 @@ export interface RecurrenceContext {
    * resolvers, the dedup pass) must change together.
    */
   lastIntakeAt: Date | null;
+  /**
+   * v1.40 (#1024) — `"lastIntake"` keeps the rolling anchor on the last
+   * intake whatever `startsOn` says. A medication's `startsOn` is the start
+   * of its current course, so an intake whose next dose falls before it
+   * belongs to an earlier course and does not anchor; a measurement or
+   * booster reminder's `startsOn` is only its anchor date, and a dose
+   * fourteen years old on a ten-year cadence must stay overdue. Absent = the
+   * medication rule.
+   */
+  rollingAnchor?: "lastIntake";
 }
 
 export interface Occurrence {
@@ -513,7 +523,9 @@ function rollingDoseAnchor(
       ? civilDayOfDate(ctx.medication.startsOn)
       : null;
   return fromIntake !== null &&
-    (startDay === null || fromIntake.getTime() >= startDay.getTime())
+    (ctx.rollingAnchor === "lastIntake" ||
+      startDay === null ||
+      fromIntake.getTime() >= startDay.getTime())
     ? fromIntake
     : anchorCivilDay(ctx);
 }
