@@ -6,17 +6,26 @@
  *  - `useOcrCapability()` — the cheap capability probe that decides whether the
  *    "Scan a report" affordance shows.
  *  - `useOcrExtract()` — uploads the photo / PDF and returns the proposed rows.
- *    A vision call is slow, so it opts out of the default 15 s fetch timeout in
- *    favour of a generous 90 s window.
+ *    Since v1.40 the route only queues the read (202) and the rows come from
+ *    the background run, so no proxy timeout can cut a slow model.
  *  - `useOcrCommit()` — writes the user-confirmed rows and invalidates the
  *    labs + biomarker query keys.
  */
 import type { AiCapabilityState } from "@/lib/ai/capabilities/types";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
-import { useAiProviderState } from "@/hooks/use-ai-capability";
-import { clientAbortMs } from "@/lib/ai/effective-timeout";
+import {
+  resolveAiRun,
+  useAiRunPhase,
+  type WaitForAiRunOptions,
+} from "@/hooks/use-ai-run";
 import { apiFetch, apiGet, apiPatch, apiPost } from "@/lib/api/api-fetch";
+import type { AiRunAccepted } from "@/lib/documents/ai-runs/types";
 import { ocrImageToText } from "@/lib/labs/local-ocr";
 import {
   aiInputDependentKeys,
@@ -94,49 +103,60 @@ export function useOcrCapability(enabled: boolean) {
   });
 }
 
-/**
- * The most sequential model calls one extract request makes: the read, and one
- * corrective retry when the reply does not parse.
- */
-const OCR_EXTRACT_MODEL_CALLS = 2;
+/** How long the queuing request may take: the upload and the enqueue, no model. */
+const OCR_QUEUE_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
- * POST one lab-report extraction. Vision mode uploads the file; text mode posts
- * only the text the browser OCR'd. Either way a model reads it, so the request
- * waits as long as the server may: the person's response-timeout setting as
- * the account payload publishes it (`ai.provider.responseTimeoutMs`), times
- * the calls one request can make, plus a margin. The 15 s default used to cut
- * the text path off long before any model answered.
+ * POST one lab-report extraction and follow the background run to its rows.
+ * Vision mode uploads the file; text mode posts only the text the browser
+ * OCR'd. The request itself only queues the read, so it carries a short
+ * ceiling; the run's own deadline (the person's AI response time) ends a slow
+ * read on the server.
  */
-export function postOcrExtract(
+export async function postOcrExtract(
   input: { file: File } | { text: string },
-  responseTimeoutMs: number,
+  queryClient: QueryClient,
+  progress: WaitForAiRunOptions & { onQueued?: () => void } = {},
 ): Promise<OcrExtractResponseDto> {
-  const signal = AbortSignal.timeout(
-    clientAbortMs(responseTimeoutMs, OCR_EXTRACT_MODEL_CALLS),
-  );
+  const signal = AbortSignal.timeout(OCR_QUEUE_REQUEST_TIMEOUT_MS);
+  let accepted: OcrExtractResponseDto | AiRunAccepted;
   if ("text" in input) {
-    return apiPost<OcrExtractResponseDto>(
+    accepted = await apiPost<OcrExtractResponseDto | AiRunAccepted>(
       "/api/labs/ocr/extract",
       { mode: "text", text: input.text },
       { signal },
     );
+  } else {
+    const form = new FormData();
+    form.append("file", input.file);
+    accepted = await apiFetch<OcrExtractResponseDto | AiRunAccepted>(
+      "/api/labs/ocr/extract",
+      { method: "POST", body: form, signal },
+    );
   }
-  const form = new FormData();
-  form.append("file", input.file);
-  return apiFetch<OcrExtractResponseDto>("/api/labs/ocr/extract", {
-    method: "POST",
-    body: form,
-    signal,
+  return resolveAiRun<OcrExtractResponseDto>(queryClient, accepted, progress);
+}
+
+/**
+ * The extract mutation for one mode, plus the run phase the dialog shows while
+ * the read runs in the background.
+ */
+function useOcrExtractMutation(
+  read: (file: File) => Promise<{ file: File } | { text: string }>,
+) {
+  const queryClient = useQueryClient();
+  const { phase, onQueued, onProgress, reset } = useAiRunPhase();
+  const mutation = useMutation<OcrExtractResponseDto, Error, File>({
+    mutationFn: async (file: File) =>
+      postOcrExtract(await read(file), queryClient, { onQueued, onProgress }),
+    onSettled: reset,
   });
+  return { ...mutation, runPhase: mutation.isPending ? phase : "idle" };
 }
 
 /** Upload + extract (VISION mode). Resolves with the proposed review rows. */
 export function useOcrExtract() {
-  const { responseTimeoutMs } = useAiProviderState();
-  return useMutation<OcrExtractResponseDto, Error, File>({
-    mutationFn: (file: File) => postOcrExtract({ file }, responseTimeoutMs),
-  });
+  return useOcrExtractMutation(async (file) => ({ file }));
 }
 
 /**
@@ -146,11 +166,9 @@ export function useOcrExtract() {
  * is shared verbatim.
  */
 export function useOcrTextExtract() {
-  const { responseTimeoutMs } = useAiProviderState();
-  return useMutation<OcrExtractResponseDto, Error, File>({
-    mutationFn: async (file: File) =>
-      postOcrExtract({ text: await ocrImageToText(file) }, responseTimeoutMs),
-  });
+  return useOcrExtractMutation(async (file) => ({
+    text: await ocrImageToText(file),
+  }));
 }
 
 /** The local-OCR opt-in preference (read + toggle). */

@@ -78,6 +78,19 @@ function groupReadings(results: LabResultDto[]): MarkerGroup[] {
   );
 }
 
+/**
+ * The badge's grid cell. The badge renders nothing for a reading without a
+ * reference range, and a missing cell would pull the range bar and the trend
+ * one column to the left; the wrapper keeps every row at five cells.
+ */
+function RangeBadgeCell({ status }: { status: LabResultDto["rangeStatus"] }) {
+  return (
+    <div data-slot="lab-list-badge-cell" className={MOBILE_CELL.badge}>
+      <ReferenceRangeBadge status={status} compact className="lg:w-full" />
+    </div>
+  );
+}
+
 function LabRangeBarSlot({ reading }: { reading: LabResultDto }) {
   return (
     <div className={cn("w-full lg:w-48", MOBILE_CELL.rangeBar)}>
@@ -274,11 +287,7 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                   )}
                 >
                   {inner}
-                  <ReferenceRangeBadge
-                    status={group.latest.rangeStatus}
-                    compact
-                    className={cn("lg:w-full", MOBILE_CELL.badge)}
-                  />
+                  <RangeBadgeCell status={group.latest.rangeStatus} />
                   <LabRangeBarSlot reading={group.latest} />
                   <div className={cn("w-[72px]", MOBILE_CELL.trend)}>
                     <LabTrendSparkline
@@ -287,9 +296,11 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                       referenceHigh={group.latest.referenceHigh}
                     />
                   </div>
+                  {/* With a pointer the row's hover already says it opens; a
+                      phone has no hover, so the chevron stays there. */}
                   <ChevronRight
                     className={cn(
-                      "text-muted-foreground h-4 w-4 shrink-0",
+                      "text-muted-foreground h-4 w-4 shrink-0 lg:invisible",
                       MOBILE_CELL.end,
                     )}
                   />
@@ -300,11 +311,7 @@ export function LabList({ onAddFirst }: { onAddFirst?: () => void } = {}) {
                 // link next to its clickable neighbours.
                 <div key={group.key} className={ROW_CLASS}>
                   {inner}
-                  <ReferenceRangeBadge
-                    status={group.latest.rangeStatus}
-                    compact
-                    className={cn("lg:w-full", MOBILE_CELL.badge)}
-                  />
+                  <RangeBadgeCell status={group.latest.rangeStatus} />
                   <LabRangeBarSlot reading={group.latest} />
                   <div className={cn("w-[72px]", MOBILE_CELL.trend)}>
                     <LabTrendSparkline

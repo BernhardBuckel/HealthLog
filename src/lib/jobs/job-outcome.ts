@@ -43,6 +43,10 @@ export type JobFacts = Readonly<Record<string, JobFact>>;
  */
 export const JOB_FACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "access_tokens_deleted",
+  // v1.40 — the document AI run reaper's three outcomes.
+  "ai_runs_deleted",
+  "ai_runs_timed_out",
+  "ai_runs_worker_unavailable",
   // An admission delivery that found its import still running from an
   // earlier delivery of the same job and did nothing.
   "already_running",

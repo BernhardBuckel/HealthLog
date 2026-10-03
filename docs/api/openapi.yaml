@@ -14208,19 +14208,22 @@ paths:
       summary: Extract lab readings from a photo, PDF, or OCR'd text
       description: "Read-only (NOT idempotent) extraction. Two modes by content-type. VISION (`multipart/form-data`): a `file`
         (JPEG/PNG/WebP, or PDF — read natively on Anthropic, else rasterized to page images for any other vision
-        provider; ≤ 12 MiB) is run through the user's vision-capable provider; the upload lives in memory only and is
-        never persisted or logged. TEXT (`application/json`, opt-in local OCR): the browser OCR's the image
-        (tesseract.js) and POSTs `{ mode: \"text\", text }` — only the extracted text reaches the server, so a text-only
-        provider (e.g. ChatGPT-OAuth) reaches the same review/commit flow. Both modes are model work and answer under
-        the `labsOcr` capability (the operator's reading-documents switch, the labs module, and — because a lab report
-        is a document — an active `ai_extraction` or `ai_full` consent receipt for any provider that leaves the machine,
-        checked for the provider actually picked: the first vision-capable entry in vision mode, the chain head in text
-        mode). No provider is 422 `labs.ocr.providerUnsupported`; text mode without the local-OCR opt-in is 422
-        `labs.ocr.localOcrDisabled`. Then both pass a per-user hourly rate bucket (default 6, operator-tunable via
-        `LABS_OCR_LIMIT_PER_HOUR`; a slot is only consumed when the scan reaches the provider, and the 429 carries
-        `Retry-After`, the `X-RateLimit-*` triple and `meta.retryAt`) and the per-day token budget, and return proposed
-        rows for the mandatory human review screen — nothing is written. Extracted content is treated as untrusted
-        (prompt-injection); the review step is the safety boundary."
+        provider; ≤ 12 MiB) is run through the user's vision-capable provider; the upload is never logged. TEXT
+        (`application/json`, opt-in local OCR): the browser OCR's the image (tesseract.js) and POSTs `{ mode: \"text\",
+        text }` — only the extracted text reaches the server, so a text-only provider (e.g. ChatGPT-OAuth) reaches the
+        same review/commit flow. Both modes are model work and answer under the `labsOcr` capability (the operator's
+        reading-documents switch, the labs module, and — because a lab report is a document — an active `ai_extraction`
+        or `ai_full` consent receipt for any provider that leaves the machine, checked for the provider actually picked:
+        the first vision-capable entry in vision mode, the chain head in text mode). No provider is 422
+        `labs.ocr.providerUnsupported`; text mode without the local-OCR opt-in is 422 `labs.ocr.localOcrDisabled`. Then
+        both pass a per-user hourly rate bucket (default 6, operator-tunable via `LABS_OCR_LIMIT_PER_HOUR`; a slot is
+        only consumed when the scan reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-*` triple
+        and `meta.retryAt`) and the per-day token budget, and the read is queued: since v1.40 the route answers 202 with
+        a run id and `GET /api/ai-runs/{id}` serves the proposed rows (`OcrExtractResponse`) for the mandatory human
+        review screen. The upload or text is held encrypted in the run until it is read, then dropped; the run is
+        deleted an hour after it ends. Nothing is written to the record — the commit route is the only write. A file too
+        large is 413 `labs.ocr.fileTooLarge`, an unknown type 415 `labs.ocr.fileType`, both before anything is queued.
+        Extracted content is treated as untrusted (prompt-injection); the review step is the safety boundary."
       requestBody:
         required: true
         content:
@@ -14238,12 +14241,28 @@ paths:
             schema:
               $ref: "#/components/schemas/OcrTextExtractRequest"
       responses:
-        "200":
-          description: Proposed rows for review.
+        "202": &a37
+          description: Queued for the background worker. Every refusal the route can answer quickly (capability, provider, rate
+            limit, budget, validation) has already been answered; anything that goes wrong from here is reported on the
+            run.
+          headers:
+            Preference-Applied:
+              required: true
+              description: "The route honoured `Prefer: respond-async`."
+              schema:
+                type: string
+                const: respond-async
+                description: "The route honoured `Prefer: respond-async`."
+            Location:
+              required: true
+              description: The run's poll address.
+              schema:
+                type: string
+                description: The run's poll address.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OcrExtractEnvelope"
+                $ref: "#/components/schemas/AiRunAcceptedEnvelope"
         "401": *a1
         "403":
           description: "AI refusal: the `labsOcr` capability is unavailable for this record. The envelope carries
@@ -14294,6 +14313,38 @@ paths:
                 $ref: "#/components/schemas/OcrCommitEnvelope"
         "401": *a1
         "409": *a7
+        "422": *a4
+        "429": *a5
+  /api/ai-runs/{id}:
+    get:
+      tags:
+        - Documents
+      summary: Poll a background document AI run
+      description: "Where one background read stands, and its result or failure once it ends. Scoped to the caller: another
+        account's run, a run that never existed, and a run more than an hour past its end are the same 404
+        `aiRuns.notFound`. A plain read of the caller's own run; it calls no model and asks no AI capability (those were
+        asked when the run was queued, and again in the worker before anything left the server). Auth via cookie or
+        Bearer."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiRunEnvelope"
+        "401": *a1
+        "404":
+          description: "`aiRuns.notFound`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "422": *a4
         "429": *a5
   /api/biomarkers:
@@ -16814,13 +16865,28 @@ paths:
         — no plaintext body, no plaintext token. Idempotent; re-indexing overwrites in place. A successful index
         continues into the same lab auto-staging the background worker performs (still-STORED lab-looking document with
         no facts, both modules on, provider + consent eligible); `labFactsStaged` reports how many facts were staged
-        PENDING for review — confirmation stays the only write into Labs."
+        PENDING for review — confirmation stays the only write into Labs. With `Prefer: respond-async` (v1.40) the read
+        runs in the background: after the same quick refusals the route answers 202 with a run id, a second request
+        while a read of this document is queued or running answers with that run, and `GET /api/ai-runs/{id}` serves
+        this body as the run's `result`. Text mode honours the preference too, because the lab staging it continues into
+        is model work."
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
+        - name: Prefer
+          in: header
+          required: false
+          schema:
+            type: string
+            example: respond-async
+          description: "Send `respond-async` (RFC 7240) to run the read in the background: the route answers 202 with a run id
+            once every quick refusal has passed, and `GET /api/ai-runs/{id}` serves the result. Without it the route
+            answers synchronously with the result, as it always has; that form is retained for clients that have not
+            adopted runs, and its retirement will be announced one minor release ahead. A preference the route cannot
+            apply is ignored and the response then carries no `Preference-Applied`."
       requestBody:
         required: false
         content:
@@ -16855,6 +16921,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DocumentIndexEnvelope"
+        "202": *a37
         "401": *a1
         "403": *a35
         "422": *a4
@@ -17075,7 +17142,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateCustomMetricResponse"
         "401": *a1
-        "409": &a38
+        "409": &a39
           description: A custom metric with this name already exists for the caller.
           content:
             application/json:
@@ -17104,7 +17171,7 @@ paths:
                 $ref: "#/components/schemas/GetCustomMetricResponse"
         "401": *a1
         "403": *a10
-        "404": &a37
+        "404": &a38
           description: Custom metric not found (or owned by another user).
           content:
             application/json:
@@ -17138,8 +17205,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/UpdateCustomMetricResponse"
         "401": *a1
-        "404": *a37
-        "409": *a38
+        "404": *a38
+        "409": *a39
         "422": *a4
         "429": *a5
     delete:
@@ -17162,7 +17229,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteCustomMetricResponse"
         "401": *a1
-        "404": *a37
+        "404": *a38
         "422": *a4
         "429": *a5
   /api/custom-metrics/{id}/entries:
@@ -17206,7 +17273,7 @@ paths:
                 $ref: "#/components/schemas/ListCustomMetricEntriesEnvelope"
         "401": *a1
         "403": *a10
-        "404": *a37
+        "404": *a38
         "422": *a4
         "429": *a5
     post:
@@ -17235,7 +17302,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateCustomMetricEntryResponse"
         "401": *a1
-        "404": *a37
+        "404": *a38
         "409": *a7
         "422": *a4
         "429": *a11
@@ -17271,7 +17338,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/UpdateCustomMetricEntryResponse"
         "401": *a1
-        "404": &a39
+        "404": &a40
           description: Custom metric entry not found (or owned by another user).
           content:
             application/json:
@@ -17304,7 +17371,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteCustomMetricEntryResponse"
         "401": *a1
-        "404": *a39
+        "404": *a40
         "422": *a4
         "429": *a5
   /api/custom-metrics/{id}/entries/restore:
@@ -17716,7 +17783,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientOverviewEnvelope"
         "401": *a1
-        "403": &a40
+        "403": &a41
           description: >-
             The opt-in `nutrients` module is off for this account (errorCode `module.disabled`). Stop syncing and do not
             retry; offer the enable-in-settings hint. Only run the HealthKit read-authorization flow while the module is
@@ -17771,7 +17838,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientDailySeriesEnvelope"
         "401": *a1
-        "403": *a40
+        "403": *a41
         "422": *a4
         "429": *a5
   /api/nutrients/water:
@@ -17800,7 +17867,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientWaterWriteEnvelope"
         "401": *a1
-        "403": *a40
+        "403": *a41
         "409": *a7
         "422": *a4
         "429": *a5
@@ -18302,26 +18369,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WithingsCredentialsUpdateEnvelope"
-        "400": &a41
+        "400": &a42
           description: Body is not parseable JSON.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "413": &a42
+        "413": &a43
           description: Body exceeds 64 KiB.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "415": &a43
+        "415": &a44
           description: Content-Type is not `application/json`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": &a44
+        "422": &a45
           description: "`clientId` and `clientSecret` are both required and each must be 1–200 characters. The envelope carries a
             single fixed message, not per-field issues."
           content:
@@ -18507,11 +18574,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FitbitCredentialsUpdateEnvelope"
-        "400": *a41
+        "400": *a42
         "401": *a1
-        "413": *a42
-        "415": *a43
-        "422": *a44
+        "413": *a43
+        "415": *a44
+        "422": *a45
         "429": *a5
     delete:
       tags:
@@ -18654,11 +18721,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GoogleHealthCredentialsUpdateEnvelope"
-        "400": *a41
+        "400": *a42
         "401": *a1
-        "413": *a42
-        "415": *a43
-        "422": *a44
+        "413": *a43
+        "415": *a44
+        "422": *a45
         "429": *a5
     delete:
       tags:
@@ -18811,11 +18878,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OuraCredentialsUpdateEnvelope"
-        "400": *a41
+        "400": *a42
         "401": *a1
-        "413": *a42
-        "415": *a43
-        "422": *a44
+        "413": *a43
+        "415": *a44
+        "422": *a45
         "429": *a5
     delete:
       tags:
@@ -18891,21 +18958,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/OuraTestEnvelope"
         "401": *a1
-        "422": &a45
+        "422": &a46
           description: No usable connection for this provider — nothing stored, or the stored grant could no longer be resolved
             into an access token. `meta.errorCode` = `not_configured`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "429": &a46
+        "429": &a47
           description: More than 5 requests in 60 s from this user. `meta.errorCode` = `rate_limited_self` — this is the local
             limiter, distinct from a `rate_limited` 502 which is the provider's.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "502": &a47
+        "502": &a48
           description: "The probe did not complete. `meta.errorCode` names the class: `credentials_rejected` (the provider
             answered 401/403 — the stored grant is gone), `rate_limited` (the PROVIDER answered 429, which is not this
             endpoint's own limiter), `upstream_error` (5xx), `timeout` (no answer within 5 s), `connection_failed`
@@ -18950,11 +19017,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PolarCredentialsUpdateEnvelope"
-        "400": *a41
+        "400": *a42
         "401": *a1
-        "413": *a42
-        "415": *a43
-        "422": *a44
+        "413": *a43
+        "415": *a44
+        "422": *a45
         "429": *a5
     delete:
       tags:
@@ -19030,9 +19097,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PolarTestEnvelope"
         "401": *a1
-        "422": *a45
-        "429": *a46
-        "502": *a47
+        "422": *a46
+        "429": *a47
+        "502": *a48
   /api/strava/credentials:
     get:
       tags:
@@ -19068,11 +19135,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StravaCredentialsUpdateEnvelope"
-        "400": *a41
+        "400": *a42
         "401": *a1
-        "413": *a42
-        "415": *a43
-        "422": *a44
+        "413": *a43
+        "415": *a44
+        "422": *a45
         "429": *a5
     delete:
       tags:
@@ -19150,9 +19217,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/StravaTestEnvelope"
         "401": *a1
-        "422": *a45
-        "429": *a46
-        "502": *a47
+        "422": *a46
+        "429": *a47
+        "502": *a48
   /api/integrations/status:
     get:
       tags:
@@ -19188,7 +19255,7 @@ paths:
                 $ref: "#/components/schemas/FitbitResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a46
+        "429": *a47
   /api/integrations/fitbit/test:
     post:
       tags:
@@ -19206,9 +19273,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/FitbitIntegrationTestEnvelope"
         "401": *a1
-        "422": *a45
-        "429": *a46
-        "502": *a47
+        "422": *a46
+        "429": *a47
+        "502": *a48
   /api/integrations/google-health/resume:
     post:
       tags:
@@ -19225,7 +19292,7 @@ paths:
                 $ref: "#/components/schemas/GoogleHealthResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a46
+        "429": *a47
   /api/integrations/google-health/test:
     post:
       tags:
@@ -19258,9 +19325,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": *a45
-        "429": *a46
-        "502": *a47
+        "422": *a46
+        "429": *a47
+        "502": *a48
   /api/integrations/whoop/resume:
     post:
       tags:
@@ -19277,7 +19344,7 @@ paths:
                 $ref: "#/components/schemas/WhoopResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a46
+        "429": *a47
   /api/integrations/whoop/test:
     post:
       tags:
@@ -19294,9 +19361,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/WhoopIntegrationTestEnvelope"
         "401": *a1
-        "422": *a45
-        "429": *a46
-        "502": *a47
+        "422": *a46
+        "429": *a47
+        "502": *a48
   /api/integrations/withings/resume:
     post:
       tags:
@@ -19314,7 +19381,7 @@ paths:
                 $ref: "#/components/schemas/WithingsResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a46
+        "429": *a47
   /api/integrations/withings/test:
     post:
       tags:
@@ -19332,8 +19399,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/WithingsIntegrationTestEnvelope"
         "401": *a1
-        "422": *a45
-        "429": *a46
+        "422": *a46
+        "429": *a47
         "502":
           description: "The probe did not complete. The shared codes apply (`credentials_rejected`, `rate_limited`,
             `upstream_error`, `timeout`, `connection_failed`) and this path adds one of its own:
@@ -19573,7 +19640,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RecordActivityEnvelope"
         "401": *a1
-        "403": &a48
+        "403": &a49
           description: Refused. `meta.errorCode` is `sharing.not_permitted` when the request was made while acting on another
             account (grant management is never delegable), or `sharing.access.denied` when the caller may not act as the
             account they named. The latter is byte-identical for an account that does not exist and one that granted
@@ -19598,7 +19665,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AccountGrantListEnvelope"
         "401": *a1
-        "403": *a48
+        "403": *a49
         "422": *a4
         "429": *a5
     post:
@@ -19700,7 +19767,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AcceptedAccountGrantEnvelope"
         "401": *a1
-        "403": *a48
+        "403": *a49
         "404":
           description: No such invitation for this account.
           content:
@@ -19744,7 +19811,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RevokedAccountGrantEnvelope"
         "401": *a1
-        "403": *a48
+        "403": *a49
         "404":
           description: No such grant on this account's record.
           content:
@@ -19785,7 +19852,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RenouncedAccountGrantEnvelope"
         "401": *a1
-        "403": *a48
+        "403": *a49
         "404":
           description: No such grant held by this account.
           content:
@@ -20167,7 +20234,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "403": *a48
+        "403": *a49
         "409":
           description: "The record this browser session is on is not the record the request asserted. `meta.errorCode` is
             `sharing.session.changed`. It is not a refusal of access — the caller may well be entitled to both records —
@@ -20497,7 +20564,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectionListEnvelope"
         "401": *a1
-        "403": &a49
+        "403": &a50
           description: The operator has disabled the API instance-wide. Every route in this module refuses while that setting is
             off, for a cookie session as well as for a Bearer token; it is not a per-user permission and retrying will
             not help.
@@ -20530,7 +20597,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectionRevokeEnvelope"
         "401": *a1
-        "403": *a49
+        "403": *a50
         "404":
           description: No live connection with this id for this caller — also the answer for an already-revoked one, so a repeat
             revoke is 404 rather than an idempotent 200.
@@ -20557,7 +20624,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectorTokenListEnvelope"
         "401": *a1
-        "403": *a49
+        "403": *a50
         "422": *a4
         "429": *a5
     post:
@@ -20590,7 +20657,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "403": *a49
+        "403": *a50
         "413":
           description: Body exceeds 16 KiB.
           content:
@@ -20633,7 +20700,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectorTokenRevokeEnvelope"
         "401": *a1
-        "403": *a49
+        "403": *a50
         "404":
           description: No `health:read` token with this id for this caller. An already-revoked token is still found, so a repeat
             revoke answers 200.
@@ -20691,7 +20758,7 @@ paths:
       description: Returns the named family's resolved settings for the record the session is acting on. Cookie session or
         Bearer, while acting on a managed record the caller guards.
       parameters:
-        - &a50
+        - &a51
           name: family
           in: path
           required: true
@@ -20735,7 +20802,7 @@ paths:
         ride the audit row. Body capped at 64 KiB. Cookie session or Bearer, while acting on a managed record the caller
         guards.
       parameters:
-        - *a50
+        - *a51
       requestBody:
         required: true
         content:
@@ -21272,13 +21339,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupDocument"
-        "403": &a51
+        "403": &a52
           description: Caller is not an admin. `requireAdmin()` is cookie-only, so a Bearer token lands here whatever its scope.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "404": &a52
+        "404": &a53
           description: No stored copy with this id.
           content:
             application/json:
@@ -21352,8 +21419,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "403": *a51
-        "404": *a52
+        "403": *a52
+        "404": *a53
         "409":
           description: A restore of the same account is already queued or running (`meta.errorCode` = `backup.restore.active`,
             `meta.jobId` names it), the stored copy was replaced by a newer one while it was being checked
@@ -21397,7 +21464,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupRestoreJobListResponse"
-        "403": *a51
+        "403": *a52
   /api/admin/backups/restores/{jobId}:
     get:
       tags:
@@ -21420,7 +21487,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupRestoreJobResponse"
-        "403": *a51
+        "403": *a52
         "404":
           description: No restore job with this id.
           content:
@@ -21439,7 +21506,7 @@ paths:
         request leaves the server. Needs neither the Documents module nor the list: with the list unset, `available` is
         false and any connection still stored is listed (with `originAllowed: false`) so it can be removed. Cookie
         session only; not delegable."
-      security: &a53
+      security: &a54
         - cookieAuth: []
       responses:
         "200":
@@ -21449,7 +21516,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourcesStatusEnvelope"
         "401": *a1
-        "403": &a54
+        "403": &a55
           description: "Refused before any request to the source: `documents.sources.browserOnly` for a Bearer caller,
             `sharing.not_permitted` while acting on another person's record (a delegate or guardian never uses the
             owner's archive), or `module.disabled` when the Documents module is off."
@@ -21472,9 +21539,9 @@ paths:
         `documents.sources.tokenRequired`), so a stored token is never sent to an address it was not saved for. A Papra
         organization id is letters, digits, `_` and `-`. The token is stored encrypted (AES-256-GCM) and never returned.
         Ten saves and tests a minute per person. Cookie session only; not delegable."
-      security: *a53
+      security: *a54
       parameters:
-        - &a55
+        - &a56
           name: system
           in: path
           required: true
@@ -21513,8 +21580,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceConnectionEnvelope"
         "401": *a1
-        "403": *a54
-        "404": &a56
+        "403": *a55
+        "404": &a57
           description: "`documents.sources.unavailable`: the operator has not listed any origin in `DOCUMENT_SOURCE_ORIGINS`, so
             the picker is off. `documents.sources.notConnected`: no connection is saved for this system.
             `documents.sources.notFound`: the source has no such document, or (Papra) no such organization, including
@@ -21533,7 +21600,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "429": *a5
-        "502": &a57
+        "502": &a58
           description: "The source could not answer usefully, with the reason in `meta.errorCode` and, when the source answered at
             all, its HTTP status in `meta.upstreamStatus` (its body is never passed on): `documents.sources.unreachable`
             (no connection, timeout, or a destination refused at dial time), `documents.sources.redirected` (the source
@@ -21552,9 +21619,9 @@ paths:
       description: Deletes the caller's connection for this system, and its token with it. Works even after the operator
         removed the origin from the list, and with the Documents module switched off. `disconnected` is false when there
         was nothing to delete. Cookie session only; not delegable.
-      security: *a53
+      security: *a54
       parameters:
-        - *a55
+        - *a56
       responses:
         "200":
           description: Removed, or there was nothing to remove.
@@ -21563,7 +21630,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceDisconnectEnvelope"
         "401": *a1
-        "403": *a54
+        "403": *a55
         "422": *a4
         "429": *a5
   /api/documents/sources/{system}/test:
@@ -21574,9 +21641,9 @@ paths:
       description: One request to the source with the stored token. Answers `ok` with the round-trip time and stamps
         `lastVerifiedAt`, or the reason in `meta.errorCode`. Shares the save's allowance of ten a minute. Cookie session
         only; not delegable.
-      security: *a53
+      security: *a54
       parameters:
-        - *a55
+        - *a56
       responses:
         "200":
           description: The source answered.
@@ -21585,9 +21652,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceTestEnvelope"
         "401": *a1
-        "403": *a54
-        "404": *a56
-        "422": &a58
+        "403": *a55
+        "404": *a57
+        "422": &a59
           description: "`documents.sources.originNotAllowed`: the base address's origin is not on the operator's list (checked on
             every request, so a connection saved earlier is cut off once its origin is removed), or another validation
             failure."
@@ -21596,7 +21663,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "429": *a5
-        "502": *a57
+        "502": *a58
   /api/documents/sources/{system}/tags:
     get:
       tags:
@@ -21604,9 +21671,9 @@ paths:
       summary: Tags of a connected archive
       description: The source's tags for the picker's filter, the first 250 by name, in the source's own ids. Shares the
         search allowance of sixty a minute. Cookie session only; not delegable.
-      security: *a53
+      security: *a54
       parameters:
-        - *a55
+        - *a56
       responses:
         "200":
           description: The tags.
@@ -21615,11 +21682,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceTagsEnvelope"
         "401": *a1
-        "403": *a54
-        "404": *a56
-        "422": *a58
+        "403": *a55
+        "404": *a57
+        "422": *a59
         "429": *a5
-        "502": *a57
+        "502": *a58
   /api/documents/sources/{system}/search:
     get:
       tags:
@@ -21633,9 +21700,9 @@ paths:
         under that source key: `new`, `imported` with the vault document's `documentId`, or `deleted` (deleted in
         HealthLog; importing it again stores nothing). Nothing is stored. Sixty searches a minute, shared with the tag
         read. Cookie session only; not delegable."
-      security: *a53
+      security: *a54
       parameters:
-        - *a55
+        - *a56
         - name: q
           in: query
           required: false
@@ -21676,11 +21743,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceSearchEnvelope"
         "401": *a1
-        "403": *a54
-        "404": *a56
-        "422": *a58
+        "403": *a55
+        "404": *a57
+        "422": *a59
         "429": *a5
-        "502": *a57
+        "502": *a58
   /api/documents/sources/{system}/import:
     post:
       tags:
@@ -21699,9 +21766,9 @@ paths:
         fetched), including a duplicate. `kind` sets the document type (default OTHER). Automatic AI reading follows the
         person's own setting. Counts against the person's upload allowance (60 an hour) and storage quota. 201 for a new
         document, 200 otherwise. Cookie session only; not delegable."
-      security: *a53
+      security: *a54
       parameters:
-        - *a55
+        - *a56
       requestBody:
         required: true
         content:
@@ -21758,7 +21825,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceImportEnvelope"
         "401": *a1
-        "403": *a54
+        "403": *a55
         "404":
           description: "`documents.sources.unavailable`: the operator has not listed any origin in `DOCUMENT_SOURCE_ORIGINS`, so
             the picker is off. `documents.sources.notConnected`: no connection is saved for this system.
@@ -21789,7 +21856,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": *a58
+        "422": *a59
         "429":
           description: "`documents.inbound.rateLimited` (the person's hourly upload allowance, with the rate-limit headers) or
             `documents.inbound.uploadBusy` (too many uploads in progress; `Retry-After: 1`)."
@@ -21797,7 +21864,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "502": *a57
+        "502": *a58
   /api/bugreport:
     post:
       security: []
@@ -31724,37 +31791,37 @@ components:
                 per-provider additions) are enumerated in each `/test` operation instead, where the differences can be
                 stated; and a 401 raised by a route checking a credential of its own may carry no code at all. ai —
                 ai.budget.exceeded, ai.provider.none, ai.record.notPermitted, ai.unavailable; ai_provider —
-                ai_provider.invalid, ai_provider.no_fields; allergy — allergy.invalid; analytics —
-                analytics.invalid_query; anamnesis — anamnesis.fact.conflict, anamnesis.fact.currentExists,
-                anamnesis.fact.invalidValue; auth — auth.admin.required, auth.already_authenticated,
-                auth.mfa.code_invalid, auth.missing, auth.refresh.invalid, auth.refresh.reuse, auth.refresh.revoked,
-                auth.reproof.failed, auth.reproof.required, auth.reproof.too_weak, auth.scope.insufficient,
-                auth.stepup.required, auth.token.expired, auth.token.invalid; backup — backup.foreign_reference,
-                backup.key.missing, backup.payload.undecryptable, backup.restore.active, backup.section.missing,
-                backup.upload.too_large; biomarkers — biomarkers.unit.locked; body-site — body-site.invalid; coach —
-                coach.budget.exceeded, coach.conversation.invalidTitle, coach.conversation.notFound,
-                coach.fenced.attachmentConflict, coach.fenced.attachmentLimit, coach.fenced.attachmentNotFound,
-                coach.fenced.attachmentNotIndexed, coach.fenced.attachmentRequired, coach.fenced.attachmentUnavailable,
-                coach.fenced.invalid, coach.request.invalid; coach-prefs — coach-prefs.body.invalid_json,
-                coach-prefs.body.invalid_shape; consent — consent.ai.required; cycle — cycle.bulk.invalid,
-                cycle.bulk.too_large, cycle.calendar.invalid, cycle.calendar.range, cycle.cycles.invalid,
-                cycle.day-log.conflict, cycle.day-log.invalid, cycle.disabled, cycle.period.invalid,
-                cycle.symptom.custom.invalid, cycle.symptom.custom.limit; cycle-prefs — cycle-prefs.body.invalid_json,
-                cycle-prefs.invalid; disable-coach — disable-coach.body.invalid_json; documents —
-                documents.chat.conversationNotFound, documents.chat.invalid, documents.inbound.alreadyConfirmed,
-                documents.inbound.alreadyPartlyConfirmed, documents.inbound.budgetExceeded,
-                documents.inbound.decryptFailed, documents.inbound.encounterNotFound, documents.inbound.episodeNotFound,
-                documents.inbound.extractFailed, documents.inbound.factNotFound, documents.inbound.factNotPending,
-                documents.inbound.factTypeMismatch, documents.inbound.fileTooLarge, documents.inbound.fileType,
-                documents.inbound.invalidMetadata, documents.inbound.invalidQuery, documents.inbound.invalidUpdate,
-                documents.inbound.localOcrDisabled, documents.inbound.notFound, documents.inbound.notIndexed,
-                documents.inbound.pdfNeedsAnthropic, documents.inbound.providerUnsupported,
-                documents.inbound.quotaExceeded, documents.inbound.rateLimited, documents.inbound.restoreDuplicate,
-                documents.inbound.restoreGone, documents.inbound.sourceAliasLimit, documents.inbound.uploadBusy,
-                documents.inbound.uploadTimeout, documents.inbound.vaccinationNotFound, documents.sources.authRefused,
-                documents.sources.badResponse, documents.sources.browserOnly, documents.sources.invalidAddress,
-                documents.sources.linkTargetNotFound, documents.sources.notConnected, documents.sources.notFound,
-                documents.sources.organizationRequired, documents.sources.originNotAllowed,
+                ai_provider.invalid, ai_provider.no_fields; aiRuns — aiRuns.failed, aiRuns.notFound, aiRuns.timedOut,
+                aiRuns.workerUnavailable; allergy — allergy.invalid; analytics — analytics.invalid_query; anamnesis —
+                anamnesis.fact.conflict, anamnesis.fact.currentExists, anamnesis.fact.invalidValue; auth —
+                auth.admin.required, auth.already_authenticated, auth.mfa.code_invalid, auth.missing,
+                auth.refresh.invalid, auth.refresh.reuse, auth.refresh.revoked, auth.reproof.failed,
+                auth.reproof.required, auth.reproof.too_weak, auth.scope.insufficient, auth.stepup.required,
+                auth.token.expired, auth.token.invalid; backup — backup.foreign_reference, backup.key.missing,
+                backup.payload.undecryptable, backup.restore.active, backup.section.missing, backup.upload.too_large;
+                biomarkers — biomarkers.unit.locked; body-site — body-site.invalid; coach — coach.budget.exceeded,
+                coach.conversation.invalidTitle, coach.conversation.notFound, coach.fenced.attachmentConflict,
+                coach.fenced.attachmentLimit, coach.fenced.attachmentNotFound, coach.fenced.attachmentNotIndexed,
+                coach.fenced.attachmentRequired, coach.fenced.attachmentUnavailable, coach.fenced.invalid,
+                coach.request.invalid; coach-prefs — coach-prefs.body.invalid_json, coach-prefs.body.invalid_shape;
+                consent — consent.ai.required; cycle — cycle.bulk.invalid, cycle.bulk.too_large, cycle.calendar.invalid,
+                cycle.calendar.range, cycle.cycles.invalid, cycle.day-log.conflict, cycle.day-log.invalid,
+                cycle.disabled, cycle.period.invalid, cycle.symptom.custom.invalid, cycle.symptom.custom.limit;
+                cycle-prefs — cycle-prefs.body.invalid_json, cycle-prefs.invalid; disable-coach —
+                disable-coach.body.invalid_json; documents — documents.chat.conversationNotFound,
+                documents.chat.invalid, documents.inbound.alreadyConfirmed, documents.inbound.alreadyPartlyConfirmed,
+                documents.inbound.budgetExceeded, documents.inbound.decryptFailed, documents.inbound.encounterNotFound,
+                documents.inbound.episodeNotFound, documents.inbound.extractFailed, documents.inbound.factNotFound,
+                documents.inbound.factNotPending, documents.inbound.factTypeMismatch, documents.inbound.fileTooLarge,
+                documents.inbound.fileType, documents.inbound.invalidMetadata, documents.inbound.invalidQuery,
+                documents.inbound.invalidUpdate, documents.inbound.localOcrDisabled, documents.inbound.notFound,
+                documents.inbound.notIndexed, documents.inbound.pdfNeedsAnthropic,
+                documents.inbound.providerUnsupported, documents.inbound.quotaExceeded, documents.inbound.rateLimited,
+                documents.inbound.restoreDuplicate, documents.inbound.restoreGone, documents.inbound.sourceAliasLimit,
+                documents.inbound.uploadBusy, documents.inbound.uploadTimeout, documents.inbound.vaccinationNotFound,
+                documents.sources.authRefused, documents.sources.badResponse, documents.sources.browserOnly,
+                documents.sources.invalidAddress, documents.sources.linkTargetNotFound, documents.sources.notConnected,
+                documents.sources.notFound, documents.sources.organizationRequired, documents.sources.originNotAllowed,
                 documents.sources.permissionMissing, documents.sources.rateLimited, documents.sources.redirected,
                 documents.sources.tokenRequired, documents.sources.unavailable, documents.sources.unreachable,
                 documents.sources.versionTooOld; encounter — encounter.invalid, encounter.link.invalid,
@@ -63277,11 +63344,11 @@ components:
         else's, `available` is false with a null `reason` and `ai.reason` says why. A missing consent receipt leaves the
         scan offered (`ai.reason = \"consent_required\"`), because the scan is where the person is asked for it. No
         provider call is made."
-    OcrExtractEnvelope:
+    AiRunAcceptedEnvelope:
       type: object
       properties:
         data:
-          $ref: "#/components/schemas/OcrExtractResponse"
+          $ref: "#/components/schemas/AiRunAccepted"
         error:
           type: "null"
         meta:
@@ -63294,132 +63361,26 @@ components:
         - data
         - error
       additionalProperties: false
-    OcrExtractResponse:
+    AiRunAccepted:
       type: object
       properties:
-        reportDate:
-          anyOf:
-            - type: string
-            - type: "null"
-        providerType:
+        runId:
           type: string
-        rows:
-          type: array
-          items:
-            $ref: "#/components/schemas/OcrExtractedRow"
-        pageCoverage:
-          description: "Present only when a PDF ran past the pages a scan reads: the rows come from the first `read` of `total`
-            pages. Absent when the whole document was read."
-          type: object
-          properties:
-            read:
-              type: integer
-              exclusiveMinimum: 0
-              maximum: 9007199254740991
-            total:
-              type: integer
-              exclusiveMinimum: 0
-              maximum: 9007199254740991
-          required:
-            - read
-            - total
-          additionalProperties: false
+        status:
+          type: string
+          const: QUEUED
+        pollAfterMs:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: How long to wait before the first poll.
       required:
-        - reportDate
-        - providerType
-        - rows
+        - runId
+        - status
+        - pollAfterMs
       additionalProperties: false
-      description: The proposed rows for the human review screen. NEVER written to the database — extraction is read-only and
-        the raw upload is held in memory only.
-    OcrExtractedRow:
-      type: object
-      properties:
-        analyte:
-          type: string
-        value:
-          anyOf:
-            - type: number
-            - type: "null"
-        valueText:
-          anyOf:
-            - type: string
-            - type: "null"
-        unit:
-          anyOf:
-            - type: string
-            - type: "null"
-        referenceLow:
-          anyOf:
-            - type: number
-            - type: "null"
-        referenceHigh:
-          anyOf:
-            - type: number
-            - type: "null"
-        referenceText:
-          anyOf:
-            - type: string
-            - type: "null"
-          description: The reference range EXACTLY as printed on the report, verbatim ("3,5 - 5,0", "< 116", "bis 5,0",
-            "negativ"). `referenceLow` / `referenceHigh` carry the same window reduced to numbers WHEN it reduces to
-            numbers; this field carries it either way, so a window stated in words is not lost between the report and
-            the reading.
-        takenAt:
-          anyOf:
-            - type: string
-            - type: "null"
-        confidence:
-          type: object
-          properties:
-            analyte:
-              type: number
-            value:
-              type: number
-            unit:
-              type: number
-            range:
-              type: number
-          required:
-            - analyte
-            - value
-            - unit
-            - range
-          additionalProperties: false
-        biomarkerMatch:
-          type: string
-          enum:
-            - new
-            - existing
-        markerUnit:
-          anyOf:
-            - type: string
-            - type: "null"
-          description: "The unit the matched marker is tracked in, or null when the marker does not exist yet (it will adopt this
-            row's unit). A row whose `unit` differs from it cannot be committed: the commit skips it with `reason:
-            unit_mismatch`, and the review screen marks it before Save."
-        duplicateOf:
-          anyOf:
-            - type: string
-            - type: "null"
-      required:
-        - analyte
-        - value
-        - valueText
-        - unit
-        - referenceLow
-        - referenceHigh
-        - referenceText
-        - takenAt
-        - confidence
-        - biomarkerMatch
-        - markerUnit
-        - duplicateOf
-      additionalProperties: false
-      description: "One proposed reading transcribed from the upload. UNTRUSTED model output annotated server-side:
-        `biomarkerMatch` flags whether the analyte links an existing catalog marker; `duplicateOf` is the id of a live
-        reading this row likely duplicates (the review row defaults to unchecked when set); `confidence` is the model's
-        per-field self-score (low fields are flagged for the human). Nothing is written until the commit route
-        confirms."
+      description: The read was queued. Poll `GET /api/ai-runs/{runId}`. A second request for the same document while a read
+        of it is still queued or running answers with that run instead of starting another.
     OcrCommitEnvelope:
       type: object
       properties:
@@ -63582,6 +63543,261 @@ components:
         - updatedAt
       additionalProperties: false
       description: A written reading. Its reference window resolves exactly as it does on `/api/labs` — see `LabResult`.
+    AiRunEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/AiRun"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    AiRun:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - DOCUMENT_INDEX
+            - LABS_OCR_EXTRACT
+        documentId:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: The document a document run reads; null for a lab scan.
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - RUNNING
+            - SUCCEEDED
+            - FAILED
+        result:
+          anyOf:
+            - anyOf:
+                - $ref: "#/components/schemas/DocumentIndexResponse"
+                - $ref: "#/components/schemas/OcrExtractResponse"
+            - type: "null"
+          description: "Present once `status` is `SUCCEEDED`: the body the queuing route answers with synchronously.
+            `DOCUMENT_INDEX` carries `DocumentIndexResponse`, `LABS_OCR_EXTRACT` carries `OcrExtractResponse`."
+        error:
+          anyOf:
+            - type: object
+              properties:
+                code:
+                  type: string
+                message:
+                  type: string
+                status:
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+              required:
+                - code
+                - message
+                - status
+              additionalProperties: false
+            - type: "null"
+          description: "Present once `status` is `FAILED`: the `meta.errorCode`, message and HTTP status the queuing route would
+            have answered with, or one of the run's own codes: `aiRuns.workerUnavailable` (no worker took the run within
+            fifteen minutes), `aiRuns.timedOut` (the read outlived the calls the AI response time allows),
+            `aiRuns.failed` (anything else)."
+        createdAt:
+          type: string
+        startedAt:
+          anyOf:
+            - type: string
+            - type: "null"
+        finishedAt:
+          anyOf:
+            - type: string
+            - type: "null"
+        queuedForMs:
+          anyOf:
+            - type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            - type: "null"
+          description: While queued, how long the run has waited for a worker. A long wait usually means the background worker is
+            not running.
+        retryAfterMs:
+          anyOf:
+            - type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            - type: "null"
+          description: While not terminal, when to poll again (also sent as `Retry-After`, in seconds). Null once the run has ended.
+      required:
+        - id
+        - kind
+        - documentId
+        - status
+        - result
+        - error
+        - createdAt
+        - startedAt
+        - finishedAt
+        - queuedForMs
+        - retryAfterMs
+      additionalProperties: false
+      description: One background document AI run. Results and failures stay readable for an hour after the run ends; the run
+        is then deleted and answers 404.
+    DocumentIndexResponse:
+      type: object
+      properties:
+        documentId:
+          type: string
+        indexed:
+          type: boolean
+        tokenCount:
+          type: number
+        labFactsStaged:
+          type: number
+          description: How many lab facts the index run auto-staged for review (0 when the document is not a lab report, staging
+            was not eligible, or facts already exist). Staged facts are PENDING — the confirm route remains the only
+            write into Labs.
+      required:
+        - documentId
+        - indexed
+        - tokenCount
+        - labFactsStaged
+      additionalProperties: false
+    OcrExtractResponse:
+      type: object
+      properties:
+        reportDate:
+          anyOf:
+            - type: string
+            - type: "null"
+        providerType:
+          type: string
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/OcrExtractedRow"
+        pageCoverage:
+          description: "Present only when a PDF ran past the pages a scan reads: the rows come from the first `read` of `total`
+            pages. Absent when the whole document was read."
+          type: object
+          properties:
+            read:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            total:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+          required:
+            - read
+            - total
+          additionalProperties: false
+      required:
+        - reportDate
+        - providerType
+        - rows
+      additionalProperties: false
+      description: The proposed rows for the human review screen, served by `GET /api/ai-runs/{id}` for a `LABS_OCR_EXTRACT`
+        run. Never written to the person's record; the commit route is the only write.
+    OcrExtractedRow:
+      type: object
+      properties:
+        analyte:
+          type: string
+        value:
+          anyOf:
+            - type: number
+            - type: "null"
+        valueText:
+          anyOf:
+            - type: string
+            - type: "null"
+        unit:
+          anyOf:
+            - type: string
+            - type: "null"
+        referenceLow:
+          anyOf:
+            - type: number
+            - type: "null"
+        referenceHigh:
+          anyOf:
+            - type: number
+            - type: "null"
+        referenceText:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: The reference range EXACTLY as printed on the report, verbatim ("3,5 - 5,0", "< 116", "bis 5,0",
+            "negativ"). `referenceLow` / `referenceHigh` carry the same window reduced to numbers WHEN it reduces to
+            numbers; this field carries it either way, so a window stated in words is not lost between the report and
+            the reading.
+        takenAt:
+          anyOf:
+            - type: string
+            - type: "null"
+        confidence:
+          type: object
+          properties:
+            analyte:
+              type: number
+            value:
+              type: number
+            unit:
+              type: number
+            range:
+              type: number
+          required:
+            - analyte
+            - value
+            - unit
+            - range
+          additionalProperties: false
+        biomarkerMatch:
+          type: string
+          enum:
+            - new
+            - existing
+        markerUnit:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: "The unit the matched marker is tracked in, or null when the marker does not exist yet (it will adopt this
+            row's unit). A row whose `unit` differs from it cannot be committed: the commit skips it with `reason:
+            unit_mismatch`, and the review screen marks it before Save."
+        duplicateOf:
+          anyOf:
+            - type: string
+            - type: "null"
+      required:
+        - analyte
+        - value
+        - valueText
+        - unit
+        - referenceLow
+        - referenceHigh
+        - referenceText
+        - takenAt
+        - confidence
+        - biomarkerMatch
+        - markerUnit
+        - duplicateOf
+      additionalProperties: false
+      description: "One proposed reading transcribed from the upload. UNTRUSTED model output annotated server-side:
+        `biomarkerMatch` flags whether the analyte links an existing catalog marker; `duplicateOf` is the id of a live
+        reading this row likely duplicates (the review row defaults to unchecked when set); `confidence` is the model's
+        per-field self-score (low fields are flagged for the human). Nothing is written until the commit route
+        confirms."
     ListBiomarkersEnvelope:
       type: object
       properties:
@@ -67299,26 +67515,6 @@ components:
       required:
         - data
         - error
-      additionalProperties: false
-    DocumentIndexResponse:
-      type: object
-      properties:
-        documentId:
-          type: string
-        indexed:
-          type: boolean
-        tokenCount:
-          type: number
-        labFactsStaged:
-          type: number
-          description: How many lab facts the index run auto-staged for review (0 when the document is not a lab report, staging
-            was not eligible, or facts already exist). Staged facts are PENDING — the confirm route remains the only
-            write into Labs.
-      required:
-        - documentId
-        - indexed
-        - tokenCount
-        - labFactsStaged
       additionalProperties: false
     DocumentChatHistoryEnvelope:
       type: object

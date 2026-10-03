@@ -11430,5 +11430,12 @@
     "linkedLabel": "Verknüpfte Einträge",
     "conditionSince": "Seit {onset}",
     "conditionDates": "{onset} bis {resolved}"
+  },
+  "aiRuns": {
+    "backgroundDocument": "Wird im Hintergrund gelesen. Du kannst die Seite verlassen; das Ergebnis wird beim Dokument gespeichert.",
+    "backgroundScan": "Wird im Hintergrund gelesen. Mit einem langsamen Modell kann das ein paar Minuten dauern.",
+    "waitingForWorker": "Warte auf den Hintergrunddienst. Ändert sich das nicht, läuft der Worker auf dem Server vielleicht nicht.",
+    "errorWorkerUnavailable": "Der Hintergrunddienst ist gerade nicht erreichbar. Versuch es gleich noch einmal oder bitte die Person, die den Server betreibt, ihn zu prüfen.",
+    "errorTimedOut": "Das Lesen hat länger gedauert, als deine KI-Antwortzeit erlaubt. Versuch es noch einmal oder erhöhe die Antwortzeit in den KI-Einstellungen."
   }
 }

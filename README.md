@@ -127,9 +127,13 @@ Actively developed — new releases roughly weekly, issue reports and PRs welcom
 
 ## Thanks
 
-HealthLog is built in the open and people keep making it better. Alongside
-bug reports, setup questions and the ideas that turned into features, these
-people have sent code that shipped:
+HealthLog started as something I built for myself. That it has turned into a project other people use, care about and help shape still surprises me, and I am grateful for every part of it.
+
+Thank you to everyone who sent code that shipped: [@TimonBed](https://github.com/TimonBed), [@Antiheld86](https://github.com/Antiheld86), [@BernhardBuckel](https://github.com/BernhardBuckel), [@balajiv113](https://github.com/balajiv113), [@aucun6352](https://github.com/aucun6352), [@mathewcsims](https://github.com/mathewcsims) and [@muhdusama](https://github.com/muhdusama). A special thanks to [@BernhardBuckel](https://github.com/BernhardBuckel), who has been working through the lab screens one careful pull request at a time, with tests and a plan before every change.
+
+Thank you to everyone who opened an issue, asked a question in the discussions or wrote me an email. Most of what got better in the last months started with someone describing what went wrong for them, often with a log, a screenshot and a second try when the first fix was not enough.
+
+And thank you to everyone who supported the project with a coffee or by buying the iPhone app. I don't name anyone here, but I read every message that comes with it. It pays for the servers and the Apple developer account, and it tells me that HealthLog is worth the evenings.
 
 <a href="https://github.com/MBombeck/HealthLog/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=MBombeck/HealthLog" alt="Contributors to HealthLog" />

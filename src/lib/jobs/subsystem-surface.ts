@@ -135,6 +135,9 @@ const subsystemSurface = {
   "document-summary-reaper": { audience: "system" },
   "document-content-index-backfill": { audience: "account" },
   "document-index": { audience: "account" },
+  // v1.40 — background document AI runs and their reaper.
+  "document-ai-run": { audience: "account" },
+  "document-ai-run-reaper": { audience: "system" },
   "document-thumbnail": { audience: "account" },
   "document-thumbnail-backfill": { audience: "account" },
   "document-summary": { audience: "account" },

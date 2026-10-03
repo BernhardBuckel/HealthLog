@@ -207,6 +207,10 @@ export function documentAiErrorKey(err: unknown): string {
         return "documents.assist.errorProvider";
       case "documents.inbound.notIndexed":
         return "documents.assist.errorNotIndexed";
+      case "aiRuns.workerUnavailable":
+        return "aiRuns.errorWorkerUnavailable";
+      case "aiRuns.timedOut":
+        return "aiRuns.errorTimedOut";
       case "consent.ai.required":
         return "documents.assist.errorConsent";
       case "ai.provider.none":

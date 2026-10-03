@@ -121,6 +121,18 @@ import {
   type DocumentIndexPayload,
 } from "@/lib/jobs/document-index";
 import {
+  DOCUMENT_AI_RUN_QUEUE,
+  DOCUMENT_AI_RUN_CONCURRENCY,
+  handleDocumentAiRunJobs,
+  type DocumentAiRunPayload,
+} from "@/lib/jobs/document-ai-run";
+import {
+  DOCUMENT_AI_RUN_REAPER_QUEUE,
+  DOCUMENT_AI_RUN_REAPER_CRON,
+  handleDocumentAiRunReaper,
+  type DocumentAiRunReaperPayload,
+} from "@/lib/jobs/document-ai-run-reaper";
+import {
   DOCUMENT_THUMBNAIL_QUEUE,
   DOCUMENT_THUMBNAIL_CONCURRENCY,
   runDocumentThumbnail,
@@ -502,6 +514,14 @@ const allQueues = [
   // extraction. Without this entry pg-boss never provisions the queue and every
   // upload enqueue silently no-ops.
   DOCUMENT_INDEX_QUEUE,
+  // v1.40 — background document AI runs ("Read with AI", lab scans): the
+  // request answers 202 and this queue does the read. Without this entry
+  // pg-boss never provisions the queue and every run waits until the reaper
+  // fails it as worker-unavailable.
+  DOCUMENT_AI_RUN_QUEUE,
+  // v1.40 — five-minute reaper for those runs: fails a run no worker took or
+  // one past its deadline, deletes a finished one after an hour.
+  DOCUMENT_AI_RUN_REAPER_QUEUE,
   // Document vault — automatic per-document preview thumbnail, enqueued on
   // upload. Pure local compute (canvas/pdfjs downscale), no egress. Without
   // this entry pg-boss never provisions the queue and every upload enqueue
@@ -665,6 +685,9 @@ const schedules: ScheduleEntry[] = [
   // tick is the retry: the updateMany is idempotent and the TTL predicate
   // re-selects anything a failed tick left behind.
   [DOCUMENT_SUMMARY_REAPER_QUEUE, DOCUMENT_SUMMARY_REAPER_CRON, cronIsTheRetry],
+  // v1.40 — five-minute pass over background document AI runs. The next tick
+  // is the retry: every write is conditional on the state it leaves.
+  [DOCUMENT_AI_RUN_REAPER_QUEUE, DOCUMENT_AI_RUN_REAPER_CRON, cronIsTheRetry],
   // v1.32.1 (issue #588) — every-15-minute orphan-ImportJob sweep. Re-runs
   // the same reconcile the boot path uses, so a stuck "unpacking" row
   // whose worker crashed/restarted without the boot-time pass catching it
@@ -961,6 +984,27 @@ export async function registerMaintenanceQueues(
     DOCUMENT_PURGE_QUEUE,
     { localConcurrency: 1 },
     handleDocumentPurge,
+  );
+  // v1.40 — background document AI runs. Each job is one run, under the lock
+  // `lockedPass` takes per run id, so a redelivery never reads beside the
+  // first delivery; the claim inside is conditional as well.
+  await createAndWork<DocumentAiRunPayload>(
+    boss,
+    DOCUMENT_AI_RUN_QUEUE,
+    { localConcurrency: DOCUMENT_AI_RUN_CONCURRENCY },
+    lockedPass(
+      DOCUMENT_AI_RUN_QUEUE,
+      (job) => `run:${job.data.runId ?? ""}`,
+      handleDocumentAiRunJobs,
+    ),
+  );
+  // v1.40 — the five-minute run reaper. Single-flight; every write in it is
+  // conditional, so a duplicate tick is a no-op.
+  await createAndWork<DocumentAiRunReaperPayload>(
+    boss,
+    DOCUMENT_AI_RUN_REAPER_QUEUE,
+    { localConcurrency: 1 },
+    handleDocumentAiRunReaper,
   );
   // Document vault — hourly stale-PENDING summary reaper. Single-flight;
   // the underlying updateMany is idempotent so a duplicate tick is a no-op.

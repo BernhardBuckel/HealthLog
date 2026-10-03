@@ -3,7 +3,15 @@
  *
  * Read-only (NOT idempotent) extraction of a paper lab report into STRUCTURED
  * proposed rows for the mandatory human-review screen. Nothing is written to
- * the database here; the raw upload is never persisted or logged.
+ * the person's record here; the raw upload is never logged.
+ *
+ * v1.40 — the read runs in the background worker. This route answers every
+ * refusal it can answer quickly (capability, provider, rate bucket, budget, a
+ * malformed or oversized upload, an unknown file type), seals the upload or
+ * the text into a `DocumentAiRun` (AES-256-GCM, dropped the moment the run
+ * finishes, the row deleted an hour later) and answers 202 with the run id.
+ * `GET /api/ai-runs/{id}` serves the proposed rows. Only the web client calls
+ * this route, so there is no synchronous form to keep.
  *
  * Two modes, dispatched on the request content-type:
  *
@@ -22,9 +30,11 @@
  *   re-check the capability for that pick (`requireLabsOcrProvider`: the
  *   operator's switch, the labs module, and a document consent receipt for a
  *   pick that leaves the machine) → rate-limit
- *   (`LABS_OCR_LIMIT_PER_HOUR`, default 6/h) → reserveBudget → run extraction
- *   → reconcile budget. A slot is charged early so a 429 stays cheap, and it is
- *   handed back when the scan fails before the provider is called.
+ *   (`LABS_OCR_LIMIT_PER_HOUR`, default 6/h) → reserveBudget → queue the run.
+ *   The worker resolves the provider again, re-checks the wire, runs the
+ *   extraction and reconciles the budget (`src/lib/labs/ocr-run.ts`). A slot is
+ *   charged early so a 429 stays cheap, and it is handed back when the scan
+ *   fails before the provider is called.
  *
  * Extracted text is UNTRUSTED (prompt-injection): the server never acts on an
  * instruction inside the document — the human review step is the safety
@@ -35,12 +45,10 @@ import { Buffer } from "node:buffer";
 import { apiHandler, requireAuth } from "@/lib/api-handler";
 import {
   apiError,
-  apiSuccess,
   apiValidationError,
   safeJson,
   sanitiseZodIssues,
 } from "@/lib/api-response";
-import { AI_BUDGETS } from "@/lib/ai/ai-budgets";
 import { requireAiCapability } from "@/lib/ai/capabilities/gate";
 import {
   buildDateKey,
@@ -49,10 +57,10 @@ import {
   resolveCostOwner,
   resolveDailyCap,
 } from "@/lib/ai/coach/budget";
+import { startAiRun } from "@/lib/documents/ai-runs/start";
 import { prisma } from "@/lib/db";
-import { rasterizePdf } from "@/lib/documents/rasterize-pdf";
 import { requireLabsOcrProvider } from "@/lib/labs/ocr-capability";
-import { OcrExtractError, runOcrExtraction } from "@/lib/labs/ocr-extract";
+import { OCR_RESERVE_TOKENS } from "@/lib/labs/ocr-run";
 import {
   BodyTooLargeError,
   detectOcrMimeType,
@@ -72,27 +80,6 @@ export const dynamic = "force-dynamic";
 /** OCR'd text is bounded in the schema; cap the JSON body proportionally. */
 const TEXT_BODY_MAX_BYTES = 512 * 1024;
 
-/**
- * The wide-event facts of a failed provider call: the status and the model,
- * never the upstream body. The base URL can be one a user typed, and what an
- * arbitrary endpoint answers has no business in the event stream (v1.39.3);
- * the response to the caller carries neither.
- */
-function providerFailureMeta(error: unknown, mode?: "text") {
-  const err = error as {
-    httpStatus?: unknown;
-    model?: unknown;
-  };
-  return {
-    reason: "provider_error",
-    ...(mode ? { mode } : {}),
-    ...(typeof err.httpStatus === "number"
-      ? { upstreamStatus: err.httpStatus }
-      : {}),
-    ...(typeof err.model === "string" ? { model: err.model } : {}),
-  };
-}
-
 export const POST = apiHandler(async (request: Request) => {
   const { user } = await requireAuth();
 
@@ -111,7 +98,7 @@ export const POST = apiHandler(async (request: Request) => {
 });
 
 /**
- * TEXT mode (v1.18.10) — structure in-browser-OCR'd text via any configured
+ * TEXT mode (v1.18.10) — queue in-browser-OCR'd text for any configured
  * provider. No image bytes reach the server; the raw image stayed on-device.
  */
 async function handleTextExtract(
@@ -173,7 +160,7 @@ async function handleTextExtract(
   const dateKey = buildDateKey();
   const reservation = await reserveBudget(
     userId,
-    AI_BUDGETS.ocrExtractText.maxTokens,
+    OCR_RESERVE_TOKENS.text,
     dateKey,
     resolveDailyCap([{ providerType: pick.entry.providerType }]),
     resolveCostOwner([{ providerType: pick.entry.providerType }]),
@@ -190,51 +177,27 @@ async function handleTextExtract(
     });
   }
 
-  try {
-    const result = await runOcrExtraction({
-      userId,
-      provider: pick.entry.instance,
-      providerType: pick.providerType,
-      ocrText: parsed.data.text,
-    });
-    // A clean structuring pass spent (at most) the reservation; the provider
-    // already billed it, so reconcile against the reserved estimate.
-    await reconcileSpend(
-      userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-    return apiSuccess(result);
-  } catch (err) {
-    // A failed structuring call produced no usable rows; mirror the vision
-    // path and refund the reservation in full rather than charging it.
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    if (err instanceof OcrExtractError) {
-      return apiError("Couldn't read the report. Try a clearer photo.", 422, {
-        errorCode: "labs.ocr.extractFailed",
-      });
-    }
-    annotate({
-      action: { name: "labs.ocr.extractFailed" },
-      meta: providerFailureMeta(err, "text"),
-    });
-    return apiError(
-      "The configured AI provider could not process this report. Check the provider configuration and retry.",
-      502,
-      { errorCode: "labs.ocr.extractFailed" },
-    );
-  }
+  // The structuring pass runs in the worker, which picks the provider again
+  // and re-checks the wire for it before the text leaves.
+  return startAiRun({
+    userId,
+    kind: "LABS_OCR_EXTRACT",
+    params: {
+      mode: "text",
+      budget: {
+        reserved: reservation.reserved,
+        owner: reservation.owner,
+        dateKey,
+      },
+    },
+    input: Buffer.from(parsed.data.text, "utf8"),
+    refundSlot: () => refundLabsOcrSlot(userId),
+  });
 }
 
 /**
- * VISION mode — run a multipart photo / PDF through the user's vision-capable
- * provider. The image transits server memory ephemerally and is never stored.
+ * VISION mode — queue a multipart photo / PDF for the user's vision-capable
+ * provider. The upload is sealed into the run until the read finishes.
  */
 async function handleVisionExtract(
   request: Request,
@@ -258,7 +221,7 @@ async function handleVisionExtract(
   const dateKey = buildDateKey();
   const reservation = await reserveBudget(
     userId,
-    AI_BUDGETS.ocrExtract.maxTokens,
+    OCR_RESERVE_TOKENS.vision,
     dateKey,
     resolveDailyCap([{ providerType: pick.entry.providerType }]),
     resolveCostOwner([{ providerType: pick.entry.providerType }]),
@@ -359,120 +322,23 @@ async function handleVisionExtract(
       });
     }
 
-    // 7. PDF handling — mirror the document vault's `prepareVisionInput`
-    // (`src/lib/documents/ai-route-support.ts`) exactly:
-    //   - Anthropic (`pick.pdfSupported`) reads the native `document` block at
-    //     highest fidelity;
-    //   - every other vision provider (codex / any image-only wire) reads the
-    //     PDF via `rasterizePdf`, which renders the pages to JPEG `input_image`
-    //     parts the provider already handles. Rendering is pure local compute
-    //     (no egress). `rasterizePdf` never throws: a malformed / encrypted /
-    //     unrenderable PDF returns `{ ok: false }`, and we keep the shipped
-    //     `pdfNeedsAnthropic` reject as the graceful fallback.
-    let images: {
-      mediaType: "image/jpeg" | "image/png" | "image/webp";
-      dataBase64: string;
-    }[];
-    let documents: { mediaType: "application/pdf"; dataBase64: string }[];
-    let pageCoverage: { read: number; total: number } | undefined;
-
-    if (mime === "application/pdf") {
-      if (pick.pdfSupported) {
-        images = [];
-        documents = [
-          {
-            mediaType: "application/pdf",
-            dataBase64: buffer.toString("base64"),
-          },
-        ];
-      } else {
-        const raster = await rasterizePdf(buffer);
-        if (!raster.ok) {
-          annotate({
-            action: { name: "labs.ocr.fileRejected" },
-            meta: { reason: "pdf_rasterize_failed" },
-          });
-          await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-            servedBy: null,
-            reservedOwner: reservation.owner,
-          });
-          await refundLabsOcrSlot(userId);
-          return apiError(
-            "Couldn't read this PDF; upload a photo instead.",
-            422,
-            { errorCode: "labs.ocr.pdfNeedsAnthropic" },
-          );
-        }
-        images = raster.images;
-        documents = [];
-        // A PDF longer than the page cap is read from its first pages only.
-        // That used to live in the wide event alone; the person reviewing the
-        // rows is the one who needs to know the rest of the report was not
-        // read.
-        if (raster.pageCount > raster.images.length) {
-          pageCoverage = {
-            read: raster.images.length,
-            total: raster.pageCount,
-          };
-          annotate({
-            action: { name: "labs.ocr.pagesCapped" },
-            meta: { read: raster.images.length, total: raster.pageCount },
-          });
-        }
-      }
-    } else {
-      images = [{ mediaType: mime, dataBase64: buffer.toString("base64") }];
-      documents = [];
-    }
-
-    // 8. Run the extraction. The actual token spend reconciles the reservation.
-    let actualTokens = 0;
-    try {
-      const result = await runOcrExtraction({
-        userId,
-        provider: pick.entry.instance,
-        providerType: pick.providerType,
-        images,
-        documents,
-      });
-      // The orchestration does not surface token counts; reconcile against the
-      // reserved estimate as the spend ceiling (the provider already billed it).
-      actualTokens = reservation.reserved;
-      await reconcileSpend(
-        userId,
-        reservation.reserved,
-        actualTokens,
-        dateKey,
-        0,
-        { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-      );
-      return apiSuccess(pageCoverage ? { ...result, pageCoverage } : result);
-    } catch (err) {
-      // Provider/extraction failure — the call may still have burned tokens, so
-      // reconcile against the reserved estimate rather than refunding in full.
-      await reconcileSpend(
-        userId,
-        reservation.reserved,
-        actualTokens,
-        dateKey,
-        0,
-        { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-      );
-      if (err instanceof OcrExtractError) {
-        return apiError("Couldn't read the report. Try a clearer photo.", 422, {
-          errorCode: "labs.ocr.extractFailed",
-        });
-      }
-      annotate({
-        action: { name: "labs.ocr.extractFailed" },
-        meta: providerFailureMeta(err),
-      });
-      return apiError(
-        "The configured AI provider could not process this report. Check the provider configuration and retry.",
-        502,
-        { errorCode: "labs.ocr.extractFailed" },
-      );
-    }
+    // 7. Queue the read. The worker renders a PDF for a provider that cannot
+    // read one natively, runs the extraction, and settles the reservation.
+    return await startAiRun({
+      userId,
+      kind: "LABS_OCR_EXTRACT",
+      params: {
+        mode: "vision",
+        mime,
+        budget: {
+          reserved: reservation.reserved,
+          owner: reservation.owner,
+          dateKey,
+        },
+      },
+      input: buffer,
+      refundSlot: () => refundLabsOcrSlot(userId),
+    });
   } catch (err) {
     // A guard threw after the reservation (e.g. consent races) — refund fully.
     await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {

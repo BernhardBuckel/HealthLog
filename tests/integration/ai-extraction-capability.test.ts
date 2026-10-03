@@ -63,6 +63,12 @@ vi.mock("@/lib/db-compat", () => ({
   ensureDbCompatibility: vi.fn().mockResolvedValue(undefined),
 }));
 
+// v1.40 — a lab scan is queued for the background worker; a queue that takes
+// the send lets the route answer 202, and the test then runs the worker.
+vi.mock("@/lib/jobs/boss-instance", () => ({
+  getGlobalBoss: () => ({ send: vi.fn(async () => "job-1") }),
+}));
+
 // ── The spies: every place a model would be called ─────────────────────────
 
 vi.mock("@/lib/documents/assist", async (importOriginal) => ({
@@ -344,9 +350,16 @@ describe("scanning a lab report — POST /api/labs/ocr/extract", () => {
     await grantConsent(user.id, "ai_extraction");
     await signIn(user.id);
 
-    const { status } = await labsScanText();
+    const { status, body } = await labsScanText();
 
-    expect(status).toBe(200);
+    // The route only queues the read; the worker is where the model is called.
+    expect(status).toBe(202);
+    expect(runOcrExtraction).not.toHaveBeenCalled();
+    const { runDocumentAiRun } = await import("@/lib/jobs/document-ai-run");
+    const { runId } = body.data as { runId: string };
+    expect(await runDocumentAiRun(runId, Date.now() + 45 * 60_000)).toBe(
+      "succeeded",
+    );
     expect(runOcrExtraction).toHaveBeenCalledTimes(1);
   });
 
