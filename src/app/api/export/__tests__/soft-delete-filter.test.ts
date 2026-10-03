@@ -72,6 +72,7 @@ vi.mock("@/lib/db", () => ({
     documentConditionLink: { findMany: vi.fn() },
     extractedFact: { findMany: vi.fn() },
     ecgRecording: { findMany: vi.fn() },
+    symptomDefinition: { findMany: vi.fn() },
     onboardingRecord: { findUnique: vi.fn().mockResolvedValue(null) },
     environmentTravelLocation: { findMany: vi.fn().mockResolvedValue([]) },
     environmentContext: { findMany: vi.fn().mockResolvedValue([]) },
@@ -208,6 +209,7 @@ beforeEach(() => {
   );
   vi.mocked(prisma.extractedFact.findMany).mockResolvedValue([] as never);
   vi.mocked(prisma.ecgRecording.findMany).mockResolvedValue([] as never);
+  vi.mocked(prisma.symptomDefinition.findMany).mockResolvedValue([] as never);
   vi.mocked(prisma.userAchievement.findMany).mockResolvedValue([] as never);
 });
 

@@ -289,6 +289,9 @@ const PINNED_AFFORDANCES: Record<
   "src/components/mood/manage/tag-groups-card.tsx": { "toast.success": 4 },
   "src/components/mood/manage/tag-manager-card.tsx": { "toast.success": 2 },
   "src/components/mood/mood-form.tsx": { "toast.success": 1 },
+  // The symptom quick entry confirms a save exactly as the measurement and
+  // mood forms beside it do.
+  "src/components/symptoms/symptom-entry-form.tsx": { "toast.success": 1 },
   "src/components/mood/mood-list.tsx": { "toast.success": 3 },
   "src/components/onboarding/done-screen.tsx": { CheckCircle2: 2 },
   "src/components/records/allergy-form.tsx": { "toast.success": 1 },
