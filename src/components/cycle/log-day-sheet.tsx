@@ -48,7 +48,7 @@ import { useTranslations } from "@/lib/i18n/context";
 import { useUnitDisplay } from "@/hooks/use-unit-display";
 import { resolveIntlLocale } from "@/lib/format-locale";
 import type { Locale } from "@/lib/i18n/config";
-import { CUSTOM_SYMPTOM_ICON_ALLOWLIST } from "@/lib/cycle/custom-symptoms-shared";
+import { SymptomIconPicker } from "@/components/symptoms/symptom-icon-picker";
 import { FieldInfo } from "./field-info";
 import { CYCLE_SYMPTOM_CATALOG } from "./symptom-catalog";
 import { FLOW_HUE, PHASE_HUE } from "./phase-tokens";
@@ -1519,7 +1519,11 @@ export function SymptomRow({
  * label + icon popover to mint a new custom symptom. Same height and shape as
  * a symptom row so it reads as part of the list, not a foreign button.
  */
-function AddSymptomChip({ onCreated }: { onCreated: (key: string) => void }) {
+export function AddSymptomChip({
+  onCreated,
+}: {
+  onCreated: (key: string) => void;
+}) {
   const { t } = useTranslations();
   const create = useCreateCustomSymptom();
   const [openForm, setOpenForm] = useState(false);
@@ -1594,34 +1598,11 @@ function AddSymptomChip({ onCreated }: { onCreated: (key: string) => void }) {
           <p className="text-xs font-medium">
             {t("cycle.symptom.custom.icon")}
           </p>
-          <div
-            className="flex flex-wrap gap-1.5"
-            role="radiogroup"
-            aria-label={t("cycle.symptom.custom.icon")}
-          >
-            {CUSTOM_SYMPTOM_ICON_ALLOWLIST.map((name) => {
-              const IconC = customIcon(name);
-              const selected = icon === name;
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  aria-label={name}
-                  onClick={() => setIcon(name)}
-                  className={cn(
-                    "focus-visible:ring-ring/50 grid size-7 place-items-center rounded-md border transition-colors focus-visible:ring-2 focus-visible:outline-none",
-                    selected
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:bg-accent",
-                  )}
-                >
-                  <IconC className="size-4" aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
+          <SymptomIconPicker
+            value={icon}
+            onChange={setIcon}
+            label={t("cycle.symptom.custom.icon")}
+          />
         </div>
         {limitReached ? (
           <p className="text-destructive text-sm" role="alert">

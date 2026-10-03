@@ -71,7 +71,7 @@ describe("commitApprovedFact — OBSERVATION unit integrity", () => {
     expect(prisma.labResult.create).not.toHaveBeenCalled();
   });
 
-  it("commits when the stated unit matches the marker's unit (case/space-insensitive)", async () => {
+  it("commits when the stated unit is the marker's unit spelled another way", async () => {
     vi.mocked(decryptFactData).mockReturnValue({
       label: "Glucose",
       value: 95,
@@ -102,5 +102,46 @@ describe("commitApprovedFact — OBSERVATION unit integrity", () => {
       .takenAt as Date;
     expect(takenAt.toISOString()).toBe("2025-01-01T12:00:00.000Z");
     expect(userDayKey(takenAt, "America/Los_Angeles")).toBe("2025-01-01");
+  });
+
+  // The comparison is the shared spelling normaliser every other lab write
+  // path uses, not a case fold. Mutation check: put the lower-cased equality
+  // back → the first case commits (milli read as mega) and the second refuses
+  // a µg/L reading the other paths accept.
+  function observation(unit: string, markerUnit: string) {
+    vi.mocked(decryptFactData).mockReturnValue({
+      label: "TSH",
+      value: 2.1,
+      unit,
+      referenceLow: null,
+      referenceHigh: null,
+      effectiveDate: "2025-01-01",
+    } as never);
+    vi.mocked(resolveOrMintBiomarker).mockResolvedValue({
+      id: "bm-2",
+      name: "TSH",
+      unit: markerUnit,
+      lowerBound: null,
+      upperBound: null,
+      panel: null,
+    });
+    vi.mocked(prisma.labResult.create).mockResolvedValue({
+      id: "lr-2",
+    } as never);
+  }
+
+  it("refuses MIU/L against a marker in mIU/L: the capital is mega, not milli", async () => {
+    observation("MIU/L", "mIU/L");
+    await expect(
+      commitApprovedFact("user-1", observationFact()),
+    ).rejects.toMatchObject({ code: "observation.unitMismatch" });
+    expect(prisma.labResult.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts ug/L against a marker in µg/L, as the other lab write paths do", async () => {
+    observation("ug/L", "µg/L");
+    await expect(
+      commitApprovedFact("user-1", observationFact()),
+    ).resolves.toEqual({ recordType: "labResult", recordId: "lr-2" });
   });
 });
