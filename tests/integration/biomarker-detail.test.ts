@@ -3,7 +3,9 @@
  * (`/api/biomarkers/{id}`) against a real Postgres.
  *
  * Covers the two detail-page mutations:
- *   - PUT adjusts the target range (and rejects an inverted window),
+ *   - PUT adjusts the target range (and rejects an inverted window), and
+ *     refuses a unit change while readings are linked, because readers
+ *     label every reading with the marker's unit,
  *   - DELETE drops the marker together with its readings in one
  *     userId-narrowed transaction, leaving another user's marker untouched.
  */
@@ -138,6 +140,83 @@ describe("PUT /api/biomarkers/{id} — target range (real Postgres)", () => {
     });
     expect(row?.lowerBound).toBe(0);
     expect(row?.upperBound).toBe(100);
+  });
+});
+
+describe("PUT /api/biomarkers/{id} — unit lock (real Postgres)", () => {
+  it("refuses a unit change while readings are linked and changes nothing", async () => {
+    const { PUT } = await import("@/app/api/biomarkers/[id]/route");
+    const marker = await seedMarkerWithReadings(USER_ID, "Glucose");
+
+    const res = await PUT(
+      putReq(marker.id, { unit: "mmol/L", upperBound: 120 }),
+      params(marker.id),
+    );
+
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.data).toBeNull();
+    expect(body.meta).toMatchObject({
+      errorCode: "biomarkers.unit.locked",
+      readingCount: 2,
+    });
+    const row = await getPrismaClient().biomarker.findUniqueOrThrow({
+      where: { id: marker.id },
+    });
+    // Nothing of the request landed, not even the bound beside the unit.
+    expect(row.unit).toBe("mg/dL");
+    expect(row.upperBound).toBe(100);
+  });
+
+  it("counts a tombstoned reading, since an undo brings it back", async () => {
+    const { PUT } = await import("@/app/api/biomarkers/[id]/route");
+    const prisma = getPrismaClient();
+    const marker = await seedMarkerWithReadings(USER_ID, "Ferritin");
+    await prisma.labResult.updateMany({
+      where: { biomarkerId: marker.id },
+      data: { deletedAt: new Date() },
+    });
+
+    const res = await PUT(
+      putReq(marker.id, { unit: "ng/mL" }),
+      params(marker.id),
+    );
+
+    expect(res.status).toBe(422);
+  });
+
+  it("accepts the unchanged unit beside another edit", async () => {
+    const { PUT } = await import("@/app/api/biomarkers/[id]/route");
+    const marker = await seedMarkerWithReadings(USER_ID, "HbA1c");
+
+    const res = await PUT(
+      putReq(marker.id, { unit: "mg/dL", upperBound: 90 }),
+      params(marker.id),
+    );
+
+    expect(res.status).toBe(200);
+    const row = await getPrismaClient().biomarker.findUniqueOrThrow({
+      where: { id: marker.id },
+    });
+    expect(row.upperBound).toBe(90);
+  });
+
+  it("allows a unit change on a marker with no readings", async () => {
+    const { PUT } = await import("@/app/api/biomarkers/[id]/route");
+    const marker = await getPrismaClient().biomarker.create({
+      data: { userId: USER_ID, name: "TSH", unit: "mU/L" },
+    });
+
+    const res = await PUT(
+      putReq(marker.id, { unit: "µIU/mL" }),
+      params(marker.id),
+    );
+
+    expect(res.status).toBe(200);
+    const row = await getPrismaClient().biomarker.findUniqueOrThrow({
+      where: { id: marker.id },
+    });
+    expect(row.unit).toBe("µIU/mL");
   });
 });
 

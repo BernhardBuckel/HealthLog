@@ -143,6 +143,28 @@ export const PUT = apiHandler(
       }
     }
 
+    // A marker's unit labels every reading linked to it: readers resolve the
+    // unit from the marker, and the stored numbers are in the old unit. A
+    // change while readings exist would relabel history without converting a
+    // single value, so it is refused. Tombstoned readings count too, since an
+    // undo brings them back under the new label.
+    if (d.unit !== undefined && d.unit !== existing.unit) {
+      const readingCount = await prisma.labResult.count({
+        where: { userId: user.id, biomarkerId: id },
+      });
+      if (readingCount > 0) {
+        annotate({
+          action: { name: "labs.biomarker.update.unit-locked" },
+          meta: { biomarkerId: id, readingCount },
+        });
+        return apiError(
+          "The unit of a biomarker with readings cannot be changed",
+          422,
+          { errorCode: "biomarkers.unit.locked", readingCount },
+        );
+      }
+    }
+
     // Build `data` field-by-field. `undefined` → leave the column untouched;
     // an explicit `null` on `context` / `panel` / a bound clears it.
     const data: Record<string, unknown> = {};

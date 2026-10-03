@@ -155,7 +155,7 @@ export const biomarkerPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Labs"],
       summary: "Edit a biomarker",
       description:
-        "Partial edit; omitted fields are untouched, an explicit null clears `context` / `panel` / a bound. Audits as `biomarker.update`.",
+        "Partial edit; omitted fields are untouched, an explicit null clears `context` / `panel` / a bound. Audits as `biomarker.update`. Since v1.40.0 a `unit` different from the stored one is refused with 422 `biomarkers.unit.locked` while any reading is linked to the marker (`meta.readingCount` carries how many): readers label every linked reading with the marker's unit, so a change would relabel stored numbers without converting them. Sending the current unit, or changing it on a marker with no readings, is accepted.",
       requestParams: { path: z.object({ id: z.string() }) },
       requestBody: {
         required: true,
