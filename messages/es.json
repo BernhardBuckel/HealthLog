@@ -10316,7 +10316,8 @@
       "PRESCRIPTION": "Receta",
       "REFERRAL": "Derivación",
       "INSURANCE": "Seguro",
-      "VACCINATION": "Vacunación"
+      "VACCINATION": "Vacunación",
+      "SICK_NOTE": "Baja médica"
     },
     "filter": {
       "searchLabel": "Buscar documentos",
