@@ -116,3 +116,45 @@ describe("compliance across two courses", () => {
     expect(slots).toHaveLength(7);
   });
 });
+
+describe("the streak across two courses (v1.40, #1024)", () => {
+  // Course A Jun 1-10 with Jun 5 missed, course B Jun 13 onward, every other
+  // course day taken. The miss sits in the earlier course: a streak that only
+  // saw the latest course would run unbroken through the whole window.
+  const A = {
+    startsOn: dateOfDayKey("2026-06-01"),
+    endsOn: dateOfDayKey("2026-06-10"),
+  };
+  const B = { startsOn: dateOfDayKey("2026-06-13"), endsOn: null };
+  const NOW_B = new Date("2026-06-27T18:00:00.000Z");
+  const taken = [
+    ...dayKeys("2026-06-01", "2026-06-10").filter((d) => d !== "2026-06-05"),
+    ...dayKeys("2026-06-13", "2026-06-27"),
+  ].map((day) => ({
+    scheduledFor: new Date(`${day}T06:00:00.000Z`),
+    takenAt: new Date(`${day}T06:05:00.000Z`),
+    skipped: false,
+  }));
+
+  it("stops at the miss in the earlier course", () => {
+    const ctx = buildComplianceMedicationContext(
+      {
+        startsOn: B.startsOn,
+        endsOn: null,
+        oneShot: false,
+        createdAt: new Date("2026-05-20T10:00:00.000Z"),
+        courses: [A, B],
+      },
+      taken[taken.length - 1].takenAt,
+      TZ,
+    );
+    const result = calculateCompliance(taken, DAILY, 30, ctx.createdAt, {
+      now: NOW_B,
+      medicationContext: ctx,
+    });
+    expect(result.missed).toBe(1);
+    // Jun 6 to Jun 27. The two gap days expect nothing and advance the
+    // streak like any out-of-cadence day; the miss on Jun 5 ends the run.
+    expect(result.streak).toBe(22);
+  });
+});
