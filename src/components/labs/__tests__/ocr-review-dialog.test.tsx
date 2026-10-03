@@ -12,6 +12,7 @@ import {
   handleFilePickerChange,
   OcrPageCoverageNote,
   OcrReviewDialog,
+  unitSkippedAnalytes,
 } from "../ocr-review-dialog";
 
 const hookState = vi.hoisted(() => ({ extractPending: false }));
@@ -221,5 +222,42 @@ describe("<OcrPageCoverageNote> — a long PDF read from its first pages", () =>
       </I18nProvider>,
     );
     expect(html).toBe("");
+  });
+});
+
+describe("unitSkippedAnalytes", () => {
+  const unit = (analyte: string) => ({
+    analyte,
+    reason: "unit_mismatch" as const,
+  });
+
+  it("is null when nothing was skipped for a unit", () => {
+    expect(unitSkippedAnalytes([])).toBeNull();
+    expect(
+      unitSkippedAnalytes([{ analyte: "LDL", reason: "duplicate" }]),
+    ).toBeNull();
+  });
+
+  it("names the analytes skipped for a unit, ignoring duplicates", () => {
+    expect(
+      unitSkippedAnalytes([
+        { analyte: "LDL", reason: "duplicate" },
+        unit("Glucose"),
+        unit("Creatinine"),
+      ]),
+    ).toBe("Glucose, Creatinine");
+  });
+
+  it("lists three and counts the rest, once each", () => {
+    expect(
+      unitSkippedAnalytes([
+        unit("A"),
+        unit("A"),
+        unit("B"),
+        unit("C"),
+        unit("D"),
+        unit("E"),
+      ]),
+    ).toBe("A, B, C +2");
   });
 });

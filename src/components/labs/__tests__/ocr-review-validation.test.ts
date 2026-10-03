@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { OcrReviewRow } from "../ocr-review-types";
+import { seedReviewRows } from "../ocr-review-types";
 import {
   collectRowErrors,
   planSave,
+  readingUnitDiffers,
   toCommitRow,
   validateReviewRow,
 } from "../ocr-review-validation";
@@ -21,6 +23,7 @@ function row(overrides: Partial<OcrReviewRow> = {}): OcrReviewRow {
     takenAt: "2026-06-10",
     confidence: { analyte: 1, value: 1, unit: 1, range: 1 },
     biomarkerMatch: "existing",
+    markerUnit: "mmol/L",
     duplicateOf: null,
     confirmed: true,
     ...overrides,
@@ -138,5 +141,74 @@ describe("planSave", () => {
     if (plan.kind === "ready") {
       expect(plan.payload.map((r) => r.analyte)).toEqual(["LDL", "HDL"]);
     }
+  });
+});
+
+describe("a reading in another unit than its marker's", () => {
+  it.each([
+    ["the same unit", { unit: "mmol/L" }, false],
+    ["the same unit, spelled differently", { unit: "mmol/l" }, false],
+    ["a different unit", { unit: "mg/dL" }, true],
+    ["a different magnitude of the same substance", { unit: "µmol/L" }, true],
+    ["a new marker (no unit yet)", { unit: "mg/dL", markerUnit: null }, false],
+    ["no unit stated", { unit: "", markerUnit: "mmol/L" }, false],
+    [
+      "a qualitative result",
+      { value: null, valueText: "negative", unit: "mg/dL" },
+      false,
+    ],
+  ] as const)("%s → differs: %s", (_name, overrides, differs) => {
+    expect(readingUnitDiffers(row(overrides))).toBe(differs);
+  });
+
+  it("is a blocking error on the unit field, distinct from a missing unit", () => {
+    expect(validateReviewRow(row({ unit: "mg/dL" }))).toEqual({
+      unitMismatch: true,
+    });
+    expect(validateReviewRow(row({ unit: "" }))).toEqual({ unit: true });
+  });
+
+  it("cannot be turned into a payload, whatever its other fields say", () => {
+    expect(toCommitRow(row({ unit: "mg/dL" }))).toBeNull();
+    expect(toCommitRow(row({ unit: "mmol/l" }))?.unit).toBe("mmol/l");
+  });
+
+  it("blocks the whole save when it is selected, and not when it is not", () => {
+    expect(
+      planSave([row({ key: "a" }), row({ key: "b", unit: "mg/dL" })]),
+    ).toEqual({ kind: "blocked" });
+    const plan = planSave([
+      row({ key: "a" }),
+      row({ key: "b", unit: "mg/dL", confirmed: false }),
+    ]);
+    expect(plan.kind).toBe("ready");
+    expect(
+      collectRowErrors([row({ unit: "mg/dL", confirmed: false })]).size,
+    ).toBe(0);
+  });
+
+  it("starts unselected on the review screen, like a duplicate, so it is a choice", () => {
+    const dto = (unit: string, markerUnit: string | null) => ({
+      analyte: "Glucose",
+      value: 5.6,
+      valueText: null,
+      unit,
+      referenceLow: null,
+      referenceHigh: null,
+      referenceText: null,
+      takenAt: "2026-06-10",
+      confidence: { analyte: 1, value: 1, unit: 1, range: 1 },
+      biomarkerMatch: "existing" as const,
+      markerUnit,
+      duplicateOf: null,
+    });
+    const [same, other, fresh] = seedReviewRows(
+      [dto("mmol/L", "mmol/L"), dto("mmol/L", "mg/dL"), dto("mmol/L", null)],
+      null,
+    );
+    expect(same.confirmed).toBe(true);
+    expect(other.confirmed).toBe(false);
+    expect(other.markerUnit).toBe("mg/dL");
+    expect(fresh.confirmed).toBe(true);
   });
 });

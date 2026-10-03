@@ -125,6 +125,12 @@ export interface OcrExtractedRowDto {
     range: number;
   };
   biomarkerMatch: "new" | "existing";
+  /**
+   * The unit the matched marker is tracked in, or null for a marker that does
+   * not exist yet (it will adopt this row's unit). Lets the review screen say
+   * so before Save when the scanned unit differs.
+   */
+  markerUnit: string | null;
   duplicateOf: string | null;
 }
 
@@ -231,10 +237,14 @@ export const ocrCommitSchema = z.object({
 
 export type OcrCommitInput = z.infer<typeof ocrCommitSchema>;
 
-/** A row the commit route skipped (a re-checked duplicate at commit time). */
+/**
+ * A row the commit route did not write. `duplicate`: it matched a live reading
+ * at commit time. `unit_mismatch`: it states a unit other than the one its
+ * marker is tracked in.
+ */
 export interface OcrSkippedRowDto {
   analyte: string;
-  reason: "duplicate";
+  reason: "duplicate" | "unit_mismatch";
 }
 
 export interface OcrCommitResponseDto {

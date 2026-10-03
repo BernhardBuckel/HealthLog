@@ -363,6 +363,7 @@ const REVIEW_ROWS = ["LDL", "HDL", "Glucose", "Creatinine", "ALT", "CRP"].map(
     takenAt: index === 0 ? null : "2026-06-10",
     confidence: { analyte: 0.9, value: 0.9, unit: 0.9, range: 0.9 },
     biomarkerMatch: "existing",
+    markerUnit: "mmol/L",
     duplicateOf: null,
   }),
 );

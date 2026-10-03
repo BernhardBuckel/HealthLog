@@ -18,6 +18,7 @@ import { withIdempotency } from "@/lib/idempotency";
 import { enqueueReminderSatisfy } from "@/lib/jobs/reminder-satisfy";
 import { emitDataArrival } from "@/lib/arrivals/emit-shared";
 import { resolveOrMintBiomarker } from "@/lib/labs/biomarker-store";
+import { sameLabUnit } from "@/lib/labs/unit-normalise";
 import {
   type ResolvedBiomarker,
   serialiseLabResult,
@@ -250,6 +251,32 @@ async function postLabResult(request: NextRequest) {
       referenceHigh: isQualitative ? null : (referenceHigh ?? null),
       panel: panel ?? null,
     });
+  }
+
+  // The marker's unit is the one every reading is stored under, so a reading
+  // that states another unit cannot be written: the number would be kept and
+  // the label swapped, and nothing downstream could tell. Compared only when a
+  // unit was actually sent: on the `biomarkerId` path it may be omitted, and
+  // then the marker's unit is the stated one. A freshly minted marker adopted
+  // the reading's own unit, so it cannot disagree with it.
+  if (
+    !isQualitative &&
+    unit !== undefined &&
+    !sameLabUnit(unit, biomarker.unit)
+  ) {
+    annotate({
+      action: { name: "labs.create.unit-mismatch" },
+      meta: { biomarkerId: biomarker.id },
+    });
+    return apiError(
+      `The reading is in ${unit}, but ${biomarker.name} is tracked in ${biomarker.unit}.`,
+      422,
+      {
+        errorCode: "labs.unit.mismatch",
+        markerUnit: biomarker.unit,
+        readingUnit: unit,
+      },
+    );
   }
 
   // Field-by-field assignment — never spread `parsed.data`. The row stamps the

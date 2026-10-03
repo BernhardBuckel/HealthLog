@@ -162,6 +162,11 @@ export const labsPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           },
         },
         ...stdResponses,
+        "422": {
+          description:
+            "Nothing was written. `meta.errorCode` = `labs.create.invalid` when the body failed validation (every issue under `details.issues`), or `labs.unit.mismatch` when a numeric reading states a `unit` other than the one its marker is tracked in (`meta.markerUnit`, `meta.readingUnit`). A unit is compared only when one is sent; with a `biomarkerId` it may be omitted and the marker's unit is then the stated one. Spelling is forgiven (`mmol/l`, `ug/L` for `µg/L`); a different unit is refused, never relabelled.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
         ...recordWriteRateLimitResponse,
       },
     },
