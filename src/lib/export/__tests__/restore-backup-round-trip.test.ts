@@ -34,7 +34,6 @@ const mocks = vi.hoisted(() => ({
 // The category side table is raw SQL on the shared client; the round trip
 // through it is proven in tests/integration/backup-round-trip.test.ts.
 vi.mock("@/lib/medication-category", () => ({
-  ensureMedicationCategoryTable: vi.fn(async () => {}),
   getMedicationCategories: vi.fn(async () => ({})),
   setMedicationCategory: vi.fn(async () => "OTHER"),
 }));

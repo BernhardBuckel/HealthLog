@@ -107,10 +107,7 @@ import { restoreAwardsData } from "@/lib/export/awards-backup";
 import { restoreEnvironmentData } from "@/lib/export/environment-backup";
 import { restoreEcgData } from "@/lib/export/ecg-backup";
 import { restoredMedicationCreatedAt } from "@/lib/export/medication-created-at";
-import {
-  ensureMedicationCategoryTable,
-  setMedicationCategory,
-} from "@/lib/medication-category";
+import { setMedicationCategory } from "@/lib/medication-category";
 import { invalidateUserData } from "@/lib/cache/invalidate";
 import { TOMBSTONE_RETENTION_DAYS } from "@/lib/auth/native-client";
 import { stampSyncReset } from "@/lib/sync/reset";
@@ -682,10 +679,6 @@ export async function restoreBackup(
     skipped: RestoreSkipSummary;
     accountSettings: AccountSettingsRestoreResult;
   };
-  // The category side table is created lazily. Doing that here, before the
-  // transaction, keeps its DDL (which takes a table lock) out of a
-  // transaction that already holds row locks on the same table.
-  await ensureMedicationCategoryTable();
   try {
     report("clearing");
     outcome = await prisma.$transaction(
@@ -1265,7 +1258,7 @@ export async function restoreBackup(
           });
           restoredMedicationIds.add(created.id);
           if (!medByName.has(m.name)) medByName.set(m.name, created.id);
-          // v1.39.4 — the clinical category lives in a side table keyed on the
+          // v1.39.4 — the clinical category lives in its own table keyed on the
           // medication id, so it is written after the row exists and inside the
           // same transaction. OTHER is what a missing row already reads as.
           if (m.category && m.category !== "OTHER") {

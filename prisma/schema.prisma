@@ -2753,33 +2753,33 @@ model Medication {
   createdAt                     DateTime               @default(now()) @map("created_at")
   updatedAt                     DateTime               @updatedAt @map("updated_at")
 
-  schedules         MedicationSchedule[]
-  intakeEvents      MedicationIntakeEvent[]
-  intakeImportJobs  MedicationIntakeImportJob[]
-  phaseConfig       ReminderPhaseConfig?
-  telegramMessages  TelegramReminderMessage[]
-  doseChanges       MedicationDoseChange[]
-  inventoryEvents   MedicationInventoryEvent[]
+  schedules          MedicationSchedule[]
+  intakeEvents       MedicationIntakeEvent[]
+  intakeImportJobs   MedicationIntakeImportJob[]
+  phaseConfig        ReminderPhaseConfig?
+  telegramMessages   TelegramReminderMessage[]
+  doseChanges        MedicationDoseChange[]
+  inventoryEvents    MedicationInventoryEvent[]
   /// v1.4.25 W19b — per-pen / per-vial entities (state machine +
   /// 30-day in-use clock). Complements the running-sum
   /// MedicationInventoryEvent ledger.
-  inventoryItems    MedicationInventoryItem[]
+  inventoryItems     MedicationInventoryItem[]
   /// v1.4.25 W19d — structured GLP-1 side-effect logs. Surfaced on
   /// the medication detail page for GLP-1 treatmentClass only; the
   /// taxonomy follows EMA EPAR §4.8 with HealthLog's 5-category
   /// roll-up (GI / METABOLIC / INJECTION_SITE / COGNITIVE /
   /// GLP1_SPECIFIC) and 1-5 Likert severity per entry.
-  sideEffects       MedicationSideEffect[]
+  sideEffects        MedicationSideEffect[]
   /// v1.4.39 W-MED — per-(medication, day) compliance rollup. Mutations
   /// on the linked MedicationIntakeEvent rows refresh the row inline;
   /// the read paths consume this instead of the per-event findMany.
-  complianceRollups MedicationComplianceRollup[]
+  complianceRollups  MedicationComplianceRollup[]
   /// v1.16.3 — archived schedule eras (effective dating). Superseded
   /// schedule states land here when a wholesale schedule replace changes
   /// cadence-relevant fields; the band minter segments historical minting
   /// ranges into eras so past days read against the schedule that was
   /// live THEN, not the current one.
-  scheduleRevisions MedicationScheduleRevision[]
+  scheduleRevisions  MedicationScheduleRevision[]
   /// v1.25 — durable pause intervals. A pause stamps an open era
   /// (`resumedAt = null`); resume closes the latest open era. The
   /// compliance engine drops expected slots whose anchor falls inside a
@@ -2787,12 +2787,15 @@ model Medication {
   /// as missed. The `pausedAt` column on this model stays the live
   /// single-pause marker the reminder/today surfaces read; the era table
   /// is the additive durable record the rate paths need.
-  pauseEras         MedicationPauseEra[]
+  pauseEras          MedicationPauseEra[]
   /// v1.28 — user-pinned efficacy target(s) for the "Wirkung" view. Rows
   /// exist ONLY when the user explicitly overrides the derived (ATC / name)
   /// target resolution; absence means the resolver derives the target each
   /// read. Nothing about a class→outcome association is denormalised here.
-  efficacyTargets   MedicationEfficacyTarget[]
+  efficacyTargets    MedicationEfficacyTarget[]
+  /// v1.40 — the clinical category the person filed this medication under
+  /// (one row at most; absence reads as OTHER).
+  categoryAssignment MedicationCategoryAssignment?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -2806,6 +2809,27 @@ model Medication {
   @@index([userId])
   @@index([treatmentClass])
   @@map("medications")
+}
+
+/// v1.40 — the clinical category of a medication (BLOOD_PRESSURE, VITAMIN,
+/// MENTAL_HEALTH, ... or a `custom:<id>` key of one of the owner's
+/// `MedicationCategoryLabel` rows). The table predates this model: it was a
+/// raw-SQL side table the app created at runtime, which migration 0004 had
+/// dropped as orphaned. Migration 0368 creates it `IF NOT EXISTS` with the
+/// same DDL, so a database that already holds the runtime table converges
+/// without drift. The foreign key keeps the runtime table's `NO ACTION` on
+/// update. Absence of a row reads as OTHER.
+model MedicationCategoryAssignment {
+  medicationId String   @id @map("medication_id")
+  /// A built-in value from `MEDICATION_CATEGORY_VALUES` or `custom:<id>`.
+  /// Only `src/lib/medication-category.ts` reads or writes it.
+  category     String   @default("OTHER")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  medication Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([category])
+  @@map("medication_categories")
 }
 
 /// v1.28 — the user's explicit override of a medication's efficacy target,
@@ -6203,19 +6227,19 @@ model RecommendationFeedback {
 // the user explicitly opted out of into it. The summarisation helper
 // in `src/lib/ai/coach/persistence.ts` truncates with an ellipsis.
 model CoachConversation {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
   /// @internal: legacy plaintext title, read only as a fallback for rows the
   /// free-text encryption backfill has not reached yet (v1.39.3). Every write
   /// since then goes to `titleEncrypted` and leaves this NULL; the backfill
   /// nulls it on the old rows. DROP this column in a later release, once the
   /// backfill reports zero remaining rows on every instance.
-  title     String?
+  title          String?
   /// v1.39.3 — AES-256-GCM ciphertext of the title (the first 80 characters of
   /// the opening Coach message, or the rename). Same Bytes codec as the notes.
-  titleEncrypted Bytes? @map("title_encrypted")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  titleEncrypted Bytes?   @map("title_encrypted")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   // v1.11.0 — rolling encrypted summary of the elided older turns, so a long
   // conversation keeps memory of what came before without re-sending every

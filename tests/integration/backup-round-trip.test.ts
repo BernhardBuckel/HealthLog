@@ -220,6 +220,9 @@ const COUNT_BACK: Record<
   // No own `userId` column — reached through the drug, like the schedules.
   MedicationDoseChange: (p, userId) =>
     p.medicationDoseChange.count({ where: { medication: { userId } } }),
+  // No own `userId` column — reached through the drug, like the schedules.
+  MedicationCategoryAssignment: (p, userId) =>
+    p.medicationCategoryAssignment.count({ where: { medication: { userId } } }),
   MoodEntry: (p, userId) => p.moodEntry.count({ where: { userId } }),
   MoodContext: (p, userId) => p.moodContext.count({ where: { userId } }),
   MoodEntryTagLink: (p, userId) =>
@@ -422,6 +425,11 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
       scheduledFor: AT("2026-07-01T08:00:00.000Z"),
       takenAt: AT("2026-07-01T08:04:00.000Z"),
     },
+  });
+  // Not OTHER: a missing row already reads as OTHER, so only a chosen value
+  // proves the category came back.
+  await prisma.medicationCategoryAssignment.create({
+    data: { medicationId: medication.id, category: "THYROID" },
   });
   // The one row in this fixture that is also checked field by field after the
   // restore — see the assertion at the end of the test for why.

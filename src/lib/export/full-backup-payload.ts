@@ -962,9 +962,10 @@ export async function buildFullBackupPayload(
       : moodEntries!,
   };
 
-  // The clinical category lives in a raw side table rather than on the
-  // medication row, so no Prisma include reaches it. Before v1.39.4 no backup
-  // carried it and every restored medication came back as "Other".
+  // The clinical category lives in its own table rather than on the
+  // medication row and is read through the one helper that normalises it.
+  // Before v1.39.4 no backup carried it and every restored medication came
+  // back as "Other".
   const categoryByMedication = await getMedicationCategories(
     medications.map((m) => m.id),
     prisma,
