@@ -33,10 +33,19 @@ export async function runBootKeyCheck(client: CanaryClient): Promise<boolean> {
     console.warn(
       `[boot] Encryption key check skipped: ${outcome.message.slice(0, 300)}`,
     );
-  } else if (outcome.written.length > 0) {
-    console.info(
-      `[boot] Encryption key check: recorded key id(s) ${outcome.written.join(", ")}`,
-    );
+  } else {
+    if (outcome.inconclusive.length > 0) {
+      console.warn(
+        `[boot] Encryption key check inconclusive for key id(s) ${outcome.inconclusive.join(", ")}: ` +
+          "the only stored value found under that id did not open. Serving; " +
+          "no canary written; the check runs again at the next start.",
+      );
+    }
+    if (outcome.written.length > 0) {
+      console.info(
+        `[boot] Encryption key check: recorded key id(s) ${outcome.written.join(", ")}`,
+      );
+    }
   }
   return false;
 }

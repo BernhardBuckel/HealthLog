@@ -170,6 +170,7 @@ describe("boot encryption key check (real Postgres)", () => {
         username: "existing",
         email: "existing@example.test",
         codexAccessTokenEncrypted: encrypt("a stored token"),
+        codexRefreshTokenEncrypted: encrypt("another stored token"),
       },
     });
 
@@ -183,6 +184,42 @@ describe("boot encryption key check (real Postgres)", () => {
     useKey(KEY_A);
     expect(await runBootKeyCheck(prisma)).toBe(false);
     expect(await prisma.encryptionKeyCanary.count()).toBe(1);
+  });
+});
+
+describe("boot key check probe over existing data (real Postgres)", () => {
+  it("one damaged row among good ones still lets the right key through", async () => {
+    const prisma = getPrismaClient();
+    await prisma.user.create({
+      data: {
+        username: "damaged",
+        email: "damaged@example.test",
+        codexAccessTokenEncrypted:
+          "v1." + Buffer.alloc(40, 7).toString("base64"),
+        codexRefreshTokenEncrypted: encrypt("a good token"),
+      },
+    });
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    expect(isKeyMismatch()).toBe(false);
+    expect(await prisma.encryptionKeyCanary.count()).toBe(1);
+  });
+
+  it("a single value that does not open neither refuses nor writes a canary", async () => {
+    const prisma = getPrismaClient();
+    await prisma.user.create({
+      data: {
+        username: "single",
+        email: "single@example.test",
+        codexAccessTokenEncrypted: encrypt("the only token"),
+      },
+    });
+    useKey(KEY_B);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    expect(warn.mock.calls[0]?.[0]).toContain("inconclusive");
+    warn.mockRestore();
+    expect(isKeyMismatch()).toBe(false);
+    expect(await prisma.encryptionKeyCanary.count()).toBe(0);
   });
 });
 

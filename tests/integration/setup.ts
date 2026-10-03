@@ -51,6 +51,9 @@ export async function truncateAllTables(client: PrismaClient): Promise<void> {
     "coach_usage",
     "data_backups",
     "devices",
+    // Instance-wide, keyed by encryption key id: a canary left by one test
+    // would make the next test's boot check verify instead of write.
+    "encryption_key_canaries",
     "host_metrics",
     "idempotency_keys",
     "integration_statuses",

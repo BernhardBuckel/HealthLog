@@ -29,7 +29,8 @@ function useKey(hex: string) {
 /** An in-memory stand-in for the two raw statements and the probe delegates. */
 function fakeClient(opts: {
   canaries?: Record<string, string>;
-  probe?: Record<string, Record<string, string>>;
+  /** delegate → field → stored values (in row order). */
+  probe?: Record<string, Record<string, string[]>>;
 }) {
   const canaries = new Map(Object.entries(opts.canaries ?? {}));
   const inserts: string[] = [];
@@ -49,9 +50,16 @@ function fakeClient(opts: {
   } as unknown as CanaryClient & Record<string, unknown>;
   for (const [delegate, fields] of Object.entries(opts.probe ?? {})) {
     client[delegate] = {
-      async findFirst(args: { select: Record<string, boolean> }) {
+      async findMany(args: {
+        select: Record<string, boolean>;
+        take: number;
+        skip?: number;
+      }) {
         const field = Object.keys(args.select)[0];
-        return field in fields ? { [field]: fields[field] } : null;
+        const skip = args.skip ?? 0;
+        return (fields[field] ?? [])
+          .slice(skip, skip + args.take)
+          .map((value) => ({ [field]: value }));
       },
     };
   }
@@ -67,7 +75,12 @@ describe("encryption key canary", () => {
   it("writes a canary for a configured key with no row and no data", async () => {
     const { client, canaries, inserts } = fakeClient({});
     const outcome = await checkEncryptionKeyCanaries(client);
-    expect(outcome).toEqual({ state: "ok", written: ["v1"], verified: [] });
+    expect(outcome).toEqual({
+      state: "ok",
+      written: ["v1"],
+      verified: [],
+      inconclusive: [],
+    });
     expect(inserts).toEqual(["v1"]);
     expect(canaries.get("v1")?.startsWith("v1.")).toBe(true);
   });
@@ -77,7 +90,12 @@ describe("encryption key canary", () => {
       canaries: { v1: encryptUnderKeyId(canaryPlaintext("v1"), "v1") },
     });
     const outcome = await checkEncryptionKeyCanaries(client);
-    expect(outcome).toEqual({ state: "ok", written: [], verified: ["v1"] });
+    expect(outcome).toEqual({
+      state: "ok",
+      written: [],
+      verified: ["v1"],
+      inconclusive: [],
+    });
     expect(inserts).toEqual([]);
   });
 
@@ -100,10 +118,15 @@ describe("encryption key canary", () => {
   });
 
   it("refuses to seal a wrong key when existing data predates the canary", async () => {
-    const existing = encrypt("a stored token");
+    const existing = [encrypt("a stored token"), encrypt("another token")];
     useKey(KEY_B);
     const { client, inserts } = fakeClient({
-      probe: { user: { codexAccessTokenEncrypted: existing } },
+      probe: {
+        user: {
+          codexAccessTokenEncrypted: [existing[0]],
+          codexRefreshTokenEncrypted: [existing[1]],
+        },
+      },
     });
     const outcome = await checkEncryptionKeyCanaries(client);
     expect(outcome).toEqual({ state: "mismatch", keyIds: ["v1"] });
@@ -112,11 +135,57 @@ describe("encryption key canary", () => {
 
   it("writes the canary when existing data opens under the key", async () => {
     const { client, inserts } = fakeClient({
-      probe: { user: { codexAccessTokenEncrypted: encrypt("a stored token") } },
+      probe: {
+        user: { codexAccessTokenEncrypted: [encrypt("a stored token")] },
+      },
     });
     const outcome = await checkEncryptionKeyCanaries(client);
     expect(outcome.state).toBe("ok");
     expect(inserts).toEqual(["v1"]);
+  });
+
+  it("one damaged row among good ones does not take the server down", async () => {
+    // A row that claims key id v1 but does not open (damaged, or sealed by
+    // something else), found FIRST, then values that open.
+    const damaged = "v1." + Buffer.alloc(40, 7).toString("base64");
+    const { client, inserts } = fakeClient({
+      probe: {
+        user: {
+          codexAccessTokenEncrypted: [damaged],
+          codexRefreshTokenEncrypted: [encrypt("a stored token")],
+        },
+      },
+    });
+    const outcome = await checkEncryptionKeyCanaries(client);
+    expect(outcome.state).toBe("ok");
+    expect(inserts).toEqual(["v1"]);
+  });
+
+  it("several values in one column count, so a wrong key with one busy column still refuses", async () => {
+    const values = [encrypt("one"), encrypt("two"), encrypt("three")];
+    useKey(KEY_B);
+    const { client, inserts } = fakeClient({
+      probe: { user: { codexAccessTokenEncrypted: values } },
+    });
+    const outcome = await checkEncryptionKeyCanaries(client);
+    expect(outcome).toEqual({ state: "mismatch", keyIds: ["v1"] });
+    expect(inserts).toEqual([]);
+  });
+
+  it("a single value that does not open is inconclusive: no mismatch, no canary", async () => {
+    const existing = encrypt("the only stored token");
+    useKey(KEY_B);
+    const { client, inserts } = fakeClient({
+      probe: { user: { codexAccessTokenEncrypted: [existing] } },
+    });
+    const outcome = await checkEncryptionKeyCanaries(client);
+    expect(outcome).toEqual({
+      state: "ok",
+      written: [],
+      verified: [],
+      inconclusive: ["v1"],
+    });
+    expect(inserts).toEqual([]);
   });
 
   it("reports an error, not a mismatch, when the table cannot be read", async () => {

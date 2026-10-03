@@ -12,16 +12,33 @@
  *
  *   - row present: it must decrypt to the expected value, else the key is not
  *     the one the row was written with;
- *   - row absent: before writing one, look for ANY existing ciphertext under
- *     that key id in the registered string columns and try it. Without this
+ *   - row absent: before writing one, sample existing ciphertext under that
+ *     key id from the registered string columns and try it. Without this
  *     probe, the first boot after an upgrade (or a re-keyed boot over a
  *     database that predates the canary) would seal the wrong key as the
- *     right one. A value that opens, or no value at all, lets the canary be
- *     written (`ON CONFLICT DO NOTHING`, so two processes racing is fine).
+ *     right one.
  *
- * The probe is bounded by a time budget; past it, the canary is written
- * without a verdict from existing data, which is exactly the behaviour before
- * this check existed.
+ * The probe samples up to `PROBE_SAMPLE_LIMIT` values, one per column first
+ * (different columns are different writers, so one bad writer cannot speak
+ * for the whole database), then further values from columns that had any.
+ * Its verdict, and what each one does:
+ *
+ *   - `opens`: at least one value opened. A wrong key opens nothing, so the
+ *     key is right and any value that failed is a damaged or foreign row, not
+ *     a key problem. The canary is written.
+ *   - `fails`: two or more values were tried and none opened. That is what a
+ *     wrong key looks like; the process refuses (mismatch).
+ *   - `inconclusive`: exactly one value was found and it did not open. One
+ *     row cannot tell a wrong key from one damaged row, and the two possible
+ *     mistakes are not equal: declaring a mismatch takes a correctly keyed
+ *     server down with 503 on every request, while serving keeps today's
+ *     behaviour. So the process serves, but writes NO canary either (that
+ *     would seal a key that may be wrong), logs a warning, and probes again
+ *     at the next boot, by which time more data may decide it.
+ *   - `none`: nothing found inside the time budget. The canary is written,
+ *     which is exactly the behaviour before this check existed.
+ *
+ * Writes are `ON CONFLICT DO NOTHING`, so two processes racing is fine.
  *
  * Never logs or returns key material. The canary is written by raw SQL and is
  * deliberately not in the rotation registry: it belongs to its key id.
@@ -40,6 +57,9 @@ export function canaryPlaintext(keyId: string): string {
   return `${CANARY_PREFIX}${keyId}`;
 }
 
+/** How many existing values the probe tries at most per key id. */
+export const PROBE_SAMPLE_LIMIT = 5;
+
 /** How long the existing-data probe may take before the canary is written anyway. */
 export const PROBE_BUDGET_MS = 10_000;
 
@@ -56,11 +76,15 @@ export interface CanaryClient {
 }
 
 type ProbeDelegate = {
-  findFirst: (args: {
+  findMany: (args: {
     where: Record<string, unknown>;
     select: Record<string, boolean>;
-  }) => Promise<Record<string, unknown> | null>;
+    take: number;
+    skip?: number;
+  }) => Promise<Array<Record<string, unknown>>>;
 };
+
+export type ProbeVerdict = "opens" | "fails" | "inconclusive" | "none";
 
 export type KeyCheckOutcome =
   | {
@@ -69,6 +93,11 @@ export type KeyCheckOutcome =
       written: string[];
       /** Key ids whose canary existed and opened. */
       verified: string[];
+      /**
+       * Key ids with no canary whose only existing value did not open: not a
+       * mismatch, no canary written, probed again at the next boot.
+       */
+      inconclusive: string[];
     }
   | { state: "mismatch"; keyIds: string[] }
   | { state: "error"; message: string };
@@ -84,36 +113,65 @@ function opensAs(ciphertext: string, keyId: string, expected?: string) {
 }
 
 /**
- * Look for one existing value sealed under `keyId` and try it. Returns
- * `"opens"`, `"fails"`, or `"none"` (no value found inside the budget).
+ * Sample existing values sealed under `keyId` and try them; see the module
+ * comment for what each verdict means and why.
  */
 export async function probeExistingData(
   client: unknown,
   keyId: string,
   deadline: number,
-): Promise<"opens" | "fails" | "none"> {
+): Promise<ProbeVerdict> {
   const delegates = client as Record<string, ProbeDelegate | undefined>;
-  for (const column of ENCRYPTED_COLUMNS) {
-    if (Date.now() > deadline) return "none";
-    if (column.kind !== "string" || column.codec || column.codecField) {
-      continue;
-    }
+  const columns = ENCRYPTED_COLUMNS.filter(
+    (c) => c.kind === "string" && !c.codec && !c.codecField,
+  );
+  let tried = 0;
+  const columnsWithData: typeof columns = [];
+
+  const sample = async (
+    column: (typeof columns)[number],
+    skip: number,
+    take: number,
+  ): Promise<string[]> => {
     const delegate =
       delegates[column.model.charAt(0).toLowerCase() + column.model.slice(1)];
-    if (!delegate || typeof delegate.findFirst !== "function") continue;
-    let row: Record<string, unknown> | null;
+    if (!delegate || typeof delegate.findMany !== "function") return [];
     try {
-      row = await delegate.findFirst({
+      const rows = await delegate.findMany({
         where: { [column.field]: { startsWith: `${keyId}.` } },
         select: { [column.field]: true },
+        take,
+        ...(skip > 0 ? { skip } : {}),
       });
+      return rows
+        .map((row) => row[column.field])
+        .filter((v): v is string => typeof v === "string");
     } catch {
-      continue;
+      return [];
     }
-    const value = row?.[column.field];
-    if (typeof value !== "string") continue;
-    return opensAs(value, keyId) ? "opens" : "fails";
+  };
+
+  // Pass 1: one value per column, so different writers are heard first.
+  for (const column of columns) {
+    if (tried >= PROBE_SAMPLE_LIMIT || Date.now() > deadline) break;
+    const values = await sample(column, 0, 1);
+    if (values.length === 0) continue;
+    columnsWithData.push(column);
+    tried += 1;
+    if (opensAs(values[0], keyId)) return "opens";
   }
+  // Pass 2: more values from the columns that had any, up to the limit.
+  for (const column of columnsWithData) {
+    if (tried >= PROBE_SAMPLE_LIMIT || Date.now() > deadline) break;
+    const values = await sample(column, 1, PROBE_SAMPLE_LIMIT - tried);
+    for (const value of values) {
+      tried += 1;
+      if (opensAs(value, keyId)) return "opens";
+    }
+  }
+
+  if (tried >= 2) return "fails";
+  if (tried === 1) return "inconclusive";
   return "none";
 }
 
@@ -159,9 +217,11 @@ export async function checkEncryptionKeyCanaries(
 
   const deadline = Date.now() + (options.probeBudgetMs ?? PROBE_BUDGET_MS);
   const toWrite: string[] = [];
+  const inconclusive: string[] = [];
   for (const keyId of missing) {
     const probe = await probeExistingData(client, keyId, deadline);
     if (probe === "fails") mismatched.push(keyId);
+    else if (probe === "inconclusive") inconclusive.push(keyId);
     else toWrite.push(keyId);
   }
 
@@ -180,7 +240,7 @@ export async function checkEncryptionKeyCanaries(
     return { state: "error", message: (err as Error).message };
   }
 
-  return { state: "ok", written: toWrite, verified };
+  return { state: "ok", written: toWrite, verified, inconclusive };
 }
 
 /**
