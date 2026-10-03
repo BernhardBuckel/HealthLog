@@ -14,6 +14,7 @@
  */
 import { prisma } from "@/lib/db";
 import { annotate, getEvent } from "@/lib/logging/context";
+import { resolveCourseFields } from "@/lib/medications/courses";
 import {
   resolveMedicationCategories,
   type ResolvedMedicationCategory,
@@ -216,6 +217,8 @@ export async function buildMedicationsList(
   // the list GET is cached 60 s on userId, so a 60 s staleness window is
   // accepted here as it already is for `todayEventCount`.
   const now = new Date();
+  // v1.40 (#1024) — every medication's courses, two queries for the list.
+  const courseFieldsByMed = await resolveCourseFields(medications, now, userTz);
 
   return medications.map((m) => {
     // v1.39.1 (#1033) — intake tracking off: the stored rows are a record,
@@ -309,6 +312,10 @@ export async function buildMedicationsList(
       // v1.40 (#1041) — the decrypted label of a custom category; null for
       // a built-in one, which every client localises from `category`.
       categoryLabel: categoryMap[m.id]?.categoryLabel ?? null,
+      // v1.40 (#1024) — `courses`, `courseCount`, `previousCourseEndedOn`,
+      // `canStartCourse`. `startsOn`/`endsOn`/`courseStatus` stay the current
+      // course, which the row projects.
+      ...courseFieldsByMed.get(m.id),
       // v1.32.25 — provenance echo. Surfacing the mirror source lets the
       // web UI and an operator tell an externally-mirrored row (today only
       // Apple Health) from a native HealthLog medication. NULL for a native

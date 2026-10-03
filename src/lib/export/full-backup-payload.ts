@@ -20,6 +20,8 @@
  * one reaches the other; the integration suite pins the two outputs byte for
  * byte rather than trusting that sentence.
  */
+import { decryptFromBytes } from "@/lib/ai/coach/bytes-codec";
+import { dayKeyOfDate } from "@/lib/medications/course-window";
 import { Buffer } from "node:buffer";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { readNote } from "@/lib/crypto/note-cipher";
@@ -735,6 +737,7 @@ export async function buildFullBackupPayload(
         schedules: true,
         sideEffects: { orderBy: { occurredAt: "desc" } },
         pauseEras: { orderBy: { pausedAt: "asc" } },
+        courses: { orderBy: { startsOn: "asc" } },
         doseChanges: { orderBy: { effectiveFrom: "asc" } },
         inventoryItems: { orderBy: { createdAt: "asc" } },
         inventoryEvents: { orderBy: { occurredAt: "asc" } },
@@ -1118,6 +1121,15 @@ export async function buildFullBackupPayload(
         pausedAt: p.pausedAt.toISOString(),
         resumedAt: p.resumedAt ? p.resumedAt.toISOString() : null,
         createdAt: p.createdAt.toISOString(),
+      })),
+      // v1.40 (#1024) — the courses: "when did I last take this" lives here
+      // and nowhere else once a second course exists. The medication's own
+      // window above is the projection of the latest one.
+      courses: m.courses.map((c) => ({
+        startsOn: dayKeyOfDate(c.startsOn),
+        endsOn: c.endsOn ? dayKeyOfDate(c.endsOn) : null,
+        note: c.noteEncrypted ? decryptFromBytes(c.noteEncrypted) : null,
+        createdAt: c.createdAt.toISOString(),
       })),
       // Titration: when the dose moved, to what, and why. The drug comes
       // back at today's dose either way; without these the ramp that led to

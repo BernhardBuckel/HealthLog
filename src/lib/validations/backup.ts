@@ -213,6 +213,20 @@ const medicationPauseEraSchema = z
   .passthrough();
 
 /**
+ * v1.40 (#1024) — one course of a medication: a calendar span (both ends
+ * inclusive, `YYYY-MM-DD`). The note travels decrypted in both purposes and
+ * is sealed again on restore, like the custom category label.
+ */
+const medicationCourseSchema = z
+  .object({
+    startsOn: z.iso.date(),
+    endsOn: z.iso.date().nullable(),
+    note: z.string().max(280).nullable().optional(),
+    createdAt: isoDateTime.optional(),
+  })
+  .passthrough();
+
+/**
  * One step of a titration: when the dose moved and to what.
  *
  * The note follows the side-effect contract — decrypted prose in a portable
@@ -413,6 +427,10 @@ const medicationSchema = z
     // Same default again. A drug whose plan has never been replaced has no
     // archived era, and a file written before the eras travelled has no key.
     scheduleRevisions: z.array(medicationScheduleRevisionSchema).default([]),
+    // v1.40 (#1024) — NOT defaulted: absent means a file written before
+    // courses existed, and the restore then derives the one course the
+    // medication's own window describes, exactly as the migration did.
+    courses: z.array(medicationCourseSchema).optional(),
   })
   .passthrough();
 

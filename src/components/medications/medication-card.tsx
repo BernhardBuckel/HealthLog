@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  currentCourseNumber,
+  type MedicationCourseFields,
+} from "@/components/medications/course-fields";
 import { useState, useEffect, useReducer } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -129,6 +133,11 @@ interface Medication {
   intakeActionable?: boolean;
   /** v1.39.4 (#1040) — where today sits in the course. */
   courseStatus?: "UPCOMING" | "CURRENT" | "ENDED";
+  /** v1.40 (#1024) — the server-resolved course fields. */
+  courses?: MedicationCourseFields["courses"];
+  courseCount?: number;
+  previousCourseEndedOn?: string | null;
+  canStartCourse?: boolean;
   schedules: Schedule[];
 }
 
@@ -399,6 +408,8 @@ export function MedicationCard({
       pausedAt={medication.pausedAt}
       recordOnly={medication.trackIntake === false}
       courseEnded={medication.courseStatus === "ENDED"}
+      lastCourseEndedOn={medication.previousCourseEndedOn ?? null}
+      courseNumber={currentCourseNumber(medication)}
     />
   );
 

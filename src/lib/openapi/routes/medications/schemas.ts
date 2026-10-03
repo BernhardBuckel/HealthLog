@@ -50,6 +50,57 @@ const medicationCategoryLabelField = z
     "v1.40 — the decrypted label of a custom category (`category` = `custom:<uuid>`); null for a built-in category, which a client localises from `category`. Read-only.",
   );
 
+export const medicationCourseResource = z
+  .object({
+    id: z.string(),
+    startsOn: z.iso
+      .date()
+      .describe("First day of the course, inclusive (`YYYY-MM-DD`)."),
+    endsOn: z.iso
+      .date()
+      .nullable()
+      .describe("Last day, inclusive. NULL = open (only the latest course)."),
+    status: z
+      .enum(["UPCOMING", "CURRENT", "ENDED"])
+      .describe("Where today, on the person's clock, sits in this course."),
+    takenDoses: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe(
+        "Doses logged as taken whose slot falls on a day of this course.",
+      ),
+    note: z
+      .string()
+      .nullable()
+      .describe("The person's note on this course. Encrypted at rest."),
+  })
+  .meta({
+    id: "MedicationCourse",
+    description:
+      "v1.40 (#1024) — one course of a medication. Courses never overlap and every course except the latest has ended, so the medication's `startsOn`/`endsOn`/`courseStatus`/`intakeActionable` are always those of the latest course.",
+  });
+
+const medicationCourseFields = {
+  courses: z
+    .array(medicationCourseResource)
+    .describe(
+      "v1.40 — every course, ascending by start. Empty for a medication taken continuously since creation. Server-resolved; render it, do not recompute it.",
+    ),
+  courseCount: z.number().int().nonnegative(),
+  previousCourseEndedOn: z.iso
+    .date()
+    .nullable()
+    .describe(
+      "v1.40 — the last day of the most recent course that has ended (answers 'when did I last take it'); null when none has.",
+    ),
+  canStartCourse: z
+    .boolean()
+    .describe(
+      "v1.40 — whether `POST /api/medications/{id}/courses` may start a new course now: the medication is active, not one-time, has a course and every course has ended.",
+    ),
+};
+
 export const medicationCategoryLabelResource = z
   .object({
     key: z
@@ -291,6 +342,7 @@ export const medicationListEntry = medicationResource
   .extend({
     category: medicationCategoryEnum,
     categoryLabel: medicationCategoryLabelField,
+    ...medicationCourseFields,
     // v1.32.25 — mirrored-medication provenance echoed on the list read so
     // the web UI and an operator can tell a mirror row from a native one.
     externalSource: z
@@ -357,6 +409,7 @@ export const medicationDetailEntry = medicationResource
   .extend({
     category: medicationCategoryEnum,
     categoryLabel: medicationCategoryLabelField,
+    ...medicationCourseFields,
     courseStatus: z
       .enum(["UPCOMING", "CURRENT", "ENDED"])
       .describe(

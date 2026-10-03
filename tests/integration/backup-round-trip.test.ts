@@ -226,6 +226,8 @@ const COUNT_BACK: Record<
     p.medicationCategoryAssignment.count({ where: { medication: { userId } } }),
   MedicationCategoryLabel: (p, userId) =>
     p.medicationCategoryLabel.count({ where: { userId } }),
+  MedicationCourse: (p, userId) =>
+    p.medicationCourse.count({ where: { userId } }),
   MoodEntry: (p, userId) => p.moodEntry.count({ where: { userId } }),
   MoodContext: (p, userId) => p.moodContext.count({ where: { userId } }),
   MoodEntryTagLink: (p, userId) =>
@@ -411,13 +413,32 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
     },
   });
 
+  // Two courses with a gap, and the window the row projects from them (the
+  // latest). The earlier course exists nowhere else once it has ended.
   const medication = await prisma.medication.create({
     data: {
       userId: OWNER_ID,
       name: "Round-trip tablet",
       dose: "5 mg",
+      startsOn: AT("2026-06-10T00:00:00.000Z"),
+      endsOn: AT("2026-06-16T00:00:00.000Z"),
       schedules: {
         create: { windowStart: "08:00", windowEnd: "09:00", label: "Morning" },
+      },
+      courses: {
+        create: [
+          {
+            userId: OWNER_ID,
+            startsOn: AT("2026-03-01T00:00:00.000Z"),
+            endsOn: AT("2026-03-07T00:00:00.000Z"),
+            noteEncrypted: encryptToBytes("the March flu"),
+          },
+          {
+            userId: OWNER_ID,
+            startsOn: AT("2026-06-10T00:00:00.000Z"),
+            endsOn: AT("2026-06-16T00:00:00.000Z"),
+          },
+        ],
       },
     },
   });

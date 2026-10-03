@@ -5874,9 +5874,8 @@ paths:
       tags:
         - Medications
       summary: Rename, reorder or hide a custom medication category
-      description: v1.40 (#1041) — field-by-field update of one of the record's own categories. Another account's key, or a
-        built-in value, is 404. Rate-limited 30/min keyed on the actor. Delegable at MANAGE level over the `medications`
-        section.
+      description: "v1.40 (#1041) — field-by-field update of one of the record's own categories. Another account's key, or a
+        built-in value, is 404. Owner-only: not delegable, refused under a record switch. Rate-limited 30/min."
       parameters:
         - in: path
           name: key
@@ -5899,7 +5898,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/UpdateMedicationCategoryResponse"
         "401": *a1
-        "403": *a11
         "404":
           description: Not one of the record's own categories.
           content:
@@ -5912,9 +5910,9 @@ paths:
       tags:
         - Medications
       summary: Delete a custom medication category
-      description: v1.40 (#1041) — deletes the category and, in the same transaction, moves every medication filed under it to
-        OTHER; `movedCount` says how many moved. No medication is left pointing at a key that no longer exists. Another
-        account's key, or a built-in value, is 404. Delegable at MANAGE level over the `medications` section.
+      description: "v1.40 (#1041) — deletes the category and, in the same transaction, moves every medication filed under it
+        to OTHER; `movedCount` says how many moved. No medication is left pointing at a key that no longer exists.
+        Another account's key, or a built-in value, is 404. Owner-only: not delegable, refused under a record switch."
       parameters:
         - in: path
           name: key
@@ -5931,9 +5929,147 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteMedicationCategoryResponse"
         "401": *a1
-        "403": *a11
         "404":
           description: Not one of the record's own categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+  /api/medications/{id}/courses:
+    get:
+      tags:
+        - Medications
+      summary: Read a medication's courses
+      description: v1.40 (#1024) — the same resolved course fields the list and detail reads carry. Owner-only.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: The courses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MedicationCoursesResponse"
+        "401": *a1
+        "404":
+          description: Medication not found (or another user's).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    post:
+      tags:
+        - Medications
+      summary: Start a course
+      description: "v1.40 (#1024) — adds a course and, in the same transaction, rewrites the medication's `startsOn`/`endsOn`
+        to the latest course, so reminders and `intakeActionable` follow with no further write. Refusals: 422
+        `medications.course.overlap`, `medications.course.currentOpen`, `medications.course.oneShot`,
+        `medications.course.invalidRange`, `medications.course.invalid` (body). Owner-only."
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+        - *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMedicationCourseRequest"
+      responses:
+        "201":
+          description: The new course.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateMedicationCourseResponse"
+        "401": *a1
+        "404":
+          description: Medication not found (or another user's).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409": *a7
+        "422": *a4
+        "429": *a5
+  /api/medications/{id}/courses/{courseId}:
+    patch:
+      tags:
+        - Medications
+      summary: Edit a course
+      description: v1.40 (#1024) — field by field; the medication's window is re-projected in the same transaction. Same
+        refusals as the create. Owner-only.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: path
+          name: courseId
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMedicationCourseRequest"
+      responses:
+        "200":
+          description: The edited course.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateMedicationCourseResponse"
+        "401": *a1
+        "404":
+          description: Course not found (`medications.course.notFound`), or another user's.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    delete:
+      tags:
+        - Medications
+      summary: Delete a course
+      description: v1.40 (#1024) — deletes the course and re-projects the medication's window. Deleting the only course makes
+        the medication continuous again (both window columns cleared). Intakes are not touched. Owner-only.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: path
+          name: courseId
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteMedicationCourseResponse"
+        "401": *a1
+        "404":
+          description: Course not found (`medications.course.notFound`), or another user's.
           content:
             application/json:
               schema:
@@ -6053,7 +6189,9 @@ paths:
         stamps `pausedAt`; flipping back to true clears it. v1.5 invariants on the `schedules` array match `POST
         /api/medications`. Audits as `medication.update`. v1.40 — an absent `category` leaves the stored one untouched
         (send it only when the person changed it); a `custom:` key that is not the caller's is 422
-        `medications.category.unknown`.
+        `medications.category.unknown`. v1.40 (#1024) — `startsOn`/`endsOn` now edit the latest course (created when
+        there is none); the same course refusals apply (422 `medications.course.*`), and clearing both on a medication
+        with several courses is 422 `medications.course.windowRequired`.
       parameters:
         - in: path
           name: id
@@ -24720,6 +24858,52 @@ components:
           type: boolean
       description: "v1.40 — rename, reorder or hide a custom medication category. At least one field. Hiding (`isActive:
         false`) removes it from the picker; medications filed under it keep it."
+    CreateMedicationCourseRequest:
+      type: object
+      properties:
+        startsOn:
+          description: First day of the course (ISO `YYYY-MM-DD`, inclusive, the person's calendar).
+          type: string
+          format: date
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+        endsOn:
+          description: Last day (inclusive). NULL or absent = open; only the latest course may be open.
+          anyOf:
+            - type: string
+              format: date
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+            - type: "null"
+        note:
+          description: Why this course, in the person's words. Encrypted at rest.
+          anyOf:
+            - type: string
+              maxLength: 280
+            - type: "null"
+      required:
+        - startsOn
+      description: v1.40 — start a course. Refused when it shares a day with another course (422
+        `medications.course.overlap`), when it would sit after a course that has not ended (422
+        `medications.course.currentOpen`), on a one-time medication that already has one (422
+        `medications.course.oneShot`), or when it ends before it starts (422 `medications.course.invalidRange`).
+    UpdateMedicationCourseRequest:
+      type: object
+      properties:
+        startsOn:
+          type: string
+          format: date
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+        endsOn:
+          anyOf:
+            - type: string
+              format: date
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+            - type: "null"
+        note:
+          anyOf:
+            - type: string
+              maxLength: 280
+            - type: "null"
+      description: v1.40 — edit a course field by field. Same refusals as the create.
     MedicationListLayoutPutBody:
       type: object
       properties:
@@ -32083,7 +32267,9 @@ components:
                 measurement.create.source_not_permitted, measurement.delete.too_large, measurement.duplicate_timestamp,
                 measurement.restore.invalid, measurement.update.server_owned_source; medication —
                 medication.intake.import.invalid_format; medications — medications.category.invalid,
-                medications.category.limitReached, medications.category.unknown,
+                medications.category.limitReached, medications.category.unknown, medications.course.currentOpen,
+                medications.course.invalid, medications.course.invalidRange, medications.course.notFound,
+                medications.course.oneShot, medications.course.overlap, medications.course.windowRequired,
                 medications.intake.bulk.apple_health_not_mirrored, medications.intake.bulk.invalid,
                 medications.intake.bulk.too_large, medications.intake.force_slot.invalid,
                 medications.intake.force_slot.occupied, medications.intake.injection_site.disallowed,
@@ -35393,6 +35579,33 @@ components:
                     - validFrom
                     - validUntil
                     - payload
+                  additionalProperties: {}
+              courses:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    startsOn:
+                      type: string
+                      format: date
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                    endsOn:
+                      anyOf:
+                        - type: string
+                          format: date
+                          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                        - type: "null"
+                    note:
+                      anyOf:
+                        - type: string
+                          maxLength: 280
+                        - type: "null"
+                    createdAt:
+                      type: string
+                      minLength: 1
+                  required:
+                    - startsOn
+                    - endsOn
                   additionalProperties: {}
             required:
               - name
@@ -44772,6 +44985,28 @@ components:
             - type: "null"
           description: v1.40 — the decrypted label of a custom category (`category` = `custom:<uuid>`); null for a built-in
             category, which a client localises from `category`. Read-only.
+        courses:
+          type: array
+          items:
+            $ref: "#/components/schemas/MedicationCourse"
+          description: v1.40 — every course, ascending by start. Empty for a medication taken continuously since creation.
+            Server-resolved; render it, do not recompute it.
+        courseCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        previousCourseEndedOn:
+          anyOf:
+            - type: string
+              format: date
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+            - type: "null"
+          description: v1.40 — the last day of the most recent course that has ended (answers 'when did I last take it'); null
+            when none has.
+        canStartCourse:
+          type: boolean
+          description: "v1.40 — whether `POST /api/medications/{id}/courses` may start a new course now: the medication is active,
+            not one-time, has a course and every course has ended."
         externalSource:
           anyOf:
             - type: string
@@ -44865,6 +45100,10 @@ components:
         - schedules
         - category
         - categoryLabel
+        - courses
+        - courseCount
+        - previousCourseEndedOn
+        - canStartCourse
         - externalSource
         - courseStatus
         - intakeActionable
@@ -44887,6 +45126,51 @@ components:
         `custom:<uuid>`, the key of one of the caller's own categories (see `GET /api/medications/categories`), whose
         label rides beside it as `categoryLabel`. A client must decode an unknown value tolerantly and must not write
         `category` back unless the person changed it. Orthogonal to `MedicationTreatmentClass`.
+    MedicationCourse:
+      type: object
+      properties:
+        id:
+          type: string
+        startsOn:
+          type: string
+          format: date
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+          description: First day of the course, inclusive (`YYYY-MM-DD`).
+        endsOn:
+          anyOf:
+            - type: string
+              format: date
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+            - type: "null"
+          description: Last day, inclusive. NULL = open (only the latest course).
+        status:
+          type: string
+          enum:
+            - UPCOMING
+            - CURRENT
+            - ENDED
+          description: Where today, on the person's clock, sits in this course.
+        takenDoses:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: Doses logged as taken whose slot falls on a day of this course.
+        note:
+          anyOf:
+            - type: string
+            - type: "null"
+          description: The person's note on this course. Encrypted at rest.
+      required:
+        - id
+        - startsOn
+        - endsOn
+        - status
+        - takenDoses
+        - note
+      additionalProperties: false
+      description: v1.40 (#1024) — one course of a medication. Courses never overlap and every course except the latest has
+        ended, so the medication's `startsOn`/`endsOn`/`courseStatus`/`intakeActionable` are always those of the latest
+        course.
     CreateMedicationResponse:
       type: object
       properties:
@@ -45054,6 +45338,28 @@ components:
             - type: "null"
           description: v1.40 — the decrypted label of a custom category (`category` = `custom:<uuid>`); null for a built-in
             category, which a client localises from `category`. Read-only.
+        courses:
+          type: array
+          items:
+            $ref: "#/components/schemas/MedicationCourse"
+          description: v1.40 — every course, ascending by start. Empty for a medication taken continuously since creation.
+            Server-resolved; render it, do not recompute it.
+        courseCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        previousCourseEndedOn:
+          anyOf:
+            - type: string
+              format: date
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+            - type: "null"
+          description: v1.40 — the last day of the most recent course that has ended (answers 'when did I last take it'); null
+            when none has.
+        canStartCourse:
+          type: boolean
+          description: "v1.40 — whether `POST /api/medications/{id}/courses` may start a new course now: the medication is active,
+            not one-time, has a course and every course has ended."
         courseStatus:
           type: string
           enum:
@@ -45115,6 +45421,10 @@ components:
         - schedules
         - category
         - categoryLabel
+        - courses
+        - courseCount
+        - previousCourseEndedOn
+        - canStartCourse
         - courseStatus
         - intakeActionable
         - stockUnitsRemaining
@@ -45229,6 +45539,143 @@ components:
           required:
             - key
             - movedCount
+          additionalProperties: false
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    MedicationCoursesResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            courses:
+              type: array
+              items:
+                $ref: "#/components/schemas/MedicationCourse"
+            courseCount:
+              type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            previousCourseEndedOn:
+              anyOf:
+                - type: string
+                  format: date
+                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                - type: "null"
+            canStartCourse:
+              type: boolean
+          required:
+            - courses
+            - courseCount
+            - previousCourseEndedOn
+            - canStartCourse
+          additionalProperties: false
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    CreateMedicationCourseResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            startsOn:
+              type: string
+              format: date
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+            endsOn:
+              anyOf:
+                - type: string
+                  format: date
+                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                - type: "null"
+          required:
+            - id
+            - startsOn
+            - endsOn
+          additionalProperties: false
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    UpdateMedicationCourseResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            startsOn:
+              type: string
+              format: date
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+            endsOn:
+              anyOf:
+                - type: string
+                  format: date
+                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                - type: "null"
+          required:
+            - id
+            - startsOn
+            - endsOn
+          additionalProperties: false
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    DeleteMedicationCourseResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            deleted:
+              type: boolean
+              const: true
+          required:
+            - id
+            - deleted
           additionalProperties: false
         error:
           type: "null"

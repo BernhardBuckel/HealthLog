@@ -270,6 +270,9 @@ const EXEMPT_ROUTES: ReadonlyArray<string> = [
   // store, the same data-layer reasoning.
   "src/app/api/medications/categories/route.ts",
   "src/app/api/medications/categories/[key]/route.ts",
+  // v1.40 (#1024) — a medication's courses, same again.
+  "src/app/api/medications/[id]/courses/route.ts",
+  "src/app/api/medications/[id]/courses/[courseId]/route.ts",
   "src/app/api/medications/compliance/route.ts",
   "src/app/api/medications/intake/route.ts",
   "src/app/api/medications/intake/bulk/route.ts",

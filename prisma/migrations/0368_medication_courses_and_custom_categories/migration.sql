@@ -40,3 +40,57 @@ CREATE UNIQUE INDEX IF NOT EXISTS "medication_category_labels_key_key"
   ON "medication_category_labels"("key");
 CREATE INDEX IF NOT EXISTS "medication_category_labels_user_id_sort_order_idx"
   ON "medication_category_labels"("user_id", "sort_order");
+
+-- Several courses per medication (#1024). A course is a calendar span the
+-- person took the medication for; the medication's own starts_on / ends_on
+-- stay and now project the latest course, so every reader that predates
+-- courses keeps working unchanged. Idempotent.
+CREATE TABLE IF NOT EXISTS "medication_courses" (
+  "id" TEXT NOT NULL,
+  "medication_id" TEXT NOT NULL,
+  "user_id" TEXT NOT NULL,
+  "starts_on" DATE NOT NULL,
+  "ends_on" DATE,
+  "note_encrypted" BYTEA,
+  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "medication_courses_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "medication_courses_medication_id_fkey"
+    FOREIGN KEY ("medication_id") REFERENCES "medications"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "medication_courses_user_id_fkey"
+    FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "medication_courses_medication_id_starts_on_idx"
+  ON "medication_courses"("medication_id", "starts_on");
+CREATE INDEX IF NOT EXISTS "medication_courses_user_id_idx"
+  ON "medication_courses"("user_id");
+
+-- Backfill: one course for every medication that has a window today. A course
+-- needs a start, and a medication with only an end has always been read as
+-- running from its creation day, so that is its start (or the end day, when
+-- the end lies before the creation). A medication with
+-- neither keeps no course: chronic since creation stays the absence of
+-- courses. The medication columns are not touched, so the data is preserved
+-- either way. The id is derived from the medication id, which makes a re-run
+-- a no-op through ON CONFLICT.
+--
+-- Reversal: dropping the table loses nothing while every medication has at
+-- most one course (its columns still hold it). Once a second course exists, a
+-- rollback keeps the current window on the medication and the earlier
+-- courses' intakes in the ledger; only the earlier spans go.
+INSERT INTO "medication_courses"
+  ("id", "medication_id", "user_id", "starts_on", "ends_on", "created_at", "updated_at")
+SELECT
+  'mc_' || m."id",
+  m."id",
+  m."user_id",
+  -- An end-only window that ends before the creation day (a backdated
+  -- record) starts on its end day instead, so no course ends before it starts.
+  COALESCE(m."starts_on", LEAST(m."created_at"::date, m."ends_on")),
+  m."ends_on",
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+FROM "medications" m
+WHERE m."starts_on" IS NOT NULL OR m."ends_on" IS NOT NULL
+ON CONFLICT ("id") DO NOTHING;

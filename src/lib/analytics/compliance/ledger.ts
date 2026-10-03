@@ -13,10 +13,12 @@ import {
   type HistoryIntake,
 } from "@/lib/medications/scheduling/dose-history";
 import { userDayKey } from "@/lib/tz/resolver";
-import type {
-  ComplianceMedicationContext,
-  ComplianceSchedule,
-  IntakeEvent,
+import {
+  complianceMintWindow,
+  slotInsideCourses,
+  type ComplianceMedicationContext,
+  type ComplianceSchedule,
+  type IntakeEvent,
 } from "./types";
 import {
   intakeInstantsAtOrBefore,
@@ -113,14 +115,17 @@ export function buildComplianceLedgerRows(
   now: Date,
   windowConfig?: DoseWindowConfig,
 ): DoseHistoryRow[] {
+  // v1.40 (#1024) — expand over the span of every course; the slots between
+  // courses are dropped below.
+  const mintWindow = complianceMintWindow(ctx);
   const medication: BandMinterMedication = {
     id: "compliance-tally",
-    startsOn: ctx.startsOn,
-    endsOn: ctx.endsOn,
+    startsOn: mintWindow.startsOn,
+    endsOn: mintWindow.endsOn,
     oneShot: ctx.oneShot,
     createdAt: ctx.createdAt,
   };
-  const recurrenceCtx = toRecurrenceCtx(ctx, "compliance-tally");
+  const recurrenceCtx = toRecurrenceCtx(ctx, "compliance-tally", "courses");
   const canonicalSchedules = schedules.map((s, i) => {
     const canonical = toCanonicalSchedule(s, `compliance-tally-${i}`);
     // A legacy daily schedule carries only `windowStart` (no `timesOfDay`,
@@ -188,7 +193,19 @@ export function buildComplianceLedgerRows(
   // Slots before the medication's creation count only when a recorded dose
   // claims them, so a caller's window reaching past the creation never
   // mints phantom misses (#1028).
-  const rows = reconstructDoseHistory(bands, intakes, now, ctx.createdAt);
+  const reconstructed = reconstructDoseHistory(
+    bands,
+    intakes,
+    now,
+    ctx.createdAt,
+  );
+
+  // v1.40 (#1024) — an expected slot on a day between two courses was never
+  // expected: drop it. Only slot rows go; a dose logged in the gap stays as
+  // the recorded intake it is.
+  const rows = reconstructed.filter(
+    (row) => row.kind !== "slot" || slotInsideCourses(ctx, row.at),
+  );
 
   // v1.25 H-MED1 — drop expected dose slots whose anchor falls inside a
   // pause interval. While a medication is paused no dose is expected, so a

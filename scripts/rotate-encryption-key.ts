@@ -664,6 +664,14 @@ async function main() {
       prisma.medicationDoseChange,
     ),
   );
+  // v1.40 (#1024) — the note on a medication course.
+  results.push(
+    await rotateBytesColumn(
+      "MedicationCourse",
+      "noteEncrypted",
+      prisma.medicationCourse,
+    ),
+  );
   results.push(
     await rotateBytesColumn(
       "MedicationInventoryItem",

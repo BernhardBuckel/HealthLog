@@ -335,6 +335,7 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
   // note — the last plaintext PHI columns left after the v1.23 rollout.
   { model: "MedicationSideEffect", field: "notesEncrypted", kind: "bytes" },
   { model: "MedicationDoseChange", field: "noteEncrypted", kind: "bytes" },
+  { model: "MedicationCourse", field: "noteEncrypted", kind: "bytes" },
   { model: "MedicationInventoryItem", field: "notesEncrypted", kind: "bytes" },
 
   // ───── v1.39.3 custom-metric reading note (Bytes column) ─────

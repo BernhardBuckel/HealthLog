@@ -27,6 +27,11 @@
  * replacement is still one transaction, so a failure part-way leaves the
  * account exactly as it was.
  */
+import {
+  dateOfDayKey,
+  dayKeyOfDate,
+  projectCourseWindow,
+} from "@/lib/medications/course-window";
 import { Buffer } from "node:buffer";
 
 import { prisma, toJson } from "@/lib/db";
@@ -1299,6 +1304,59 @@ export async function restoreBackup(
               categoryKeyRemap.get(m.category) ?? m.category,
               tx,
             );
+          }
+
+          // v1.40 (#1024) — the courses, then the window they project. A file
+          // written before courses existed carries none; the medication's own
+          // window then describes its one course, derived exactly as the
+          // migration's backfill did (an end-only window runs from creation,
+          // or from its end day when that lies earlier).
+          const courseRows: Array<{
+            startsOn: Date;
+            endsOn: Date | null;
+            note: string | null;
+            createdAt?: Date;
+          }> =
+            m.courses !== undefined
+              ? m.courses.map((c) => ({
+                  startsOn: dateOfDayKey(c.startsOn),
+                  endsOn: c.endsOn ? dateOfDayKey(c.endsOn) : null,
+                  note: c.note ?? null,
+                  ...(c.createdAt ? { createdAt: new Date(c.createdAt) } : {}),
+                }))
+              : created.startsOn || created.endsOn
+                ? [
+                    {
+                      startsOn:
+                        created.startsOn ??
+                        (created.endsOn &&
+                        created.endsOn.getTime() <
+                          dateOfDayKey(
+                            dayKeyOfDate(created.createdAt),
+                          ).getTime()
+                          ? created.endsOn
+                          : dateOfDayKey(dayKeyOfDate(created.createdAt))),
+                      endsOn: created.endsOn,
+                      note: null,
+                    },
+                  ]
+                : [];
+          if (courseRows.length > 0) {
+            await tx.medicationCourse.createMany({
+              data: courseRows.map((c) => ({
+                medicationId: created.id,
+                userId: ownerId,
+                startsOn: c.startsOn,
+                endsOn: c.endsOn,
+                noteEncrypted: c.note ? encryptToBytes(c.note) : null,
+                ...(c.createdAt ? { createdAt: c.createdAt } : {}),
+              })),
+            });
+            const window = projectCourseWindow(courseRows);
+            await tx.medication.update({
+              where: { id: created.id },
+              data: { startsOn: window.startsOn, endsOn: window.endsOn },
+            });
           }
 
           // ── The archived schedule eras, in two passes ────────────────

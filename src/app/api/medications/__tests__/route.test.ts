@@ -51,6 +51,14 @@ vi.mock("@/lib/cache/server-cache", () => ({
   caches: { medicationsList: {} },
   __resetAllCachesForTests: vi.fn(),
 }));
+// v1.40 (#1024) — the course writer and reader run against their own
+// integration suite; here they answer "no course, nothing refused".
+vi.mock("@/lib/medications/courses", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/medications/courses")>()),
+  resolveCourseFields: vi.fn(async () => new Map()),
+  checkCurrentWindow: vi.fn(async () => null),
+  setCurrentWindow: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/medication-category", () => ({
   getMedicationCategories: vi.fn().mockResolvedValue({}),
   resolveMedicationCategories: vi.fn().mockResolvedValue({}),
@@ -83,6 +91,7 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth/session";
 import { cachedSwr } from "@/lib/cache/server-cache";
 import { getUserTodayBounds } from "@/lib/tz/local-day";
+import { resolveCourseFields } from "@/lib/medications/courses";
 import {
   getMedicationCategories,
   isAssignableCategory,
@@ -106,7 +115,9 @@ function postReq(body: unknown): NextRequest {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
-  // v1.40 — the category helpers' defaults, which `resetAllMocks` clears.
+  // v1.40 — the category and course helpers' defaults, which
+  // `resetAllMocks` clears.
+  vi.mocked(resolveCourseFields).mockResolvedValue(new Map());
   vi.mocked(resolveMedicationCategories).mockResolvedValue({});
   vi.mocked(isAssignableCategory).mockResolvedValue(true);
   vi.mocked(setMedicationCategory).mockImplementation(

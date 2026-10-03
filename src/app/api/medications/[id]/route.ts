@@ -20,6 +20,12 @@ import {
 } from "@/lib/medication-category";
 import { serializeScheduleRecurrence } from "@/lib/medication-schedule";
 import {
+  checkCurrentWindow,
+  courseRefusalResponse,
+  resolveCourseFields,
+  setCurrentWindow,
+} from "@/lib/medications/courses";
+import {
   schedulesMateriallyDiffer,
   toRevisionPayloadEntry,
 } from "@/lib/medications/scheduling/schedule-eras";
@@ -238,6 +244,15 @@ export const GET = apiHandler(
             Number(medication.unitsPerDose),
           );
 
+    // v1.40 (#1024) — the courses, resolved on the server.
+    const courseFields = (
+      await resolveCourseFields(
+        [medication],
+        now,
+        user.timezone || DEFAULT_TIMEZONE,
+      )
+    ).get(id);
+
     return apiSuccess({
       ...medication,
       unitsPerDose: Number(medication.unitsPerDose),
@@ -246,6 +261,7 @@ export const GET = apiHandler(
       ...scheduleWireFields(medication.trackIntake, schedulesDto),
       category,
       categoryLabel,
+      ...courseFields,
       nextDueAt: display ? display.at.toISOString() : null,
       nextDueOverdue: display?.overdue ?? false,
       // v1.39.4 (#1040) — see `resolveIntakeActionability`.
@@ -294,6 +310,9 @@ export const PUT = apiHandler(
         name: true,
         dose: true,
         endsOn: true,
+        // v1.40 (#1024) — the course check below needs the stored window.
+        startsOn: true,
+        oneShot: true,
         _count: { select: { schedules: true } },
       },
     });
@@ -493,6 +512,34 @@ export const PUT = apiHandler(
     // Normalise endsOn for one-shot. `oneShot === true` + `startsOn`
     // means the dose is the start date; endsOn auto-matches.
     const normalisedEndsOn = oneShot === true && startsOn ? startsOn : endsOn;
+
+    // v1.40 (#1024) — the window a PUT sets is the latest course. Check it
+    // against the other courses BEFORE the row changes, so a refused window
+    // leaves the medication as it was.
+    const touchesWindow =
+      startsOn !== undefined ||
+      normalisedEndsOn !== undefined ||
+      oneShot !== undefined;
+    const nextWindow = {
+      startsOn: startsOn !== undefined ? startsOn : existing.startsOn,
+      endsOn:
+        normalisedEndsOn !== undefined ? normalisedEndsOn : existing.endsOn,
+    };
+    const courseTz = user.timezone || DEFAULT_TIMEZONE;
+    if (touchesWindow) {
+      const refusal = await checkCurrentWindow({
+        userId: user.id,
+        medicationId: id,
+        timeZone: courseTz,
+        ...nextWindow,
+        oneShot: oneShot ?? existing.oneShot,
+        createdAt: existing.createdAt,
+      });
+      if (refusal) {
+        const r = courseRefusalResponse(refusal);
+        return apiError(r.message, r.status, { errorCode: r.errorCode });
+      }
+    }
 
     const pausedAtPatch =
       active === undefined
@@ -1002,6 +1049,18 @@ export const PUT = apiHandler(
       }
     }
 
+    // v1.40 (#1024) — write the window onto the latest course and project it
+    // back, then serve the projected row.
+    if (touchesWindow) {
+      const projected = await setCurrentWindow({
+        userId: user.id,
+        medicationId: id,
+        timeZone: courseTz,
+        ...nextWindow,
+      });
+      if (projected) medication = { ...medication, ...projected };
+    }
+
     if (category !== undefined) await setMedicationCategory(id, category);
     const resolvedCategory = (await resolveMedicationCategories([id]))[id];
     const normalizedCategory = resolvedCategory?.category ?? "OTHER";
@@ -1068,6 +1127,10 @@ export const PUT = apiHandler(
       ),
       category: normalizedCategory,
       categoryLabel: resolvedCategory?.categoryLabel ?? null,
+      // v1.40 (#1024) — the courses, as every medication read carries them.
+      ...(await resolveCourseFields([medication], new Date(), courseTz)).get(
+        id,
+      ),
     });
   },
 );

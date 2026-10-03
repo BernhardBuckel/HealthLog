@@ -476,6 +476,13 @@ const REGISTRY: DestructiveEntry[] = [
     confirm: ["AlertDialog"],
   },
   {
+    file: "components/medications/sections/courses-section.tsx",
+    destroys:
+      "one course of a medication (its dates and note); the intakes logged in it stay, and deleting the only course makes the medication continuous again",
+    recovery: "permanent",
+    confirm: ["AlertDialog"],
+  },
+  {
     file: "components/medications/use-medication-intake.ts",
     destroys: "an intake event recorded seconds ago",
     recovery: "tombstoned-no-restore",

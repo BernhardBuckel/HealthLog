@@ -721,6 +721,7 @@ model User {
   intakeEvents                              MedicationIntakeEvent[]
   medicationPauseEras                       MedicationPauseEra[]
   medicationCategoryLabels                  MedicationCategoryLabel[]
+  medicationCourses                         MedicationCourse[]
   apiTokens                                 ApiToken[]
   // v1.24 — MCP remote OAuth 2.1 connections (1:N). Each row is a granted
   // authorization for an MCP client, audience-bound to health:read/health:write.
@@ -2797,6 +2798,10 @@ model Medication {
   /// v1.40 — the clinical category the person filed this medication under
   /// (one row at most; absence reads as OTHER).
   categoryAssignment MedicationCategoryAssignment?
+  /// v1.40 (#1024) — the medication's courses. Empty = chronic since
+  /// creation. `startsOn`/`endsOn` above project the latest one, written only
+  /// by `src/lib/medications/courses.ts`.
+  courses            MedicationCourse[]
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -2859,6 +2864,36 @@ model MedicationCategoryLabel {
 
   @@index([userId, sortOrder])
   @@map("medication_category_labels")
+}
+
+/// v1.40 (#1024) — one course of a medication: a calendar span the person
+/// took it for (Tamiflu for a week now and then). Courses never overlap, and
+/// every course but the latest-starting one has ended, so the latest course is
+/// always the one `Medication.startsOn/endsOn` project (see
+/// `src/lib/medications/course-window.ts`). A course carries no schedule or
+/// dose of its own: a dose that changes with a course is a schedule revision
+/// dated to its start. A one-time medication has at most one course.
+model MedicationCourse {
+  id            String    @id @default(cuid())
+  medicationId  String    @map("medication_id")
+  /// Denormalised owner, so the wipe and the sharing scope address the row
+  /// directly. Always the medication's owner.
+  userId        String    @map("user_id")
+  /// First day, inclusive, on the person's clock.
+  startsOn      DateTime  @map("starts_on") @db.Date
+  /// Last day, inclusive. NULL = open (only the latest course may be open).
+  endsOn        DateTime? @map("ends_on") @db.Date
+  /// Why this course, in the person's words. AES-256-GCM at rest.
+  noteEncrypted Bytes?    @map("note_encrypted")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  medication Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([medicationId, startsOn])
+  @@index([userId])
+  @@map("medication_courses")
 }
 
 /// v1.28 — the user's explicit override of a medication's efficacy target,

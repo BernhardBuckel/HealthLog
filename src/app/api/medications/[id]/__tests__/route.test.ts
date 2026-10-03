@@ -49,6 +49,14 @@ vi.mock("@/lib/rollups/medication-compliance-rollups", () => ({
   dayKeyForScheduledFor: vi.fn(() => "2026-06-10"),
   recomputeMedicationComplianceForDay: vi.fn().mockResolvedValue(undefined),
 }));
+// v1.40 (#1024) — the course writer and reader run against their own
+// integration suite; here they answer "no course, nothing refused".
+vi.mock("@/lib/medications/courses", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/medications/courses")>()),
+  resolveCourseFields: vi.fn(async () => new Map()),
+  checkCurrentWindow: vi.fn(async () => null),
+  setCurrentWindow: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/medication-category", () => ({
   deleteMedicationCategory: vi.fn().mockResolvedValue(undefined),
   getMedicationCategories: vi.fn().mockResolvedValue({}),
@@ -72,6 +80,7 @@ vi.mock("next/headers", () => ({
 import { PUT } from "../route";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth/session";
+import { resolveCourseFields } from "@/lib/medications/courses";
 import {
   getMedicationCategories,
   isAssignableCategory,
@@ -102,7 +111,9 @@ const ROUTE_CTX = { params: Promise.resolve({ id: "m1" }) };
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
-  // v1.40 — the category helpers' defaults, which `resetAllMocks` clears.
+  // v1.40 — the category and course helpers' defaults, which
+  // `resetAllMocks` clears.
+  vi.mocked(resolveCourseFields).mockResolvedValue(new Map());
   vi.mocked(resolveMedicationCategories).mockResolvedValue({});
   vi.mocked(isAssignableCategory).mockResolvedValue(true);
   vi.mocked(setMedicationCategory).mockImplementation(

@@ -86,6 +86,9 @@ export const BACKED_UP_MODELS = [
   // The categories the person named themselves (v1.40, #1041). A medication
   // filed under one carries its key; without the row the key reads as Other.
   "MedicationCategoryLabel",
+  // The courses (v1.40, #1024). Once a second one exists the earlier spans
+  // live here and nowhere else; the medication row keeps only the latest.
+  "MedicationCourse",
 
   // ── Mood ──────────────────────────────────────────────────────────────────
   "MoodEntry",
@@ -314,6 +317,7 @@ export const TWO_ENDED_MODELS = [
   "MedicationDoseChange",
   "MedicationCategoryAssignment",
   "MedicationCategoryLabel",
+  "MedicationCourse",
   "MoodEntry",
   "MoodContext",
   "MoodEntryTagLink",

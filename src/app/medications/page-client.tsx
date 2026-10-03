@@ -1,5 +1,6 @@
 "use client";
 
+import type { MedicationCourseFields } from "@/components/medications/course-fields";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -127,6 +128,11 @@ interface Medication {
   intakeActionable?: boolean;
   /** v1.39.4 (#1040) — where today sits in the course. */
   courseStatus?: "UPCOMING" | "CURRENT" | "ENDED";
+  /** v1.40 (#1024) — the server-resolved course fields. */
+  courses?: MedicationCourseFields["courses"];
+  courseCount?: number;
+  previousCourseEndedOn?: string | null;
+  canStartCourse?: boolean;
   /** v1.9.0 — optional WHO ATC classification code for the FHIR export. */
   atcCode?: string | null;
   /** v1.9.0 — optional RxNorm RxCUI (secondary FHIR coding). */

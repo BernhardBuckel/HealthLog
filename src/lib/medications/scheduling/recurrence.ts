@@ -493,14 +493,23 @@ function rollingDoseAnchor(
   ctx: RecurrenceContext,
 ): Date {
   const intervalDays = schedule.rollingIntervalDays ?? 0;
+  // v1.40 (#1024) — an intake from before the course started (a previous
+  // course of the same medication) does not anchor this one: the new
+  // course's first dose is due on its start day, as for a course with no
+  // intake at all.
+  const intakeDay =
+    ctx.lastIntakeAt !== null
+      ? civilDayOfInstant(ctx.lastIntakeAt, ctx.timeZone)
+      : null;
+  const anchorsThisCourse =
+    intakeDay !== null &&
+    (ctx.medication.startsOn === null ||
+      intakeDay.getTime() >= civilDayOfDate(ctx.medication.startsOn).getTime());
   // N calendar days after the local day of the last intake, not N × 24 h:
   // a late-evening dose across a DST change would otherwise slide onto the
   // wrong day.
-  return ctx.lastIntakeAt !== null
-    ? addCivilDays(
-        civilDayOfInstant(ctx.lastIntakeAt, ctx.timeZone),
-        intervalDays,
-      )
+  return anchorsThisCourse
+    ? addCivilDays(intakeDay, intervalDays)
     : anchorCivilDay(ctx);
 }
 

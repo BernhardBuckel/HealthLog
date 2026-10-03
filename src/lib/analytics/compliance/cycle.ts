@@ -1,6 +1,8 @@
 // Extracted from the former single-file `compliance.ts`. See `../compliance.ts`
 // (the barrel) for the module map. Pure move — no logic changes.
 
+import { dayKeyOfDate } from "@/lib/medications/course-window";
+import { userDayKey } from "@/lib/tz/format";
 import {
   nextOccurrenceAfter,
   type CanonicalSchedule,
@@ -156,8 +158,14 @@ export function buildCurrentCycle(
     if (canonical.scheduleType === "PRN") continue;
     const n = canonical.rollingIntervalDays;
     if (n !== null && n > 0) {
+      // v1.40 (#1024) — an intake from a previous course does not anchor the
+      // current one; its first dose is due on its start day.
+      const intakeInCourse =
+        lastIntakeAt !== null &&
+        (ctx.startsOn === null ||
+          userDayKey(lastIntakeAt, ctx.timeZone) >= dayKeyOfDate(ctx.startsOn));
       const anchor =
-        lastIntakeAt !== null
+        intakeInCourse && lastIntakeAt !== null
           ? new Date(lastIntakeAt.getTime() + n * DAY_MS)
           : (ctx.startsOn ?? ctx.createdAt);
       if (ctx.endsOn && anchor.getTime() > ctx.endsOn.getTime()) continue;

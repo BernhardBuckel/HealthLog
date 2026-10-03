@@ -28,6 +28,7 @@
 import { prisma } from "@/lib/db";
 import { fenceUserText } from "@/lib/ai/coach/data-fence";
 import { resolveMedicationCategories } from "@/lib/medication-category";
+import { dayKeyOfDate } from "@/lib/medications/course-window";
 import { annotate } from "@/lib/logging/context";
 import { executeCoachTool } from "@/lib/ai/coach/tools/executor";
 import { buildCoachDataInventory } from "@/lib/ai/coach/tools/inventory";
@@ -192,7 +193,13 @@ export const MCP_RESOURCES: McpResourceDefinition[] = [
       }
       const medications = await prisma.medication.findMany({
         where: { userId: ctx.userId },
-        include: { schedules: true },
+        include: {
+          schedules: true,
+          courses: {
+            select: { startsOn: true, endsOn: true },
+            orderBy: { startsOn: "asc" },
+          },
+        },
         orderBy: { createdAt: "desc" },
       });
       annotate({
@@ -222,6 +229,12 @@ export const MCP_RESOURCES: McpResourceDefinition[] = [
           paused: med.pausedAt !== null,
           startsOn: med.startsOn ? med.startsOn.toISOString() : null,
           endsOn: med.endsOn ? med.endsOn.toISOString() : null,
+          // v1.40 (#1024) — every course, so "when did they last take it" is
+          // answerable; startsOn/endsOn above stay the current course.
+          courses: (med.courses ?? []).map((c) => ({
+            startsOn: dayKeyOfDate(c.startsOn),
+            endsOn: c.endsOn ? dayKeyOfDate(c.endsOn) : null,
+          })),
           schedules: med.schedules.map((s) => ({
             label: s.label ?? null,
             dose: s.dose ?? null,

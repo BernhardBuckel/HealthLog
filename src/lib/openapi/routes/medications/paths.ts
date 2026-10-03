@@ -22,6 +22,8 @@ import {
   updateIntakeEventSchema,
   createMedicationCategoryLabelSchema,
   updateMedicationCategoryLabelSchema,
+  createMedicationCourseSchema,
+  updateMedicationCourseSchema,
 } from "@/lib/validations/medication";
 import {
   scheduleRevisionCreateSchema,
@@ -76,6 +78,7 @@ const medicationEfficacyResponse = medicationEfficacyResponseSchema.meta({
     "Server-authoritative, strictly-descriptive efficacy view relating a medication to the outcome metric(s)/lab(s) its class is prescribed to move, around its start. Carries the resolved target(s) with their series, the start/dose-change/pause markers, a before/after-start comparison (honest `{present:false}` below the per-side data floor), an adherence lane (cadence-aware per-day rate, never recomputed), an optional conservative level-shift note, and the retarget options. There is NO verdict / score / assessment field by construction — the client renders numbers and neutral connective phrasing only, never a causal or dose-advice claim.",
 });
 import {
+  medicationCourseResource,
   medicationCategoryLabelResource,
   medicationListEntry,
   medicationDetailEntry,
@@ -1086,6 +1089,143 @@ export const medicationPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       },
     },
   },
+  "/api/medications/{id}/courses": {
+    get: {
+      tags: ["Medications"],
+      summary: "Read a medication's courses",
+      description:
+        "v1.40 (#1024) — the same resolved course fields the list and detail reads carry. Owner-only.",
+      requestParams: { path: z.object({ id: z.string() }) },
+      responses: {
+        "200": {
+          description: "The courses.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                z.object({
+                  courses: z.array(medicationCourseResource),
+                  courseCount: z.number().int(),
+                  previousCourseEndedOn: z.iso.date().nullable(),
+                  canStartCourse: z.boolean(),
+                }),
+                "MedicationCoursesResponse",
+              ),
+            },
+          },
+        },
+        "404": {
+          description: "Medication not found (or another user's).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        ...stdResponses,
+      },
+    },
+    post: {
+      parameters: [idempotencyKeyParameter],
+      tags: ["Medications"],
+      summary: "Start a course",
+      description:
+        "v1.40 (#1024) — adds a course and, in the same transaction, rewrites the medication's `startsOn`/`endsOn` to the latest course, so reminders and `intakeActionable` follow with no further write. Refusals: 422 `medications.course.overlap`, `medications.course.currentOpen`, `medications.course.oneShot`, `medications.course.invalidRange`, `medications.course.invalid` (body). Owner-only.",
+      requestParams: { path: z.object({ id: z.string() }) },
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": { schema: createMedicationCourseSchema },
+        },
+      },
+      responses: {
+        ...idempotentWrite(),
+        "201": {
+          description: "The new course.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                z.object({
+                  id: z.string(),
+                  startsOn: z.iso.date(),
+                  endsOn: z.iso.date().nullable(),
+                }),
+                "CreateMedicationCourseResponse",
+              ),
+            },
+          },
+        },
+        "404": {
+          description: "Medication not found (or another user's).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        ...stdResponses,
+      },
+    },
+  },
+  "/api/medications/{id}/courses/{courseId}": {
+    patch: {
+      tags: ["Medications"],
+      summary: "Edit a course",
+      description:
+        "v1.40 (#1024) — field by field; the medication's window is re-projected in the same transaction. Same refusals as the create. Owner-only.",
+      requestParams: {
+        path: z.object({ id: z.string(), courseId: z.string() }),
+      },
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": { schema: updateMedicationCourseSchema },
+        },
+      },
+      responses: {
+        "200": {
+          description: "The edited course.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                z.object({
+                  id: z.string(),
+                  startsOn: z.iso.date(),
+                  endsOn: z.iso.date().nullable(),
+                }),
+                "UpdateMedicationCourseResponse",
+              ),
+            },
+          },
+        },
+        "404": {
+          description:
+            "Course not found (`medications.course.notFound`), or another user's.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        ...stdResponses,
+      },
+    },
+    delete: {
+      tags: ["Medications"],
+      summary: "Delete a course",
+      description:
+        "v1.40 (#1024) — deletes the course and re-projects the medication's window. Deleting the only course makes the medication continuous again (both window columns cleared). Intakes are not touched. Owner-only.",
+      requestParams: {
+        path: z.object({ id: z.string(), courseId: z.string() }),
+      },
+      responses: {
+        "200": {
+          description: "Deleted.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                z.object({ id: z.string(), deleted: z.literal(true) }),
+                "DeleteMedicationCourseResponse",
+              ),
+            },
+          },
+        },
+        "404": {
+          description:
+            "Course not found (`medications.course.notFound`), or another user's.",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        ...stdResponses,
+      },
+    },
+  },
   "/api/medications/layout": {
     get: {
       tags: ["Medications"],
@@ -1195,7 +1335,7 @@ export const medicationPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Medications"],
       summary: "Replace a medication (partial fields)",
       description:
-        "Every field on the body is optional; omitted fields are left untouched. Supplying `schedules` REPLACES the medication's full schedule list (the route deletes existing rows before re-creating). Flipping `active` to false stamps `pausedAt`; flipping back to true clears it. v1.5 invariants on the `schedules` array match `POST /api/medications`. Audits as `medication.update`. v1.40 — an absent `category` leaves the stored one untouched (send it only when the person changed it); a `custom:` key that is not the caller's is 422 `medications.category.unknown`.",
+        "Every field on the body is optional; omitted fields are left untouched. Supplying `schedules` REPLACES the medication's full schedule list (the route deletes existing rows before re-creating). Flipping `active` to false stamps `pausedAt`; flipping back to true clears it. v1.5 invariants on the `schedules` array match `POST /api/medications`. Audits as `medication.update`. v1.40 — an absent `category` leaves the stored one untouched (send it only when the person changed it); a `custom:` key that is not the caller's is 422 `medications.category.unknown`. v1.40 (#1024) — `startsOn`/`endsOn` now edit the latest course (created when there is none); the same course refusals apply (422 `medications.course.*`), and clearing both on a medication with several courses is 422 `medications.course.windowRequired`.",
       requestParams: {
         path: z.object({ id: z.string() }),
       },
