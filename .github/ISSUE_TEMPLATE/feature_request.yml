@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Feature ideas welcome. HealthLog is a personal-health PWA — the bar for inclusion is high (privacy-first, offline-capable, self-hostable). Use this template to propose something concrete; for open-ended discussion, prefer a [Discussion](https://github.com/MBombeck/HealthLog/discussions) thread.
+        Feature ideas welcome. HealthLog is a personal-health PWA, and the bar for inclusion is high (privacy-first, offline-capable, self-hostable). Use this template to propose something concrete. For an idea you'd like others to weigh in on, or a small improvement, start it in [Ideas](https://github.com/MBombeck/HealthLog/discussions/categories/ideas) instead: people can upvote it there, and the most-voted ideas get looked at first (see #1114).
   - type: textarea
     id: problem
     attributes:
