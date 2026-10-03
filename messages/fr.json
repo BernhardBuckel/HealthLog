@@ -140,6 +140,18 @@
       "unit": {
         "locked": "Ce marqueur a déjà des valeurs, son unité ne peut donc pas être modifiée. Les valeurs enregistrées s'afficheraient dans la nouvelle unité sans être converties."
       }
+    },
+    "symptoms": {
+      "definition": {
+        "limitReached": "Tu as 8 symptômes. Masques-en un pour en ajouter un autre.",
+        "notFound": "Ce symptôme n'existe plus."
+      },
+      "episode": {
+        "notOpen": "Cette maladie n'est plus ouverte. Choisis-en une autre ou aucune."
+      },
+      "event": {
+        "notFound": "Cette entrée n'existe plus."
+      }
     }
   },
   "doctorReport": {
@@ -410,7 +422,9 @@
       "mood": "Humeur",
       "moodDescription": "Enregistrez votre humeur et des étiquettes",
       "workout": "Entraînement",
-      "workoutDescription": "Une séance que vos appareils n’ont pas enregistrée"
+      "workoutDescription": "Une séance que vos appareils n’ont pas enregistrée",
+      "symptom": "Symptôme",
+      "symptomDescription": "L'un de tes propres symptômes, avec son intensité"
     },
     "cycle": "Cycle",
     "labs": "Analyses",
@@ -649,7 +663,8 @@
       "title": "Sauvegarde ta clé de chiffrement",
       "body": "Sans copie de la clé, tes données ne peuvent pas être récupérées après une réinstallation. Ça prend une minute.",
       "action": "Ouvrir l'étape"
-    }
+    },
+    "quickAddSymptom": "Noter un symptôme"
   },
   "measurements": {
     "title": "Mesures",
@@ -7478,7 +7493,8 @@
         "restoreFailureUnexpected": "La restauration s'est arrêtée sur une erreur inattendue et a été annulée. Le journal du serveur indique l'erreur.",
         "restoreFailureKeyMissing": "La sauvegarde a besoin de la clé de chiffrement {keys}, avec laquelle ce serveur ne peut pas l'ouvrir. Remettez la clé dans ENCRYPTION_KEYS, redémarrez, puis relancez la restauration.",
         "restoreFailureForeignReference": "Le fichier renvoie à des éléments qui appartiennent à un autre compte. Rien n'a été écrit.",
-        "previewKeyMissing": "Cette sauvegarde ne peut pas être restaurée sur ce serveur : elle a besoin de la clé de chiffrement {keys}. Remettez d'abord la clé dans ENCRYPTION_KEYS et redémarrez."
+        "previewKeyMissing": "Cette sauvegarde ne peut pas être restaurée sur ce serveur : elle a besoin de la clé de chiffrement {keys}. Remettez d'abord la clé dans ENCRYPTION_KEYS et redémarrez.",
+        "restoreSkippedSymptomEpisodeReference": "Entrée de symptôme liée à une maladie absente du fichier (conservée sans le lien)"
       },
       "danger-zone": {
         "title": "Zone de danger",
@@ -11269,7 +11285,13 @@
       "documentDiscard": "{name} a écarté un document",
       "medicationIntakeImportFinished": "L'import de prises lancé par {name} est terminé",
       "medicationOneShotReconciled": "Un médicament à prise unique a été rouvert ou clos après une prise enregistrée par {name}",
-      "vaccinationBoosterPlanned": "{name} a planifié un rappel"
+      "vaccinationBoosterPlanned": "{name} a planifié un rappel",
+      "symptomEventCreate": "{name} a noté un symptôme",
+      "symptomEventUpdate": "{name} a modifié une entrée de symptôme",
+      "symptomEventDelete": "{name} a supprimé une entrée de symptôme",
+      "symptomDefinitionCreate": "{name} a ajouté un symptôme",
+      "symptomDefinitionUpdate": "{name} a modifié un symptôme",
+      "symptomDefinitionDelete": "{name} a retiré un symptôme"
     },
     "section": {
       "measurements": {
@@ -11500,5 +11522,66 @@
     "waitingForWorker": "En attente du traitement en arrière-plan. Si rien ne change, le worker du serveur n'est peut-être pas lancé.",
     "errorWorkerUnavailable": "Le traitement en arrière-plan n'est pas disponible pour le moment. Réessayez dans un instant ou demandez à la personne qui gère le serveur de le vérifier.",
     "errorTimedOut": "La lecture a pris plus de temps que votre délai de réponse IA ne le permet. Réessayez ou augmentez ce délai dans les réglages IA."
+  },
+  "symptoms": {
+    "add": "Nouveau symptôme",
+    "nameLabel": "Nom",
+    "namePlaceholder": "p. ex. Aura",
+    "iconLabel": "Icône",
+    "limitReached": "Tu as 8 symptômes. Masques-en un pour en ajouter un autre.",
+    "saveError": "Impossible d'enregistrer le symptôme. Réessaie.",
+    "nameRequired": "Donne un nom au symptôme.",
+    "unreadableLabel": "Symptôme illisible",
+    "intensityPill": "{value}/10",
+    "entry": {
+      "sheetTitle": "Noter un symptôme",
+      "sheetDescription": "L'un de tes propres symptômes, son intensité et quand.",
+      "symptom": "Symptôme",
+      "symptomRequired": "Choisis un symptôme.",
+      "intensity": "Intensité",
+      "intensityRequired": "Indique à quel point c'était fort.",
+      "intensityUnset": "Non renseignée",
+      "anchorLow": "Aucune",
+      "anchorHigh": "La pire imaginable",
+      "intensityValueText": "{value} sur {max} ({low} à {high})",
+      "when": "Quand",
+      "during": "Pendant une maladie",
+      "duringNone": "Non lié",
+      "note": "Note",
+      "notePlaceholder": "Qu'est-ce qui se passait d'autre ?",
+      "reset": "Réinitialiser le formulaire",
+      "emptyHint": "Ajoute ton premier symptôme, par exemple aura ou mal de tête.",
+      "emptyHintNoManage": "Aucun symptôme n'est encore configuré pour ce dossier.",
+      "limitHint": "Jusqu'à {limit} symptômes. Masques-en un sur la page des maladies pour en ajouter un autre."
+    },
+    "section": {
+      "title": "Tes symptômes",
+      "log": "Noter",
+      "loadError": "Impossible de charger tes symptômes.",
+      "summaryOne": "Une fois en 30 jours, {max}/10, la dernière {date}",
+      "summaryFew": "{count} fois en 30 jours, jusqu'à {max}/10, la dernière {date}",
+      "summaryOther": "{count} fois en 30 jours, jusqu'à {max}/10, la dernière {date}",
+      "summaryNoneRecent": "Pas dans les 30 derniers jours, la dernière {date}",
+      "summaryNever": "Pas encore noté",
+      "menuLabel": "Options pour {symptom}",
+      "eventMenuLabel": "Options pour cette entrée {symptom}",
+      "hide": "Masquer",
+      "show": "Afficher à nouveau",
+      "deleteTitle": "Supprimer le symptôme ?",
+      "deleteBody": "« {symptom} » et toutes ses entrées seront supprimés. Pour garder l'historique, masque-le plutôt.",
+      "deleteEventTitle": "Supprimer l'entrée ?",
+      "deleteEventBody": "Cette entrée sera supprimée.",
+      "hiddenOne": "Masqués (1)",
+      "hiddenFew": "Masqués ({count})",
+      "hiddenOther": "Masqués ({count})",
+      "recent": "30 derniers jours",
+      "recentEmpty": "Rien de noté ces 30 derniers jours.",
+      "editEventTitle": "Modifier {symptom}",
+      "editSymptomTitle": "Modifier le symptôme"
+    },
+    "episode": {
+      "title": "Symptômes notés",
+      "filed": "noté avec cette maladie"
+    }
   }
 }

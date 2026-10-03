@@ -140,6 +140,18 @@
       "unit": {
         "locked": "Ten marker ma już wyniki, więc nie możesz zmienić jego jednostki. Zapisane wartości byłyby pokazywane w nowej jednostce bez przeliczenia."
       }
+    },
+    "symptoms": {
+      "definition": {
+        "limitReached": "Masz 8 objawów. Ukryj jeden, aby dodać kolejny.",
+        "notFound": "Ten objaw już nie istnieje."
+      },
+      "episode": {
+        "notOpen": "Ta choroba nie jest już otwarta. Wybierz inną lub żadną."
+      },
+      "event": {
+        "notFound": "Ten wpis już nie istnieje."
+      }
     }
   },
   "doctorReport": {
@@ -410,7 +422,9 @@
       "mood": "Nastrój",
       "moodDescription": "Zapisz nastrój i tagi",
       "workout": "Trening",
-      "workoutDescription": "Sesja, której nie zapisały twoje urządzenia"
+      "workoutDescription": "Sesja, której nie zapisały twoje urządzenia",
+      "symptom": "Objaw",
+      "symptomDescription": "Jeden z twoich objawów, z nasileniem"
     },
     "cycle": "Cykl",
     "labs": "Wyniki badań",
@@ -649,7 +663,8 @@
       "title": "Zrób kopię klucza szyfrowania",
       "body": "Bez kopii klucza Twoich danych nie da się odzyskać po ponownej instalacji. To zajmie minutę.",
       "action": "Otwórz krok"
-    }
+    },
+    "quickAddSymptom": "Zapisz objaw"
   },
   "measurements": {
     "title": "Pomiary",
@@ -7478,7 +7493,8 @@
         "restoreFailureUnexpected": "Przywracanie zatrzymało się na nieoczekiwanym błędzie i zostało wycofane. Dziennik serwera podaje błąd.",
         "restoreFailureKeyMissing": "Kopia wymaga klucza szyfrowania {keys}, którym ten serwer nie może jej otworzyć. Dodaj klucz z powrotem do ENCRYPTION_KEYS, uruchom ponownie i rozpocznij przywracanie jeszcze raz.",
         "restoreFailureForeignReference": "Plik wskazuje na wpisy należące do innego konta. Nic nie zostało zapisane.",
-        "previewKeyMissing": "Tej kopii nie da się przywrócić na tym serwerze: wymaga klucza szyfrowania {keys}. Najpierw dodaj klucz z powrotem do ENCRYPTION_KEYS i uruchom ponownie."
+        "previewKeyMissing": "Tej kopii nie da się przywrócić na tym serwerze: wymaga klucza szyfrowania {keys}. Najpierw dodaj klucz z powrotem do ENCRYPTION_KEYS i uruchom ponownie.",
+        "restoreSkippedSymptomEpisodeReference": "Wpis objawu powiązany z chorobą, której nie ma w pliku (zachowany bez powiązania)"
       },
       "danger-zone": {
         "title": "Strefa zagrożenia",
@@ -11269,7 +11285,13 @@
       "documentDiscard": "{name} odrzucił dokument",
       "medicationIntakeImportFinished": "Import przyjęć rozpoczęty przez {name} zakończył się",
       "medicationOneShotReconciled": "Lek jednorazowy został otwarty lub zamknięty po dawce zapisanej przez {name}",
-      "vaccinationBoosterPlanned": "{name} zaplanował dawkę przypominającą"
+      "vaccinationBoosterPlanned": "{name} zaplanował dawkę przypominającą",
+      "symptomEventCreate": "{name} zapisał(a) objaw",
+      "symptomEventUpdate": "{name} edytował(a) wpis objawu",
+      "symptomEventDelete": "{name} usunął(-ęła) wpis objawu",
+      "symptomDefinitionCreate": "{name} dodał(a) objaw",
+      "symptomDefinitionUpdate": "{name} zmienił(a) objaw",
+      "symptomDefinitionDelete": "{name} usunął(-ęła) objaw"
     },
     "section": {
       "measurements": {
@@ -11500,5 +11522,66 @@
     "waitingForWorker": "Oczekiwanie na proces w tle. Jeśli nic się nie zmienia, worker na serwerze może nie działać.",
     "errorWorkerUnavailable": "Proces w tle jest teraz niedostępny. Spróbuj ponownie za chwilę albo poproś administratora serwera o sprawdzenie go.",
     "errorTimedOut": "Odczyt trwał dłużej, niż pozwala ustawiony czas odpowiedzi AI. Spróbuj ponownie albo wydłuż czas odpowiedzi w ustawieniach AI."
+  },
+  "symptoms": {
+    "add": "Nowy objaw",
+    "nameLabel": "Nazwa",
+    "namePlaceholder": "np. Aura",
+    "iconLabel": "Ikona",
+    "limitReached": "Masz 8 objawów. Ukryj jeden, aby dodać kolejny.",
+    "saveError": "Nie udało się zapisać objawu. Spróbuj ponownie.",
+    "nameRequired": "Nadaj objawowi nazwę.",
+    "unreadableLabel": "Nieczytelny objaw",
+    "intensityPill": "{value}/10",
+    "entry": {
+      "sheetTitle": "Zapisz objaw",
+      "sheetDescription": "Jeden z twoich objawów, jak silny i kiedy.",
+      "symptom": "Objaw",
+      "symptomRequired": "Wybierz objaw.",
+      "intensity": "Nasilenie",
+      "intensityRequired": "Określ, jak silny był.",
+      "intensityUnset": "Nie ustawiono",
+      "anchorLow": "Brak",
+      "anchorHigh": "Najgorszy wyobrażalny",
+      "intensityValueText": "{value} z {max} ({low} do {high})",
+      "when": "Kiedy",
+      "during": "W trakcie choroby",
+      "duringNone": "Bez powiązania",
+      "note": "Notatka",
+      "notePlaceholder": "Co jeszcze się działo?",
+      "reset": "Wyczyść formularz",
+      "emptyHint": "Dodaj swój pierwszy objaw, na przykład aurę lub ból głowy.",
+      "emptyHintNoManage": "Dla tego profilu nie ma jeszcze objawów.",
+      "limitHint": "Do {limit} objawów. Ukryj jeden na stronie chorób, aby dodać kolejny."
+    },
+    "section": {
+      "title": "Twoje objawy",
+      "log": "Zapisz",
+      "loadError": "Nie udało się wczytać twoich objawów.",
+      "summaryOne": "Raz w ciągu 30 dni, {max}/10, ostatnio {date}",
+      "summaryFew": "{count} razy w ciągu 30 dni, do {max}/10, ostatnio {date}",
+      "summaryOther": "{count} razy w ciągu 30 dni, do {max}/10, ostatnio {date}",
+      "summaryNoneRecent": "Nie w ostatnich 30 dniach, ostatnio {date}",
+      "summaryNever": "Jeszcze nie zapisano",
+      "menuLabel": "Opcje dla {symptom}",
+      "eventMenuLabel": "Opcje tego wpisu: {symptom}",
+      "hide": "Ukryj",
+      "show": "Pokaż ponownie",
+      "deleteTitle": "Usunąć objaw?",
+      "deleteBody": "„{symptom}” i wszystkie jego wpisy zostaną usunięte. Aby zachować historię, ukryj go.",
+      "deleteEventTitle": "Usunąć wpis?",
+      "deleteEventBody": "Ten wpis zostanie usunięty.",
+      "hiddenOne": "Ukryte (1)",
+      "hiddenFew": "Ukryte ({count})",
+      "hiddenOther": "Ukryte ({count})",
+      "recent": "Ostatnie 30 dni",
+      "recentEmpty": "Nic nie zapisano w ostatnich 30 dniach.",
+      "editEventTitle": "Edytuj: {symptom}",
+      "editSymptomTitle": "Edytuj objaw"
+    },
+    "episode": {
+      "title": "Zapisane objawy",
+      "filed": "zapisano przy tej chorobie"
+    }
   }
 }

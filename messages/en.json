@@ -140,6 +140,18 @@
       "unit": {
         "locked": "This marker already has readings, so its unit can't be changed. The stored values would be shown in the new unit without being converted."
       }
+    },
+    "symptoms": {
+      "definition": {
+        "limitReached": "You have 8 symptoms. Hide one to add another.",
+        "notFound": "This symptom no longer exists."
+      },
+      "episode": {
+        "notOpen": "That illness is no longer open. Choose another or none."
+      },
+      "event": {
+        "notFound": "This entry no longer exists."
+      }
     }
   },
   "doctorReport": {
@@ -410,7 +422,9 @@
       "mood": "Mood",
       "moodDescription": "Log your mood and tags",
       "workout": "Workout",
-      "workoutDescription": "A session your devices did not record"
+      "workoutDescription": "A session your devices did not record",
+      "symptom": "Symptom",
+      "symptomDescription": "One of your own symptoms, with how strong"
     },
     "cycle": "Cycle",
     "labs": "Labs",
@@ -649,7 +663,8 @@
       "title": "Back up your encryption key",
       "body": "Without a copy of the key, your data cannot be recovered after a reinstall. It takes a minute.",
       "action": "Open the step"
-    }
+    },
+    "quickAddSymptom": "Log symptom"
   },
   "measurements": {
     "title": "Measurements",
@@ -7478,7 +7493,8 @@
         "restoreFailureUnexpected": "The restore stopped on an unexpected error and was rolled back. The server log names the error.",
         "restoreFailureKeyMissing": "The backup needs encryption key {keys}, which this server cannot open it with. Add the key back to ENCRYPTION_KEYS, restart, and start the restore again.",
         "restoreFailureForeignReference": "The file points at records that belong to another account. Nothing was written.",
-        "previewKeyMissing": "This backup cannot be restored on this server: it needs encryption key {keys}. Add the key back to ENCRYPTION_KEYS and restart first."
+        "previewKeyMissing": "This backup cannot be restored on this server: it needs encryption key {keys}. Add the key back to ENCRYPTION_KEYS and restart first.",
+        "restoreSkippedSymptomEpisodeReference": "Symptom entry linked to an illness the file does not contain (kept without the link)"
       },
       "danger-zone": {
         "title": "Danger Zone",
@@ -11269,7 +11285,13 @@
       "documentDiscard": "{name} discarded a document",
       "medicationIntakeImportFinished": "The dose import {name} started has finished",
       "medicationOneShotReconciled": "A one-off medication was opened or closed after a dose {name} recorded",
-      "vaccinationBoosterPlanned": "{name} planned a booster"
+      "vaccinationBoosterPlanned": "{name} planned a booster",
+      "symptomEventCreate": "{name} logged a symptom",
+      "symptomEventUpdate": "{name} edited a symptom entry",
+      "symptomEventDelete": "{name} deleted a symptom entry",
+      "symptomDefinitionCreate": "{name} added a symptom",
+      "symptomDefinitionUpdate": "{name} changed a symptom",
+      "symptomDefinitionDelete": "{name} removed a symptom"
     },
     "section": {
       "measurements": {
@@ -11500,5 +11522,66 @@
     "waitingForWorker": "Waiting for the background worker. If this does not change, the server's worker may not be running.",
     "errorWorkerUnavailable": "The background worker is not available right now. Try again in a moment, or ask the server operator to check it.",
     "errorTimedOut": "Reading took longer than your AI response time allows. Try again, or raise the response time in the AI settings."
+  },
+  "symptoms": {
+    "add": "New symptom",
+    "nameLabel": "Name",
+    "namePlaceholder": "e.g. Aura",
+    "iconLabel": "Icon",
+    "limitReached": "You have 8 symptoms. Hide one to add another.",
+    "saveError": "Couldn't save the symptom. Please try again.",
+    "nameRequired": "Give the symptom a name.",
+    "unreadableLabel": "Unreadable symptom",
+    "intensityPill": "{value}/10",
+    "entry": {
+      "sheetTitle": "Log symptom",
+      "sheetDescription": "One of your own symptoms, how strong and when.",
+      "symptom": "Symptom",
+      "symptomRequired": "Choose a symptom.",
+      "intensity": "Intensity",
+      "intensityRequired": "Set how strong it was.",
+      "intensityUnset": "Not set",
+      "anchorLow": "None",
+      "anchorHigh": "Worst imaginable",
+      "intensityValueText": "{value} of {max} ({low} to {high})",
+      "when": "When",
+      "during": "During an illness",
+      "duringNone": "Not linked",
+      "note": "Note",
+      "notePlaceholder": "What else was going on?",
+      "reset": "Reset form",
+      "emptyHint": "Add your first symptom, for example aura or headache.",
+      "emptyHintNoManage": "No symptoms have been set up for this record yet.",
+      "limitHint": "Up to {limit} symptoms. Hide one on the illness page to add another."
+    },
+    "section": {
+      "title": "Your symptoms",
+      "log": "Log",
+      "loadError": "Couldn't load your symptoms.",
+      "summaryOne": "Once in 30 days, {max}/10, last {date}",
+      "summaryFew": "{count} times in 30 days, up to {max}/10, last {date}",
+      "summaryOther": "{count} times in 30 days, up to {max}/10, last {date}",
+      "summaryNoneRecent": "Not in the last 30 days, last {date}",
+      "summaryNever": "Not logged yet",
+      "menuLabel": "Options for {symptom}",
+      "eventMenuLabel": "Options for this {symptom} entry",
+      "hide": "Hide",
+      "show": "Show again",
+      "deleteTitle": "Delete symptom?",
+      "deleteBody": "\"{symptom}\" and every entry of it will be deleted. To keep the history, hide it instead.",
+      "deleteEventTitle": "Delete entry?",
+      "deleteEventBody": "This entry will be deleted.",
+      "hiddenOne": "Hidden (1)",
+      "hiddenFew": "Hidden ({count})",
+      "hiddenOther": "Hidden ({count})",
+      "recent": "Last 30 days",
+      "recentEmpty": "Nothing logged in the last 30 days.",
+      "editEventTitle": "Edit {symptom}",
+      "editSymptomTitle": "Edit symptom"
+    },
+    "episode": {
+      "title": "Symptoms logged",
+      "filed": "logged with this illness"
+    }
   }
 }
