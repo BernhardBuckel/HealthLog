@@ -101,8 +101,6 @@ const ALLOWED: Record<string, string> = {
     "Health-score inputs: steps (drained to one row per day nightly), sleep, waist, weight, blood pressure, fasting glucose only.",
   'app/api/analytics/route.ts::"BLOOD_GLUCOSE"':
     "The 30-day per-context glucose summary, the same window and bound as the dashboard and coach glucose panels: at a sensor's fixed rate, below 45 000 rows.",
-  "app/api/measurements/series/route.ts::(shorthand)":
-    "The raw branch of the per-kind series. Every dense kind reaches it only inside 90 days and under 10 000 rows (counted first); the sparse kinds are a few readings a day.",
   "app/api/measurements/batch/route.ts::p.row.type as MeasurementType":
     "Cross-source merge probe: one ±tolerance window around each posted reading's instant, so the rows found are bounded by the batch size.",
   "app/api/measurements/route.ts::(shorthand)":
