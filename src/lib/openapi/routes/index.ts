@@ -64,6 +64,7 @@ import { integrationPaths } from "./integrations";
 import { insightsSignalPaths } from "./insights-signals";
 import { labsPaths } from "./labs";
 import { ocrPaths } from "./ocr";
+import { aiRunPaths } from "./ai-runs";
 import { measurementPaths } from "./measurements";
 import { measurementReminderPaths } from "./measurement-reminders";
 import { mentalHealthPaths } from "./mental-health";
@@ -115,6 +116,7 @@ export const openApiPaths: NonNullable<ZodOpenApiObject["paths"]> = {
   ...measurementReminderPaths,
   ...labsPaths,
   ...ocrPaths,
+  ...aiRunPaths,
   ...biomarkerPaths,
   ...encounterPaths,
   ...vaccinationPaths,

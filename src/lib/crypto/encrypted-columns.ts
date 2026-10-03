@@ -53,6 +53,13 @@ export const BACKUP_CHUNK_AAD = "healthlog/data-backup-chunk/v1";
  */
 export const WORKOUT_ROUTE_GEOMETRY_AAD = "healthlog/workout-route-geometry/v1";
 
+/**
+ * The associated-data labels a background document AI run's input and result
+ * are sealed with, so neither opens as the other or as anything else.
+ */
+export const DOCUMENT_AI_RUN_INPUT_AAD = "healthlog/document-ai-run-input/v1";
+export const DOCUMENT_AI_RUN_RESULT_AAD = "healthlog/document-ai-run-result/v1";
+
 export interface EncryptedColumn {
   /** Prisma model name (PascalCase, as declared in schema.prisma). */
   readonly model: string;
@@ -438,6 +445,30 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
   // codec `DocumentContentIndex.textEncrypted` uses. A scanned medical preview
   // is PHI; rotation re-encrypts it on the standard Bytes walk.
   { model: "DocumentThumbnail", field: "thumbnailEncrypted", kind: "bytes" },
+
+  // ───── v1.40 background document AI runs (Bytes, binary2) ─────
+  // The input a run reads (an uploaded lab scan, or the text the browser read
+  // off it) and the result it produced (model text, lab values). Both live at
+  // most an hour past the run, but a rotation that skipped them would leave a
+  // run unreadable under the retired key. Disposable: a row whose value cannot
+  // be opened is a dead ticket, and deleting it loses nothing the person can
+  // not ask for again.
+  {
+    model: "DocumentAiRun",
+    field: "inputEncrypted",
+    kind: "bytes",
+    codec: "binary2",
+    aad: DOCUMENT_AI_RUN_INPUT_AAD,
+    disposable: true,
+  },
+  {
+    model: "DocumentAiRun",
+    field: "resultEncrypted",
+    kind: "bytes",
+    codec: "binary2",
+    aad: DOCUMENT_AI_RUN_RESULT_AAD,
+    disposable: true,
+  },
 
   // ───── Whole-account backup blob (String, batched) ─────
   // The weekly disaster-recovery snapshot and every manually uploaded pack.

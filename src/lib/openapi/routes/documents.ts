@@ -32,6 +32,7 @@ import {
 } from "@/lib/validations/inbound-documents";
 
 import { aiExtractionRefusals } from "./ai-extraction-refusals";
+import { aiRunAccepted, preferRespondAsyncParameter } from "./ai-run-accepted";
 import { aiCapabilityState } from "./profile";
 import {
   dataEnvelope,
@@ -285,6 +286,20 @@ const documentUploadEnvelope = dataEnvelope(
   z.union([inboundDocument, documentUploadReceipt]),
   "DocumentUploadEnvelope",
 );
+
+/** The index route's body; also a `DOCUMENT_INDEX` run's result. */
+export const documentIndexResponse = z
+  .object({
+    documentId: z.string(),
+    indexed: z.boolean(),
+    tokenCount: z.number(),
+    labFactsStaged: z
+      .number()
+      .describe(
+        "How many lab facts the index run auto-staged for review (0 when the document is not a lab report, staging was not eligible, or facts already exist). Staged facts are PENDING — the confirm route remains the only write into Labs.",
+      ),
+  })
+  .meta({ id: "DocumentIndexResponse" });
 
 export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
   "/api/documents/inbound": {
@@ -1060,9 +1075,10 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Documents"],
       summary: "Build / refresh the content-search index",
       description:
-        "Populates or refreshes one document's content-search index so search matches INSIDE its body. VISION (empty body) decrypts the stored original and runs one provider transcription (answers under the `documentAi` capability — 403 with the capability envelope when it is closed, including a missing `ai_extraction` / `ai_full` receipt for a provider that leaves the machine — then rate / budget gated); TEXT (`application/json` `{ mode: \"text\", text }`, opt-in local OCR) indexes browser-OCR'd text with no provider egress and stays available with AI off, so search keeps working. Persists ONLY AES-256-GCM ciphertext of the text plus opaque HMAC token hashes — no plaintext body, no plaintext token. Idempotent; re-indexing overwrites in place. A successful index continues into the same lab auto-staging the background worker performs (still-STORED lab-looking document with no facts, both modules on, provider + consent eligible); `labFactsStaged` reports how many facts were staged PENDING for review — confirmation stays the only write into Labs.",
+        "Populates or refreshes one document's content-search index so search matches INSIDE its body. VISION (empty body) decrypts the stored original and runs one provider transcription (answers under the `documentAi` capability — 403 with the capability envelope when it is closed, including a missing `ai_extraction` / `ai_full` receipt for a provider that leaves the machine — then rate / budget gated); TEXT (`application/json` `{ mode: \"text\", text }`, opt-in local OCR) indexes browser-OCR'd text with no provider egress and stays available with AI off, so search keeps working. Persists ONLY AES-256-GCM ciphertext of the text plus opaque HMAC token hashes — no plaintext body, no plaintext token. Idempotent; re-indexing overwrites in place. A successful index continues into the same lab auto-staging the background worker performs (still-STORED lab-looking document with no facts, both modules on, provider + consent eligible); `labFactsStaged` reports how many facts were staged PENDING for review — confirmation stays the only write into Labs. With `Prefer: respond-async` (v1.40) the read runs in the background: after the same quick refusals the route answers 202 with a run id, a second request while a read of this document is queued or running answers with that run, and `GET /api/ai-runs/{id}` serves this body as the run's `result`. Text mode honours the preference too, because the lab staging it continues into is model work.",
       parameters: [
         { name: "id", in: "path", required: true, schema: { type: "string" } },
+        preferRespondAsyncParameter,
       ],
       requestBody: {
         required: false,
@@ -1082,23 +1098,13 @@ export const inboundDocumentPaths: NonNullable<ZodOpenApiObject["paths"]> = {
           content: {
             "application/json": {
               schema: dataEnvelope(
-                z
-                  .object({
-                    documentId: z.string(),
-                    indexed: z.boolean(),
-                    tokenCount: z.number(),
-                    labFactsStaged: z
-                      .number()
-                      .describe(
-                        "How many lab facts the index run auto-staged for review (0 when the document is not a lab report, staging was not eligible, or facts already exist). Staged facts are PENDING — the confirm route remains the only write into Labs.",
-                      ),
-                  })
-                  .meta({ id: "DocumentIndexResponse" }),
+                documentIndexResponse,
                 "DocumentIndexEnvelope",
               ),
             },
           },
         },
+        ...aiRunAccepted,
         ...aiExtractionRefusals("documentAi"),
         ...stdResponses,
       },

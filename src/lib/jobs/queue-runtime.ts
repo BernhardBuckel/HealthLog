@@ -32,6 +32,7 @@ import { PERIOD_NARRATIVE_EXPIRE_SECONDS } from "@/lib/jobs/period-narrative-sha
 import { PR_DETECTION_EXPIRE_SECONDS } from "@/lib/jobs/pr-detection";
 import { ENCRYPTION_KEY_ROTATE_EXPIRE_SECONDS } from "@/lib/jobs/encryption-key-rotate";
 import { CONTENT_INDEX_BACKFILL_EXPIRE_SECONDS } from "@/lib/jobs/document-content-index-backfill";
+import { DOCUMENT_AI_RUN_EXPIRE_SECONDS } from "@/lib/jobs/document-ai-run";
 import { DATA_BACKUP_SEND_OPTIONS } from "@/lib/jobs/data-backup-policy";
 import { OFFHOST_BACKUP_EXPIRE_SECONDS } from "@/lib/jobs/offhost-backup";
 import { BACKUP_RESTORE_EXPIRE_SECONDS } from "@/lib/jobs/backup-restore";
@@ -388,6 +389,20 @@ export const QUEUE_RUNTIME: Readonly<Record<string, QueueRuntime>> = {
     why: "Up to 200 documents of one account, a provider transcription each.",
   },
   "document-index": short("One document."),
+  "document-ai-run": {
+    runtime: "long",
+    expireInSeconds: DOCUMENT_AI_RUN_EXPIRE_SECONDS,
+    expiryVia: ["DOCUMENT_AI_RUN_EXPIRE_SECONDS"],
+    stop: {
+      file: "lib/jobs/document-ai-run.ts",
+      fn: "handleDocumentAiRunJobs",
+    },
+    exclusive: "lockedPass",
+    why: "One person's document or lab scan, up to three model calls at their AI response time (up to ten minutes each).",
+  },
+  "document-ai-run-reaper": short(
+    "Up to 500 conditional updates and one deleteMany.",
+  ),
   "document-thumbnail": short("One document."),
   "document-summary": short("One document."),
   "document-summary-catchup": short("Enqueues at most 200 documents."),

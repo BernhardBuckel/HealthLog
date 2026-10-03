@@ -937,6 +937,7 @@ export function DocumentDetailSheet({
                 contentIndexSource={doc.contentIndexSource}
                 lastIndexOutcome={doc.lastIndexOutcome}
                 indexPending={indexDoc.isPending}
+                indexRunPhase={indexDoc.runPhase}
                 onIndex={runIndex}
               />
             )}

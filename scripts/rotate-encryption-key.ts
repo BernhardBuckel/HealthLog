@@ -924,6 +924,20 @@ async function main() {
     ),
   );
 
+  // ───── v1.40 background document AI runs (Bytes, binary2, batched) ─────
+  // A run's sealed input and result. Transient (deleted an hour after the run
+  // finishes), but a run in flight during a rotation must still open under the
+  // new key. Walked through the registry so the binary codec, the labels and
+  // the disposable rule are honoured; NULL once a run has finished (input) or
+  // before it has (result), which the walk skips.
+  for (const field of ["inputEncrypted", "resultEncrypted"] as const) {
+    results.push(
+      await rotateRegistryColumn("DocumentAiRun", field, {
+        documentAiRun: prisma.documentAiRun,
+      } as unknown as CorpusClient),
+    );
+  }
+
   // ───── Whole-account backup blob (String, batched) ─────
   // `DataBackup.data` holds `packBackupBlob()` output: AES-256-GCM ciphertext
   // under a column that does NOT carry the `*Encrypted` suffix, which is why

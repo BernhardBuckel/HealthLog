@@ -15,9 +15,20 @@
  * payload publishes (the person's response-timeout setting, resolved on the
  * server) times the model calls the route can make, plus a margin, so the
  * browser never abandons a read the server is still allowed to finish.
+ *
+ * v1.40 — a route that offers the background path is called with
+ * `Prefer: respond-async` (`background`). The request then only queues the
+ * read and answers 202 quickly, and the result is polled from the run, so no
+ * proxy in front of the server can cut a long read. Such a call carries no
+ * model-time ceiling at all; the run's own deadline (the same setting) ends
+ * it on the server.
  */
+import type { QueryClient } from "@tanstack/react-query";
+
+import { resolveAiRun, type WaitForAiRunOptions } from "@/hooks/use-ai-run";
 import { apiFetchRaw, apiPost } from "@/lib/api/api-fetch";
 import { clientAbortMs } from "@/lib/ai/effective-timeout";
+import type { AiRunAccepted } from "@/lib/documents/ai-runs/types";
 import { ocrImageToText, LocalOcrError } from "@/lib/labs/local-ocr";
 
 /** The transport an AI call uses, resolved from the OCR capability probe. */
@@ -67,6 +78,15 @@ async function fetchOriginalAsFile(target: DocumentAiTarget): Promise<File> {
   });
 }
 
+/** How long a queuing request may take: the upload and the enqueue, no model. */
+const QUEUE_REQUEST_TIMEOUT_MS = 60_000;
+
+/** The background path of a document AI call. */
+export interface DocumentAiBackground extends WaitForAiRunOptions {
+  queryClient: QueryClient;
+  onQueued?: () => void;
+}
+
 /** Run one document AI call over the chosen transport. */
 export async function runDocumentAi<T>(opts: {
   path: string;
@@ -80,8 +100,20 @@ export async function runDocumentAi<T>(opts: {
    * staging read with its one corrective retry).
    */
   modelCalls: number;
+  /** Queue the read and poll it (the route must offer `Prefer: respond-async`). */
+  background?: DocumentAiBackground;
 }): Promise<T> {
-  const timeoutMs = clientAbortMs(opts.responseTimeoutMs, opts.modelCalls);
+  const background = opts.background;
+  const timeoutMs = background
+    ? QUEUE_REQUEST_TIMEOUT_MS
+    : clientAbortMs(opts.responseTimeoutMs, opts.modelCalls);
+  const headers: HeadersInit | undefined = background
+    ? { Prefer: "respond-async" }
+    : undefined;
+  const settle = async (data: T | AiRunAccepted): Promise<T> =>
+    background
+      ? resolveAiRun<T>(background.queryClient, data, background)
+      : (data as T);
   if (opts.mode === "text") {
     if (
       opts.target.servingClass !== "inline" ||
@@ -99,16 +131,21 @@ export async function runDocumentAi<T>(opts: {
         ? new DocumentAssistClientError("ocr")
         : err;
     }
-    return apiPost<T>(
-      opts.path,
-      { mode: "text", text },
-      { signal: AbortSignal.timeout(timeoutMs) },
+    return settle(
+      await apiPost<T | AiRunAccepted>(
+        opts.path,
+        { mode: "text", text },
+        { signal: AbortSignal.timeout(timeoutMs), headers },
+      ),
     );
   }
   // Vision: empty body → the route dispatches to its vision handler.
-  return apiPost<T>(opts.path, undefined, {
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  return settle(
+    await apiPost<T | AiRunAccepted>(opts.path, undefined, {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers,
+    }),
+  );
 }
 
 /** The index route's result, including the lab-staging continuation. */
@@ -123,11 +160,16 @@ export interface DocumentIndexResult {
   labFactsStaged: number;
 }
 
-/** Populate / refresh one document's content index over the chosen transport. */
+/**
+ * Populate / refresh one document's content index over the chosen transport.
+ * Always in the background: the read and the lab staging after it are up to
+ * three model calls, which no proxy timeout should be able to cut.
+ */
 export function runDocumentIndex(opts: {
   mode: DocumentAiMode;
   target: DocumentAiTarget;
   responseTimeoutMs: number;
+  background: DocumentAiBackground;
 }): Promise<DocumentIndexResult> {
   return runDocumentAi<DocumentIndexResult>({
     path: `/api/documents/inbound/${opts.target.documentId}/index`,
@@ -135,5 +177,6 @@ export function runDocumentIndex(opts: {
     target: opts.target,
     responseTimeoutMs: opts.responseTimeoutMs,
     modelCalls: 3,
+    background: opts.background,
   });
 }

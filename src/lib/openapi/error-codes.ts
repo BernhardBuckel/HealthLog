@@ -45,6 +45,12 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
       "ai.unavailable",
     ],
     ai_provider: ["ai_provider.invalid", "ai_provider.no_fields"],
+    aiRuns: [
+      "aiRuns.failed",
+      "aiRuns.notFound",
+      "aiRuns.timedOut",
+      "aiRuns.workerUnavailable",
+    ],
     allergy: ["allergy.invalid"],
     analytics: ["analytics.invalid_query"],
     anamnesis: [

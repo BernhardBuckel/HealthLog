@@ -1,10 +1,13 @@
 /**
- * v1.20.1 — POST /api/labs/ocr/extract, TEXT mode.
+ * v1.20.1 — POST /api/labs/ocr/extract.
  *
  * Focus: the text-mode structuring pass reserves the proportionate text budget
- * ceiling (`AI_BUDGETS.ocrExtractText`), not the far larger vision ceiling, and
- * on a clean extraction failure it refunds the reservation in full rather than
- * charging it.
+ * ceiling (`AI_BUDGETS.ocrExtractText`), not the far larger vision ceiling.
+ *
+ * v1.40 — the route queues the read and answers 202; the read itself, its
+ * budget settlement and its failures are pinned in
+ * `src/lib/labs/__tests__/ocr-run.test.ts`. What stays here is everything the
+ * route still refuses before anything is queued.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -48,6 +51,18 @@ vi.mock("@/lib/ai/coach/budget", () => ({
   resolveDailyCapFor: vi.fn(() => 200_000),
   resolveCostOwner: vi.fn(() => "operator" as const),
 }));
+vi.mock("@/lib/documents/ai-runs/start", () => ({
+  startAiRun: vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          data: { runId: "run-1", status: "QUEUED", pollAfterMs: 1500 },
+          error: null,
+        }),
+        { status: 202 },
+      ),
+  ),
+}));
 vi.mock("@/lib/labs/ocr-extract", async () => {
   const actual = await vi.importActual<typeof import("@/lib/labs/ocr-extract")>(
     "@/lib/labs/ocr-extract",
@@ -56,6 +71,7 @@ vi.mock("@/lib/labs/ocr-extract", async () => {
 });
 
 import { POST } from "../route";
+import { startAiRun } from "@/lib/documents/ai-runs/start";
 import { AI_BUDGETS } from "@/lib/ai/ai-budgets";
 import { requireAuth } from "@/lib/api-handler";
 import { prisma } from "@/lib/db";
@@ -63,10 +79,9 @@ import { requireLabsOcrProvider } from "@/lib/labs/ocr-capability";
 import { requireAiCapability } from "@/lib/ai/capabilities/gate";
 import { AiUnavailableError } from "@/lib/ai/capabilities/refusal";
 import { rasterizePdf } from "@/lib/documents/rasterize-pdf";
-import { reserveBudget, reconcileSpend } from "@/lib/ai/coach/budget";
+import { reserveBudget } from "@/lib/ai/coach/budget";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
-import { OcrExtractError, runOcrExtraction } from "@/lib/labs/ocr-extract";
-import { annotate } from "@/lib/logging/context";
+import { runOcrExtraction } from "@/lib/labs/ocr-extract";
 
 const SESSION_OK = {
   session: { id: "sess-1", expiresAt: new Date(Date.now() + 3_600_000) },
@@ -113,10 +128,8 @@ beforeEach(() => {
 
 describe("POST /api/labs/ocr/extract — text mode budget", () => {
   it("reserves the cheaper text ceiling, not the vision ceiling", async () => {
-    vi.mocked(runOcrExtraction).mockResolvedValue({ rows: [] } as never);
-
     const res = await POST(textReq());
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     // The reservation must use the text ceiling — proven distinct from the
     // vision ceiling so a future merge can't silently re-point it.
@@ -136,61 +149,29 @@ describe("POST /api/labs/ocr/extract — text mode budget", () => {
     );
   });
 
-  it("refunds the reservation in full on a clean extract failure", async () => {
-    vi.mocked(runOcrExtraction).mockRejectedValue(
-      new OcrExtractError("unreadable"),
-    );
-
-    const res = await POST(textReq());
-    expect(res.status).toBe(422);
-
-    // actual spend reconciles to 0 — the failed structuring pass is refunded,
-    // not charged at the reserved estimate.
-    expect(reconcileSpend).toHaveBeenCalledWith(
-      "user-1",
-      AI_BUDGETS.ocrExtractText.maxTokens,
-      0,
-      "2026-06-26",
-      0,
-      { servedBy: null, reservedOwner: "operator" },
-    );
-  });
-
-  it("identifies provider failures instead of blaming image quality", async () => {
-    vi.mocked(runOcrExtraction).mockRejectedValue(new Error("provider down"));
-
-    const res = await POST(textReq());
-    const body = (await res.json()) as { error: string };
-
-    expect(res.status).toBe(502);
-    expect(body.error).toContain("configured AI provider");
-  });
-
-  it("never passes the upstream body on, to the caller or to the event", async () => {
-    const upstreamBody = "ami-id instance-id iam/security-credentials/admin";
-    vi.mocked(runOcrExtraction).mockRejectedValue(
-      Object.assign(new Error("Local AI request failed (403)"), {
-        httpStatus: 403,
-        model: "llama3",
-        bodyExcerpt: upstreamBody,
-      }),
-    );
-
-    const res = await POST(textReq());
-    expect(res.status).toBe(502);
-    expect(await res.text()).not.toContain("iam/security-credentials");
-    const events = JSON.stringify(vi.mocked(annotate).mock.calls);
-    expect(events).not.toContain("iam/security-credentials");
-    // The status and the model stay, so an operator can still tell why.
-    expect(annotate).toHaveBeenCalledWith(
+  it("queues the text, sealed in the run, with the reservation it took", async () => {
+    const res = await POST(textReq("Glucose 95 mg/dL"));
+    expect(res.status).toBe(202);
+    expect(runOcrExtraction).not.toHaveBeenCalled();
+    expect(startAiRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        meta: expect.objectContaining({ upstreamStatus: 403, model: "llama3" }),
+        userId: "user-1",
+        kind: "LABS_OCR_EXTRACT",
+        params: {
+          mode: "text",
+          budget: {
+            reserved: AI_BUDGETS.ocrExtractText.maxTokens,
+            owner: "operator",
+            dateKey: "2026-06-26",
+          },
+        },
+        input: Buffer.from("Glucose 95 mg/dL", "utf8"),
       }),
     );
   });
 });
 
-describe("POST /api/labs/ocr/extract — vision PDF rasterization", () => {
+describe("POST /api/labs/ocr/extract — vision uploads", () => {
   function pdfReq(): Request {
     // A minimal `%PDF-` header is all `detectOcrMimeType` needs to sniff a PDF.
     const bytes = new Uint8Array([
@@ -225,48 +206,21 @@ describe("POST /api/labs/ocr/extract — vision PDF rasterization", () => {
     } as never);
   });
 
-  it("rasterizes a PDF for a non-Anthropic vision provider and sends the page images", async () => {
-    vi.mocked(rasterizePdf).mockResolvedValue({
-      ok: true,
-      images: [{ mediaType: "image/jpeg", dataBase64: "cGFnZQ==" }],
-      pageCount: 1,
-    });
-    vi.mocked(runOcrExtraction).mockResolvedValue({ rows: [] } as never);
-
+  it("queues a PDF with its sniffed type; the worker renders it", async () => {
     const res = await POST(pdfReq());
-    expect(res.status).toBe(200);
-    // The whole PDF was read: no coverage note on the response.
-    const whole = (await res.json()) as { data: Record<string, unknown> };
-    expect(whole.data).not.toHaveProperty("pageCoverage");
-    expect(rasterizePdf).toHaveBeenCalledOnce();
-    // The rendered page images flow through as `input_image`s; no native PDF
-    // document block is sent for a non-Anthropic provider.
-    expect(runOcrExtraction).toHaveBeenCalledWith(
+    expect(res.status).toBe(202);
+    // Rendering is the worker's job now; nothing is read in the request.
+    expect(rasterizePdf).not.toHaveBeenCalled();
+    expect(runOcrExtraction).not.toHaveBeenCalled();
+    expect(startAiRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        images: [{ mediaType: "image/jpeg", dataBase64: "cGFnZQ==" }],
-        documents: [],
+        kind: "LABS_OCR_EXTRACT",
+        params: expect.objectContaining({
+          mode: "vision",
+          mime: "application/pdf",
+        }),
       }),
     );
-  });
-
-  it("says on the response when only the first pages of a long PDF were read", async () => {
-    const tenPages = Array.from({ length: 10 }, () => ({
-      mediaType: "image/jpeg" as const,
-      dataBase64: "cGFnZQ==",
-    }));
-    vi.mocked(rasterizePdf).mockResolvedValue({
-      ok: true,
-      images: tenPages,
-      pageCount: 23,
-    });
-    vi.mocked(runOcrExtraction).mockResolvedValue({ rows: [] } as never);
-
-    const res = await POST(pdfReq());
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      data: { pageCoverage?: { read: number; total: number } };
-    };
-    expect(body.data.pageCoverage).toEqual({ read: 10, total: 23 });
   });
 
   it("hands the slot back when the upload is not an image or PDF", async () => {
@@ -287,36 +241,13 @@ describe("POST /api/labs/ocr/extract — vision PDF rasterization", () => {
     expect(refundRateLimit).toHaveBeenCalledWith("labs-ocr:user-1");
     expect(runOcrExtraction).not.toHaveBeenCalled();
   });
-
-  it("falls back to pdfNeedsAnthropic when rasterization fails", async () => {
-    vi.mocked(rasterizePdf).mockResolvedValue({
-      ok: false,
-      reason: "render-failed",
-    });
-
-    const res = await POST(pdfReq());
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: string | null };
-    expect(body.error).toBeTruthy();
-    // A failed render never reaches the provider — and refunds the reservation.
-    expect(runOcrExtraction).not.toHaveBeenCalled();
-    expect(reconcileSpend).toHaveBeenCalledWith(
-      "user-1",
-      AI_BUDGETS.ocrExtract.maxTokens,
-      0,
-      "2026-06-26",
-      0,
-      { servedBy: null, reservedOwner: "operator" },
-    );
-  });
 });
 
 describe("POST /api/labs/ocr/extract — the hourly scan bucket", () => {
   it("charges the ceiling the operator set", async () => {
     vi.stubEnv("LABS_OCR_LIMIT_PER_HOUR", "40");
-    vi.mocked(runOcrExtraction).mockResolvedValue({ rows: [] } as never);
     const res = await POST(textReq() as never);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(checkRateLimit).toHaveBeenCalledWith(
       "labs-ocr:user-1",
       40,
@@ -366,15 +297,9 @@ describe("POST /api/labs/ocr/extract — the hourly scan bucket", () => {
     expect(runOcrExtraction).not.toHaveBeenCalled();
   });
 
-  it("keeps the slot once the provider was actually called", async () => {
-    vi.mocked(runOcrExtraction).mockRejectedValue(new Error("provider down"));
-    const failed = await POST(textReq() as never);
-    expect(failed.status).toBe(502);
-    expect(refundRateLimit).not.toHaveBeenCalled();
-
-    vi.mocked(runOcrExtraction).mockResolvedValue({ rows: [] } as never);
-    const ok = await POST(textReq() as never);
-    expect(ok.status).toBe(200);
+  it("keeps the slot once the scan is queued", async () => {
+    const queued = await POST(textReq() as never);
+    expect(queued.status).toBe(202);
     expect(refundRateLimit).not.toHaveBeenCalled();
   });
 });
