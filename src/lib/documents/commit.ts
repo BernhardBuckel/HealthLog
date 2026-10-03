@@ -28,6 +28,7 @@ import { invalidateUserHealthScore } from "@/lib/cache/invalidate";
 import { emitDataArrival } from "@/lib/arrivals/emit-shared";
 import { decryptFactData } from "@/lib/documents/store";
 import { resolveOrMintBiomarker } from "@/lib/labs/biomarker-store";
+import { sameLabUnit } from "@/lib/labs/unit-normalise";
 import {
   isUnreadableRange,
   parseReferenceRange,
@@ -134,10 +135,10 @@ async function commitObservation(
   // the stated number under the catalog's unit would corrupt the reading AND
   // break the "transcribe verbatim" contract — so reject the fact and let the
   // user reconcile on the review screen, exactly like the `unitRequired` gate.
+  // Spelling is compared through the shared normaliser, the same one the
+  // manual and scan paths use: `ug/L` is `µg/L`, but `MIU/L` is not `mIU/L`.
   if (!isQualitative) {
-    const stated = (data.unit as string).trim().toLowerCase();
-    const target = biomarker.unit.trim().toLowerCase();
-    if (stated !== target) {
+    if (!sameLabUnit(data.unit as string, biomarker.unit)) {
       throw new FactCommitError(
         "observation.unitMismatch",
         `The stated unit (${(data.unit as string).trim()}) does not match the saved unit for ${biomarker.name} (${biomarker.unit || "none"}). Reconcile the unit before saving.`,
