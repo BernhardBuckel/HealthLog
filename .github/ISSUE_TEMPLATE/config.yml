@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Ideas and upvotes
+    url: https://github.com/MBombeck/HealthLog/discussions/categories/ideas?discussions_q=category%3AIdeas+sort%3Atop
+    about: Suggest an improvement or upvote the ones you want. One idea per discussion; the most-voted ones get looked at first.
   - name: Documentation
     url: https://docs.healthlog.dev
     about: Setup, configuration, and feature documentation. Most usage questions are answered here.
