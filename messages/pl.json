@@ -489,6 +489,13 @@
       "action": "Potwierdź",
       "failed": "Nie udało się. Spróbuj ponownie.",
       "nothingToConfirm": "Nie ma tu nic do potwierdzenia. Rozpocznij połączenie ponownie w swoim asystencie."
+    },
+    "insecureTransport": {
+      "title": "Na tej stronie nie da się dokończyć logowania",
+      "body": "Ten serwer ustawia ciasteczko logowania tylko przez https://, a ta strona została otwarta przez http://. Przeglądarka odrzuciłaby ciasteczko, więc logowanie jest tu wyłączone.",
+      "fixLan": "Serwer w sieci domowej bez TLS: ustaw SESSION_COOKIE_SECURE=false w jego ustawieniach i uruchom go ponownie.",
+      "fixHttps": "Serwer za proxy HTTPS: otwórz zamiast tego adres https:// i upewnij się, że proxy przekazuje X-Forwarded-Proto: https.",
+      "localhostNote": "Ta strona działa na http://localhost, a serwer ustawia ciasteczko logowania tylko dla https://. Większość przeglądarek akceptuje to na localhost; jeśli po zalogowaniu wracasz tutaj, ustaw SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {
@@ -637,6 +644,11 @@
         "mood": "/5",
         "bmi": "kg/m²"
       }
+    },
+    "keyBackupBanner": {
+      "title": "Zrób kopię klucza szyfrowania",
+      "body": "Bez kopii klucza Twoich danych nie da się odzyskać po ponownej instalacji. To zajmie minutę.",
+      "action": "Otwórz krok"
     }
   },
   "measurements": {
@@ -7579,6 +7591,57 @@
     "cardError": {
       "title": "Nie udało się wyświetlić tej części strony",
       "description": "Reszta strony działa; spróbuj ponownie lub odśwież, jeśli błąd się powtarza."
+    },
+    "keyBackup": {
+      "title": "Zrób kopię klucza szyfrowania",
+      "description": "Bez kopii tego klucza Twoich zaszyfrowanych danych i kopii zapasowych z tego serwera nie da się już odczytać.",
+      "loading": "Wczytywanie stanu kopii klucza…",
+      "loadError": "Nie udało się wczytać stanu kopii klucza.",
+      "badgeDue": "Do zrobienia",
+      "badgeDone": "Zapisany",
+      "keyId": "ID aktywnego klucza",
+      "fingerprint": "Odcisk",
+      "whatIsLost": "Przechowuj kopię klucza poza tym serwerem, na przykład w menedżerze haseł. Jeśli serwer zostanie przeinstalowany z innym kluczem, HealthLog nie wznowi działania, dopóki oryginalny klucz nie wróci.",
+      "fingerprintHint": "Odcisk to pierwsze 12 znaków skrótu SHA-256 klucza. Rozpoznaje klucz, nie ujawniając go, więc możesz porównać go ze swoją kopią.",
+      "checkLabel": "Sprawdź moją kopię",
+      "checkButton": "Sprawdź",
+      "checkNote": "Wklejony klucz jest porównywany z aktywnym kluczem, a potem odrzucany. Nigdy nie jest zapisywany ani logowany.",
+      "checkInsecureNote": "Ta strona nie jest serwowana przez https://, więc wklejony klucz przechodzi przez sieć bez szyfrowania, tak jak Twoje hasło. Jest porównywany i odrzucany, nigdy nie jest zapisywany ani logowany.",
+      "checkMatches": "Twoja kopia pasuje do aktywnego klucza.",
+      "checkNoMatch": "Twoja kopia nie pasuje do aktywnego klucza. Sprawdź, czy skopiowano całą wartość.",
+      "checkFailed": "Sprawdzenie nie powiodło się.",
+      "confirmButton": "Mam kopię tego klucza",
+      "confirmed": "Kopia klucza potwierdzona.",
+      "confirmFailed": "Nie udało się zapisać potwierdzenia.",
+      "stale": "Klucz serwera zmienił się od wczytania tej strony. Sprawdź nowe ID i odcisk, a potem potwierdź ponownie.",
+      "confirmedAt": "Potwierdzono {date}.",
+      "confirmedAtBy": "Potwierdzono {date}, potwierdził(a): {who}.",
+      "dueAgain": "Potwierdzono kopię klucza {keyId}, ale serwer używa teraz innego klucza. Zrób kopię obecnego.",
+      "tileLabel": "Kopia klucza szyfrowania",
+      "tileDue": "Niepotwierdzona",
+      "tileDone": "Potwierdzona",
+      "platform": {
+        "composeLabel": "Compose",
+        "composeWhere": "Klucz to ENCRYPTION_KEY (lub ENCRYPTION_KEYS) w pliku .env obok docker-compose.yml.",
+        "truenasLabel": "TrueNAS",
+        "truenasWhere": "Otwórz Apps, wybierz HealthLog, kliknij Edytuj i skopiuj ENCRYPTION_KEY ze zmiennych środowiskowych.",
+        "coolifyLabel": "Coolify",
+        "coolifyWhere": "Otwórz aplikację w Coolify i skopiuj ENCRYPTION_KEY z jej Environment Variables.",
+        "unraidLabel": "Unraid",
+        "unraidWhere": "Na karcie Docker edytuj kontener HealthLog i skopiuj ENCRYPTION_KEY z szablonu albo z pliku .env stosu Compose Manager.",
+        "portainerLabel": "Portainer",
+        "portainerWhere": "Otwórz stos HealthLog w Portainerze i skopiuj ENCRYPTION_KEY z jego zmiennych środowiskowych."
+      }
+    },
+    "keyMismatch": {
+      "title": "HealthLog nie może otworzyć swoich danych",
+      "body": "Klucz szyfrowania, z którym uruchomiono ten serwer, nie jest kluczem, którym zapisano jego bazę danych. Aby chronić Twoje dane, HealthLog niczego nie udostępnia, dopóki to nie zostanie naprawione.",
+      "fixTitle": "Jak to naprawić",
+      "fixRestore": "Przywróć oryginalny ENCRYPTION_KEY (lub wpis w ENCRYPTION_KEYS) w ustawieniach serwera.",
+      "fixDatabase": "Albo ustaw DATABASE_URL na bazę danych, która należy do tego klucza.",
+      "fixFresh": "Albo zacznij od nowa z pustą bazą. Stare dane i ich kopie można odczytać tylko starym kluczem.",
+      "restartNote": "Po zmianie uruchom HealthLog ponownie.",
+      "codes": "Dla administratora: żądania API odpowiadają 503 z kodem błędu {code}, a /api/health podaje powód {reason}."
     }
   },
   "achievements": {

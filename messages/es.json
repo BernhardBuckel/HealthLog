@@ -489,6 +489,13 @@
       "action": "Confirmar",
       "failed": "No ha funcionado. Inténtalo de nuevo.",
       "nothingToConfirm": "Aquí no hay nada que confirmar. Vuelve a iniciar la conexión desde tu asistente."
+    },
+    "insecureTransport": {
+      "title": "No se puede completar el inicio de sesión en esta página",
+      "body": "Este servidor solo establece su cookie de sesión por https://, pero esta página se abrió por http://. El navegador descartaría la cookie, así que el inicio de sesión está desactivado aquí.",
+      "fixLan": "Servidor en una red doméstica sin TLS: pon SESSION_COOKIE_SECURE=false en su configuración y reinícialo.",
+      "fixHttps": "Servidor detrás de un proxy HTTPS: abre la dirección https:// y asegúrate de que el proxy reenvía X-Forwarded-Proto: https.",
+      "localhostNote": "Esta página está en http://localhost y el servidor solo establece su cookie de sesión para https://. La mayoría de los navegadores lo aceptan en localhost; si vuelves aquí tras iniciar sesión, pon SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {
@@ -637,6 +644,11 @@
         "mood": "/5",
         "bmi": "kg/m²"
       }
+    },
+    "keyBackupBanner": {
+      "title": "Haz una copia de tu clave de cifrado",
+      "body": "Sin una copia de la clave, tus datos no se pueden recuperar tras una reinstalación. Es cuestión de un minuto.",
+      "action": "Abrir el paso"
     }
   },
   "measurements": {
@@ -7579,6 +7591,57 @@
     "cardError": {
       "title": "Esta parte de la página no se pudo mostrar",
       "description": "El resto de la página sigue funcionando; inténtalo de nuevo o recarga si el fallo continúa."
+    },
+    "keyBackup": {
+      "title": "Haz una copia de tu clave de cifrado",
+      "description": "Sin una copia de esta clave, tus datos cifrados y las copias de este servidor no se podrán volver a leer.",
+      "loading": "Cargando el estado de la copia de la clave…",
+      "loadError": "No se pudo cargar el estado de la copia de la clave.",
+      "badgeDue": "Pendiente",
+      "badgeDone": "Guardada",
+      "keyId": "ID de la clave activa",
+      "fingerprint": "Huella",
+      "whatIsLost": "Guarda una copia de la clave fuera de este servidor, por ejemplo en un gestor de contraseñas. Si el servidor se reinstala con otra clave, HealthLog no vuelve a funcionar hasta que la clave original esté de vuelta.",
+      "fingerprintHint": "La huella son los primeros 12 caracteres del hash SHA-256 de la clave. Identifica la clave sin revelarla, para que puedas compararla con tu copia.",
+      "checkLabel": "Comprobar mi copia",
+      "checkButton": "Comprobar",
+      "checkNote": "La clave que pegues se compara con la clave activa y después se descarta. Nunca se guarda ni se registra.",
+      "checkInsecureNote": "Esta página no se sirve por https://, así que la clave que pegues viaja por la red sin cifrar, igual que tu contraseña. Se compara y se descarta, nunca se guarda ni se registra.",
+      "checkMatches": "Tu copia coincide con la clave activa.",
+      "checkNoMatch": "Tu copia no coincide con la clave activa. Comprueba que copiaste el valor completo.",
+      "checkFailed": "La comprobación ha fallado.",
+      "confirmButton": "He guardado esta clave",
+      "confirmed": "Copia de la clave confirmada.",
+      "confirmFailed": "No se pudo guardar la confirmación.",
+      "stale": "La clave del servidor cambió desde que se cargó esta página. Revisa el nuevo ID y la huella, y vuelve a confirmar.",
+      "confirmedAt": "Confirmada el {date}.",
+      "confirmedAtBy": "Confirmada el {date} por {who}.",
+      "dueAgain": "Se confirmó una copia de la clave {keyId}, pero el servidor usa ahora otra clave. Guarda una copia de la actual.",
+      "tileLabel": "Copia de la clave de cifrado",
+      "tileDue": "Sin confirmar",
+      "tileDone": "Confirmada",
+      "platform": {
+        "composeLabel": "Compose",
+        "composeWhere": "La clave es ENCRYPTION_KEY (o ENCRYPTION_KEYS) en el archivo .env junto a docker-compose.yml.",
+        "truenasLabel": "TrueNAS",
+        "truenasWhere": "Abre Apps, selecciona HealthLog, elige Editar y copia ENCRYPTION_KEY de las variables de entorno.",
+        "coolifyLabel": "Coolify",
+        "coolifyWhere": "Abre la aplicación en Coolify y copia ENCRYPTION_KEY de sus Environment Variables.",
+        "unraidLabel": "Unraid",
+        "unraidWhere": "En la pestaña Docker, edita el contenedor de HealthLog y copia ENCRYPTION_KEY de la plantilla, o del .env de tu stack de Compose Manager.",
+        "portainerLabel": "Portainer",
+        "portainerWhere": "Abre el stack de HealthLog en Portainer y copia ENCRYPTION_KEY de sus variables de entorno."
+      }
+    },
+    "keyMismatch": {
+      "title": "HealthLog no puede abrir sus datos",
+      "body": "La clave de cifrado con la que se inició este servidor no es la clave con la que se escribió su base de datos. Para proteger tus datos, HealthLog no sirve nada hasta que se corrija.",
+      "fixTitle": "Cómo corregirlo",
+      "fixRestore": "Vuelve a poner la ENCRYPTION_KEY original (o la entrada de ENCRYPTION_KEYS) en la configuración del servidor.",
+      "fixDatabase": "O haz que DATABASE_URL apunte a la base de datos que corresponde a esta clave.",
+      "fixFresh": "O empieza de cero con una base de datos vacía. Los datos antiguos y sus copias solo se pueden leer con la clave antigua.",
+      "restartNote": "Reinicia HealthLog después del cambio.",
+      "codes": "Para el administrador: las peticiones a la API responden 503 con el código de error {code}, y /api/health indica el motivo {reason}."
     }
   },
   "achievements": {

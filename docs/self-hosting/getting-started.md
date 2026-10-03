@@ -207,6 +207,13 @@ ps` — the `app` healthcheck polls `/api/health` every 30 seconds
   the container unhealthy if Postgres is still
   starting. Tail `docker compose logs db` to confirm Postgres came up
   cleanly.
+- **The login page says "Signing in cannot complete on this page".** The
+  server sets its session cookie with the `Secure` flag (the production
+  default) and the page was opened over plain `http://`, where the browser
+  would drop it. Set `SESSION_COOKIE_SECURE=false` for a server reached only
+  over HTTP on a private network, or open the `https://` address (behind a TLS
+  proxy, make sure it forwards `X-Forwarded-Proto: https`). The sign-in is
+  refused before any password, code or ticket is used.
 - **OAuth callbacks loop back to localhost.** Confirm `APP_URL` and
   `NEXT_PUBLIC_APP_URL` both point at the public hostname, not at
   `localhost`, and restart `app` after the change.
@@ -225,6 +232,40 @@ ps` — the `app` healthcheck polls `/api/health` every 30 seconds
   round-trip on `compose up`. If you pin a custom compose, keep
   `pull_policy: always` on the `app` service, and verify the running
   build with `GET /api/version` (it returns `version` + `buildSha`).
+
+## Back up your encryption key
+
+`ENCRYPTION_KEY` (or the `ENCRYPTION_KEYS` map) is not stored in the database.
+Without it, the encrypted parts of the database and every in-database backup
+cannot be read. Keep a copy outside the server, then confirm it under Admin,
+Encryption: the step shows the key id and a fingerprint (the first 12 hex
+characters of SHA-256 over the key) and can check a pasted copy without
+storing it. Admins see a dashboard reminder until the active key is confirmed.
+
+| Platform  | Where the key is set                                            |
+| --------- | --------------------------------------------------------------- |
+| Compose   | `.env` next to `docker-compose.yml`                             |
+| TrueNAS   | Apps, HealthLog, Edit, Environment                              |
+| Coolify   | the application's Environment Variables                         |
+| Unraid    | the container template (Docker tab, Edit) or the Compose `.env` |
+| Portainer | the stack's Environment variables                               |
+
+Set `HEALTHLOG_PLATFORM` (`compose`, `truenas`, `coolify`, `unraid`,
+`portainer`) to open the step on your platform's instructions.
+
+To compute the fingerprint of your copy:
+
+```bash
+echo -n "<your key>" | xxd -r -p | sha256sum | cut -c1-12
+```
+
+**HealthLog refuses to serve: encryption key does not match this database.**
+At start the app checks that its key opens the stored data. If it does not,
+every API request answers `503` with `meta.errorCode`
+`encryption.key_mismatch`, `/api/health` answers `503` with
+`reason: "encryption_key_mismatch"`, and background jobs are not started.
+Restore the original key, point `DATABASE_URL` at the matching database, or
+start with an empty database; then restart.
 
 ## Backup and restore
 

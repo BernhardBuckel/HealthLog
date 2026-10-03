@@ -72,6 +72,11 @@ const MANIFEST_NAMES: string[] = (
  */
 const PUBLISHED_TO_USERS = [
   {
+    name: "HEALTHLOG_PLATFORM",
+    shownBy:
+      "the admin's encryption key backup step, which opens on that platform",
+  },
+  {
     name: "AUDIT_LOG_RETENTION_DAYS",
     shownBy: "the shared-access activity window and the revoke dialog",
   },

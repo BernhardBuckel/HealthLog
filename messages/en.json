@@ -489,6 +489,13 @@
       "action": "Confirm",
       "failed": "That did not work. Please try again.",
       "nothingToConfirm": "There is nothing to confirm here. Start the connection again from your assistant."
+    },
+    "insecureTransport": {
+      "title": "Signing in cannot complete on this page",
+      "body": "This server only sets its sign-in cookie over https://, but this page was opened over http://. The browser would drop the cookie, so signing in is switched off here.",
+      "fixLan": "Server on a home network without TLS: set SESSION_COOKIE_SECURE=false in its settings and restart it.",
+      "fixHttps": "Server behind an HTTPS proxy: open the https:// address instead, and make sure the proxy forwards X-Forwarded-Proto: https.",
+      "localhostNote": "This page is on http://localhost while the server sets its sign-in cookie for https:// only. Most browsers accept that on localhost; if signing in keeps returning here, set SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {
@@ -637,6 +644,11 @@
         "mood": "/5",
         "bmi": "kg/m²"
       }
+    },
+    "keyBackupBanner": {
+      "title": "Back up your encryption key",
+      "body": "Without a copy of the key, your data cannot be recovered after a reinstall. It takes a minute.",
+      "action": "Open the step"
     }
   },
   "measurements": {
@@ -7579,6 +7591,57 @@
     "cardError": {
       "title": "This part of the page could not be shown",
       "description": "The rest of the page still works; try again or reload if it keeps failing."
+    },
+    "keyBackup": {
+      "title": "Back up your encryption key",
+      "description": "Without a copy of this key, your encrypted data and this server's backups cannot be read again.",
+      "loading": "Loading the key backup status…",
+      "loadError": "Could not load the key backup status.",
+      "badgeDue": "To do",
+      "badgeDone": "Backed up",
+      "keyId": "Active key id",
+      "fingerprint": "Fingerprint",
+      "whatIsLost": "Keep a copy of the key somewhere outside this server, for example in a password manager. If the server is reinstalled with a different key, HealthLog refuses to start serving until the original key is back.",
+      "fingerprintHint": "The fingerprint is the first 12 characters of the SHA-256 hash of the key. It identifies the key without revealing it, so you can compare it with your copy.",
+      "checkLabel": "Check my copy",
+      "checkButton": "Check",
+      "checkNote": "The key you paste is compared with the active key and then discarded. It is never stored or logged.",
+      "checkInsecureNote": "This page is not served over https://, so the key you paste crosses the network unencrypted, just like your password does. It is compared and discarded, never stored or logged.",
+      "checkMatches": "Your copy matches the active key.",
+      "checkNoMatch": "Your copy does not match the active key. Check that you copied the whole value.",
+      "checkFailed": "The check failed.",
+      "confirmButton": "I have backed up this key",
+      "confirmed": "Key backup confirmed.",
+      "confirmFailed": "Could not save the confirmation.",
+      "stale": "The server's key changed since this page loaded. Check the new key id and fingerprint, then confirm again.",
+      "confirmedAt": "Confirmed on {date}.",
+      "confirmedAtBy": "Confirmed on {date} by {who}.",
+      "dueAgain": "A backup was confirmed for key {keyId}, but the server now uses another key. Back up the current one.",
+      "tileLabel": "Encryption key backup",
+      "tileDue": "Not confirmed",
+      "tileDone": "Confirmed",
+      "platform": {
+        "composeLabel": "Compose",
+        "composeWhere": "The key is ENCRYPTION_KEY (or ENCRYPTION_KEYS) in the .env file next to docker-compose.yml.",
+        "truenasLabel": "TrueNAS",
+        "truenasWhere": "Open Apps, select HealthLog, choose Edit and copy ENCRYPTION_KEY from the environment settings.",
+        "coolifyLabel": "Coolify",
+        "coolifyWhere": "Open the application in Coolify and copy ENCRYPTION_KEY from its Environment Variables.",
+        "unraidLabel": "Unraid",
+        "unraidWhere": "On the Docker tab, edit the HealthLog container and copy ENCRYPTION_KEY from the template, or from the .env of your Compose Manager stack.",
+        "portainerLabel": "Portainer",
+        "portainerWhere": "Open the HealthLog stack in Portainer and copy ENCRYPTION_KEY from its environment variables."
+      }
+    },
+    "keyMismatch": {
+      "title": "HealthLog cannot open its data",
+      "body": "The encryption key this server was started with is not the key its database was written with. To protect your data, HealthLog does not serve anything until this is fixed.",
+      "fixTitle": "How to fix it",
+      "fixRestore": "Put the original ENCRYPTION_KEY (or ENCRYPTION_KEYS entry) back into the server's settings.",
+      "fixDatabase": "Or point DATABASE_URL at the database that belongs to this key.",
+      "fixFresh": "Or start fresh with an empty database. The old data and its backups can only be read with the old key.",
+      "restartNote": "Restart HealthLog after the change.",
+      "codes": "For the operator: API requests answer 503 with error code {code}, and /api/health reports reason {reason}."
     }
   },
   "achievements": {

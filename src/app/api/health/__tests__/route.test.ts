@@ -117,3 +117,26 @@ describe("GET /api/health process topology", () => {
     expect(ready.body).toEqual({ status: "ok" });
   });
 });
+
+describe("GET /api/health while the encryption key does not match", () => {
+  it("answers 503 with the reason, for everyone, even with every component up", async () => {
+    const { setKeyMismatchState } =
+      await import("@/lib/boot/key-mismatch-state");
+    vi.stubEnv("HEALTHLOG_PROCESS_TYPE", "web");
+    getGlobalBoss.mockReturnValue({});
+    setKeyMismatchState({ keyIds: ["v1"], detectedAt: "2026-10-03T00:00:00Z" });
+    try {
+      const { response, body } = await health();
+      expect(response.status).toBe(503);
+      expect(body).toEqual({
+        status: "degraded",
+        reason: "encryption_key_mismatch",
+      });
+    } finally {
+      setKeyMismatchState(null);
+    }
+    const { response, body } = await health();
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ status: "ok" });
+  });
+});

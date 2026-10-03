@@ -79,6 +79,14 @@ dev --create-only --name vX_Y_Z_rollback_<col>`), edit the SQL,
    commit, and re-deploy. Never `migrate resolve --rolled-back` against
    production unless you've taken a fresh `pg_dump` first.
 
+## Catalog templates
+
+A new required environment variable, or a change to the compose shape, needs a
+matching pull request to the TrueNAS apps catalog in the same release cycle
+(and an update to `docs/self-hosting/unraid/healthlog.xml` and
+`docs/self-hosting/portainer/templates.json`). See
+`docs/self-hosting/truenas.md` for what the catalog template carries.
+
 ## Verify the served version
 
 The queued-deploy status is **not** the source of truth — the version

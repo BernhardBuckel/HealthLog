@@ -114,3 +114,30 @@ describe("GET /api/auth/registration-status", () => {
     expect(body.data.registrationEnabled).toBe(false);
   });
 });
+
+describe("GET /api/auth/registration-status — sessionCookieSecure (#1097)", () => {
+  it("publishes whether the server issues Secure session cookies, on every branch", async () => {
+    vi.mocked(prisma.appSettings.findUnique).mockResolvedValue({
+      id: "singleton",
+      registrationEnabled: true,
+    } as never);
+    vi.stubEnv("SESSION_COOKIE_SECURE", "true");
+    let body = await (await callGet()).json();
+    expect(body.data.sessionCookieSecure).toBe(true);
+
+    vi.stubEnv("SESSION_COOKIE_SECURE", "false");
+    body = await (await callGet()).json();
+    expect(body.data.sessionCookieSecure).toBe(false);
+
+    vi.mocked(prisma.appSettings.findUnique).mockRejectedValue(
+      new Error("db down"),
+    );
+    vi.stubEnv("SESSION_COOKIE_SECURE", "true");
+    body = await (await callGet()).json();
+    expect(body.data).toEqual({
+      registrationEnabled: false,
+      sessionCookieSecure: true,
+    });
+    vi.unstubAllEnvs();
+  });
+});

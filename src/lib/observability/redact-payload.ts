@@ -96,6 +96,11 @@ export const SENSITIVE_KEY_PATTERNS: readonly RegExp[] = [
   // `client_secret` are already covered by `/token/i` + `/secret/i`; the
   // verifier is the one secret-shaped key those patterns miss.
   /verifier/i,
+  // v1.40.0 — the encryption key an admin pastes into "Check my copy"
+  // (`POST /api/admin/encryption/key-backup/verify`). The route never logs its
+  // body; this keeps it out of any excerpt a future change might take.
+  // Anchored so `encryptionKeyId` and friends stay readable.
+  /^encryption[_-]?key$/i,
 ];
 
 /**

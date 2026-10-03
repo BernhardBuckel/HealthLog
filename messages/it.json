@@ -489,6 +489,13 @@
       "action": "Conferma",
       "failed": "Non ha funzionato. Riprova.",
       "nothingToConfirm": "Qui non c'è nulla da confermare. Avvia di nuovo la connessione dal tuo assistente."
+    },
+    "insecureTransport": {
+      "title": "L'accesso non può essere completato su questa pagina",
+      "body": "Questo server imposta il cookie di accesso solo tramite https://, ma questa pagina è stata aperta tramite http://. Il browser scarterebbe il cookie, quindi l'accesso qui è disattivato.",
+      "fixLan": "Server in una rete domestica senza TLS: imposta SESSION_COOKIE_SECURE=false nelle sue impostazioni e riavvialo.",
+      "fixHttps": "Server dietro un proxy HTTPS: apri invece l'indirizzo https:// e assicurati che il proxy inoltri X-Forwarded-Proto: https.",
+      "localhostNote": "Questa pagina è su http://localhost mentre il server imposta il cookie di accesso solo per https://. La maggior parte dei browser lo accetta su localhost; se dopo l'accesso torni qui, imposta SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {
@@ -637,6 +644,11 @@
         "mood": "/5",
         "bmi": "kg/m²"
       }
+    },
+    "keyBackupBanner": {
+      "title": "Fai un backup della tua chiave di cifratura",
+      "body": "Senza una copia della chiave, i tuoi dati non si possono recuperare dopo una reinstallazione. Ci vuole un minuto.",
+      "action": "Apri il passaggio"
     }
   },
   "measurements": {
@@ -7579,6 +7591,57 @@
     "cardError": {
       "title": "Questa parte della pagina non è stata mostrata",
       "description": "Il resto della pagina funziona; riprova o ricarica se il problema continua."
+    },
+    "keyBackup": {
+      "title": "Fai un backup della tua chiave di cifratura",
+      "description": "Senza una copia di questa chiave, i tuoi dati cifrati e i backup di questo server non saranno più leggibili.",
+      "loading": "Caricamento dello stato del backup della chiave…",
+      "loadError": "Impossibile caricare lo stato del backup della chiave.",
+      "badgeDue": "Da fare",
+      "badgeDone": "Salvata",
+      "keyId": "ID della chiave attiva",
+      "fingerprint": "Impronta",
+      "whatIsLost": "Conserva una copia della chiave fuori da questo server, per esempio in un gestore di password. Se il server viene reinstallato con un'altra chiave, HealthLog non torna in servizio finché la chiave originale non è di nuovo al suo posto.",
+      "fingerprintHint": "L'impronta sono i primi 12 caratteri dell'hash SHA-256 della chiave. Identifica la chiave senza rivelarla, così puoi confrontarla con la tua copia.",
+      "checkLabel": "Verifica la mia copia",
+      "checkButton": "Verifica",
+      "checkNote": "La chiave incollata viene confrontata con quella attiva e poi scartata. Non viene mai salvata né registrata.",
+      "checkInsecureNote": "Questa pagina non è servita tramite https://, quindi la chiave incollata attraversa la rete in chiaro, come la tua password. Viene confrontata e scartata, mai salvata né registrata.",
+      "checkMatches": "La tua copia corrisponde alla chiave attiva.",
+      "checkNoMatch": "La tua copia non corrisponde alla chiave attiva. Controlla di aver copiato l'intero valore.",
+      "checkFailed": "La verifica non è riuscita.",
+      "confirmButton": "Ho salvato questa chiave",
+      "confirmed": "Backup della chiave confermato.",
+      "confirmFailed": "Impossibile salvare la conferma.",
+      "stale": "La chiave del server è cambiata da quando questa pagina è stata caricata. Controlla il nuovo ID e l'impronta, poi conferma di nuovo.",
+      "confirmedAt": "Confermato il {date}.",
+      "confirmedAtBy": "Confermato il {date} da {who}.",
+      "dueAgain": "È stato confermato un backup per la chiave {keyId}, ma ora il server usa un'altra chiave. Salva quella attuale.",
+      "tileLabel": "Backup della chiave di cifratura",
+      "tileDue": "Non confermato",
+      "tileDone": "Confermato",
+      "platform": {
+        "composeLabel": "Compose",
+        "composeWhere": "La chiave è ENCRYPTION_KEY (o ENCRYPTION_KEYS) nel file .env accanto a docker-compose.yml.",
+        "truenasLabel": "TrueNAS",
+        "truenasWhere": "Apri Apps, seleziona HealthLog, scegli Modifica e copia ENCRYPTION_KEY dalle variabili d'ambiente.",
+        "coolifyLabel": "Coolify",
+        "coolifyWhere": "Apri l'applicazione in Coolify e copia ENCRYPTION_KEY dalle sue Environment Variables.",
+        "unraidLabel": "Unraid",
+        "unraidWhere": "Nella scheda Docker, modifica il container di HealthLog e copia ENCRYPTION_KEY dal modello, oppure dal .env del tuo stack di Compose Manager.",
+        "portainerLabel": "Portainer",
+        "portainerWhere": "Apri lo stack di HealthLog in Portainer e copia ENCRYPTION_KEY dalle sue variabili d'ambiente."
+      }
+    },
+    "keyMismatch": {
+      "title": "HealthLog non riesce ad aprire i suoi dati",
+      "body": "La chiave di cifratura con cui è stato avviato questo server non è quella con cui è stato scritto il suo database. Per proteggere i tuoi dati, HealthLog non serve nulla finché il problema non è risolto.",
+      "fixTitle": "Come risolvere",
+      "fixRestore": "Rimetti la ENCRYPTION_KEY originale (o la voce in ENCRYPTION_KEYS) nelle impostazioni del server.",
+      "fixDatabase": "Oppure fai puntare DATABASE_URL al database che appartiene a questa chiave.",
+      "fixFresh": "Oppure ricomincia con un database vuoto. I vecchi dati e i loro backup si leggono solo con la vecchia chiave.",
+      "restartNote": "Riavvia HealthLog dopo la modifica.",
+      "codes": "Per chi gestisce il server: le richieste API rispondono 503 con il codice di errore {code}, e /api/health indica il motivo {reason}."
     }
   },
   "achievements": {

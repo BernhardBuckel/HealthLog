@@ -25,6 +25,14 @@ import { isDashboardSnapshotEnabled } from "@/lib/dashboard/snapshot-flag";
 import { prefetchDashboardSnapshot } from "@/lib/queries/use-dashboard-snapshot";
 import { clearOfflineCachesForSessionEnd } from "@/lib/pwa/query-persister";
 import { sanitizeSameOriginPath } from "@/lib/url-safety";
+import {
+  InsecureTransportBanner,
+  useClientTransport,
+} from "@/components/auth/insecure-transport-banner";
+import { transportVerdict } from "@/lib/auth/client-transport";
+
+/** The server's refusal for a page whose sign-in cookie cannot stick. */
+const INSECURE_TRANSPORT_CODE = "auth.session.insecure_transport";
 import { loadDocument } from "@/lib/navigation/load-document";
 
 export default function LoginPage() {
@@ -44,7 +52,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(() => {
     const oidcError = searchParams.get("error");
-    if (!oidcError) return null;
+    // The SSO start refused a page on plain http://; the banner says why.
+    if (!oidcError || oidcError === "insecure_transport") return null;
     const key: Record<string, string> = {
       oidc_denied: "auth.oidc.errorDenied",
       oidc_no_email: "auth.oidc.errorNoEmail",
@@ -71,22 +80,55 @@ export default function LoginPage() {
   // standalone alert detached from the form.
   const errorId = useId();
   const errorDescriptor = error ? errorId : undefined;
-  const { data: registrationEnabled } = useQuery({
+  const { data: registrationStatus } = useQuery({
     queryKey: queryKeys.authRegistrationStatus(),
     queryFn: async () => {
       try {
-        const data = await apiGet<{ registrationEnabled?: boolean }>(
-          "/api/auth/registration-status",
-          { cache: "no-store" },
-        );
-        return Boolean(data?.registrationEnabled ?? true);
+        const data = await apiGet<{
+          registrationEnabled?: boolean;
+          sessionCookieSecure?: boolean;
+        }>("/api/auth/registration-status", { cache: "no-store" });
+        return {
+          registrationEnabled: Boolean(data?.registrationEnabled ?? true),
+          sessionCookieSecure: data?.sessionCookieSecure === true,
+        };
       } catch {
-        // Fail open, exactly as the raw `if (!res.ok) return true` did.
-        return true;
+        // Fail open, exactly as the raw `if (!res.ok) return true` did; and
+        // no transport gate without the server's word on its cookies.
+        return { registrationEnabled: true, sessionCookieSecure: false };
       }
     },
     staleTime: 60 * 1000,
   });
+  const registrationEnabled = registrationStatus?.registrationEnabled;
+
+  // #1097 — a server that sets its sign-in cookie only over https:// cannot
+  // sign anyone in on a plain http:// page: the browser drops the cookie. Say
+  // so before a credential leaves the browser, and stop the sign-in controls.
+  // The server refuses the same requests (409) if they are sent anyway, and
+  // the SSO start sends the browser back here with `insecure_transport`.
+  const clientTransport = useClientTransport();
+  const [transportRefused, setTransportRefused] = useState(
+    () => searchParams.get("error") === "insecure_transport",
+  );
+  const verdict = transportRefused
+    ? "blocked"
+    : transportVerdict(
+        registrationStatus?.sessionCookieSecure === true,
+        clientTransport,
+      );
+  const signInBlocked = verdict === "blocked";
+
+  function noteRefusal(err: unknown): boolean {
+    if (
+      err instanceof ApiError &&
+      err.meta?.errorCode === INSECURE_TRANSPORT_CODE
+    ) {
+      setTransportRefused(true);
+      return true;
+    }
+    return false;
+  }
 
   const { data: oidcStatus } = useQuery({
     queryKey: queryKeys.authOidcStatus(),
@@ -106,6 +148,10 @@ export default function LoginPage() {
 
   function handleOidcLogin() {
     const params = new URLSearchParams({ next: getRedirectTarget() });
+    if (clientTransport) {
+      params.set("client_proto", clientTransport.protocol);
+      params.set("client_host", clientTransport.host);
+    }
     loadDocument(`/api/auth/oidc/login?${params}`);
   }
 
@@ -176,7 +222,7 @@ export default function LoginPage() {
       const { options, challengeId } = await apiPost<{
         options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
         challengeId: string;
-      }>("/api/auth/passkey/login-options");
+      }>("/api/auth/passkey/login-options", { clientTransport });
 
       const credential = await startAuthentication({ optionsJSON: options });
 
@@ -189,6 +235,7 @@ export default function LoginPage() {
       // navigates; the shell refetches `["auth","me"]` fresh on mount.
       navigateAfterLogin();
     } catch (err) {
+      if (noteRefusal(err)) return;
       // Route rejections carry the envelope error verbatim; everything
       // else (WebAuthn ceremony failures) keeps the descriptive mapping.
       if (err instanceof ApiError) {
@@ -220,7 +267,7 @@ export default function LoginPage() {
       >("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, clientTransport }),
       });
 
       if (meta?.mfaRequired && meta.mfaTicket) {
@@ -235,6 +282,7 @@ export default function LoginPage() {
       // navigates; the shell refetches `["auth","me"]` fresh on mount.
       navigateAfterLogin();
     } catch (err) {
+      if (noteRefusal(err)) return;
       setError(
         err instanceof ApiError && err.message
           ? err.message
@@ -289,6 +337,9 @@ export default function LoginPage() {
   useEffect(() => {
     if (oidcStatus === undefined) return;
     if (oidcStatus.only === true) return;
+    // Wait for the server's word on its cookies, and never arm the browser's
+    // credential prompt for a sign-in that cannot keep its cookie.
+    if (registrationStatus === undefined || signInBlocked) return;
     if (autofillStarted.current) return;
     autofillStarted.current = true;
     let cancelled = false;
@@ -302,7 +353,7 @@ export default function LoginPage() {
         const { options, challengeId } = await apiPost<{
           options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
           challengeId: string;
-        }>("/api/auth/passkey/login-options");
+        }>("/api/auth/passkey/login-options", { clientTransport });
 
         const credential = await startAuthentication({
           optionsJSON: options,
@@ -327,7 +378,7 @@ export default function LoginPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [oidcStatus]);
+  }, [oidcStatus, registrationStatus, signInBlocked]);
 
   return (
     <div className="flex w-full max-w-sm flex-col gap-4">
@@ -380,12 +431,14 @@ export default function LoginPage() {
             data-slot="login-actions"
             className="mt-8 space-y-4"
           >
+            <InsecureTransportBanner verdict={verdict} />
             {oidcStatus?.enabled && (
               <Button
                 onClick={handleOidcLogin}
                 variant={oidcStatus.only ? "default" : "outline"}
                 className="min-h-11 w-full"
                 size="lg"
+                disabled={signInBlocked}
               >
                 <Shield className="h-4 w-4" />
                 {oidcStatus.buttonLabel || t("auth.oidc.signInDefault")}
@@ -414,7 +467,7 @@ export default function LoginPage() {
                       onClick={handlePasskeyLogin}
                       className="min-h-11 w-full"
                       size="lg"
-                      disabled={loading}
+                      disabled={loading || signInBlocked}
                     >
                       {loading && mode === "passkey" ? (
                         <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
@@ -491,7 +544,7 @@ export default function LoginPage() {
                       data-testid="login-password-submit"
                       className="min-h-11 w-full"
                       size="lg"
-                      disabled={loading}
+                      disabled={loading || signInBlocked}
                     >
                       {loading && mode === "password" ? (
                         <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
