@@ -75,8 +75,6 @@ import {
 } from "@/lib/dashboard/summary-reads";
 import { resolveModuleMap } from "@/lib/modules/gate";
 import { gateMetricCardsByModules } from "@/lib/dashboard/widget-modules";
-import { glucoseCardInDisplayUnit } from "@/lib/dashboard/glucose-card";
-import { resolveGlucoseUnit } from "@/lib/glucose";
 import {
   summarizeSleepNights,
   reconstructSleepNights,
@@ -146,9 +144,6 @@ interface MetricCard {
    * `latestValue` is a per-NIGHT total expressed in HOURS (a float),
    * not the canonical `SLEEP_DURATION` minutes — see the sleep block
    * below for why the night total replaced the single-stage value.
-   * v1.40.0 — the `glucose` tile sets it to the owner's glucose unit
-   * (`"mg/dL"` or `"mmol/L"`), with its values converted to match
-   * (`glucoseCardInDisplayUnit`, applied after the cache read).
    */
   unit: string | null;
   /**
@@ -330,10 +325,7 @@ export const GET = apiHandler(async () => {
   // it off. Filtering the cached body makes the toggle effective on the very
   // next request.
   const modules = await resolveModuleMap(user.id);
-  const glucoseUnit = resolveGlucoseUnit(user.glucoseUnit);
-  const metrics = gateMetricCardsByModules(body.metrics, modules).map((card) =>
-    glucoseCardInDisplayUnit(card, glucoseUnit),
-  );
+  const metrics = gateMetricCardsByModules(body.metrics, modules);
   annotate({
     meta: {
       metrics_emitted: metrics.length,

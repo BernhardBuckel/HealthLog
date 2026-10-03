@@ -186,7 +186,7 @@ const dashboardMetricCard = z
       .string()
       .nullable()
       .describe(
-        "Explicit unit token. When set it wins over `unitKey`. Set on the `sleep` card (`h`, because its value is a per-night total in hours rather than the canonical SLEEP_DURATION minutes) and, since v1.40.0, on the `glucose` card: the record owner's glucose unit (`mg/dL` or `mmol/L`), with `latestValue`, `secondaryValue` and `sparkline` converted to it (mmol/L to one decimal). Null on every other kind.",
+        "Explicit unit token, set only on the `sleep` card (`h`, because its value is a per-night total in hours rather than the canonical SLEEP_DURATION minutes). Null on every other kind.",
       ),
     sleepStages: z
       .record(z.string(), z.number())
