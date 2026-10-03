@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canStartCourse,
+  courseFromWindow,
   courseStatusOn,
   dateOfDayKey,
   isInsideCourses,
@@ -158,5 +159,29 @@ describe("previousCourseEndedOn and canStartCourse", () => {
     expect(canStartCourse({ ...base, active: false, courses: [MARCH] })).toBe(
       false,
     );
+  });
+});
+
+describe("courseFromWindow (the backfill and restore rule)", () => {
+  it("covers every window shape", () => {
+    expect(
+      courseFromWindow(d("2026-03-01"), d("2026-03-07"), "2026-02-10"),
+    ).toEqual(course("2026-03-01", "2026-03-07"));
+    expect(courseFromWindow(d("2026-03-01"), null, "2026-02-10")).toEqual(
+      course("2026-03-01", null),
+    );
+    // Only an end: from the creation day on the person's clock.
+    expect(courseFromWindow(null, d("2026-04-01"), "2026-02-11")).toEqual(
+      course("2026-02-11", "2026-04-01"),
+    );
+    // A backdated end before the creation: from the end day.
+    expect(courseFromWindow(null, d("2026-01-15"), "2026-02-11")).toEqual(
+      course("2026-01-15", "2026-01-15"),
+    );
+    // Start after end: a one-day course on the end day, still ended.
+    expect(
+      courseFromWindow(d("2026-05-10"), d("2026-05-01"), "2026-02-11"),
+    ).toEqual(course("2026-05-01", "2026-05-01"));
+    expect(courseFromWindow(null, null, "2026-02-11")).toBeNull();
   });
 });

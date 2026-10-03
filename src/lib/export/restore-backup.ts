@@ -27,9 +27,10 @@
  * replacement is still one transaction, so a failure part-way leaves the
  * account exactly as it was.
  */
+import { DEFAULT_TIMEZONE, userDayKey, validTimezoneOr } from "@/lib/tz/format";
 import {
+  courseFromWindow,
   dateOfDayKey,
-  dayKeyOfDate,
   projectCourseWindow,
 } from "@/lib/medications/course-window";
 import { Buffer } from "node:buffer";
@@ -1088,6 +1089,18 @@ export async function restoreBackup(
           });
         }
 
+        // v1.40 (#1024) — the zone a derived course's creation day is read
+        // in: the file's own account settings, else the account's stored one.
+        const restoreTz = validTimezoneOr(
+          payload.accountSettings?.timezone ??
+            (
+              await tx.user.findUnique({
+                where: { id: ownerId },
+                select: { timezone: true },
+              })
+            )?.timezone,
+          DEFAULT_TIMEZONE,
+        );
         let medicationIndex = 0;
         reportSection("medications");
         const restoreStartedAt = new Date();
@@ -1326,23 +1339,14 @@ export async function restoreBackup(
                   note: c.note ?? null,
                   ...(c.createdAt ? { createdAt: new Date(c.createdAt) } : {}),
                 }))
-              : created.startsOn || created.endsOn
-                ? [
-                    {
-                      startsOn:
-                        created.startsOn ??
-                        (created.endsOn &&
-                        created.endsOn.getTime() <
-                          dateOfDayKey(
-                            dayKeyOfDate(created.createdAt),
-                          ).getTime()
-                          ? created.endsOn
-                          : dateOfDayKey(dayKeyOfDate(created.createdAt))),
-                      endsOn: created.endsOn,
-                      note: null,
-                    },
-                  ]
-                : [];
+              : (() => {
+                  const derived = courseFromWindow(
+                    created.startsOn,
+                    created.endsOn,
+                    userDayKey(created.createdAt, restoreTz),
+                  );
+                  return derived ? [{ ...derived, note: null }] : [];
+                })();
           if (courseRows.length > 0) {
             await tx.medicationCourse.createMany({
               data: courseRows.map((c) => ({

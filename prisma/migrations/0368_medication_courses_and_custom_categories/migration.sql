@@ -66,14 +66,25 @@ CREATE INDEX IF NOT EXISTS "medication_courses_medication_id_starts_on_idx"
 CREATE INDEX IF NOT EXISTS "medication_courses_user_id_idx"
   ON "medication_courses"("user_id");
 
--- Backfill: one course for every medication that has a window today. A course
--- needs a start, and a medication with only an end has always been read as
--- running from its creation day, so that is its start (or the end day, when
--- the end lies before the creation). A medication with
--- neither keeps no course: chronic since creation stays the absence of
--- courses. The medication columns are not touched, so the data is preserved
--- either way. The id is derived from the medication id, which makes a re-run
--- a no-op through ON CONFLICT.
+-- Backfill: one course for every medication that has a window today.
+--
+--   * Start and end, in order: the course is that window.
+--   * Only a start: an open course from that day.
+--   * Only an end: the app has always read it as running since the day the
+--     medication was created, on the person's clock, so that is the start;
+--     the end day itself when it lies before the creation (a backdated
+--     record). The creation day is taken in the account's time zone, the
+--     zone every reader of the window uses, falling back to the app default
+--     (Europe/Berlin) when the stored zone is unknown to Postgres.
+--   * Start after end (a row written before the API refused it): every
+--     reader has treated that window as empty and ended, with no dose
+--     expected. It becomes a one-day course on the end day, which keeps it
+--     ended and never invents a stretch of expected doses a swap would.
+--
+-- A medication with neither keeps no course: chronic since creation stays the
+-- absence of courses. The medication columns are not touched, so the data is
+-- preserved either way. The id is derived from the medication id, which makes
+-- a re-run a no-op through ON CONFLICT.
 --
 -- Reversal: dropping the table loses nothing while every medication has at
 -- most one course (its columns still hold it). Once a second course exists, a
@@ -82,15 +93,33 @@ CREATE INDEX IF NOT EXISTS "medication_courses_user_id_idx"
 INSERT INTO "medication_courses"
   ("id", "medication_id", "user_id", "starts_on", "ends_on", "created_at", "updated_at")
 SELECT
-  'mc_' || m."id",
-  m."id",
-  m."user_id",
-  -- An end-only window that ends before the creation day (a backdated
-  -- record) starts on its end day instead, so no course ends before it starts.
-  COALESCE(m."starts_on", LEAST(m."created_at"::date, m."ends_on")),
-  m."ends_on",
+  'mc_' || w."id",
+  w."id",
+  w."user_id",
+  CASE
+    WHEN w."starts_on" IS NOT NULL AND w."ends_on" IS NOT NULL
+         AND w."starts_on" > w."ends_on" THEN w."ends_on"
+    WHEN w."starts_on" IS NOT NULL THEN w."starts_on"
+    ELSE LEAST(w."created_day", w."ends_on")
+  END,
+  w."ends_on",
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
-FROM "medications" m
-WHERE m."starts_on" IS NOT NULL OR m."ends_on" IS NOT NULL
+FROM (
+  SELECT
+    m."id",
+    m."user_id",
+    m."starts_on",
+    m."ends_on",
+    (m."created_at" AT TIME ZONE 'UTC' AT TIME ZONE
+      CASE
+        WHEN EXISTS (SELECT 1 FROM pg_timezone_names z WHERE z."name" = u."timezone")
+          THEN u."timezone"
+        ELSE 'Europe/Berlin'
+      END
+    )::date AS "created_day"
+  FROM "medications" m
+  JOIN "users" u ON u."id" = m."user_id"
+  WHERE m."starts_on" IS NOT NULL OR m."ends_on" IS NOT NULL
+) w
 ON CONFLICT ("id") DO NOTHING;

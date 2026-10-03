@@ -165,6 +165,53 @@ describe("migration 0368 backfill", () => {
     expect(await courses(endOnly.id)).toEqual([["2026-02-10", "2026-04-01"]]);
     expect(await courses(backdated.id)).toEqual([["2026-01-15", "2026-01-15"]]);
     expect(await courses(chronic.id)).toEqual([]);
+    // Start after end (an older row): a one-day course on the end day.
+    // Created in a far-east zone: the creation day is the account's day,
+    // not the UTC one. An unknown stored zone falls back to the default.
+    const prismaKiri = getPrismaClient();
+    for (const [id, tz] of [
+      ["kiri-user", "Pacific/Kiritimati"],
+      ["mars-user", "Mars/Olympus_Mons"],
+    ] as const) {
+      await prismaKiri.user.create({
+        data: { id, username: id, email: `${id}@example.test`, timezone: tz },
+      });
+    }
+    const late = new Date("2026-02-10T12:00:00.000Z"); // Feb 11 at UTC+14
+    const kiri = await prismaKiri.medication.create({
+      data: {
+        userId: "kiri-user",
+        name: "k",
+        dose: "1",
+        createdAt: late,
+        endsOn: D("2026-04-01"),
+      },
+    });
+    const mars = await prismaKiri.medication.create({
+      data: {
+        userId: "mars-user",
+        name: "m",
+        dose: "1",
+        createdAt: new Date("2026-02-10T23:30:00.000Z"),
+        endsOn: D("2026-04-01"),
+      },
+    });
+    const inverted = await prismaKiri.medication.create({
+      data: {
+        ...base,
+        name: "inverted",
+        startsOn: D("2026-05-10"),
+        endsOn: D("2026-05-01"),
+      },
+    });
+    await prismaKiri.medicationCourse.deleteMany({});
+    await prismaKiri.$executeRawUnsafe(backfill);
+    expect(await courses(kiri.id)).toEqual([["2026-02-11", "2026-04-01"]]);
+    // Europe/Berlin: 23:30 UTC on Feb 10 is Feb 11.
+    expect(await courses(mars.id)).toEqual([["2026-02-11", "2026-04-01"]]);
+    expect(await courses(inverted.id)).toEqual([["2026-05-01", "2026-05-01"]]);
+    expect(await prismaKiri.$executeRawUnsafe(backfill)).toBe(0);
+
     // Data-preserving: the medication columns are untouched.
     expect(await window(endOnly.id)).toEqual({
       startsOn: null,

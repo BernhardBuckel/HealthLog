@@ -15,6 +15,7 @@ import { decryptFromBytes, encryptToBytes } from "@/lib/ai/coach/bytes-codec";
 import { prisma } from "@/lib/db";
 import {
   canStartCourse,
+  courseFromWindow,
   courseStatusOn,
   dateOfDayKey,
   dayKeyOfDate,
@@ -302,16 +303,13 @@ function windowAsCourse(
   createdAt: Date,
   timeZone: string,
 ): { startsOn: Date; endsOn: Date | null } {
-  if (startsOn) return { startsOn, endsOn };
-  if (latest) return { startsOn: latest.startsOn, endsOn };
-  const creationKey = userDayKey(createdAt, timeZone);
-  const endKey = endsOn ? dayKeyOfDate(endsOn) : null;
-  return {
-    startsOn: dateOfDayKey(
-      endKey && endKey < creationKey ? endKey : creationKey,
-    ),
-    endsOn,
-  };
+  if (!startsOn && latest) return { startsOn: latest.startsOn, endsOn };
+  return (
+    courseFromWindow(startsOn, endsOn, userDayKey(createdAt, timeZone)) ?? {
+      startsOn: dateOfDayKey(userDayKey(createdAt, timeZone)),
+      endsOn,
+    }
+  );
 }
 
 /**

@@ -150,3 +150,39 @@ export function canStartCourse(args: {
     (c) => courseStatusOn(c, args.todayKey) === "ENDED",
   );
 }
+
+/**
+ * The one course a medication's own window describes, for a medication that
+ * has no course rows (the migration's backfill, a restore of a file written
+ * before courses, the first course write on such a row). The same rules as
+ * the 0368 backfill:
+ *
+ *   - start and end in order: that window;
+ *   - only a start: open from that day;
+ *   - only an end: from the creation day on the person's clock (`createdKey`),
+ *     or from the end day when that lies earlier;
+ *   - start after end (refused by the API, but older rows exist): every
+ *     reader treated it as empty and ended, so a one-day course on the end
+ *     day, which stays ended and invents no stretch of expected doses;
+ *   - neither: no course (chronic since creation).
+ */
+export function courseFromWindow(
+  startsOn: Date | null,
+  endsOn: Date | null,
+  createdKey: string,
+): CourseSpan | null {
+  if (startsOn && endsOn) {
+    return startsOn.getTime() > endsOn.getTime()
+      ? { startsOn: endsOn, endsOn }
+      : { startsOn, endsOn };
+  }
+  if (startsOn) return { startsOn, endsOn: null };
+  if (endsOn) {
+    const endKey = dayKeyOfDate(endsOn);
+    return {
+      startsOn: dateOfDayKey(endKey < createdKey ? endKey : createdKey),
+      endsOn,
+    };
+  }
+  return null;
+}
