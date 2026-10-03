@@ -46,10 +46,12 @@ staging file. The import then fails with a staging-file-missing error
 ("the import staging file is not visible to the worker"). Two things to
 know:
 
-- A pure `web` container has no pg-boss handle, so an import kicked off
-  there currently returns `503 Background worker is not running`. Run
-  imports from a container that also runs the worker until send-only
-  boss support lands.
+- A pure `web` container opens a send-only pg-boss connection at boot
+  (`src/instrumentation.ts`, `startGlobalBossProducer`), so an import
+  kicked off there is accepted and queued for the worker like any other
+  job. It answers `503 Background worker is not running` only when that
+  producer connection could not be opened (the boot log then shows
+  `Failed to start pg-boss producer`).
 - If you run web and worker as separate containers, they **must share
   the import staging directory** — mount the same named volume at the
   temp path on both — or run imports in single-container (`all`) mode.
