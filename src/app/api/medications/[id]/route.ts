@@ -285,7 +285,10 @@ export const PUT = apiHandler(
     // below excludes every actioned row — and the previous cadence is the one
     // genuinely unrecoverable part, which is what C7 puts in the audit row.
     // The DELETE beside it stays refused.
-    const { user } = await requireRecordAuth("manage", "medications");
+    const { user, authMethod } = await requireRecordAuth(
+      "manage",
+      "medications",
+    );
 
     const { id } = await params;
     // v1.5.5 C-E3-3 — route ownership check through the shared helper
@@ -1061,7 +1064,24 @@ export const PUT = apiHandler(
       if (projected) medication = { ...medication, ...projected };
     }
 
-    if (category !== undefined) await setMedicationCategory(id, category);
+    // v1.40 (#1041) — an iPhone app build that predates custom categories
+    // decodes an unknown category as OTHER and sends it back on every edit,
+    // which would overwrite the person's own category with OTHER. A native
+    // client (Bearer) sending OTHER over a custom category keeps the custom
+    // one; moving a custom category back to OTHER stays possible on the web.
+    let categoryToWrite = category;
+    if (category === "OTHER" && authMethod === "bearer") {
+      const current = (await resolveMedicationCategories([id]))[id];
+      if (current?.category.startsWith("custom:")) {
+        categoryToWrite = undefined;
+        annotate({
+          action: { name: "medication.update.custom_category_kept" },
+          meta: { entity_id: id },
+        });
+      }
+    }
+    if (categoryToWrite !== undefined)
+      await setMedicationCategory(id, categoryToWrite);
     const resolvedCategory = (await resolveMedicationCategories([id]))[id];
     const normalizedCategory = resolvedCategory?.category ?? "OTHER";
 

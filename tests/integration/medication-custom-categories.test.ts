@@ -192,6 +192,49 @@ describe("custom medication categories", () => {
     expect(body.data).toMatchObject({ category: key, categoryLabel: "Heart" });
   });
 
+  it("keeps a custom category when an older iPhone build sends OTHER back", async () => {
+    const key = await createCategory("Heart");
+    const created = await (await createMedication(key)).json();
+    const { hashToken } = await import("@/lib/auth/hmac");
+    const raw = "hlk_custom-category-native-0000";
+    await getPrismaClient().apiToken.create({
+      data: {
+        userId: OWNER,
+        name: "native",
+        tokenHash: hashToken(raw),
+        permissions: ["*"],
+      },
+    });
+    cookieJar.clear();
+    headerJar.set("authorization", `Bearer ${raw}`);
+    const { PUT } = await import("@/app/api/medications/[id]/route");
+    const res = await PUT(
+      req("PUT", `/api/medications/${created.data.id}`, {
+        name: "Renamed",
+        category: "OTHER",
+      }),
+      { params: Promise.resolve({ id: created.data.id }) },
+    );
+    const body = await res.json();
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    expect(body.data).toMatchObject({ category: key, categoryLabel: "Heart" });
+    headerJar.clear();
+    await signIn(OWNER);
+  });
+
+  it("moves a custom category back to OTHER when the web asks", async () => {
+    const key = await createCategory("Heart");
+    const created = await (await createMedication(key)).json();
+    const { PUT } = await import("@/app/api/medications/[id]/route");
+    const res = await PUT(
+      req("PUT", `/api/medications/${created.data.id}`, { category: "OTHER" }),
+      { params: Promise.resolve({ id: created.data.id }) },
+    );
+    const body = await res.json();
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    expect(body.data.category).toBe("OTHER");
+  });
+
   it("renames, hides and caps", async () => {
     const key = await createCategory("Heart");
     const { PATCH } =
