@@ -632,6 +632,11 @@
         "mood": "/5",
         "bmi": "kg/m²"
       }
+    },
+    "keyBackupBanner": {
+      "title": "Sichere deinen Verschlüsselungsschlüssel",
+      "body": "Ohne eine Kopie des Schlüssels lassen sich deine Daten nach einer Neuinstallation nicht wiederherstellen. Es dauert eine Minute.",
+      "action": "Zum Schritt"
     }
   },
   "measurements": {
@@ -7568,6 +7573,57 @@
     "cardError": {
       "title": "Dieser Teil der Seite konnte nicht angezeigt werden",
       "description": "Der Rest der Seite funktioniert weiter; versuche es erneut oder lade neu, wenn es bleibt."
+    },
+    "keyBackup": {
+      "title": "Sichere deinen Verschlüsselungsschlüssel",
+      "description": "Ohne eine Kopie dieses Schlüssels lassen sich deine verschlüsselten Daten und Sicherungen nie wieder lesen.",
+      "loading": "Status der Schlüsselsicherung wird geladen…",
+      "loadError": "Der Status der Schlüsselsicherung konnte nicht geladen werden.",
+      "badgeDue": "Offen",
+      "badgeDone": "Gesichert",
+      "keyId": "Aktive Schlüssel-ID",
+      "fingerprint": "Fingerabdruck",
+      "whatIsLost": "Bewahre eine Kopie des Schlüssels außerhalb dieses Servers auf, zum Beispiel in einem Passwortmanager. Wird der Server mit einem anderen Schlüssel neu installiert, nimmt HealthLog den Betrieb erst wieder auf, wenn der ursprüngliche Schlüssel zurück ist.",
+      "fingerprintHint": "Der Fingerabdruck sind die ersten 12 Zeichen des SHA-256-Hashes des Schlüssels. Er erkennt den Schlüssel, ohne ihn preiszugeben, damit du ihn mit deiner Kopie vergleichen kannst.",
+      "checkLabel": "Meine Kopie prüfen",
+      "checkButton": "Prüfen",
+      "checkNote": "Der eingefügte Schlüssel wird mit dem aktiven Schlüssel verglichen und danach verworfen. Er wird nie gespeichert oder protokolliert.",
+      "checkInsecureNote": "Diese Seite läuft nicht über https://, also geht der eingefügte Schlüssel unverschlüsselt über das Netz, genau wie dein Passwort. Er wird verglichen und verworfen, nie gespeichert oder protokolliert.",
+      "checkMatches": "Deine Kopie passt zum aktiven Schlüssel.",
+      "checkNoMatch": "Deine Kopie passt nicht zum aktiven Schlüssel. Prüfe, ob du den ganzen Wert kopiert hast.",
+      "checkFailed": "Die Prüfung ist fehlgeschlagen.",
+      "confirmButton": "Ich habe diesen Schlüssel gesichert",
+      "confirmed": "Schlüsselsicherung bestätigt.",
+      "confirmFailed": "Die Bestätigung konnte nicht gespeichert werden.",
+      "stale": "Der Schlüssel des Servers hat sich geändert, seit diese Seite geladen wurde. Prüfe die neue Schlüssel-ID und den Fingerabdruck und bestätige dann erneut.",
+      "confirmedAt": "Bestätigt am {date}.",
+      "confirmedAtBy": "Bestätigt am {date} von {who}.",
+      "dueAgain": "Für Schlüssel {keyId} wurde eine Sicherung bestätigt, aber der Server nutzt jetzt einen anderen Schlüssel. Sichere den aktuellen.",
+      "tileLabel": "Sicherung des Verschlüsselungsschlüssels",
+      "tileDue": "Nicht bestätigt",
+      "tileDone": "Bestätigt",
+      "platform": {
+        "composeLabel": "Compose",
+        "composeWhere": "Der Schlüssel ist ENCRYPTION_KEY (oder ENCRYPTION_KEYS) in der .env-Datei neben docker-compose.yml.",
+        "truenasLabel": "TrueNAS",
+        "truenasWhere": "Öffne Apps, wähle HealthLog, dann Bearbeiten, und kopiere ENCRYPTION_KEY aus den Umgebungsvariablen.",
+        "coolifyLabel": "Coolify",
+        "coolifyWhere": "Öffne die Anwendung in Coolify und kopiere ENCRYPTION_KEY aus den Environment Variables.",
+        "unraidLabel": "Unraid",
+        "unraidWhere": "Bearbeite im Docker-Tab den HealthLog-Container und kopiere ENCRYPTION_KEY aus der Vorlage oder aus der .env deines Compose-Manager-Stacks.",
+        "portainerLabel": "Portainer",
+        "portainerWhere": "Öffne den HealthLog-Stack in Portainer und kopiere ENCRYPTION_KEY aus seinen Umgebungsvariablen."
+      }
+    },
+    "keyMismatch": {
+      "title": "HealthLog kann seine Daten nicht öffnen",
+      "body": "Der Verschlüsselungsschlüssel, mit dem dieser Server gestartet wurde, ist nicht der, mit dem seine Datenbank geschrieben wurde. Zum Schutz deiner Daten liefert HealthLog nichts aus, bis das behoben ist.",
+      "fixTitle": "So behebst du es",
+      "fixRestore": "Trage den ursprünglichen ENCRYPTION_KEY (oder den Eintrag in ENCRYPTION_KEYS) wieder in die Servereinstellungen ein.",
+      "fixDatabase": "Oder lass DATABASE_URL auf die Datenbank zeigen, die zu diesem Schlüssel gehört.",
+      "fixFresh": "Oder starte neu mit einer leeren Datenbank. Die alten Daten und ihre Sicherungen lassen sich nur mit dem alten Schlüssel lesen.",
+      "restartNote": "Starte HealthLog nach der Änderung neu.",
+      "codes": "Für den Betrieb: API-Anfragen antworten mit 503 und dem Fehlercode {code}, /api/health meldet den Grund {reason}."
     }
   },
   "achievements": {
