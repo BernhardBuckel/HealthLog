@@ -378,6 +378,15 @@ async function main() {
       prisma.cycleSymptom,
     ),
   );
+  // v1.40 (#1041) — custom medication categories. A Bytes column, unlike the
+  // three String label columns above.
+  results.push(
+    await rotateBytesColumn(
+      "MedicationCategoryLabel",
+      "labelEncrypted",
+      prisma.medicationCategoryLabel,
+    ),
+  );
 
   // ───── NotificationChannel."config" (encrypted JSON) ─────
   // Channel config (Telegram chat id, ntfy topic, etc.). Skipping these on
@@ -673,6 +682,14 @@ async function main() {
       "MedicationDoseChange",
       "noteEncrypted",
       prisma.medicationDoseChange,
+    ),
+  );
+  // v1.40 (#1024) — the note on a medication course.
+  results.push(
+    await rotateBytesColumn(
+      "MedicationCourse",
+      "noteEncrypted",
+      prisma.medicationCourse,
     ),
   );
   results.push(
