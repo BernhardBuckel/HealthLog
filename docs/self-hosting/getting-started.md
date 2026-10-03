@@ -226,6 +226,40 @@ ps` — the `app` healthcheck polls `/api/health` every 30 seconds
   `pull_policy: always` on the `app` service, and verify the running
   build with `GET /api/version` (it returns `version` + `buildSha`).
 
+## Back up your encryption key
+
+`ENCRYPTION_KEY` (or the `ENCRYPTION_KEYS` map) is not stored in the database.
+Without it, the encrypted parts of the database and every in-database backup
+cannot be read. Keep a copy outside the server, then confirm it under Admin,
+Encryption: the step shows the key id and a fingerprint (the first 12 hex
+characters of SHA-256 over the key) and can check a pasted copy without
+storing it. Admins see a dashboard reminder until the active key is confirmed.
+
+| Platform  | Where the key is set                                            |
+| --------- | --------------------------------------------------------------- |
+| Compose   | `.env` next to `docker-compose.yml`                             |
+| TrueNAS   | Apps, HealthLog, Edit, Environment                              |
+| Coolify   | the application's Environment Variables                         |
+| Unraid    | the container template (Docker tab, Edit) or the Compose `.env` |
+| Portainer | the stack's Environment variables                               |
+
+Set `HEALTHLOG_PLATFORM` (`compose`, `truenas`, `coolify`, `unraid`,
+`portainer`) to open the step on your platform's instructions.
+
+To compute the fingerprint of your copy:
+
+```bash
+echo -n "<your key>" | xxd -r -p | sha256sum | cut -c1-12
+```
+
+**HealthLog refuses to serve: encryption key does not match this database.**
+At start the app checks that its key opens the stored data. If it does not,
+every API request answers `503` with `meta.errorCode`
+`encryption.key_mismatch`, `/api/health` answers `503` with
+`reason: "encryption_key_mismatch"`, and background jobs are not started.
+Restore the original key, point `DATABASE_URL` at the matching database, or
+start with an empty database; then restart.
+
 ## Backup and restore
 
 Your database is the only stateful piece — back it up, and back up the

@@ -50,6 +50,7 @@ import {
   useDashboardChartReveal,
 } from "@/components/dashboard/chart-reveal";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { KeyBackupBanner } from "@/components/dashboard/key-backup-banner";
 import { TodayHero } from "@/components/daily/today-hero";
 import { TodayHeroSkeleton } from "@/components/daily/today-hero-skeleton";
 import {
@@ -913,6 +914,7 @@ export default function DashboardPageClient({
     <div className="space-y-6">
       <PullToRefreshIndicator {...pull} />
       <DashboardHeader onQuickEntry={setQuickEntryDialog} />
+      <KeyBackupBanner isAdmin={user?.role === "ADMIN"} />
 
       {/* Records other people share with you are reached from the account
           switcher in the top bar and the sidebar, not from a card here. The

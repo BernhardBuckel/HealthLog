@@ -165,6 +165,7 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
       "encounter.reminder-conflict",
       "encounter.reminder-not-found",
     ],
+    encryption: ["encryption.keyBackup.stale", "encryption.key_mismatch"],
     environment: [
       "environment.invalid",
       "environment.no_home",

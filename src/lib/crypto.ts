@@ -22,6 +22,7 @@ import {
   createHash,
   hkdfSync,
   randomBytes,
+  timingSafeEqual,
 } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { getEvent } from "@/lib/logging/context";
@@ -193,6 +194,56 @@ export function getActiveKeyId(): string {
 export function getConfiguredKeyIds(): string[] {
   const { keys } = loadKeys();
   return [...keys.keys()];
+}
+
+/**
+ * A short, public fingerprint of one configured key: the first twelve hex
+ * characters of SHA-256 over the raw key bytes. Lets an operator tell which key
+ * a confirmation or a copy belongs to without the key ever leaving the process
+ * (48 bits of a hash of a 256-bit key; nothing to invert). Null for an id that
+ * is not configured.
+ */
+export function getKeyFingerprint(id: string): string | null {
+  const key = getKeyById(id);
+  return key ? fingerprintKeyBytes(key) : null;
+}
+
+/** The fingerprint rule itself, for a key that is already decoded. */
+export function fingerprintKeyBytes(key: Buffer): string {
+  return createHash("sha256").update(key).digest("hex").slice(0, 12);
+}
+
+/**
+ * Whether `candidate` (as an operator would paste it: 64 hex characters or a
+ * base64 32-byte value) decodes to the configured key `id`. Constant-time on
+ * the decoded bytes. A value that does not decode is simply not a match; the
+ * decoder's error text is never surfaced, because it can quote the input's
+ * length.
+ */
+export function candidateMatchesKey(candidate: string, id: string): boolean {
+  const key = getKeyById(id);
+  if (!key) return false;
+  let decoded: Buffer;
+  try {
+    decoded = decodeKey(candidate.trim(), id);
+  } catch {
+    return false;
+  }
+  return decoded.length === key.length && timingSafeEqual(decoded, key);
+}
+
+/**
+ * Seal `plaintext` under a SPECIFIC configured key id rather than the active
+ * one. Exists for one caller, the boot key check (`src/lib/crypto/canary.ts`),
+ * which keeps one known value per key id; everything else writes with
+ * `encrypt()`. Throws for an id that is not configured.
+ */
+export function encryptUnderKeyId(plaintext: string, id: string): string {
+  const key = getKeyById(id);
+  if (!key) {
+    throw new Error(`Encryption key id '${id}' is not configured.`);
+  }
+  return `${id}.${encryptWithKey(plaintext, key)}`;
 }
 
 function encryptWithKey(plaintext: string, key: Buffer): string {

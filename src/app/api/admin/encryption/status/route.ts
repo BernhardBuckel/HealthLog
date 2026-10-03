@@ -17,6 +17,7 @@
 import { prisma } from "@/lib/db";
 import { apiHandler, requireAdmin } from "@/lib/api-handler";
 import { apiSuccess } from "@/lib/api-response";
+import { readKeyBackupStatus } from "@/lib/crypto/key-backup";
 import { annotate } from "@/lib/logging/context";
 import { getConfiguredKeyIds } from "@/lib/crypto";
 import {
@@ -213,6 +214,7 @@ export const GET = apiHandler(async () => {
 
   const rotation = await readRotationState();
   const backups = await readBackupKeyNeeds(scan.activeKeyId, new Date());
+  const keyBackup = await readKeyBackupStatus();
 
   annotate({
     meta: {
@@ -233,6 +235,8 @@ export const GET = apiHandler(async () => {
     columns: scan.columns,
     rotation,
     backups,
+    // The "Back up your encryption key" step, bound to the active key.
+    keyBackup,
     // Every row rotated AND no backup still needs a retired key: the one
     // state in which dropping an old key loses nothing. Copies that recorded
     // no key ids count against it, because they may hold any key that

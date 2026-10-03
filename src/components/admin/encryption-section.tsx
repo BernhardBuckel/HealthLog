@@ -42,6 +42,7 @@ import { useFormatters, useTranslations } from "@/lib/i18n/context";
 import { queryKeys } from "@/lib/query-keys";
 import { apiFetchRaw, apiGet } from "@/lib/api/api-fetch";
 import { getApiErrorMessage } from "./_shared";
+import { KeyBackupCard } from "./key-backup-card";
 
 interface ColumnScan {
   model: string;
@@ -130,27 +131,30 @@ export function EncryptionSection() {
   // the fix carried across.
   if (statusQuery.isLoading || statusQuery.isError || !statusQuery.data) {
     return (
-      <SettingsCard>
-        <SettingsCardHeader
-          icon={ShieldCheck}
-          title={t("admin.section.encryption.coverageTitle")}
-          description={t("admin.section.encryption.coverageDescription")}
-        />
-        <p className="text-sm">
-          {t("admin.section.encryption.coverageDetail")}
-        </p>
-
-        {statusQuery.isLoading ? (
-          <div className="text-muted-foreground flex items-center gap-2 text-sm">
-            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-            {t("admin.section.encryption.loading")}
-          </div>
-        ) : (
-          <p role="alert" className="text-destructive text-sm">
-            {t("admin.section.encryption.loadError")}
+      <div className="space-y-6">
+        <KeyBackupCard />
+        <SettingsCard>
+          <SettingsCardHeader
+            icon={ShieldCheck}
+            title={t("admin.section.encryption.coverageTitle")}
+            description={t("admin.section.encryption.coverageDescription")}
+          />
+          <p className="text-sm">
+            {t("admin.section.encryption.coverageDetail")}
           </p>
-        )}
-      </SettingsCard>
+
+          {statusQuery.isLoading ? (
+            <div className="text-muted-foreground flex items-center gap-2 text-sm">
+              <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+              {t("admin.section.encryption.loading")}
+            </div>
+          ) : (
+            <p role="alert" className="text-destructive text-sm">
+              {t("admin.section.encryption.loadError")}
+            </p>
+          )}
+        </SettingsCard>
+      </div>
     );
   }
 
@@ -162,6 +166,7 @@ export function EncryptionSection() {
 
   return (
     <div className="space-y-6">
+      <KeyBackupCard />
       {/* ── Coverage summary ───────────────────────────────────────── */}
       <SettingsCard>
         <SettingsCardHeader

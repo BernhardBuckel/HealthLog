@@ -25,15 +25,24 @@ const healthStatusEnum = z.enum(["ok", "degraded"]).meta({
     "`ok` when the database answers AND every role this process runs holds up: the pg-boss producer is bound when the process serves web, and the worker loop is running when the process runs the worker. `degraded` on any of those failing.",
 });
 
-const healthPublicResponse = z.object({ status: healthStatusEnum }).meta({
-  id: "HealthPublicResponse",
+const healthReason = z.enum(["encryption_key_mismatch"]).optional().meta({
+  id: "HealthReason",
   description:
-    "What an unauthenticated (or non-admin) caller sees: the aggregate verdict and nothing else. No component detail, so an uptime probe cannot be used to fingerprint which part of a self-hosted instance is unwell.",
+    "Present only when the process refuses to serve for a reason a person has to fix. `encryption_key_mismatch`: the configured encryption key cannot open the data in this database (checked at boot). Every other route then answers 503 with `meta.errorCode` `encryption.key_mismatch`, and background jobs are not started. Fix: restore the original key, point the server at the matching database, or start with an empty one; then restart.",
 });
+
+const healthPublicResponse = z
+  .object({ status: healthStatusEnum, reason: healthReason })
+  .meta({
+    id: "HealthPublicResponse",
+    description:
+      "What an unauthenticated (or non-admin) caller sees: the aggregate verdict and nothing else. No component detail, so an uptime probe cannot be used to fingerprint which part of a self-hosted instance is unwell.",
+  });
 
 const healthAdminResponse = z
   .object({
     status: healthStatusEnum,
+    reason: healthReason,
     timestamp: z.iso
       .datetime({ offset: true })
       .describe("When the probe ran. UTC (`Z`) — no user context is loaded."),

@@ -31744,10 +31744,11 @@ components:
                 documents.sources.permissionMissing, documents.sources.rateLimited, documents.sources.redirected,
                 documents.sources.tokenRequired, documents.sources.unavailable, documents.sources.unreachable,
                 documents.sources.versionTooOld; encounter — encounter.invalid, encounter.link.invalid,
-                encounter.practitioner-not-found, encounter.reminder-conflict, encounter.reminder-not-found; environment
-                — environment.invalid, environment.no_home, environment.range_too_large, environment.travel.not_found;
-                export — export.selection.empty, export.selection.unknown_leaf; familyHistory — familyHistory.invalid;
-                feedback — feedback.body.invalid; health_score_config — health_score_config.invalid,
+                encounter.practitioner-not-found, encounter.reminder-conflict, encounter.reminder-not-found; encryption
+                — encryption.keyBackup.stale, encryption.key_mismatch; environment — environment.invalid,
+                environment.no_home, environment.range_too_large, environment.travel.not_found; export —
+                export.selection.empty, export.selection.unknown_leaf; familyHistory — familyHistory.invalid; feedback —
+                feedback.body.invalid; health_score_config — health_score_config.invalid,
                 health_score_config.too_narrow; illness — illness.day-log.invalid, illness.disabled,
                 illness.episode.chronic-no-resolve, illness.episode.invalid, illness.episode.invalid-window,
                 illness.episode.parent-not-found, illness.insights.invalid; import — import.apple_health.busy,
@@ -74129,6 +74130,8 @@ components:
       properties:
         status:
           $ref: "#/components/schemas/HealthStatus"
+        reason:
+          $ref: "#/components/schemas/HealthReason"
         timestamp:
           type: string
           format: date-time
@@ -74169,11 +74172,22 @@ components:
       description: "`ok` when the database answers AND every role this process runs holds up: the pg-boss producer is bound
         when the process serves web, and the worker loop is running when the process runs the worker. `degraded` on any
         of those failing."
+    HealthReason:
+      description: "Present only when the process refuses to serve for a reason a person has to fix.
+        `encryption_key_mismatch`: the configured encryption key cannot open the data in this database (checked at
+        boot). Every other route then answers 503 with `meta.errorCode` `encryption.key_mismatch`, and background jobs
+        are not started. Fix: restore the original key, point the server at the matching database, or start with an
+        empty one; then restart."
+      type: string
+      enum:
+        - encryption_key_mismatch
     HealthPublicResponse:
       type: object
       properties:
         status:
           $ref: "#/components/schemas/HealthStatus"
+        reason:
+          $ref: "#/components/schemas/HealthReason"
       required:
         - status
       additionalProperties: false

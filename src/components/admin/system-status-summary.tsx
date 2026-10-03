@@ -12,18 +12,28 @@
  * don't re-fetch.
  */
 
-import { Clock, Cog, Database, Globe, Loader2, Server } from "lucide-react";
+import {
+  Clock,
+  Cog,
+  Database,
+  Globe,
+  KeyRound,
+  Loader2,
+  Server,
+} from "lucide-react";
 import { formatDateTime } from "@/lib/format";
 import { SettingsCard } from "@/components/settings/settings-card";
 import { SettingsCardHeader } from "@/components/settings/_card-header";
 import { QueryErrorRow } from "@/components/ui/query-error-row";
 import { useTranslations } from "@/lib/i18n/context";
 import { StatusItem, usePublicVersion, useSystemStatus } from "./_shared";
+import { useKeyBackupStatus } from "./use-key-backup-status";
 
 export function SystemStatusSummary() {
   const { t } = useTranslations();
   const { data: status, isError, refetch } = useSystemStatus();
   const { data: version } = usePublicVersion();
+  const { data: keyBackup } = useKeyBackupStatus();
 
   return (
     <SettingsCard
@@ -63,6 +73,19 @@ export function SystemStatusSummary() {
             label={t("admin.overview.snapshotStarted")}
             value={formatDateTime(status.startTime)}
           />
+          {/* v1.40.0 — the encryption key backup step, warning while due. */}
+          {keyBackup && (
+            <StatusItem
+              icon={KeyRound}
+              label={t("admin.keyBackup.tileLabel")}
+              value={
+                keyBackup.due
+                  ? t("admin.keyBackup.tileDue")
+                  : t("admin.keyBackup.tileDone")
+              }
+              tone={keyBackup.due ? "warning" : "success"}
+            />
+          )}
           {/* v1.4.27 R5 — surface the offline-geo state so the maintainer
               spots the missing MAXMIND_LICENSE_KEY without crawling logs.
               The field is undefined on legacy responses; the row only

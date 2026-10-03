@@ -295,6 +295,8 @@ export const WIPE_EXEMPT: Readonly<Record<string, string>> = {
  */
 export const INSTANCE_SCOPED: Readonly<Record<string, string>> = {
   AppSettings: "instance-wide configuration singleton",
+  EncryptionKeyCanary:
+    "one known value per configured encryption key id, checked at boot; belongs to the instance's keys, not to any account",
   RateLimit: "instance-wide rate-limit buckets, keyed by string, self-expiring",
   HostMetric: "instance-wide host telemetry, not attributable to an account",
   OffhostBackupKeyUse:
