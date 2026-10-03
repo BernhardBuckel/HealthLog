@@ -26,6 +26,7 @@ import type { MeasurementType, SleepStage } from "@/generated/prisma/client";
 import { reconstructSleepNights } from "@/lib/analytics/sleep-night";
 import { VALUE_RANGES } from "@/lib/validations/measurement";
 import { loadUserSourcePriority } from "@/lib/rollups/measurement-read";
+import { seriesRowsFrom } from "@/lib/measurements/series-canonical";
 import { resolveUserTimezone, userDayKey } from "@/lib/tz/resolver";
 import { convertGlucose, resolveGlucoseUnit } from "@/lib/glucose";
 
@@ -399,49 +400,57 @@ export const GET = apiHandler(async (request: NextRequest) => {
     // v1.28.25 — long-window read of a sample-dense kind (CGM glucose,
     // per-sample / hourly pulse). Day-bucket in SQL instead of walking
     // every raw row into JS: one aggregate pass in Postgres returns at
-    // most `days` rows regardless of sample density. Parameter-bound
-    // tagged-template `$queryRaw`, mirroring the rollup tier's
-    // `date_trunc(... ) GROUP BY` aggregate (measurement-rollups.ts).
-    const userTz = await resolveUserTimezone(user.id);
+    // most `days` rows regardless of sample density. Bound parameters
+    // mirror the rollup tier's `date_trunc(... ) GROUP BY` aggregate
+    // (measurement-rollups.ts), and the rows are the ladder-winning source per
+    // day, the same rule the rollup tier and sleep apply.
+    const [userTz, priorityJson] = await Promise.all([
+      resolveUserTimezone(user.id),
+      loadUserSourcePriority(user.id),
+    ]);
     const type = KIND_TO_TYPE[kind];
-    const bucketRows = await prisma.$queryRaw<
+    const seriesRows = seriesRowsFrom(priorityJson, type, days);
+    const bucketRows = await prisma.$queryRawUnsafe<
       Array<{
         bucket_start: Date;
         mean: number;
         min_value: number;
         max_value: number;
       }>
-    >`
+    >(
+      `
       WITH localized AS (
         SELECT
           m."value",
           m."value_min",
           m."value_max",
           date_trunc(
-            ${grain},
-            (m."measured_at" AT TIME ZONE 'UTC') AT TIME ZONE ${userTz}
+            $2,
+            (m."measured_at" AT TIME ZONE 'UTC') AT TIME ZONE $3
           ) AS local_day
-        FROM measurements m
-        WHERE m."user_id" = ${user.id}
-          AND m."type" = ${type}::"measurement_type"
-          AND m."measured_at" >= ${since}
-          AND m."deleted_at" IS NULL
+        FROM ${seriesRows}
+        WHERE m."measured_at" >= $4
       )
       SELECT
-        local_day AT TIME ZONE ${userTz}                         AS bucket_start,
+        local_day AT TIME ZONE $3                                AS bucket_start,
         AVG("value")::double precision                           AS mean,
         MIN(COALESCE("value_min", "value"))::double precision    AS min_value,
         MAX(COALESCE("value_max", "value"))::double precision    AS max_value
       FROM localized
       GROUP BY local_day
       ORDER BY bucket_start ASC
-    `;
+    `,
+      user.id,
+      grain,
+      userTz,
+      since,
+    );
     // Stats stay aggregated over the RAW rows (not the day buckets) so the
     // strip's mean/min/max/stdDev/count are the same figures the raw path
     // computed: `AVG`/`MIN`/`MAX` over `value`, `STDDEV_POP` matching the
     // JS population-variance helper, exact row count. Aggregate-only —
     // no row transfer.
-    const [rawAgg] = await prisma.$queryRaw<
+    const [rawAgg] = await prisma.$queryRawUnsafe<
       Array<{
         n: number;
         mean: number | null;
@@ -449,19 +458,20 @@ export const GET = apiHandler(async (request: NextRequest) => {
         max: number | null;
         sd: number | null;
       }>
-    >`
+    >(
+      `
       SELECT
         COUNT(*)::int                            AS n,
         AVG(m."value")::double precision         AS mean,
         MIN(m."value")::double precision         AS min,
         MAX(m."value")::double precision         AS max,
         STDDEV_POP(m."value")::double precision  AS sd
-      FROM measurements m
-      WHERE m."user_id" = ${user.id}
-        AND m."type" = ${type}::"measurement_type"
-        AND m."measured_at" >= ${since}
-        AND m."deleted_at" IS NULL
-    `;
+      FROM ${seriesRows}
+      WHERE m."measured_at" >= $2
+    `,
+      user.id,
+      since,
+    );
     const round2 = (v: number) => Math.round(v * 100) / 100;
     const dayId = (d: Date) =>
       grain === "day"
@@ -538,21 +548,37 @@ export const GET = apiHandler(async (request: NextRequest) => {
     // hourly average. Only PULSE rows ever carry a non-null spread (the
     // hourly HR bucket); every other kind selects the bare value shape.
     const includeSpread = kind === "pulse";
-    const rows = await prisma.measurement.findMany({
-      where: {
-        userId: user.id,
-        type,
-        measuredAt: { gte: since },
-        deletedAt: null,
-      },
-      orderBy: { measuredAt: "asc" },
-      select: {
-        id: true,
-        value: true,
-        measuredAt: true,
-        ...(includeSpread ? { valueMin: true, valueMax: true } : {}),
-      },
-    });
+    // The ladder-winning source per day (see `seriesRowsFrom`), so a second
+    // provider neither blends into nor duplicates the series. Bounded as before:
+    // every dense kind reaches this read only inside 90 days and under 10 000
+    // rows (counted first), and the sparse kinds are a few readings a day.
+    const sourcePriority = await loadUserSourcePriority(user.id);
+    const rawRows = await prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        value: number;
+        measured_at: Date;
+        value_min: number | null;
+        value_max: number | null;
+      }>
+    >(
+      `
+      SELECT m."id", m."value", m."measured_at", m."value_min", m."value_max"
+      FROM ${seriesRowsFrom(sourcePriority, type, days)}
+      WHERE m."measured_at" >= $2
+      ORDER BY m."measured_at" ASC, m."id" ASC
+    `,
+      user.id,
+      since,
+    );
+    const rows = rawRows.map((r) => ({
+      id: r.id,
+      value: r.value,
+      measuredAt: r.measured_at,
+      ...(includeSpread
+        ? { valueMin: r.value_min, valueMax: r.value_max }
+        : {}),
+    }));
     if (kind === "glucose") {
       // v1.16.16 — glucose is stored canonical mg/dL; convert each point to
       // the user's display unit AT SERIALIZATION so the wire DTO is unit-

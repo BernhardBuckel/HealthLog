@@ -9,6 +9,9 @@ vi.mock("@/lib/db", () => ({
     // v1.28.25 — dense kinds (glucose / pulse) day-bucket in SQL for
     // windows beyond the 90-day raw cap.
     $queryRaw: vi.fn(),
+    // The series reads go through the ladder-winning source per day (see
+    // `seriesRowsFrom`), which is raw SQL with the user id as `$1`.
+    $queryRawUnsafe: vi.fn(),
   },
 }));
 
@@ -65,8 +68,47 @@ function req(query: string): NextRequest {
   return new NextRequest(`http://localhost/api/measurements/series?${query}`);
 }
 
+/**
+ * The route reads its series through `$queryRawUnsafe` (the ladder-winning
+ * source per day). This file's fixtures are written as rows per type and as the
+ * two aggregate results, so the adapter routes each statement back to them:
+ * the day/hour bucket and the stats aggregate take the next `$queryRaw` result,
+ * and a raw read asks `findMany` for the type named in the SQL and returns the
+ * rows in the column names the statement selects. The SQL itself (which source
+ * wins, which rows count) is covered against a real database in
+ * `tests/integration/series-source-ladder.test.ts`.
+ */
+function adaptSeriesSql(sql: string): Promise<unknown> {
+  if (/GROUP BY local_day|STDDEV_POP/.test(sql)) {
+    return (prisma.$queryRaw as unknown as () => Promise<unknown>)();
+  }
+  const type = /'([A-Z0-9_]+)'::"measurement_type"/.exec(sql)?.[1];
+  const find = prisma.measurement.findMany as unknown as (
+    a: unknown,
+  ) => Promise<
+    Array<{
+      id: string;
+      value: number;
+      measuredAt: Date;
+      valueMin?: number | null;
+      valueMax?: number | null;
+    }>
+  >;
+  return find({ where: { type } }).then((rows) =>
+    rows.map((r) => ({
+      id: r.id,
+      value: r.value,
+      measured_at: r.measuredAt,
+      value_min: r.valueMin ?? null,
+      value_max: r.valueMax ?? null,
+    })),
+  );
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(prisma.$queryRawUnsafe).mockImplementation(((sql: string) =>
+    adaptSeriesSql(sql)) as never);
   vi.mocked(prisma.measurement.findMany).mockResolvedValue([] as never);
   vi.mocked(prisma.measurement.count).mockResolvedValue(0 as never);
   vi.mocked(prisma.$queryRaw).mockResolvedValue([] as never);
@@ -216,14 +258,14 @@ describe("GET /api/measurements/series", () => {
     expect(body.data.points[1].valueMin).toBeNull();
     expect(body.data.points[1].valueMax).toBeNull();
 
-    // The pulse read selects the spread columns.
-    const selectArg = vi.mocked(prisma.measurement.findMany).mock.calls[0][0];
-    expect(
-      (selectArg as { select: Record<string, boolean> }).select.valueMin,
-    ).toBe(true);
-    expect(
-      (selectArg as { select: Record<string, boolean> }).select.valueMax,
-    ).toBe(true);
+    // The pulse read selects the spread columns, and reads the pulse rows of
+    // this person's ladder-winning source (the user id is the first parameter).
+    const [sql, userId] = vi.mocked(prisma.$queryRawUnsafe).mock
+      .calls[0] as unknown as [string, string];
+    expect(sql).toContain('m."value_min"');
+    expect(sql).toContain('m."value_max"');
+    expect(sql).toContain(`'PULSE'::"measurement_type"`);
+    expect(userId).toBe("user-1");
   });
 
   it("collapses sleep stage rows into one night point in hours (v1.11.4)", async () => {
@@ -627,8 +669,12 @@ describe("GET /api/measurements/series — dense-kind day-bucketing (v1.28.25)",
     expect(body.data.stats.count).toBe(43_200);
     expect(body.data.stats.mean).toBe(72.1);
     // The bucket read folds per hour, not per day.
-    const bucketSql = vi.mocked(prisma.$queryRaw).mock.calls[0] as unknown[];
-    expect(bucketSql.slice(1)).toContain("hour");
+    const bucketCall = vi
+      .mocked(prisma.$queryRawUnsafe)
+      .mock.calls.find(([sql]) =>
+        /GROUP BY local_day/.test(sql as string),
+      ) as unknown[];
+    expect(bucketCall.slice(1)).toContain("hour");
   });
 
   it("hour-buckets a CGM glucose window too dense to send raw, in the user's unit", async () => {
@@ -690,8 +736,12 @@ describe("GET /api/measurements/series — dense-kind day-bucketing (v1.28.25)",
       max: 14.4,
       stdDev: 2,
     });
-    const bucketSql = vi.mocked(prisma.$queryRaw).mock.calls[0] as unknown[];
-    expect(bucketSql.slice(1)).toContain("hour");
+    const bucketCall = vi
+      .mocked(prisma.$queryRawUnsafe)
+      .mock.calls.find(([sql]) =>
+        /GROUP BY local_day/.test(sql as string),
+      ) as unknown[];
+    expect(bucketCall.slice(1)).toContain("hour");
   });
 
   it("keeps fingerstick glucose at or under the row cap raw", async () => {
