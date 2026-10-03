@@ -143,7 +143,7 @@ function makeFakePrisma(state: {
     return true;
   }
 
-  return {
+  const fake = {
     // v1.29.6 — the cumulative-kind path no longer runs a `$queryRaw`
     // UTC `date_trunc` aggregate; it reads every matching row via
     // `measurement.findMany` and does the source-collapse + tz-aware
@@ -277,6 +277,13 @@ function makeFakePrisma(state: {
       ),
     },
   } as unknown as PrismaClient;
+  // The workout-slot leg runs under a per-user advisory lock inside a
+  // transaction; the fake runs the callback against itself.
+  Object.assign(fake, {
+    $queryRaw: vi.fn(async () => []),
+    $transaction: vi.fn(async (cb: (tx: PrismaClient) => unknown) => cb(fake)),
+  });
+  return fake;
 }
 
 const USER = "user-1";

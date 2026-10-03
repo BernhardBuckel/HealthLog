@@ -386,58 +386,65 @@ export async function detectPersonalRecordsForUser(
       [slot.field]: { gt: 0 } as { gt: number },
     } as const;
 
-    const sampleCount = await prisma.workout.count({
-      where: baseWhere,
+    // Read the best workout and write its record under the same per-user
+    // lock the workout DELETE takes. Without it a delete could land between
+    // the read and the write and leave a record for a workout that no longer
+    // exists (PersonalRecord has no FK to Workout to stop it).
+    const outcome = await prisma.$transaction(async (tx) => {
+      await lockPersonalRecordsForUser(tx, userId);
+
+      const sampleCount = await tx.workout.count({
+        where: baseWhere,
+      });
+      if (sampleCount < PR_DETECTION_WARMUP_THRESHOLD) return null;
+
+      const best = await findBestWorkout(tx, baseWhere, slot);
+      if (!best) return null;
+
+      const value =
+        slot.field === "durationSec"
+          ? best.durationSec
+          : (best.totalDistanceM ?? 0);
+      if (!Number.isFinite(value) || value <= 0) return null;
+
+      const currentPR = await tx.personalRecord.findFirst({
+        where: { userId, metricType: slot.metricType, metricSlot: slot.slot },
+        orderBy:
+          slot.direction === PersonalRecordDirection.MAX
+            ? { value: "desc" }
+            : { value: "asc" },
+      });
+
+      const comparison = compareToCurrentBest(
+        value,
+        currentPR?.value,
+        slot.direction,
+      );
+      if (comparison === "no-improvement") return null;
+
+      const result = await tx.personalRecord.createMany({
+        data: [
+          {
+            userId,
+            metricType: slot.metricType,
+            metricSlot: slot.slot,
+            direction: slot.direction,
+            value,
+            unit: slot.unit,
+            achievedAt: best.startedAt,
+            sourceMeasurementId: null,
+            source: best.source,
+            externalId: best.externalId,
+          },
+        ],
+        skipDuplicates: true,
+      });
+      return result.count > 0 ? comparison : null;
     });
-    if (sampleCount < PR_DETECTION_WARMUP_THRESHOLD) continue;
-
-    const best = await findBestWorkout(prisma, baseWhere, slot);
-    if (!best) continue;
-
-    const value =
-      slot.field === "durationSec"
-        ? best.durationSec
-        : (best.totalDistanceM ?? 0);
-    if (!Number.isFinite(value) || value <= 0) continue;
-
-    const currentPR = await prisma.personalRecord.findFirst({
-      where: { userId, metricType: slot.metricType, metricSlot: slot.slot },
-      orderBy:
-        slot.direction === PersonalRecordDirection.MAX
-          ? { value: "desc" }
-          : { value: "asc" },
-    });
-
-    const outcome = compareToCurrentBest(
-      value,
-      currentPR?.value,
-      slot.direction,
-    );
-    if (outcome === "no-improvement") continue;
-
-    const result = await prisma.personalRecord.createMany({
-      data: [
-        {
-          userId,
-          metricType: slot.metricType,
-          metricSlot: slot.slot,
-          direction: slot.direction,
-          value,
-          unit: slot.unit,
-          achievedAt: best.startedAt,
-          sourceMeasurementId: null,
-          source: best.source,
-          externalId: best.externalId,
-        },
-      ],
-      skipDuplicates: true,
-    });
-    if (result.count > 0) {
-      if (outcome === "tie") {
-        ties += 1;
-      } else {
-        inserted += 1;
-      }
+    if (outcome === "tie") {
+      ties += 1;
+    } else if (outcome === "improvement") {
+      inserted += 1;
     }
   }
 
@@ -669,7 +676,7 @@ async function findBestCumulativeDay(
 }
 
 async function findBestWorkout(
-  prisma: PrismaClient,
+  prisma: Pick<PrismaClient, "workout">,
   where: Prisma.WorkoutWhereInput,
   slot: WorkoutSlotDefinition,
 ): Promise<WorkoutCandidate | null> {
@@ -702,6 +709,33 @@ async function findBestWorkout(
     source: row.source,
     externalId: row.externalId,
   };
+}
+
+/**
+ * The per-user lock shared by the workout-slot detection and the workout
+ * DELETE. Transaction-scoped: it releases on commit or rollback.
+ */
+export async function lockPersonalRecordsForUser(
+  tx: Pick<PrismaClient, "$queryRaw">,
+  userId: string,
+): Promise<void> {
+  await tx.$queryRaw`
+    SELECT pg_advisory_xact_lock(
+      hashtext('personal-records'),
+      hashtext(${userId})
+    )::text AS locked
+  `;
+}
+
+/**
+ * The workout-PR slot names the detector derives for one sport. The DELETE
+ * uses it to scope a legacy record match (no external id) to the sport of the
+ * workout being removed.
+ */
+export function workoutPrSlotsForSport(sportType: string): string[] {
+  return WORKOUT_SLOTS.filter((slot) => slot.sportType === sportType).map(
+    (slot) => slot.slot,
+  );
 }
 
 /** Exposed for tests + the integration harness. */
