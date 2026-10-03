@@ -103,9 +103,16 @@ export function groupRowsByAnalyte(rows: LegacyRow[]): AnalyteGroup[] {
  * Backfill one user: group un-linked live readings, create/reuse a Biomarker
  * per group, link the rows. Returns the count of markers touched + rows
  * linked.
+ *
+ * `shouldStop` is the admission job's budget (`jobBudget`). It is asked
+ * before each analyte group; once it says stop, the pass throws without
+ * touching the rest, like the Google Health backfill does. Each group commits
+ * on its own and a linked reading drops out of the scan above, so the retry
+ * pg-boss schedules for the failed job starts where this one stopped.
  */
 export async function runLabBiomarkerBackfillForUser(
   userId: string,
+  shouldStop: () => boolean = () => false,
 ): Promise<{ markers: number; linked: number }> {
   const rows = await prisma.labResult.findMany({
     where: { userId, deletedAt: null, biomarkerId: null },
@@ -129,6 +136,18 @@ export async function runLabBiomarkerBackfillForUser(
   let markers = 0;
   let linked = 0;
   for (const group of groups) {
+    if (shouldStop()) {
+      if (linked > 0) invalidateUserHealthScore(userId);
+      annotate({
+        action: {
+          name: "labs.biomarker.backfill.stopped",
+          details: { markers, linked, groupsLeft: groups.length - markers },
+        },
+      });
+      throw new Error(
+        `lab-biomarker backfill for user ${userId} stopped on its job budget after ${markers} of ${groups.length} groups; the retry resumes`,
+      );
+    }
     // Re-use a hand-defined marker of the same name if one exists; otherwise
     // mint it. `(userId, name)` is unique, so a concurrent re-run converges.
     const biomarker = await prisma.biomarker.upsert({
