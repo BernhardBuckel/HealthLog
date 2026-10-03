@@ -208,6 +208,8 @@ function toRecurrenceContext(
     },
     timeZone: engineCtx.timeZone,
     lastIntakeAt: engineCtx.lastIntakeAt,
+    // v1.40 (#1024) — a medication: `startsOn` is a course start.
+    rollingAnchor: "courseStart",
   };
 }
 
@@ -921,6 +923,8 @@ function missedFromLedger(
     },
     timeZone: userTz,
     lastIntakeAt: engineCtx.lastIntakeAt,
+    // v1.40 (#1024) — a medication: `startsOn` is a course start.
+    rollingAnchor: "courseStart",
   };
   const canonicalSchedules: CanonicalSchedule[] = schedules.map((s, i) => {
     const base = toCanonical(s, i);

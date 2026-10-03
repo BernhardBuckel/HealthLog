@@ -149,15 +149,16 @@ export interface RecurrenceContext {
    */
   lastIntakeAt: Date | null;
   /**
-   * v1.40 (#1024) — `"lastIntake"` keeps the rolling anchor on the last
-   * intake whatever `startsOn` says. A medication's `startsOn` is the start
-   * of its current course, so an intake whose next dose falls before it
-   * belongs to an earlier course and does not anchor; a measurement or
-   * booster reminder's `startsOn` is only its anchor date, and a dose
-   * fourteen years old on a ten-year cadence must stay overdue. Absent = the
-   * medication rule.
+   * v1.40 (#1024) — `"courseStart"`: `startsOn` is the start of a medication
+   * course, so an intake whose next rolling dose would fall before it belongs
+   * to an earlier course and does not anchor; the course's first dose is due
+   * on its start day. Only the medication context builders set it (a guard
+   * test enumerates them). Absent, the last intake always anchors, which is
+   * what a measurement or booster reminder needs: its `startsOn` is only an
+   * anchor date, and a dose fourteen years old on a ten-year cadence must
+   * stay overdue.
    */
-  rollingAnchor?: "lastIntake";
+  rollingAnchor?: "courseStart";
 }
 
 export interface Occurrence {
@@ -523,7 +524,7 @@ function rollingDoseAnchor(
       ? civilDayOfDate(ctx.medication.startsOn)
       : null;
   return fromIntake !== null &&
-    (ctx.rollingAnchor === "lastIntake" ||
+    (ctx.rollingAnchor !== "courseStart" ||
       startDay === null ||
       fromIntake.getTime() >= startDay.getTime())
     ? fromIntake

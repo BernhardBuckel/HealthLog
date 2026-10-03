@@ -70,6 +70,8 @@ export function toRecurrenceCtx(
     },
     timeZone: ctx.timeZone,
     lastIntakeAt: ctx.lastIntakeAt,
+    // v1.40 (#1024) — a medication: `startsOn` is a course start.
+    rollingAnchor: "courseStart",
   };
 }
 

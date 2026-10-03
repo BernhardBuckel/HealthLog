@@ -187,6 +187,8 @@ function ledgerChipCounts(
     },
     timeZone: userTz,
     lastIntakeAt: engineCtx.lastIntakeAt,
+    // v1.40 (#1024) — a medication: `startsOn` is a course start.
+    rollingAnchor: "courseStart",
   };
   const canonicalSchedules: CanonicalSchedule[] = schedules.map((s, i) => {
     const base: CanonicalSchedule = {

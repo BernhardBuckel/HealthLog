@@ -154,6 +154,8 @@ export function buildRecurrenceContext(input: {
     },
     timeZone: input.userTz,
     lastIntakeAt: input.lastIntakeAt,
+    // v1.40 (#1024) — a medication: `startsOn` is a course start.
+    rollingAnchor: "courseStart",
   };
 }
 
