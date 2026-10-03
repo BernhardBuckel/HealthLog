@@ -178,8 +178,41 @@ export async function createCourse(
       args.userId,
       args.medicationId,
     );
+    // A medication without course rows is not empty history. With no window
+    // at all it has been taken continuously since creation and is running
+    // now, so a course cannot be added beside it (it ends its course first,
+    // "End course" writes one). With a window the rows never recorded (a
+    // file restored past the backfill), that window is its first course and
+    // is materialised before the new one is checked against it. Either way
+    // nothing the person already recorded can be cut off by the projection.
+    let existing: { startsOn: Date; endsOn: Date | null }[] = courses;
+    if (courses.length === 0) {
+      if (medication.startsOn === null && medication.endsOn === null) {
+        throw new CourseWriteError("currentOpen");
+      }
+      const implicit = windowAsCourse(
+        medication.startsOn,
+        medication.endsOn,
+        undefined,
+        medication.createdAt,
+        args.timeZone,
+      );
+      refuseIfInvalid(
+        [implicit, { startsOn: args.startsOn, endsOn: args.endsOn }],
+        todayKey,
+        medication.oneShot,
+      );
+      await tx.medicationCourse.create({
+        data: {
+          medicationId: args.medicationId,
+          userId: args.userId,
+          ...implicit,
+        },
+      });
+      existing = [implicit];
+    }
     refuseIfInvalid(
-      [...courses, { startsOn: args.startsOn, endsOn: args.endsOn }],
+      [...existing, { startsOn: args.startsOn, endsOn: args.endsOn }],
       todayKey,
       medication.oneShot,
     );

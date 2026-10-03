@@ -275,6 +275,39 @@ describe("course writes keep the projection", () => {
     });
   });
 
+  it("never lets a first course cut off a chronic medication's history", async () => {
+    // Taken continuously since creation: no window, no course row. A course
+    // added beside it would project the medication into ending.
+    const chronic = await makeMedication({});
+    const refused = await postCourse(chronic.id, {
+      startsOn: "2026-03-01",
+      endsOn: "2026-03-31",
+    });
+    expect(refused.status).toBe(422);
+    expect((await refused.json()).meta.errorCode).toBe(
+      "medications.course.currentOpen",
+    );
+    expect(await courses(chronic.id)).toEqual([]);
+    expect(await window(chronic.id)).toEqual({ startsOn: null, endsOn: null });
+
+    // A window the rows never recorded (written past the course writer, as
+    // an older restore could) becomes the first course before the new one.
+    const legacy = await makeMedication({});
+    await getPrismaClient().medication.update({
+      where: { id: legacy.id },
+      data: { startsOn: D("2026-01-10"), endsOn: D("2026-01-20") },
+    });
+    const added = await postCourse(legacy.id, {
+      startsOn: "2026-03-01",
+      endsOn: "2026-03-05",
+    });
+    expect(added.status).toBe(201);
+    expect(await courses(legacy.id)).toEqual([
+      ["2026-01-10", "2026-01-20"],
+      ["2026-03-01", "2026-03-05"],
+    ]);
+  });
+
   it("lets the medication's own PUT edit the latest course", async () => {
     const med = await makeMedication({
       startsOn: "2026-03-01",
