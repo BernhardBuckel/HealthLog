@@ -9,6 +9,8 @@
  *   - the entry lands as `MANUAL`, with the start, duration and metres the
  *     form computed, and the list serves it;
  *   - a second submit of the same form is a `duplicate`, not a second row;
+ *   - a submit after an edit is `updated` and the one row carries the edit,
+ *     while a synced id with changed values stays first-write-wins;
  *   - delete removes a hand-entered workout and refuses a synced one.
  */
 import { NextRequest } from "next/server";
@@ -161,6 +163,79 @@ describe("a workout entered by hand", () => {
         where: { userId: TEST_USER_ID },
       }),
     ).toBe(1);
+  });
+
+  it("updates the stored row when the same form is sent again with an edit", async () => {
+    const prisma = getPrismaClient();
+    const entry = formEntry(newManualWorkoutExternalId());
+    await post({ workouts: [entry] });
+    const stored = await prisma.workout.findFirstOrThrow({
+      where: { userId: TEST_USER_ID },
+    });
+    // A record the first values set; the edit must not leave it behind.
+    await prisma.personalRecord.create({
+      data: {
+        userId: TEST_USER_ID,
+        metricType: "WALKING_RUNNING_DISTANCE",
+        metricSlot: "longest_distance_run",
+        direction: "MAX",
+        value: 8046.7,
+        unit: "m",
+        achievedAt: stored.startedAt,
+        source: "MANUAL",
+        externalId: entry.externalId,
+      },
+    });
+
+    const edited = { ...entry, totalDistanceM: 6000, totalEnergyKcal: 380 };
+    const res = await post({ workouts: [edited] });
+
+    expect((await res.json()).data.entries).toEqual([
+      { index: 0, status: "updated" },
+    ]);
+    const rows = await prisma.workout.findMany({
+      where: { userId: TEST_USER_ID },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: stored.id,
+      totalDistanceM: 6000,
+      totalEnergyKcal: 380,
+      durationSec: 45 * 60,
+    });
+    expect(
+      await prisma.personalRecord.count({
+        where: { userId: TEST_USER_ID, externalId: entry.externalId },
+      }),
+    ).toBe(0);
+
+    // The same edit once more changes nothing and says so.
+    const again = await post({ workouts: [edited] });
+    expect((await again.json()).data.entries).toEqual([
+      { index: 0, status: "duplicate" },
+    ]);
+  });
+
+  it("keeps a synced workout first-write-wins under the same resend", async () => {
+    const prisma = getPrismaClient();
+    const entry = {
+      ...formEntry("hk-uuid-1"),
+      source: "APPLE_HEALTH" as const,
+      externalId: "8F14E45F-CEEA-467A-9575-0F5D6C5A1B2C",
+    };
+    await post({ workouts: [entry] });
+
+    const res = await post({
+      workouts: [{ ...entry, totalDistanceM: 1234 }],
+    });
+
+    expect((await res.json()).data.entries).toEqual([
+      { index: 0, status: "duplicate" },
+    ]);
+    const row = await prisma.workout.findFirstOrThrow({
+      where: { userId: TEST_USER_ID },
+    });
+    expect(row.totalDistanceM).not.toBe(1234);
   });
 
   it("can be deleted, and is gone from the list", async () => {

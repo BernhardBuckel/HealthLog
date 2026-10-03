@@ -4706,13 +4706,14 @@ paths:
         Server-side ingest endpoint for HKWorkout records (iOS) and Withings activity rows (server-to-server). Up to 100
         workouts per call; nested route geometry (GeoJSON LineString) is capped at 20 000 points and stored in a 1:1
         `WorkoutRoute` row keyed by `workoutId`. Idempotent via the `Idempotency-Key` header (replay window 24h).
-        Per-entry status (`inserted | duplicate | enriched | skipped`) lets the iOS sync cursor checkpoint accurately.
-        An entry matching a stored workout is first-write-wins for the workout row; when it carries a `samples` array
-        and the stored workout has no heart-rate series, the series is attached and the entry reports `enriched`
-        (repeatable: a workout that already has a series is a no-op). An entry whose `samples` array fails validation is
-        refused on its own with `reason: "invalid_samples"` — the rest of the batch still lands. The request body
-        ceiling is 5 MB enforced at the HTTP layer — clients above the ceiling receive a 413 with
-        `workout.batch.payload_too_large`.
+        Per-entry status (`inserted | duplicate | enriched | updated | skipped`) lets the iOS sync cursor checkpoint
+        accurately. An entry matching a stored workout is first-write-wins for the workout row, except a hand-entered
+        one (`source: MANUAL` with a `manual:` externalId), which a resend with other values overwrites and reports
+        `updated`; when it carries a `samples` array and the stored workout has no heart-rate series, the series is
+        attached and the entry reports `enriched` (repeatable: a workout that already has a series is a no-op). An entry
+        whose `samples` array fails validation is refused on its own with `reason: "invalid_samples"` — the rest of the
+        batch still lands. The request body ceiling is 5 MB enforced at the HTTP layer — clients above the ceiling
+        receive a 413 with `workout.batch.payload_too_large`.
 
 
         **Narrow token.** Also reachable with a `workouts:write` Bearer (minted at `POST /api/tokens/workouts`), the
@@ -43190,11 +43191,14 @@ components:
             - inserted
             - duplicate
             - enriched
+            - updated
             - skipped
           description: "`inserted`: a new workout row. `duplicate`: the workout was already stored and nothing was written.
             `enriched`: the workout was already stored and the heart-rate series this entry carried was attached to it;
             the workout row itself was not written, and the entry also counts towards the top-level `duplicates`.
-            `skipped`: the server refused the entry, see `reason`."
+            `updated` (since v1.40.0): a workout entered by hand (`source: MANUAL`, `externalId` starting `manual:`) was
+            sent again with different values and the stored row now carries them; no row was inserted, so it also counts
+            towards `duplicates`. `skipped`: the server refused the entry, see `reason`."
         reason:
           description: "Why a `skipped` entry was refused: `unstable_external_id` for an id that does not survive a client
             restart, `invalid_samples` for a heart-rate series that failed validation."

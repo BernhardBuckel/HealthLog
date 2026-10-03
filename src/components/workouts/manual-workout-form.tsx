@@ -59,7 +59,7 @@ interface BatchResult {
   entries?: Array<{ status: string }>;
 }
 
-export type ManualWorkoutSaveOutcome = "inserted" | "duplicate";
+export type ManualWorkoutSaveOutcome = "inserted" | "duplicate" | "updated";
 
 /**
  * Post the entry and refresh what shows workouts. A `duplicate` is a success:
@@ -74,7 +74,7 @@ export async function saveManualWorkout(
     workouts: [entry],
   });
   const status = result?.entries?.[0]?.status;
-  if (status !== "inserted" && status !== "duplicate") {
+  if (status !== "inserted" && status !== "duplicate" && status !== "updated") {
     throw new Error(`workout entry not stored: ${status ?? "unknown"}`);
   }
   // The list, the dashboard tile and every detail read sit under this
@@ -112,7 +112,8 @@ export function ManualWorkoutForm({
   const timezone = user?.timezone || DEFAULT_TIMEZONE;
 
   // Minted once per opened form and sent with every submit, so a second tap
-  // or a retried request lands as a duplicate rather than a second row.
+  // or a retried request lands as a duplicate rather than a second row, and
+  // a submit after an edit updates the row the first submit stored.
   const [externalId] = useState(newManualWorkoutExternalId);
   const [draft, setDraft] = useState<ManualWorkoutDraft>(() =>
     emptyManualWorkoutDraft(new Date(), timezone),
