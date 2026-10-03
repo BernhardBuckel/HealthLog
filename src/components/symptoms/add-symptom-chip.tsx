@@ -115,10 +115,10 @@ export function AddSymptomChip({
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  aria-label={name}
+                  aria-label={t(`symptoms.icons.${name}`)}
                   onClick={() => setIcon(name)}
                   className={cn(
-                    "focus-visible:ring-ring/50 grid size-7 place-items-center rounded-md border transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                    "focus-visible:ring-ring/50 grid size-11 place-items-center rounded-md border transition-colors focus-visible:ring-2 focus-visible:outline-none sm:size-9",
                     selected
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border text-muted-foreground hover:bg-accent",
