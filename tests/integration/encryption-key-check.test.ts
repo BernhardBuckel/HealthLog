@@ -439,6 +439,70 @@ describe("retiring a key id after rotation (real Postgres)", () => {
   });
 });
 
+describe("routes outside apiHandler refuse while the key does not match", () => {
+  beforeEach(() => {
+    setKeyMismatchState({ keyIds: ["v1"], detectedAt: "2026-10-03T00:00:00Z" });
+  });
+
+  it("/mcp answers 503 encryption.key_mismatch before auth", async () => {
+    const { POST } = await import("@/app/mcp/route");
+    const res = await POST(
+      new Request("http://localhost/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer hlk_whatever",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+    );
+    expect(res.status).toBe(503);
+    expect((await res.json()).meta).toEqual({
+      errorCode: "encryption.key_mismatch",
+    });
+  });
+
+  it("the MCP OAuth endpoints refuse in their RFC shape", async () => {
+    const { POST: token } = await import("@/app/api/mcp/oauth/token/route");
+    const { POST: register } =
+      await import("@/app/api/mcp/oauth/register/route");
+    const { GET: authorizeGet, POST: authorizePost } =
+      await import("@/app/api/mcp/oauth/authorize/route");
+    const responses = [
+      await token(
+        new NextRequest("http://localhost/api/mcp/oauth/token", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: "grant_type=authorization_code&code=x",
+        }),
+      ),
+      await register(
+        post("/api/mcp/oauth/register", {
+          redirect_uris: ["https://client.example/cb"],
+        }),
+      ),
+      await authorizeGet(
+        new NextRequest(
+          "http://localhost/api/mcp/oauth/authorize?response_type=code",
+        ),
+      ),
+      await authorizePost(
+        new NextRequest("http://localhost/api/mcp/oauth/authorize", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: "decision=approve",
+        }),
+      ),
+    ];
+    for (const res of responses) {
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.error).toBe("temporarily_unavailable");
+      expect(body.error_description).toContain("encryption key");
+    }
+  });
+});
+
 describe("encryption key backup step (real Postgres)", () => {
   it("is due, refuses a stale confirmation, records the right one, and is due again after a re-key", async () => {
     const prisma = getPrismaClient();
