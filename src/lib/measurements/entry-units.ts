@@ -26,7 +26,22 @@
  * arrives.
  */
 
+import type { DurationFieldUnit } from "./parse-duration";
+
 export const MINUTES_PER_HOUR = 60;
+
+/**
+ * Types whose entry field asks for a duration, and the unit it asks in. Such a
+ * field reads `7:30` and `7h 30m` as well as a decimal (`parseDurationEntry`).
+ */
+const DURATION_ENTRY_UNIT: Readonly<Record<string, DurationFieldUnit>> = {
+  SLEEP_DURATION: "h",
+};
+
+/** The duration unit a type's entry field asks in, or null for a plain number. */
+export function durationEntryUnit(type: string): DurationFieldUnit | null {
+  return DURATION_ENTRY_UNIT[type] ?? null;
+}
 
 /**
  * Entry unit → canonical unit multiplier, per measurement type. A type absent

@@ -30,9 +30,11 @@ import { useAuth } from "@/hooks/use-auth";
 import { resolveGlucoseUnit, toCanonicalMgdl } from "@/lib/glucose";
 import { isSurfaceVisible, type SurfaceModuleMap } from "@/lib/modules/surface";
 import {
+  durationEntryUnit,
   entryValueToCanonical,
   parseDecimalEntry,
 } from "@/lib/measurements/entry-units";
+import { parseDurationEntry } from "@/lib/measurements/parse-duration";
 import {
   invalidateKeys,
   measurementDependentKeys,
@@ -45,6 +47,8 @@ import {
   getLastUsedMeasurementType,
   setLastUsedMeasurementType,
 } from "@/lib/measurements/last-used-type";
+
+import { DurationReadAs } from "./duration-read-as";
 
 const MAX_COMMENT_LENGTH = MEASUREMENT_NOTES_MAX_LENGTH;
 
@@ -343,6 +347,7 @@ export function MeasurementForm({
     ? selectedType
     : (offeredTypes[0]?.value ?? "BLOOD_PRESSURE");
   const [value, setValue] = useState("");
+  const [valueError, setValueError] = useState<string | null>(null);
   const [sysBp, setSysBp] = useState("");
   const [diaBp, setDiaBp] = useState("");
   const [pulse, setPulse] = useState("");
@@ -367,6 +372,11 @@ export function MeasurementForm({
   const typeInfo = MEASUREMENT_TYPES.find((t) => t.value === type);
   const isBpMode = type === "BLOOD_PRESSURE";
   const isGlucoseMode = type === "BLOOD_GLUCOSE";
+  // A duration field (sleep, in hours) also reads "7:30" and "7h 30m"; the
+  // hint under it says how the entry was understood.
+  const durationUnit = durationEntryUnit(type);
+  const durationRead =
+    durationUnit !== null ? parseDurationEntry(value, durationUnit) : null;
 
   function resetForm() {
     setType(normalizedDefault || "BLOOD_PRESSURE");
@@ -377,6 +387,7 @@ export function MeasurementForm({
     setNotes("");
     setMeasuredAt(getDefaultMeasuredAtValue());
     setError(null);
+    setValueError(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -432,7 +443,22 @@ export function MeasurementForm({
         // minutes, and sending the typed number through unconverted filed a
         // 7.5-hour night as seven and a half minutes — inside the column's
         // plausibility band, so nothing objected.
-        const typed = parseDecimalEntry(value);
+        let typed: number | null;
+        if (durationRead) {
+          if (!durationRead.ok) {
+            setValueError(
+              t(
+                durationRead.reason === "tooLong"
+                  ? "measurements.durationTooLong"
+                  : "measurements.durationInvalid",
+              ),
+            );
+            return;
+          }
+          typed = durationRead.value;
+        } else {
+          typed = parseDecimalEntry(value);
+        }
         if (typed === null) {
           setError(t("measurements.saveError"));
           return;
@@ -539,7 +565,13 @@ export function MeasurementForm({
   return (
     <form id={formId} onSubmit={handleSubmit} className="space-y-4">
       <FieldGroup htmlFor="measurement-type" label={t("measurements.type")}>
-        <Select value={type} onValueChange={setType}>
+        <Select
+          value={type}
+          onValueChange={(next) => {
+            setType(next);
+            setValueError(null);
+          }}
+        >
           <SelectTrigger id="measurement-type" className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -614,6 +646,12 @@ export function MeasurementForm({
       ) : (
         <FieldGroup
           htmlFor="value"
+          hint={
+            durationRead?.ok === true ? (
+              <DurationReadAs minutes={durationRead.minutes} />
+            ) : null
+          }
+          error={valueError}
           label={t("measurements.valueWithUnit", {
             // For a type with a metric/imperial transform the label follows the
             // user's preference (kg↔lb, cm↔in, °C↔°F); everything else keeps
@@ -636,10 +674,15 @@ export function MeasurementForm({
             // arrives as an empty string with no explanation. `inputMode`
             // still raises the numeric keypad, and the submit path reads the
             // comma — the same shape the labs and custom-metric fields use.
-            inputMode="decimal"
+            // A duration also takes "7:30" and "7h 30m", which the decimal
+            // keypad cannot type.
+            inputMode={durationUnit !== null ? "text" : "decimal"}
             enterKeyHint="next"
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setValueError(null);
+            }}
             placeholder={
               isGlucoseMode && glucoseUnit === "mmol/L"
                 ? "5.3"
@@ -654,8 +697,12 @@ export function MeasurementForm({
             }
             required
             aria-required="true"
-            aria-invalid={!!error || undefined}
-            aria-describedby={errorDescriptor}
+            aria-invalid={!!error || !!valueError || undefined}
+            aria-describedby={
+              [valueError ? "value-error" : null, errorDescriptor]
+                .filter(Boolean)
+                .join(" ") || undefined
+            }
           />
         </FieldGroup>
       )}
