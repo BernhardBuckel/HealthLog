@@ -47,9 +47,17 @@ vi.mock("@/lib/db-compat", () => ({
 import {
   _resetCryptoCacheForTests,
   encrypt,
+  encryptUnderKeyId,
   getKeyFingerprint,
 } from "@/lib/crypto";
+import { encryptToBytes } from "@/lib/ai/coach/bytes-codec";
 import { runBootKeyCheck } from "@/lib/boot/key-check";
+import {
+  canaryPlaintext,
+  checkEncryptionKeyCanaries,
+  retireCanariesWithoutData,
+  type CanaryClient,
+} from "@/lib/crypto/canary";
 import {
   isKeyMismatch,
   setKeyMismatchState,
@@ -220,6 +228,214 @@ describe("boot key check probe over existing data (real Postgres)", () => {
     warn.mockRestore();
     expect(isKeyMismatch()).toBe(false);
     expect(await prisma.encryptionKeyCanary.count()).toBe(0);
+  });
+});
+
+/** Two users, one oldest, with ciphertext in string AND Bytes columns. */
+async function seedUser(
+  name: string,
+  writtenAt: Date,
+  seal: () => { text: string; bytes: Uint8Array<ArrayBuffer> },
+) {
+  const prisma = getPrismaClient();
+  const a = seal();
+  const b = seal();
+  const user = await prisma.user.create({
+    data: {
+      username: name,
+      email: `${name}@example.test`,
+      codexAccessTokenEncrypted: a.text,
+      codexRefreshTokenEncrypted: b.text,
+      createdAt: writtenAt,
+      updatedAt: writtenAt,
+    },
+  });
+  await prisma.userHealthProfile.create({
+    data: {
+      userId: user.id,
+      aboutMeEncrypted: a.bytes,
+      conditionsEncrypted: b.bytes,
+      createdAt: writtenAt,
+      updatedAt: writtenAt,
+    },
+  });
+  return user.id;
+}
+
+const sealNow = () => ({
+  text: encrypt("a stored value"),
+  bytes: encryptToBytes("a stored note"),
+});
+
+describe("boot key check: what decides, and what may seal (real Postgres)", () => {
+  it("probes Bytes columns: an install whose ciphertext is only Bytes does not seal a wrong key", async () => {
+    const prisma = getPrismaClient();
+    const user = await prisma.user.create({
+      data: { username: "bytes-only", email: "bytes-only@example.test" },
+    });
+    await prisma.userHealthProfile.create({
+      data: {
+        userId: user.id,
+        aboutMeEncrypted: encryptToBytes("about me"),
+        conditionsEncrypted: encryptToBytes("conditions"),
+        allergiesEncrypted: encryptToBytes("allergies"),
+      },
+    });
+
+    useKey(KEY_B);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await runBootKeyCheck(prisma)).toBe(true);
+    errors.mockRestore();
+    expect(await prisma.encryptionKeyCanary.count()).toBe(0);
+
+    useKey(KEY_A);
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    expect(await prisma.encryptionKeyCanary.count()).toBe(1);
+  });
+
+  it("a probe that runs out of time seals nothing and keeps serving", async () => {
+    const prisma = getPrismaClient();
+    await seedUser("slow", new Date("2024-01-01T00:00:00Z"), sealNow);
+    const outcome = await checkEncryptionKeyCanaries(prisma, {
+      probeBudgetMs: -1,
+    });
+    expect(outcome.state).toBe("ok");
+    if (outcome.state !== "ok") return;
+    expect(outcome.written).toEqual([]);
+    expect(outcome.inconclusive.map((i) => i.keyId)).toEqual(["v1"]);
+    expect(await prisma.encryptionKeyCanary.count()).toBe(0);
+  });
+
+  it("a fresh database with no ciphertext under the key id seals it", async () => {
+    const prisma = getPrismaClient();
+    // Ciphertext exists, but under another key id: not evidence about v1.
+    vi.stubEnv("ENCRYPTION_KEYS", JSON.stringify({ v1: KEY_A, v2: KEY_B }));
+    vi.stubEnv("ENCRYPTION_ACTIVE_KEY_ID", "v2");
+    vi.stubEnv("ENCRYPTION_KEY", "");
+    _resetCryptoCacheForTests();
+    await seedUser("v2-only", new Date("2024-01-01T00:00:00Z"), sealNow);
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    const ids = (await prisma.encryptionKeyCanary.findMany())
+      .map((r) => r.keyId)
+      .sort();
+    expect(ids).toEqual(["v1", "v2"]);
+  });
+
+  it("rows a wrong key wrote recently never decide: old rows under A, newer under B", async () => {
+    const prisma = getPrismaClient();
+    // The original data, under A.
+    await seedUser("original", new Date("2024-01-01T00:00:00Z"), sealNow);
+    await seedUser("original-2", new Date("2024-02-01T00:00:00Z"), sealNow);
+    // A process holding B served for a while (no canary yet) and wrote more.
+    useKey(KEY_B);
+    for (let i = 0; i < 6; i++) {
+      await seedUser(
+        `recent-${i}`,
+        new Date(Date.UTC(2026, 8, 1 + i)),
+        sealNow,
+      );
+    }
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await runBootKeyCheck(prisma);
+    warn.mockRestore();
+    errors.mockRestore();
+    // B is not sealed as the right key, whatever else the verdict is.
+    expect(await prisma.encryptionKeyCanary.count()).toBe(0);
+    const outcome = await checkEncryptionKeyCanaries(prisma);
+    expect(
+      outcome.state === "mismatch" ||
+        (outcome.state === "ok" && outcome.written.length === 0),
+    ).toBe(true);
+
+    // The key the oldest data was written with is the right one.
+    useKey(KEY_A);
+    setKeyMismatchState(null);
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    expect(isKeyMismatch()).toBe(false);
+    expect(await prisma.encryptionKeyCanary.count()).toBe(1);
+  });
+
+  it("losing the first-seal race to another key is a mismatch, not ok", async () => {
+    const prisma = getPrismaClient();
+    // The other process, holding A, wins the insert between our probe and
+    // our write.
+    const sealedUnderA = encryptUnderKeyId(canaryPlaintext("v1"), "v1");
+    useKey(KEY_B);
+    let raced = false;
+    const racing = new Proxy(prisma, {
+      get(target, prop, receiver) {
+        if (prop === "$executeRaw") {
+          return async (q: TemplateStringsArray, ...values: unknown[]) => {
+            if (!raced) {
+              raced = true;
+              await target.$executeRaw`INSERT INTO encryption_key_canaries (key_id, ciphertext) VALUES ('v1', ${sealedUnderA})`;
+            }
+            return target.$executeRaw(q, ...values);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as unknown as CanaryClient;
+    const outcome = await checkEncryptionKeyCanaries(racing);
+    expect(raced).toBe(true);
+    expect(outcome).toEqual({ state: "mismatch", keyIds: ["v1"] });
+
+    // The same race lost to a process holding the SAME key is fine.
+    await prisma.$executeRaw`DELETE FROM encryption_key_canaries`;
+    raced = false;
+    useKey(KEY_A);
+    const same = await checkEncryptionKeyCanaries(racing);
+    expect(same.state).toBe("ok");
+  });
+});
+
+describe("retiring a key id after rotation (real Postgres)", () => {
+  it("removes the canary of a key id only once no ciphertext remains under it", async () => {
+    const prisma = getPrismaClient();
+    vi.stubEnv("ENCRYPTION_KEYS", JSON.stringify({ v1: KEY_A, v2: KEY_B }));
+    vi.stubEnv("ENCRYPTION_ACTIVE_KEY_ID", "v1");
+    vi.stubEnv("ENCRYPTION_KEY", "");
+    _resetCryptoCacheForTests();
+    const userId = await seedUser(
+      "rotating",
+      new Date("2024-01-01T00:00:00Z"),
+      sealNow,
+    );
+    expect(await runBootKeyCheck(prisma)).toBe(false);
+    expect(await prisma.encryptionKeyCanary.count()).toBe(2);
+
+    // Rotation to v2 has not finished: one Bytes value still under v1.
+    vi.stubEnv("ENCRYPTION_ACTIVE_KEY_ID", "v2");
+    _resetCryptoCacheForTests();
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        codexAccessTokenEncrypted: encrypt("rotated"),
+        codexRefreshTokenEncrypted: encrypt("rotated"),
+      },
+    });
+    await prisma.userHealthProfile.update({
+      where: { userId },
+      data: { aboutMeEncrypted: encryptToBytes("rotated") },
+    });
+    const partial = await retireCanariesWithoutData(prisma);
+    expect(partial.removed).toEqual([]);
+    expect(partial.remaining).toEqual({
+      v1: ["UserHealthProfile.conditionsEncrypted"],
+    });
+    expect(await prisma.encryptionKeyCanary.count()).toBe(2);
+
+    await prisma.userHealthProfile.update({
+      where: { userId },
+      data: { conditionsEncrypted: encryptToBytes("rotated") },
+    });
+    const done = await retireCanariesWithoutData(prisma);
+    expect(done.removed).toEqual(["v1"]);
+    const left = await prisma.encryptionKeyCanary.findMany();
+    expect(left.map((r) => r.keyId)).toEqual(["v2"]);
   });
 });
 

@@ -13,8 +13,22 @@ import {
   checkEncryptionKeyCanaries,
   keyMismatchLogBlock,
   type CanaryClient,
+  type InconclusiveReason,
 } from "@/lib/crypto/canary";
 import { setKeyMismatchState } from "./key-mismatch-state";
+
+const INCONCLUSIVE_EXPLANATION: Record<InconclusiveReason, string> = {
+  "single-value": "the only stored value found under that id did not open.",
+  mixed:
+    "the oldest stored values under that id do not open, newer ones do. " +
+    "That is what a wrong key that served for a while leaves behind; check " +
+    "that this is the key the database was first written with.",
+  unsampled:
+    "the values stored under that id are too large to probe at start-up.",
+  incomplete:
+    "the probe of the stored data did not finish in time or a table could " +
+    "not be read.",
+};
 
 export async function runBootKeyCheck(client: CanaryClient): Promise<boolean> {
   const outcome = await checkEncryptionKeyCanaries(client);
@@ -34,11 +48,11 @@ export async function runBootKeyCheck(client: CanaryClient): Promise<boolean> {
       `[boot] Encryption key check skipped: ${outcome.message.slice(0, 300)}`,
     );
   } else {
-    if (outcome.inconclusive.length > 0) {
+    for (const { keyId, reason } of outcome.inconclusive) {
       console.warn(
-        `[boot] Encryption key check inconclusive for key id(s) ${outcome.inconclusive.join(", ")}: ` +
-          "the only stored value found under that id did not open. Serving; " +
-          "no canary written; the check runs again at the next start.",
+        `[boot] Encryption key check inconclusive for key id ${keyId}: ` +
+          `${INCONCLUSIVE_EXPLANATION[reason]} Serving; no key recorded; ` +
+          "the check runs again at the next start.",
       );
     }
     if (outcome.written.length > 0) {

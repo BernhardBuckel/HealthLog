@@ -80,6 +80,32 @@ Fix it one of three ways, then restart the app:
 3. Start fresh with an empty database. The old data and its backups need the
    old key.
 
+Before it records a key as the right one, the check reads the oldest
+encrypted values in the database and records the key only if they open (or if
+the database holds no encrypted value under that key id yet). When the data
+proves neither, the app keeps serving, records nothing, writes a warning
+starting with `[boot] Encryption key check inconclusive` to the log, and
+checks again at the next start.
+
+### Resetting the check
+
+If you are certain the configured key is the one the data was written with,
+and the app still refuses because the check recorded a different key earlier,
+remove that record and restart. Open a shell on the database container (Apps,
+HealthLog, the database container's Shell) and run, with the key id the log
+names (`v1` unless you use `ENCRYPTION_KEYS`):
+
+```bash
+psql -U healthlog healthlog \
+  -c "DELETE FROM encryption_key_canaries WHERE key_id = 'v1';"
+```
+
+Then restart the app. It probes the stored data again and records the key
+only if that data opens with it. If the key is in fact wrong, the app then
+fails on every encrypted value instead of refusing clearly, so only do this
+when you are sure. After a key rotation you never need this for the old key
+id: the rotation script removes its record once no values remain under it.
+
 ## Updates
 
 Pick the new tag, take a snapshot of the database dataset first, and update.
