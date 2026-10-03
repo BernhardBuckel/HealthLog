@@ -11,6 +11,7 @@ vi.mock("@/lib/db", () => ({
     illnessDayLog: { findMany: vi.fn() },
     environmentContext: { findMany: vi.fn() },
     customMetric: { findMany: vi.fn() },
+    symptomDefinition: { findMany: vi.fn(async () => []) },
   },
 }));
 

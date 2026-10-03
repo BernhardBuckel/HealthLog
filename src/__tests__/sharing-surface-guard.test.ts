@@ -991,6 +991,22 @@ const DELEGABLE_ROUTES: Record<string, DelegableEntry> = {
     domain: "illness",
     why: "The day logs of one episode. The episode-scoped queries are safe because `loadOwnedEpisode(id, user.id)` runs first and now resolves against the record; the upsert arm keeps `requireAuth()`.",
   },
+  "app/api/symptoms/definitions/route.ts": {
+    domain: "illness",
+    why: "The record's own symptom list. Module-gated on the record on both arms and scoped `userId: user.id`; the create arm is MANAGE (see the manage literal), because the vocabulary is the owner's and a delegate who may log an occurrence picks from it.",
+  },
+  "app/api/symptoms/definitions/[id]/route.ts": {
+    domain: "illness",
+    why: "One symptom definition of the record, fetch-then-guard against the resolved user. Reached only through this module's MANAGE arm; the argument for admitting it is the manage literal's reason line.",
+  },
+  "app/api/symptoms/events/route.ts": {
+    domain: "illness",
+    why: "The record's symptom occurrences. Module-gated on the record; the definition and the optional episode a create names are both re-narrowed to the resolved user before anything is written, so a delegate cannot file one record's occurrence under another's episode. The create arm is a delegable write.",
+  },
+  "app/api/symptoms/events/[id]/route.ts": {
+    domain: "illness",
+    why: "One symptom occurrence of the record, fetch-then-guard against the resolved user. Reached only through this module's MANAGE arm.",
+  },
   "app/api/workouts/route.ts": {
     domain: "measurements",
     why: "The record's workout list. Verified to carry no AI-written paragraph: the single-workout route beside it does, and stays refused for exactly that reason.",
@@ -1431,6 +1447,8 @@ const DELEGABLE_WRITE_ROUTES: Record<string, string> = {
     "Adding an analyte to the record's catalogue. A name the record already tracks is the ordinary 409 from the same `(userId, name)` uniqueness the owner would hit themselves.",
   "app/api/illness/episodes/route.ts":
     "Opening an illness episode. The module gate runs against the RECORD before the write, so a delegate cannot create an episode inside a record whose owner switched the module off.",
+  "app/api/symptoms/events/route.ts":
+    "Logging a symptom occurrence. The definition and the episode the body names are looked up under the RECORD, and an episode must still be open, so a delegate cannot attach an occurrence to an episode the owner closed or to another record's.",
   "app/api/encounters/route.ts":
     "Filing a visit, or booking one. Every id the body may carry — the practitioner, the checkup it closes, the three link arrays — is re-narrowed to the resolved record before anything is written, so a delegate cannot attach one record's document to another's visit. Booking mints the appointment reminder under the RECORD, which is correct: it is the owner's appointment and the owner's channels that should be nudged about it.",
   "app/api/practitioners/route.ts":
@@ -1599,6 +1617,21 @@ const DELEGABLE_MANAGE_ROUTES: Record<string, ManageEntry> = {
     domain: "illness",
     conditions: ["C3"],
     why: "Writing a day of an episode. The upsert revives a tombstoned day and replaces that day's symptom links, so C3 names the date, the previous symptom set, and the revival.",
+  },
+  "app/api/symptoms/definitions/route.ts": {
+    domain: "illness",
+    conditions: ["C1"],
+    why: "Defining a symptom on the record. Capped at eight active ones; C1 so a manager burns their own bucket rather than the owner's.",
+  },
+  "app/api/symptoms/definitions/[id]/route.ts": {
+    domain: "illness",
+    conditions: ["C1", "C3", "C4"],
+    why: "Renaming, hiding and deleting a symptom. Hiding keeps the history; the purge is hard and takes the occurrences with it, so C3 names the definition and the count. C4 on the edit, over the plaintext fields only; a rename is named, never quoted. C1 on the bucket.",
+  },
+  "app/api/symptoms/events/[id]/route.ts": {
+    domain: "illness",
+    conditions: ["C3", "C4"],
+    why: "Correcting and removing one occurrence. The delete is hard, so C3 carries its time and intensity; C4 on the edit, the encrypted note named and never quoted.",
   },
   "app/api/mood-entries/route.ts": {
     domain: "mind",
@@ -1972,9 +2005,13 @@ const ACTOR_ROUTES: Record<string, string> = {
  *
  * v1.40 -- the custom medication categories add two: the vocabulary read on
  * the record list and its create on the manage literal, the cycle symptom
- * precedent. Rename and delete stay owner-only. 232 -> 234.
+ * precedent. Rename and delete stay owner-only.
+ * v1.40 -- person-defined symptoms add eight: four modules on the record
+ * list, the occurrence create on the write literal, and the definition create,
+ * the definition edit/delete and the occurrence edit/delete on the manage
+ * literal. 232 -> 242 with both.
  */
-const FROZEN_ENTRY_COUNT = 234;
+const FROZEN_ENTRY_COUNT = 242;
 
 /**
  * The two surfaces that authenticate a Bearer token outside `requireAuth` —
@@ -2735,7 +2772,7 @@ describe("(g) the MANAGE route set is frozen", () => {
 
   it("keeps the admitted mutation inventory complete and discoverable", () => {
     expect(ADMITTED_MUTATING_HANDLERS.length).toBeGreaterThan(0);
-    expect(ADMITTED_MUTATING_HANDLERS.length).toBe(78);
+    expect(ADMITTED_MUTATING_HANDLERS.length).toBe(84);
 
     const expected = ADMITTED_MUTATING_HANDLERS.map(
       ({ handlerModule, action, level }) =>

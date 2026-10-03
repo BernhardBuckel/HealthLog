@@ -82,14 +82,12 @@ vi.mock("@/components/ui/alert-dialog", () => ({
   AlertDialogTitle: markedComponent("AlertDialogTitle"),
 }));
 
-vi.mock("@/components/measurements/measurement-form", () => ({
+vi.mock("@/components/dashboard/quick-entry-forms.lazy", () => ({
   MeasurementForm: markedComponent("MeasurementForm"),
-}));
-vi.mock("@/components/mood/mood-form", () => ({
   MoodForm: markedComponent("MoodForm"),
-}));
-vi.mock("@/components/dashboard/medication-intake-quick-add", () => ({
   MedicationIntakeQuickAdd: markedComponent("MedicationIntakeQuickAdd"),
+  ManualWorkoutForm: markedComponent("ManualWorkoutForm"),
+  SymptomEntryForm: markedComponent("SymptomEntryForm"),
 }));
 
 import { CapturePicker } from "../capture-picker";

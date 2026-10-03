@@ -17,7 +17,12 @@ process.env.ENCRYPTION_KEY ??=
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 const findMany = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/db", () => ({ prisma: { illnessEpisode: { findMany } } }));
+vi.mock("@/lib/db", () => ({
+  prisma: {
+    illnessEpisode: { findMany },
+    symptomEvent: { groupBy: async () => [] },
+  },
+}));
 vi.mock("@/lib/illness/gate", () => ({
   isIllnessEnabled: vi.fn(async () => true),
 }));

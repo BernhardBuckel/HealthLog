@@ -22,6 +22,15 @@
  * The document is UNTRUSTED (prompt-injection): the server never acts on an
  * instruction inside it. The staged facts land PENDING for the mandatory
  * review-then-confirm screen; nothing reaches the structured stores here.
+ *
+ * v1.40 — `Prefer: respond-async` (RFC 7240) runs the extraction in the
+ * background worker: every refusal that can be answered quickly is still
+ * answered here, then the route answers 202 with a run id. The run's result is
+ * `{ documentId, factsStaged, status }` rather than the whole detail (the
+ * facts are staged on the document; the client reads them from there).
+ * Without the header the route behaves exactly as before; the iPhone app
+ * relies on that. Both paths run one body (`executeDocumentExtract`), which
+ * re-checks the document under a row lock before it stages anything.
  */
 import { Buffer } from "node:buffer";
 
@@ -40,24 +49,13 @@ import { AI_BUDGETS } from "@/lib/ai/ai-budgets";
 import { requireAiCapability } from "@/lib/ai/capabilities/gate";
 import {
   buildDateKey,
-  reconcileSpend,
   reserveBudget,
   resolveCostOwner,
   resolveDailyCap,
 } from "@/lib/ai/coach/budget";
-import { auditLog } from "@/lib/auth/audit";
+import type { ProviderChainType } from "@/lib/ai/provider-chain";
 import { prisma } from "@/lib/db";
-import {
-  InboundExtractError,
-  runInboundExtraction,
-  type InboundExtractionResult,
-} from "@/lib/documents/extract";
-import {
-  decryptDocumentContent,
-  encryptFactData,
-  encryptFactProvenance,
-  serialiseDocumentDetail,
-} from "@/lib/documents/store";
+import { serialiseDocumentDetail } from "@/lib/documents/store";
 import {
   requireDocumentTextProvider,
   requireDocumentVisionProvider,
@@ -66,73 +64,34 @@ import {
   checkDocumentAiRateLimit,
   documentAiRateLimited,
   DOCUMENT_AI_TEXT_BODY_MAX_BYTES,
+  loadOwnedDocument,
   refundDocumentAiSlot,
+  type LoadedDocument,
 } from "@/lib/documents/ai-route-support";
+import {
+  executeDocumentExtract,
+  type DocumentExtractInput,
+} from "@/lib/documents/ai-runs/extract-run";
+import {
+  acceptedRunResponse,
+  outcomeResponse,
+  prefersRespondAsync,
+} from "@/lib/documents/ai-runs/http";
+import { findLiveDocumentRun, startAiRun } from "@/lib/documents/ai-runs/start";
+import type { AiRunBudget } from "@/lib/documents/ai-runs/types";
 import { loadDocumentChatText } from "@/lib/documents/content-index";
-import { detectOcrMimeType } from "@/lib/labs/ocr-upload";
 import { annotate } from "@/lib/logging/context";
 import { requireModuleEnabled } from "@/lib/modules/gate";
 import {
   inboundStoredExtractSchema,
   inboundTextExtractSchema,
 } from "@/lib/validations/inbound-documents";
-import { dateOnlyAtNoonUtc } from "@/lib/tz/date-only";
 
 export const dynamic = "force-dynamic";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-/** A loaded, owner-scoped, still-extractable document row. */
-type LoadedDocument = {
-  id: string;
-  kind: string;
-  contentEncrypted: Uint8Array;
-  contentCodec: string;
-  mimeType: string;
-  status: string;
-};
-
-/**
- * Replace the document's staged facts and flip it to EXTRACTED in one
- * transaction. Re-extraction is allowed only when NO fact is APPROVED yet (the
- * POST handler refuses it otherwise), so clearing every prior staged fact here
- * can never drop an approved row or sever a committed-record provenance link —
- * the only facts present are PENDING / REJECTED leftovers from an earlier run.
- */
-async function stageExtraction(
-  documentId: string,
-  userId: string,
-  result: InboundExtractionResult,
-) {
-  return prisma.$transaction(async (tx) => {
-    await tx.extractedFact.deleteMany({ where: { documentId, userId } });
-    await tx.inboundDocument.update({
-      where: { id: documentId },
-      data: {
-        status: "EXTRACTED",
-        providerType: result.providerType,
-        reportDate: result.reportDate
-          ? dateOnlyAtNoonUtc(result.reportDate)
-          : null,
-        facts: {
-          create: result.facts.map((f) => ({
-            userId,
-            factType: f.factType,
-            status: "PENDING" as const,
-            confidence: f.confidence,
-            needsReview: f.needsReview,
-            dataEncrypted: encryptFactData(f.data),
-            provenanceEncrypted: encryptFactProvenance(f.provenance),
-          })),
-        },
-      },
-    });
-    return tx.inboundDocument.findUniqueOrThrow({
-      where: { id: documentId },
-      include: { facts: { orderBy: { createdAt: "asc" } } },
-    });
-  });
-}
+type ExtractInputMode = "text" | "stored" | "vision";
 
 export const POST = apiHandler(
   async (request: NextRequest, { params }: RouteParams) => {
@@ -146,17 +105,7 @@ export const POST = apiHandler(
     await requireAiCapability("documentAi", { pickDecides: true });
 
     const { id } = await params;
-    const document = await prisma.inboundDocument.findFirst({
-      where: { id, userId: user.id, deletedAt: null },
-      select: {
-        id: true,
-        kind: true,
-        contentEncrypted: true,
-        contentCodec: true,
-        mimeType: true,
-        status: true,
-      },
-    });
+    const document = await loadOwnedDocument(user.id, id);
     if (!document) {
       return apiError("Document not found", 404, {
         errorCode: "documents.inbound.notFound",
@@ -175,7 +124,8 @@ export const POST = apiHandler(
     // committed-record provenance link — and re-stage the same facts as PENDING,
     // letting the user approve them a second time and duplicate the committed
     // lab / condition / medication. Block it: the user must finish reviewing or
-    // discard the document first.
+    // discard the document first. Staging asks again under a row lock, because
+    // a review can finish while the read runs.
     const approvedCount = await prisma.extractedFact.count({
       where: { documentId: document.id, userId: user.id, status: "APPROVED" },
     });
@@ -191,6 +141,7 @@ export const POST = apiHandler(
       );
     }
 
+    const background = prefersRespondAsync(request);
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
       // One body read for both JSON modes, BEFORE any bucket charge — a
@@ -200,13 +151,98 @@ export const POST = apiHandler(
       });
       if (jsonError) return jsonError;
       if (inboundStoredExtractSchema.safeParse(body).success) {
-        return handleStoredExtract(request, user.id, document);
+        return handleStoredExtract(request, user.id, document, background);
       }
-      return handleTextExtract(request, user.id, document, body);
+      return handleTextExtract(request, user.id, document, body, background);
     }
-    return handleVisionExtract(request, user.id, document);
+    return handleVisionExtract(request, user.id, document, background);
   },
 );
+
+/**
+ * An extraction of this document from the same input, already queued or
+ * running: attach to it rather than charge a second one. Background only.
+ */
+async function liveRunResponse(
+  userId: string,
+  documentId: string,
+  input: ExtractInputMode,
+): Promise<Response | null> {
+  const live = await findLiveDocumentRun(
+    userId,
+    documentId,
+    "DOCUMENT_EXTRACT",
+    (params) => params.extract?.input === input,
+  );
+  return live ? acceptedRunResponse(live) : null;
+}
+
+/** Reserve the read's budget; null (slot refunded) when the day is spent. */
+async function reserveFor(
+  userId: string,
+  providerType: ProviderChainType,
+  tokens: number,
+): Promise<AiRunBudget | null> {
+  const dateKey = buildDateKey();
+  const reservation = await reserveBudget(
+    userId,
+    tokens,
+    dateKey,
+    resolveDailyCap([{ providerType }]),
+    resolveCostOwner([{ providerType }]),
+    "coach",
+  );
+  if (!reservation.allowed) {
+    await refundDocumentAiSlot(userId);
+    return null;
+  }
+  return { reserved: reservation.reserved, owner: reservation.owner, dateKey };
+}
+
+function budgetExceeded(): Response {
+  return apiError("Your AI usage budget for today is reached.", 429, {
+    errorCode: "documents.inbound.budgetExceeded",
+  });
+}
+
+/** Queue the extraction for the background worker. */
+function queueExtract(
+  userId: string,
+  document: LoadedDocument,
+  input: ExtractInputMode,
+  budget: AiRunBudget,
+  text: string | null,
+): Promise<Response> {
+  return startAiRun({
+    userId,
+    kind: "DOCUMENT_EXTRACT",
+    documentId: document.id,
+    params: {
+      mode: input === "vision" ? "vision" : "text",
+      budget,
+      extract: { input },
+    },
+    input: text === null ? null : Buffer.from(text, "utf8"),
+    refundSlot: () => refundDocumentAiSlot(userId),
+  });
+}
+
+/** The synchronous path: run the shared body and answer with the detail. */
+async function runNow(
+  request: NextRequest,
+  userId: string,
+  document: LoadedDocument,
+  input: DocumentExtractInput,
+): Promise<Response> {
+  const outcome = await executeDocumentExtract({
+    userId,
+    document,
+    input,
+    origin: { ipAddress: getClientIp(request), worker: false },
+  });
+  if (!outcome.ok) return outcomeResponse(outcome);
+  return apiSuccess(serialiseDocumentDetail(outcome.data, outcome.data.facts));
+}
 
 /** TEXT mode — structure in-browser-OCR'd text against the stored row. */
 async function handleTextExtract(
@@ -214,6 +250,7 @@ async function handleTextExtract(
   userId: string,
   document: LoadedDocument,
   body: unknown,
+  background: boolean,
 ): Promise<Response> {
   const row = await prisma.user.findUnique({
     where: { id: userId },
@@ -227,6 +264,11 @@ async function handleTextExtract(
   }
 
   const pick = await requireDocumentTextProvider(userId);
+
+  if (background) {
+    const live = await liveRunResponse(userId, document.id, "text");
+    if (live) return live;
+  }
 
   const rl = await checkDocumentAiRateLimit(userId);
   if (!rl.allowed) return documentAiRateLimited(rl);
@@ -244,68 +286,22 @@ async function handleTextExtract(
     );
   }
 
-  const dateKey = buildDateKey();
-  const reservation = await reserveBudget(
+  const budget = await reserveFor(
     userId,
+    pick.entry.providerType,
     AI_BUDGETS.ocrExtractText.maxTokens,
-    dateKey,
-    resolveDailyCap([{ providerType: pick.entry.providerType }]),
-    resolveCostOwner([{ providerType: pick.entry.providerType }]),
-    "coach",
   );
-  if (!reservation.allowed) {
-    await refundDocumentAiSlot(userId);
-    return apiError("Your AI usage budget for today is reached.", 429, {
-      errorCode: "documents.inbound.budgetExceeded",
-    });
+  if (!budget) return budgetExceeded();
+
+  if (background) {
+    return queueExtract(userId, document, "text", budget, parsed.data.text);
   }
-
-  try {
-    const result = await runInboundExtraction({
-      provider: pick.entry.instance,
-      providerType: pick.providerType,
-      ocrText: parsed.data.text,
-    });
-    await reconcileSpend(
-      userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-
-    const updated = await stageExtraction(document.id, userId, result);
-
-    await auditLog("documents.inbound.extract", {
-      userId,
-      ipAddress: getClientIp(request),
-      details: {
-        documentId: document.id,
-        facts: updated.facts.length,
-        mode: "text",
-      },
-    });
-
-    return apiSuccess(serialiseDocumentDetail(updated, updated.facts));
-  } catch (err) {
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    if (err instanceof InboundExtractError) {
-      return apiError("Couldn't read the document. Try a clearer copy.", 422, {
-        errorCode: "documents.inbound.extractFailed",
-      });
-    }
-    annotate({
-      action: { name: "documents.inbound.extractFailed" },
-      meta: { reason: "provider_error", mode: "text" },
-    });
-    return apiError("Couldn't read the document. Try a clearer copy.", 502, {
-      errorCode: "documents.inbound.extractFailed",
-    });
-  }
+  return runNow(request, userId, document, {
+    mode: "text",
+    text: parsed.data.text,
+    pick,
+    budget,
+  });
 }
 
 /**
@@ -324,6 +320,7 @@ async function handleStoredExtract(
   request: NextRequest,
   userId: string,
   document: LoadedDocument,
+  background: boolean,
 ): Promise<Response> {
   const chat = await loadDocumentChatText(userId, document.id);
   if (!chat || !chat.text.trim()) {
@@ -334,71 +331,31 @@ async function handleStoredExtract(
 
   const pick = await requireDocumentTextProvider(userId);
 
+  if (background) {
+    const live = await liveRunResponse(userId, document.id, "stored");
+    if (live) return live;
+  }
+
   const rl = await checkDocumentAiRateLimit(userId);
   if (!rl.allowed) return documentAiRateLimited(rl);
 
-  const dateKey = buildDateKey();
-  const reservation = await reserveBudget(
+  const budget = await reserveFor(
     userId,
+    pick.entry.providerType,
     AI_BUDGETS.ocrExtractText.maxTokens,
-    dateKey,
-    resolveDailyCap([{ providerType: pick.entry.providerType }]),
-    resolveCostOwner([{ providerType: pick.entry.providerType }]),
-    "coach",
   );
-  if (!reservation.allowed) {
-    await refundDocumentAiSlot(userId);
-    return apiError("Your AI usage budget for today is reached.", 429, {
-      errorCode: "documents.inbound.budgetExceeded",
-    });
+  if (!budget) return budgetExceeded();
+
+  if (background) {
+    // The worker loads the stored text itself; nothing is sealed into the run.
+    return queueExtract(userId, document, "stored", budget, null);
   }
-
-  try {
-    const result = await runInboundExtraction({
-      provider: pick.entry.instance,
-      providerType: pick.providerType,
-      ocrText: chat.text,
-    });
-    await reconcileSpend(
-      userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-
-    const updated = await stageExtraction(document.id, userId, result);
-
-    await auditLog("documents.inbound.extract", {
-      userId,
-      ipAddress: getClientIp(request),
-      details: {
-        documentId: document.id,
-        facts: updated.facts.length,
-        mode: "stored",
-      },
-    });
-
-    return apiSuccess(serialiseDocumentDetail(updated, updated.facts));
-  } catch (err) {
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    if (err instanceof InboundExtractError) {
-      return apiError("Couldn't read the document. Try a clearer copy.", 422, {
-        errorCode: "documents.inbound.extractFailed",
-      });
-    }
-    annotate({
-      action: { name: "documents.inbound.extractFailed" },
-      meta: { reason: "provider_error", mode: "stored" },
-    });
-    return apiError("Couldn't read the document. Try a clearer copy.", 502, {
-      errorCode: "documents.inbound.extractFailed",
-    });
-  }
+  return runNow(request, userId, document, {
+    mode: "stored",
+    text: chat.text,
+    pick,
+    budget,
+  });
 }
 
 /** VISION mode — run the stored original through the vision provider. */
@@ -406,116 +363,29 @@ async function handleVisionExtract(
   request: NextRequest,
   userId: string,
   document: LoadedDocument,
+  background: boolean,
 ): Promise<Response> {
   const pick = await requireDocumentVisionProvider(userId);
+
+  if (background) {
+    const live = await liveRunResponse(userId, document.id, "vision");
+    if (live) return live;
+  }
 
   const rl = await checkDocumentAiRateLimit(userId);
   if (!rl.allowed) return documentAiRateLimited(rl);
 
-  // Decrypt the stored original and re-derive its MIME from the bytes (never
-  // trust a stored label for the provider call). Every miss below happens
-  // before the provider dispatch, so the charged slot goes back.
-  let buffer: Buffer;
-  try {
-    buffer = decryptDocumentContent(
-      document.contentEncrypted,
-      document.contentCodec,
-    );
-  } catch {
-    await refundDocumentAiSlot(userId);
-    return apiError("Couldn't read the stored document.", 422, {
-      errorCode: "documents.inbound.extractFailed",
-    });
-  }
-
-  const mime = detectOcrMimeType(buffer);
-  if (!mime) {
-    await refundDocumentAiSlot(userId);
-    return apiError(
-      "This document can't be scanned. Use local OCR (text mode).",
-      422,
-      { errorCode: "documents.inbound.fileType" },
-    );
-  }
-
-  if (mime === "application/pdf" && !pick.pdfSupported) {
-    await refundDocumentAiSlot(userId);
-    return apiError(
-      "PDF scanning needs a Claude vision provider; use local OCR instead.",
-      422,
-      { errorCode: "documents.inbound.pdfNeedsAnthropic" },
-    );
-  }
-
-  const dateKey = buildDateKey();
-  const reservation = await reserveBudget(
+  const budget = await reserveFor(
     userId,
+    pick.entry.providerType,
     AI_BUDGETS.ocrExtract.maxTokens,
-    dateKey,
-    resolveDailyCap([{ providerType: pick.entry.providerType }]),
-    resolveCostOwner([{ providerType: pick.entry.providerType }]),
-    "coach",
   );
-  if (!reservation.allowed) {
-    await refundDocumentAiSlot(userId);
-    return apiError("Your AI usage budget for today is reached.", 429, {
-      errorCode: "documents.inbound.budgetExceeded",
-    });
+  if (!budget) return budgetExceeded();
+
+  if (background) {
+    // The worker decrypts the stored original itself, after it has picked
+    // the provider again and re-checked the wire for it.
+    return queueExtract(userId, document, "vision", budget, null);
   }
-
-  const dataBase64 = buffer.toString("base64");
-  const images =
-    mime === "application/pdf" ? [] : [{ mediaType: mime, dataBase64 }];
-  const documents =
-    mime === "application/pdf"
-      ? [{ mediaType: "application/pdf" as const, dataBase64 }]
-      : [];
-
-  try {
-    const result = await runInboundExtraction({
-      provider: pick.entry.instance,
-      providerType: pick.providerType,
-      images,
-      documents,
-    });
-    await reconcileSpend(
-      userId,
-      reservation.reserved,
-      reservation.reserved,
-      dateKey,
-      0,
-      { servedBy: pick.entry.providerType, reservedOwner: reservation.owner },
-    );
-
-    const updated = await stageExtraction(document.id, userId, result);
-
-    await auditLog("documents.inbound.extract", {
-      userId,
-      ipAddress: getClientIp(request),
-      details: {
-        documentId: document.id,
-        facts: updated.facts.length,
-        mode: "vision",
-      },
-    });
-
-    return apiSuccess(serialiseDocumentDetail(updated, updated.facts));
-  } catch (err) {
-    await reconcileSpend(userId, reservation.reserved, 0, dateKey, 0, {
-      servedBy: null,
-      reservedOwner: reservation.owner,
-    });
-    if (err instanceof InboundExtractError) {
-      return apiError("Couldn't read the document. Try a clearer copy.", 422, {
-        errorCode: "documents.inbound.extractFailed",
-      });
-    }
-    annotate({
-      action: { name: "documents.inbound.extractFailed" },
-      meta: { reason: "provider_error", mode: "vision" },
-    });
-    return apiError("Couldn't read the document. Try a clearer copy.", 502, {
-      errorCode: "documents.inbound.extractFailed",
-    });
-  }
+  return runNow(request, userId, document, { mode: "vision", pick, budget });
 }

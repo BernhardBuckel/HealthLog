@@ -894,6 +894,7 @@ export function DocumentDetailSheet({
               }
               aiEnabled={aiEnabled}
               isGenerating={storedSummary.isPending}
+              runPhase={storedSummary.runPhase}
               actionsDisabled={capability.isPending}
               onGenerate={generateStoredSummary}
             />
@@ -938,6 +939,9 @@ export function DocumentDetailSheet({
                 lastIndexOutcome={doc.lastIndexOutcome}
                 indexPending={indexDoc.isPending}
                 indexRunPhase={indexDoc.runPhase}
+                assistRunPhase={
+                  suggest.isPending ? suggest.runPhase : summary.runPhase
+                }
                 onIndex={runIndex}
               />
             )}

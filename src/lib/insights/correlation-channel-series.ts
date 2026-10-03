@@ -40,6 +40,7 @@ import { wallClockInTz } from "@/lib/tz/wall-clock";
 import { ENVIRONMENT_FIELDS } from "@/lib/environment/fields";
 import {
   buildComplianceDailySeries,
+  buildSymptomEventDailySeries,
   buildSymptomSeverityDailySeries,
   type SymptomDayLogRow,
   type SymptomEpisodeSpan,
@@ -62,6 +63,11 @@ import type {
 } from "@/generated/prisma/client";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
 import { dateOnlyKey } from "@/lib/tz/date-only";
+import { decryptSymptomText } from "@/lib/symptoms/server";
+import {
+  MAX_ACTIVE_SYMPTOM_DEFINITIONS,
+  SYMPTOM_CHANNEL_PREFIX,
+} from "@/lib/symptoms/shared";
 
 /**
  * v1.21.0 (FDREXTEND) — build the user's MEDICATION_COMPLIANCE daily series.
@@ -316,6 +322,60 @@ export async function fetchCustomMetricBehaviourSeries(
       tz,
     ),
   }));
+}
+
+/**
+ * Ceiling on `SYMPTOM:<id>` channels. The definition cap already holds the
+ * active set at eight; restated here so the matrix bound does not depend on a
+ * route check staying where it is.
+ */
+export const MAX_SYMPTOM_CORRELATION_CHANNELS = MAX_ACTIVE_SYMPTOM_DEFINITIONS;
+
+/**
+ * v1.40 — one OUTCOME series per active person-defined symptom, keyed
+ * `SYMPTOM:<definitionId>` and labelled with the decrypted name (the data
+ * label `interpret()` prefers over the key). Daily value = that day's highest
+ * intensity; see `buildSymptomEventDailySeries` for the zero-fill rule. Hidden
+ * definitions are not channels. A symptom whose name cannot be decrypted is
+ * left out rather than shown under its database id.
+ */
+export async function fetchSymptomEventSeries(
+  userId: string,
+  tz: string,
+  since: Date,
+): Promise<NamedSeries[]> {
+  const definitions = await prisma.symptomDefinition.findMany({
+    where: { userId, isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+    take: MAX_SYMPTOM_CORRELATION_CHANNELS,
+    select: {
+      id: true,
+      labelEncrypted: true,
+      events: {
+        where: { occurredAt: { gte: since } },
+        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+        take: 5000,
+        select: { occurredAt: true, intensity: true },
+      },
+    },
+  });
+  const series: NamedSeries[] = [];
+  for (const definition of definitions) {
+    const label = decryptSymptomText(definition.labelEncrypted, "label");
+    if (label === null) continue;
+    series.push(
+      buildSymptomEventDailySeries({
+        key: `${SYMPTOM_CHANNEL_PREFIX}${definition.id}`,
+        label,
+        events: definition.events.map((event) => ({
+          at: event.occurredAt,
+          intensity: event.intensity,
+        })),
+        tz,
+      }),
+    );
+  }
+  return series;
 }
 
 /** Day key (YYYY-MM-DD) for an instant in the user's display timezone. */

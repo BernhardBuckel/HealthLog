@@ -128,6 +128,8 @@ export const WIPE_MODELS = [
   "Allergy",
   "FamilyHistoryEntry",
   "IllnessDayLog",
+  // Before its definition and before the episode it may point at (SetNull).
+  "SymptomEvent",
   "EcgRecording",
   "NutrientIntakeDay",
 
@@ -256,6 +258,7 @@ export const WIPE_MODELS = [
   "MoodTagCategory",
   "CustomMetric",
   "IllnessEpisode",
+  "SymptomDefinition",
   "Workout",
   "InboundDocument",
   // Encounters point here with SetNull, so the address book outlives the

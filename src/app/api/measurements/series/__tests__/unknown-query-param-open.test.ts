@@ -22,6 +22,7 @@ vi.mock("@/lib/db", () => ({
     user: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },
     $queryRaw: vi.fn(),
+    $queryRawUnsafe: vi.fn(),
   },
 }));
 
@@ -74,6 +75,7 @@ beforeEach(() => {
   vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
   vi.mocked(prisma.measurement.findMany).mockResolvedValue([] as never);
   vi.mocked(prisma.$queryRaw).mockResolvedValue([] as never);
+  vi.mocked(prisma.$queryRawUnsafe).mockResolvedValue([] as never);
   vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
   vi.mocked(prisma.user.findUnique).mockResolvedValue({
     glucoseUnit: "mg/dL",

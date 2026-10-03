@@ -49,6 +49,7 @@ const KINDS = [
   "REFERRAL",
   "INSURANCE",
   "VACCINATION",
+  "SICK_NOTE",
   "OTHER",
 ];
 const TITLE_MAX = 200;

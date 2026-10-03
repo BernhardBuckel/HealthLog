@@ -10,7 +10,9 @@
  * free-text note, which must not reach the prompt).
  *
  * Server-authoritative and module-gated: a non-illness / opted-out account
- * gets `null` (no block, no read). The active set drives the `restMode` flag
+ * gets `null` (no block, no read). Since v1.40 it also names the person's own
+ * symptoms of the last two weeks (their names, sanitised, and counts), which
+ * reach the model the way custom mood-tag names reach the mood analysis. The active set drives the `restMode` flag
  * the Coach reads; a short resolved-history tail lets it answer "how often do
  * I get sick" without re-deriving anything.
  */
@@ -20,6 +22,7 @@ import { computeEpisodeCorrelation } from "@/lib/illness/correlation-read";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
 import { decryptFromBytes } from "@/lib/ai/coach/bytes-codec";
 import { sanitizeForPrompt } from "@/lib/insights/sanitize";
+import { decryptSymptomText } from "@/lib/symptoms/server";
 
 /** How many recently-resolved episodes to include as history context. */
 const RESOLVED_HISTORY_LIMIT = 6;
@@ -98,6 +101,76 @@ export interface CoachIllnessBlock {
     bodySite?: string;
     laterality?: string;
   }>;
+  /**
+   * v1.40 — the person's own symptoms over the last 14 days, most frequent
+   * first (at most ten): the name they gave it, how often, how strong at
+   * worst (0-10), and when last. Absent when nothing was logged.
+   */
+  symptoms?: CoachSymptomSummary[];
+}
+
+export interface CoachSymptomSummary {
+  label: string;
+  count14d: number;
+  maxIntensity14d: number;
+  lastOccurredAt: string;
+}
+
+/** How many of the person's own symptoms the block may name. */
+const MAX_SYMPTOMS = 10;
+/** Max characters of a symptom name that may enter the prompt. */
+const MAX_SYMPTOM_LABEL_CHARS = 40;
+const SYMPTOM_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * The person's own symptoms over the trailing 14 days, by how often they
+ * occurred. A name that will not decrypt is left out rather than sent as an
+ * id. Hidden definitions still count: hiding takes a symptom out of the quick
+ * entry, not out of what happened.
+ */
+async function readRecentSymptoms(
+  userId: string,
+  now: Date,
+): Promise<CoachSymptomSummary[]> {
+  const since = new Date(now.getTime() - SYMPTOM_WINDOW_MS);
+  const grouped = await prisma.symptomEvent.groupBy({
+    by: ["definitionId"],
+    where: { userId, occurredAt: { gte: since, lte: now } },
+    _count: { _all: true },
+    _max: { intensity: true, occurredAt: true },
+  });
+  if (grouped.length === 0) return [];
+  const definitions = await prisma.symptomDefinition.findMany({
+    where: { userId, id: { in: grouped.map((g) => g.definitionId) } },
+    select: { id: true, labelEncrypted: true },
+  });
+  const labelById = new Map(
+    definitions.map((d) => [
+      d.id,
+      decryptSymptomText(d.labelEncrypted, "label"),
+    ]),
+  );
+  const out: CoachSymptomSummary[] = [];
+  for (const g of grouped) {
+    const raw = labelById.get(g.definitionId);
+    const label = raw ? sanitizeForPrompt(raw, MAX_SYMPTOM_LABEL_CHARS) : "";
+    if (!label || g._max.occurredAt === null || g._max.intensity === null) {
+      continue;
+    }
+    out.push({
+      label,
+      count14d: g._count._all,
+      maxIntensity14d: g._max.intensity,
+      lastOccurredAt: g._max.occurredAt.toISOString(),
+    });
+  }
+  return out
+    .sort(
+      (a, b) =>
+        b.count14d - a.count14d ||
+        b.lastOccurredAt.localeCompare(a.lastOccurredAt),
+    )
+    .slice(0, MAX_SYMPTOMS);
 }
 
 /**
@@ -111,7 +184,7 @@ export async function buildIllnessSnapshotBlock(
 ): Promise<CoachIllnessBlock | null> {
   if (!(await isIllnessEnabled(userId))) return null;
 
-  const [activeRows, resolvedRows] = await Promise.all([
+  const [activeRows, resolvedRows, symptoms] = await Promise.all([
     prisma.illnessEpisode.findMany({
       where: {
         userId,
@@ -142,9 +215,16 @@ export async function buildIllnessSnapshotBlock(
         laterality: true,
       },
     }),
+    readRecentSymptoms(userId, now),
   ]);
 
-  if (activeRows.length === 0 && resolvedRows.length === 0) return null;
+  if (
+    activeRows.length === 0 &&
+    resolvedRows.length === 0 &&
+    symptoms.length === 0
+  ) {
+    return null;
+  }
 
   return {
     restMode: activeRows.length > 0,
@@ -163,6 +243,7 @@ export async function buildIllnessSnapshotBlock(
       resolvedAt: (e.resolvedAt as Date).toISOString(),
       ...siteFields(e),
     })),
+    ...(symptoms.length > 0 ? { symptoms } : {}),
   };
 }
 

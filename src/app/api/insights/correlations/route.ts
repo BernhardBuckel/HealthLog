@@ -236,6 +236,7 @@ async function buildCorrelationsResponse(
       // available for the scan.
       environment_days: diagnostics.environmentDays,
       custom_metric_channels: diagnostics.customMetricChannels,
+      symptom_event_channels: diagnostics.symptomEventChannels,
       custom_metric_days: diagnostics.customMetricDays,
     },
   });

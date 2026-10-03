@@ -140,6 +140,18 @@
       "unit": {
         "locked": "Questo marcatore ha già dei valori, quindi non puoi cambiarne l'unità. I valori salvati verrebbero mostrati nella nuova unità senza essere convertiti."
       }
+    },
+    "symptoms": {
+      "definition": {
+        "limitReached": "Hai 8 sintomi. Nascondine uno per aggiungerne un altro.",
+        "notFound": "Questo sintomo non esiste più."
+      },
+      "episode": {
+        "notOpen": "Quella malattia non è più aperta. Scegline un'altra o nessuna."
+      },
+      "event": {
+        "notFound": "Questa voce non esiste più."
+      }
     }
   },
   "doctorReport": {
@@ -412,7 +424,9 @@
       "mood": "Umore",
       "moodDescription": "Registra umore e tag",
       "workout": "Allenamento",
-      "workoutDescription": "Una sessione che i tuoi dispositivi non hanno registrato"
+      "workoutDescription": "Una sessione che i tuoi dispositivi non hanno registrato",
+      "symptom": "Sintomo",
+      "symptomDescription": "Uno dei tuoi sintomi, con la sua intensità"
     },
     "cycle": "Ciclo",
     "labs": "Esami",
@@ -651,7 +665,8 @@
       "title": "Fai un backup della tua chiave di cifratura",
       "body": "Senza una copia della chiave, i tuoi dati non si possono recuperare dopo una reinstallazione. Ci vuole un minuto.",
       "action": "Apri il passaggio"
-    }
+    },
+    "quickAddSymptom": "Registra sintomo"
   },
   "measurements": {
     "title": "Misurazioni",
@@ -7538,7 +7553,8 @@
         "restoreFailureUnexpected": "Il ripristino si è fermato per un errore imprevisto ed è stato annullato. Il log del server indica l'errore.",
         "restoreFailureKeyMissing": "Il backup richiede la chiave di cifratura {keys}, con cui questo server non riesce ad aprirlo. Aggiungi di nuovo la chiave a ENCRYPTION_KEYS, riavvia e avvia di nuovo il ripristino.",
         "restoreFailureForeignReference": "Il file rimanda a voci che appartengono a un altro account. Non è stato scritto nulla.",
-        "previewKeyMissing": "Questo backup non può essere ripristinato su questo server: richiede la chiave di cifratura {keys}. Aggiungi prima di nuovo la chiave a ENCRYPTION_KEYS e riavvia."
+        "previewKeyMissing": "Questo backup non può essere ripristinato su questo server: richiede la chiave di cifratura {keys}. Aggiungi prima di nuovo la chiave a ENCRYPTION_KEYS e riavvia.",
+        "restoreSkippedSymptomEpisodeReference": "Voce di sintomo collegata a una malattia assente dal file (mantenuta senza collegamento)"
       },
       "danger-zone": {
         "title": "Zona pericolosa",
@@ -10379,7 +10395,8 @@
       "PRESCRIPTION": "Prescrizione",
       "REFERRAL": "Impegnativa",
       "INSURANCE": "Assicurazione",
-      "VACCINATION": "Vaccinazione"
+      "VACCINATION": "Vaccinazione",
+      "SICK_NOTE": "Certificato di malattia"
     },
     "filter": {
       "searchLabel": "Cerca documenti",
@@ -11333,7 +11350,13 @@
       "medicationIntakeImportFinished": "L'importazione delle dosi avviata da {name} è terminata",
       "medicationOneShotReconciled": "Un farmaco monodose è stato riaperto o chiuso dopo una dose registrata da {name}",
       "vaccinationBoosterPlanned": "{name} ha pianificato un richiamo",
-      "medicationCategoryCreate": "{name} ha aggiunto una categoria di farmaci"
+      "medicationCategoryCreate": "{name} ha aggiunto una categoria di farmaci",
+      "symptomEventCreate": "{name} ha registrato un sintomo",
+      "symptomEventUpdate": "{name} ha modificato una voce di sintomo",
+      "symptomEventDelete": "{name} ha eliminato una voce di sintomo",
+      "symptomDefinitionCreate": "{name} ha aggiunto un sintomo",
+      "symptomDefinitionUpdate": "{name} ha modificato un sintomo",
+      "symptomDefinitionDelete": "{name} ha rimosso un sintomo"
     },
     "section": {
       "measurements": {
@@ -11564,5 +11587,66 @@
     "waitingForWorker": "In attesa del processo in background. Se non cambia, il worker del server potrebbe non essere attivo.",
     "errorWorkerUnavailable": "Il processo in background non è disponibile al momento. Riprova tra poco o chiedi a chi gestisce il server di controllarlo.",
     "errorTimedOut": "La lettura ha richiesto più tempo di quanto consenta il tuo tempo di risposta dell'IA. Riprova o aumenta il tempo di risposta nelle impostazioni IA."
+  },
+  "symptoms": {
+    "add": "Nuovo sintomo",
+    "nameLabel": "Nome",
+    "namePlaceholder": "es. Aura",
+    "iconLabel": "Icona",
+    "limitReached": "Hai 8 sintomi. Nascondine uno per aggiungerne un altro.",
+    "saveError": "Impossibile salvare il sintomo. Riprova.",
+    "nameRequired": "Dai un nome al sintomo.",
+    "unreadableLabel": "Sintomo illeggibile",
+    "intensityPill": "{value}/10",
+    "entry": {
+      "sheetTitle": "Registra sintomo",
+      "sheetDescription": "Uno dei tuoi sintomi, quanto forte e quando.",
+      "symptom": "Sintomo",
+      "symptomRequired": "Scegli un sintomo.",
+      "intensity": "Intensità",
+      "intensityRequired": "Indica quanto era forte.",
+      "intensityUnset": "Non impostata",
+      "anchorLow": "Nessuna",
+      "anchorHigh": "La peggiore immaginabile",
+      "intensityValueText": "{value} su {max} (da {low} a {high})",
+      "when": "Quando",
+      "during": "Durante una malattia",
+      "duringNone": "Non collegato",
+      "note": "Nota",
+      "notePlaceholder": "Cos'altro stava succedendo?",
+      "reset": "Reimposta modulo",
+      "emptyHint": "Aggiungi il tuo primo sintomo, per esempio aura o mal di testa.",
+      "emptyHintNoManage": "Per questo profilo non sono ancora stati creati sintomi.",
+      "limitHint": "Fino a {limit} sintomi. Nascondine uno nella pagina delle malattie per aggiungerne un altro."
+    },
+    "section": {
+      "title": "I tuoi sintomi",
+      "log": "Registra",
+      "loadError": "Impossibile caricare i tuoi sintomi.",
+      "summaryOne": "Una volta in 30 giorni, {max}/10, l'ultima {date}",
+      "summaryFew": "{count} volte in 30 giorni, fino a {max}/10, l'ultima {date}",
+      "summaryOther": "{count} volte in 30 giorni, fino a {max}/10, l'ultima {date}",
+      "summaryNoneRecent": "Non negli ultimi 30 giorni, l'ultima {date}",
+      "summaryNever": "Non ancora registrato",
+      "menuLabel": "Opzioni per {symptom}",
+      "eventMenuLabel": "Opzioni per questa voce di {symptom}",
+      "hide": "Nascondi",
+      "show": "Mostra di nuovo",
+      "deleteTitle": "Eliminare il sintomo?",
+      "deleteBody": "«{symptom}» e tutte le sue voci verranno eliminati. Per conservare la cronologia, nascondilo invece.",
+      "deleteEventTitle": "Eliminare la voce?",
+      "deleteEventBody": "Questa voce verrà eliminata.",
+      "hiddenOne": "Nascosti (1)",
+      "hiddenFew": "Nascosti ({count})",
+      "hiddenOther": "Nascosti ({count})",
+      "recent": "Ultimi 30 giorni",
+      "recentEmpty": "Niente registrato negli ultimi 30 giorni.",
+      "editEventTitle": "Modifica {symptom}",
+      "editSymptomTitle": "Modifica sintomo"
+    },
+    "episode": {
+      "title": "Sintomi registrati",
+      "filed": "registrato con questa malattia"
+    }
   }
 }

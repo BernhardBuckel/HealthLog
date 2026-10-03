@@ -72,6 +72,8 @@ export function recordActivityVerbLine(
       return t("recordSharing.activityVerb.familyHistoryCreate", { name });
     case "illness.episode.create":
       return t("recordSharing.activityVerb.illnessEpisodeCreate", { name });
+    case "symptoms.event.create":
+      return t("recordSharing.activityVerb.symptomEventCreate", { name });
     case "encounter.visit.create":
       return t("recordSharing.activityVerb.encounterVisitCreate", { name });
     case "vaccination.record.create":
@@ -193,6 +195,16 @@ export function recordActivityVerbLine(
       return t("recordSharing.activityVerb.illnessEpisodeRestore", { name });
     case "illness.day-log.upsert":
       return t("recordSharing.activityVerb.illnessDayLogUpsert", { name });
+    case "symptoms.definition.create":
+      return t("recordSharing.activityVerb.symptomDefinitionCreate", { name });
+    case "symptoms.definition.update":
+      return t("recordSharing.activityVerb.symptomDefinitionUpdate", { name });
+    case "symptoms.definition.delete":
+      return t("recordSharing.activityVerb.symptomDefinitionDelete", { name });
+    case "symptoms.event.update":
+      return t("recordSharing.activityVerb.symptomEventUpdate", { name });
+    case "symptoms.event.delete":
+      return t("recordSharing.activityVerb.symptomEventDelete", { name });
 
     case "encounter.visit.update":
       return t("recordSharing.activityVerb.encounterVisitUpdate", { name });

@@ -1138,6 +1138,44 @@ const illnessEpisodeBackupSchema = z
   .passthrough();
 
 /**
+ * A person-defined symptom (v1.40) with every occurrence of it nested inside,
+ * the way a medication carries its side effects. `label` / `labelEncrypted`
+ * and `note` / `noteEncrypted` are the two ends of the free-text contract: a
+ * portable file carries the plaintext, a disaster-recovery file the ciphertext.
+ * An occurrence's `episodeId` is the exported episode's own id; the restore
+ * nulls one that names an episode the file does not carry.
+ */
+const symptomEventBackupSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    occurredAt: isoDateTime,
+    intensity: z.number().int().min(0).max(10),
+    note: z.string().nullable().optional(),
+    noteEncrypted: base64BytesSchema.nullable().optional(),
+    episodeId: z.string().min(1).nullable().optional(),
+    createdAt: isoDateTime,
+    updatedAt: isoDateTime,
+  })
+  .passthrough();
+
+const symptomDefinitionBackupSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    label: z.string().min(1).optional(),
+    labelEncrypted: base64BytesSchema.optional(),
+    icon: z.string().nullable().optional(),
+    sortOrder: z.number().int(),
+    isActive: z.boolean(),
+    createdAt: isoDateTime,
+    updatedAt: isoDateTime,
+    events: z.array(symptomEventBackupSchema).default([]),
+  })
+  .passthrough()
+  .refine((d) => d.label !== undefined || d.labelEncrypted !== undefined, {
+    message: "A symptom definition needs a label or its ciphertext",
+  });
+
+/**
  * A practitioner, an encounter, and the edges between an encounter and the
  * things it produced.
  *
@@ -1892,6 +1930,8 @@ export const backupPayloadSchema = z
     labResults: z.array(labResultBackupSchema).default([]),
     biomarkers: z.array(biomarkerBackupSchema).default([]),
     illnessEpisodes: z.array(illnessEpisodeBackupSchema).default([]),
+    // Defaulted: a file written before v1.40 carries no key.
+    symptomDefinitions: z.array(symptomDefinitionBackupSchema).default([]),
     allergies: z.array(allergyBackupSchema).default([]),
     familyHistory: z.array(familyHistoryBackupSchema).default([]),
     workouts: z.array(workoutBackupSchema).default([]),

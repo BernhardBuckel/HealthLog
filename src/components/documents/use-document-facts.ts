@@ -15,11 +15,15 @@
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { resolveAiRun, useAiRunPhase } from "@/hooks/use-ai-run";
 import { apiPatch, apiPost } from "@/lib/api/api-fetch";
+import type {
+  AiRunAccepted,
+  DocumentExtractRunResult,
+} from "@/lib/documents/ai-runs/types";
 import { invalidateKeys, queryKeys } from "@/lib/query-keys";
 import type {
   ExtractedFactDto,
-  InboundDocumentDetailDto,
   InboundFactEdit,
 } from "@/lib/validations/inbound-documents";
 
@@ -35,17 +39,35 @@ export interface ConfirmFactsResult {
  * Structure the document's own stored extracted text into staged facts —
  * the manual recovery when the automatic staging run was skipped or failed.
  * Stages PENDING facts only; the review + confirm steps stay mandatory.
- * A provider call is slow, so the request opts out of the 15 s default.
+ *
+ * The extraction runs in the background (v1.40): the request only queues it,
+ * so no proxy can cut a slow model, and `runPhase` says so while it runs. The
+ * run reports how many facts it staged; the facts themselves are read from
+ * the document, which is refetched when the run ends.
  */
 export function useStoredExtract() {
   const queryClient = useQueryClient();
-  return useMutation<InboundDocumentDetailDto, Error, { documentId: string }>({
-    mutationFn: ({ documentId }) =>
-      apiPost<InboundDocumentDetailDto>(
-        `/api/documents/inbound/${documentId}/extract`,
-        { mode: "stored" },
-        { signal: AbortSignal.timeout(120_000) },
+  const { phase, onQueued, onProgress, reset } = useAiRunPhase();
+  const mutation = useMutation<
+    DocumentExtractRunResult,
+    Error,
+    { documentId: string }
+  >({
+    mutationFn: async ({ documentId }) =>
+      resolveAiRun<DocumentExtractRunResult>(
+        queryClient,
+        await apiPost<DocumentExtractRunResult | AiRunAccepted>(
+          `/api/documents/inbound/${documentId}/extract`,
+          { mode: "stored" },
+          {
+            // The request only queues the read: the enqueue, no model.
+            signal: AbortSignal.timeout(60_000),
+            headers: { Prefer: "respond-async" },
+          },
+        ),
+        { onQueued, onProgress },
       ),
+    onSettled: reset,
     onSuccess: (_data, { documentId }) => {
       void invalidateKeys(queryClient, [
         queryKeys.inboundDocument(documentId),
@@ -53,6 +75,7 @@ export function useStoredExtract() {
       ]);
     },
   });
+  return { ...mutation, runPhase: mutation.isPending ? phase : "idle" };
 }
 
 /**

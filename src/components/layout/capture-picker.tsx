@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Activity, Footprints, Pill, Waves } from "lucide-react";
+import { Activity, Footprints, Pill, Stethoscope, Waves } from "lucide-react";
 
-import { MeasurementForm } from "@/components/measurements/measurement-form";
-import { MoodForm } from "@/components/mood/mood-form";
-import { MedicationIntakeQuickAdd } from "@/components/dashboard/medication-intake-quick-add";
-import { ManualWorkoutForm } from "@/components/workouts/manual-workout-form";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
+import {
+  ManualWorkoutForm,
+  MeasurementForm,
+  MedicationIntakeQuickAdd,
+  MoodForm,
+  SymptomEntryForm,
+} from "@/components/dashboard/quick-entry-forms.lazy";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +40,8 @@ import {
  *   - Medication  → `<MedicationIntakeQuickAdd>` (dashboard quick-add)
  *   - Mood        → `<MoodForm>` (the `/mood` add form, 5-face flow)
  *   - Workout     → `<ManualWorkoutForm>` (the workouts page's "Log workout")
+ *   - Symptom     → `<SymptomEntryForm>` (one of the person's own symptoms,
+ *                   v1.40; rides the illness module)
  *
  * The picker reuses each existing capture component rather than
  * rebuilding parallel forms.
@@ -52,7 +57,8 @@ import {
  * instead of closing unconditionally.
  */
 
-type CaptureKind = "measurement" | "medication" | "mood" | "workout";
+export type CaptureKind =
+  "measurement" | "medication" | "mood" | "symptom" | "workout";
 
 /**
  * The section each capture surface writes to.
@@ -72,6 +78,8 @@ const CAPTURE_KIND_DOMAIN: Readonly<Record<CaptureKind, ShareDomain | null>> = {
   measurement: "measurements",
   medication: "medications",
   mood: "mind",
+  // A symptom occurrence is an illness-section write, admitted at WRITE.
+  symptom: "illness",
   // A workout goes through the batch ingest, which resolves the caller:
   // no grant reaches it, so it is offered in one's own record only.
   workout: null,
@@ -82,6 +90,7 @@ export const CAPTURE_KIND_ORDER: ReadonlyArray<CaptureKind> = [
   "measurement",
   "medication",
   "mood",
+  "symptom",
   "workout",
 ];
 
@@ -211,6 +220,12 @@ export function CapturePicker({ open, onOpenChange }: CapturePickerProps) {
       icon: Waves,
     },
     {
+      kind: "symptom",
+      label: t("nav.capture.symptom"),
+      description: t("nav.capture.symptomDescription"),
+      icon: Stethoscope,
+    },
+    {
       kind: "workout",
       label: t("nav.capture.workout"),
       description: t("nav.capture.workoutDescription"),
@@ -223,6 +238,7 @@ export function CapturePicker({ open, onOpenChange }: CapturePickerProps) {
     measurement: t("measurements.addMeasurement"),
     medication: t("nav.capture.medication"),
     mood: t("mood.addEntry"),
+    symptom: t("symptoms.entry.sheetTitle"),
     workout: t("insights.workouts.manual.sheetTitle"),
   };
   // `openKind === null` keeps the form sheet closed (the title is unread
@@ -288,6 +304,13 @@ export function CapturePicker({ open, onOpenChange }: CapturePickerProps) {
         )}
         {openKind === "workout" && (
           <ManualWorkoutForm
+            onSuccess={closeForm}
+            onCancel={closeForm}
+            footerSlot={footerEl}
+          />
+        )}
+        {openKind === "symptom" && (
+          <SymptomEntryForm
             onSuccess={closeForm}
             onCancel={closeForm}
             footerSlot={footerEl}

@@ -332,6 +332,14 @@ const REGISTRY: DestructiveEntry[] = [
     confirm: ["AlertDialog"],
   },
   {
+    file: "components/symptoms/use-symptoms.ts",
+    destroys:
+      "one logged symptom entry, or a person-defined symptom with every entry of it",
+    triggers: ["components/symptoms/symptoms-section.tsx"],
+    recovery: "permanent",
+    confirm: ["AlertDialog"],
+  },
+  {
     file: "components/labs/biomarker-manager.tsx",
     destroys: "a biomarker AND every lab reading recorded against it",
     recovery: "permanent",

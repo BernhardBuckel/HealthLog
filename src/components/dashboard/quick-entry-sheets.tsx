@@ -12,6 +12,13 @@
 import { useState } from "react";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import {
+  ManualWorkoutForm,
+  MeasurementForm,
+  MedicationIntakeQuickAdd,
+  MoodForm,
+  SymptomEntryForm,
+} from "@/components/dashboard/quick-entry-forms.lazy";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -21,10 +28,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MeasurementForm } from "@/components/measurements/measurement-form";
-import { MoodForm } from "@/components/mood/mood-form";
-import { MedicationIntakeQuickAdd } from "@/components/dashboard/medication-intake-quick-add";
-import { ManualWorkoutForm } from "@/components/workouts/manual-workout-form";
 import { useTranslations } from "@/lib/i18n/context";
 import {
   useRecordCapabilities,
@@ -33,7 +36,7 @@ import {
 import type { ShareDomain } from "@/lib/sharing/scope";
 
 export type QuickEntryDialog =
-  "measurement" | "mood" | "medicationIntake" | "workout" | null;
+  "measurement" | "mood" | "medicationIntake" | "symptom" | "workout" | null;
 
 /**
  * The section each sheet writes to; see the capture picker. `null` marks a
@@ -46,6 +49,7 @@ const QUICK_ENTRY_DOMAIN: Readonly<
   measurement: "measurements",
   medicationIntake: "medications",
   mood: "mind",
+  symptom: "illness",
   workout: null,
 };
 
@@ -163,6 +167,9 @@ export function QuickEntrySheets({
   const [workoutFooterEl, setWorkoutFooterEl] = useState<HTMLDivElement | null>(
     null,
   );
+  const [symptomFooterEl, setSymptomFooterEl] = useState<HTMLDivElement | null>(
+    null,
+  );
   // v1.11.3 F3 — when an open quick-entry sheet is dismissed with
   // unsaved input, hold the close in this flag and surface a confirm
   // instead of nulling the dialog outright. Cleared once the user
@@ -224,6 +231,24 @@ export function QuickEntrySheets({
           onCancel={onClose}
           footerSlot={medicationIntakeFooterEl}
         />
+      </ResponsiveSheet>
+
+      {/* v1.40 — one occurrence of the person's own symptom. Mounted only
+          while open, so every opening starts with "now" and nothing chosen. */}
+      <ResponsiveSheet
+        open={openSheet === "symptom"}
+        onOpenChange={handleQuickEntryOpenChange}
+        title={t("symptoms.entry.sheetTitle")}
+        description={t("symptoms.entry.sheetDescription")}
+        footer={<div ref={setSymptomFooterEl} className="flex w-full" />}
+      >
+        {openSheet === "symptom" && (
+          <SymptomEntryForm
+            onSuccess={onClose}
+            onCancel={onClose}
+            footerSlot={symptomFooterEl}
+          />
+        )}
       </ResponsiveSheet>
 
       {/* Log a workout by hand. Mounted only while open, so every opening

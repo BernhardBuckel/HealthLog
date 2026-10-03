@@ -111,6 +111,7 @@ import { restoreDocumentFilingData } from "@/lib/export/document-filing-backup";
 import { restoreAwardsData } from "@/lib/export/awards-backup";
 import { restoreEnvironmentData } from "@/lib/export/environment-backup";
 import { restoreEcgData } from "@/lib/export/ecg-backup";
+import { restoreSymptomsData } from "@/lib/export/symptoms-backup";
 import { restoredMedicationCreatedAt } from "@/lib/export/medication-created-at";
 import {
   encryptCategoryLabel,
@@ -185,6 +186,7 @@ export interface RestoreResponse {
     environmentContexts: number;
     environmentTravelLocations: number;
     ecgRecordings: number;
+    symptomDefinitions: number;
   };
 }
 
@@ -2166,6 +2168,18 @@ export async function restoreBackup(
           }
         }
 
+        // The person's own symptoms and their occurrences. After the episodes,
+        // because an occurrence may point at one; the id set is the one this
+        // branch just wrote. Both ends live in
+        // `src/lib/export/symptoms-backup.ts`.
+        const symptomsCleared = await restoreSymptomsData(
+          tx,
+          ownerId,
+          payload,
+          episodeIds,
+          skips,
+        );
+
         reportSection("allergies");
         for (const allergy of payload.allergies) {
           await tx.allergy.create({
@@ -2547,6 +2561,7 @@ export async function restoreBackup(
           environmentTravelLocations:
             environmentCleared.environmentTravelLocations,
           ecgRecordings: ecgCleared.ecgRecordings,
+          symptomDefinitions: symptomsCleared.symptomDefinitions,
         };
         assertNoNewForeignReferences(
           foreignBefore,

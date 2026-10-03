@@ -3928,7 +3928,10 @@ paths:
         explicit `unit` token and a summary `stats` block. `bloodPressure` pairs systolic + diastolic (`secondary`)
         within ±5 min so one fetch renders the dual-line chart; `sleep` collapses per-stage rows into one per-night
         point carrying time-asleep in hours (`sleepStages` holds the per-stage breakdown) and is internally capped to
-        365 days. `glucose` values + `unit` resolve to the user's mg/dL|mmol/L preference. Auth via cookie or Bearer.
+        365 days. `glucose` values + `unit` resolve to the user's mg/dL|mmol/L preference. Where a metric has a
+        source-priority ladder (pulse, weight, SpO2, HRV, ...), each day shows the readings of the source the person's
+        ladder picks for that day, so a second provider never blends into or duplicates a day; a metric without a ladder
+        (glucose, body water, bone mass) keeps every source. Auth via cookie or Bearer.
       parameters:
         - in: query
           name: kind
@@ -14543,7 +14546,7 @@ paths:
             schema:
               $ref: "#/components/schemas/OcrTextExtractRequest"
       responses:
-        "202": &a38
+        "202": &a36
           description: Queued for the background worker. Every refusal the route can answer quickly (capability, provider, rate
             limit, budget, validation) has already been answered; anything that goes wrong from here is reported on the
             run.
@@ -16391,6 +16394,7 @@ paths:
                 - REFERRAL
                 - INSURANCE
                 - VACCINATION
+                - SICK_NOTE
                 - OTHER
           description: Category filter — OR inside the facet. Repeat the parameter (or send a comma-separated value).
         - name: episodeId
@@ -16575,6 +16579,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
                 documentDate:
                   description: Optional user filing date (YYYY-MM-DD). Defaults to the upload day when omitted so the library
@@ -16960,13 +16965,32 @@ paths:
         structures the document's own stored extracted text (its content index) — the manual recovery for a
         skipped/failed automatic staging run, 422 `documents.inbound.notIndexed` when no stored text exists. Extraction
         reproduces what the document states — it never interprets. Nothing reaches the structured stores here; the
-        confirm route is the only write path."
+        confirm route is the only write path. With `Prefer: respond-async` (v1.40) the extraction runs in the
+        background: after the same quick refusals the route answers 202 with a run id, a second request while an
+        extraction of this document from the same input is queued or running answers with that run, and `GET
+        /api/ai-runs/{id}` serves `DocumentExtractRunResult` (`{ documentId, factsStaged, status }`, not the document
+        detail) as the run's `result`. Staging re-checks the document under a row lock, so a review finished while the
+        read ran fails the run with `documents.inbound.alreadyPartlyConfirmed` (409) or
+        `documents.inbound.alreadyConfirmed` (422) and leaves the review untouched; the synchronous form answers the
+        same in that race."
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
+        - &a37
+          name: Prefer
+          in: header
+          required: false
+          schema:
+            type: string
+            example: respond-async
+          description: "Send `respond-async` (RFC 7240) to run the read in the background: the route answers 202 with a run id
+            once every quick refusal has passed, and `GET /api/ai-runs/{id}` serves the result. Without it the route
+            answers synchronously with the result, as it always has; that form is retained for clients that have not
+            adopted runs, and its retirement will be announced one minor release ahead. A preference the route cannot
+            apply is ignored and the response then carries no `Preference-Applied`."
       requestBody:
         required: false
         content:
@@ -16980,8 +17004,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InboundExtractEnvelope"
+        "202": *a36
         "401": *a1
-        "403": &a36
+        "403": &a38
           description: "AI refusal: the `documentAi` capability is unavailable for this record. The envelope carries
             `meta.errorCode`, `meta.capability` and `meta.reason` (one of `AiUnavailableReason`).
             `assistant.disabled.documentAi` — the operator turned off reading documents, or every AI feature (the master
@@ -17005,7 +17030,7 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "422": *a4
         "429": *a5
-        "503": &a37
+        "503": &a39
           description: "`ai.unavailable` — the inputs behind the AI capability could not be read, and the answer failed closed.
             Nothing was sent. Retry later."
           content:
@@ -17025,13 +17050,17 @@ paths:
         only consumed when the request reaches the provider, and the 429 carries `Retry-After`, the `X-RateLimit-Limit`
         / `-Remaining` / `-Reset` triple, and `meta.retryAt`). WRITES NOTHING — never stages facts, never flips status;
         the user reviews and saves. 422 (`documents.inbound.providerUnsupported`) with no provider configured. Never
-        interprets or diagnoses; the title is a neutral filing label."
+        interprets or diagnoses; the title is a neutral filing label. With `Prefer: respond-async` (v1.40) the read runs
+        in the background: after the same quick refusals the route answers 202 with a run id, a second request while a
+        suggestion read of this document over the same transport is queued or running answers with that run, and `GET
+        /api/ai-runs/{id}` serves this body as the run's `result`."
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
+        - *a37
       requestBody:
         required: false
         content:
@@ -17055,6 +17084,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
               required:
                 - mode
@@ -17066,24 +17096,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DocumentSuggestEnvelope"
+        "202": *a36
         "401": *a1
-        "403": *a36
+        "403": *a38
         "422": *a4
         "429": *a5
-        "503": *a37
+        "503": *a39
   /api/documents/inbound/{id}/summary:
     post:
       tags:
         - Documents
       summary: Summarise or transcribe a document
-      description: 'On-demand description of a stored document. `?mode=summary` (default) returns a short plain-language
+      description: "On-demand description of a stored document. `?mode=summary` (default) returns a short plain-language
         summary of WHAT the document is; it remains transient unless `persist=true` fills the empty stored-summary slot,
         while `persist=true&replace=true` explicitly replaces an existing summary. `?mode=text` returns transient raw
         transcribed text. Neither result reaches coach memory, snapshots, structured stores, or the search index. The
         summary is descriptive only and never a diagnosis. Same VISION (empty body) / TEXT (`application/json` `{ mode:
-        "text", text }`, opt-in local OCR) dispatch as extract. Answers under the `documentAi` capability (403 with the
-        capability envelope when it is closed), then rate / budget gated. 422 `documents.inbound.providerUnsupported`
-        with no provider.'
+        \"text\", text }`, opt-in local OCR) dispatch as extract. Answers under the `documentAi` capability (403 with
+        the capability envelope when it is closed), then rate / budget gated. 422
+        `documents.inbound.providerUnsupported` with no provider. With `Prefer: respond-async` (v1.40) the read runs in
+        the background: after the same quick refusals the route answers 202 with a run id, and `GET /api/ai-runs/{id}`
+        serves this body as the run's `result`. A second request while a read with the same `mode`, `persist` and
+        `replace` is queued or running answers with that run. With `persist=true` the document's `summaryState` is
+        PENDING while the run is queued or running (unless a summary is already stored) and becomes UNAVAILABLE when the
+        run fails. `mode=text` over posted text calls no model and is answered synchronously either way (no
+        `Preference-Applied`)."
       parameters:
         - name: id
           in: path
@@ -17114,6 +17151,7 @@ paths:
             type: boolean
             default: false
           description: With `persist=true`, explicitly replace an existing stored summary.
+        - *a37
       requestBody:
         required: false
         content:
@@ -17137,6 +17175,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
               required:
                 - mode
@@ -17148,11 +17187,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DocumentSummaryEnvelope"
+        "202": *a36
         "401": *a1
-        "403": *a36
+        "403": *a38
         "422": *a4
         "429": *a5
-        "503": *a37
+        "503": *a39
   /api/documents/inbound/{id}/index:
     post:
       tags:
@@ -17178,17 +17218,7 @@ paths:
           required: true
           schema:
             type: string
-        - name: Prefer
-          in: header
-          required: false
-          schema:
-            type: string
-            example: respond-async
-          description: "Send `respond-async` (RFC 7240) to run the read in the background: the route answers 202 with a run id
-            once every quick refusal has passed, and `GET /api/ai-runs/{id}` serves the result. Without it the route
-            answers synchronously with the result, as it always has; that form is retained for clients that have not
-            adopted runs, and its retirement will be announced one minor release ahead. A preference the route cannot
-            apply is ignored and the response then carries no `Preference-Applied`."
+        - *a37
       requestBody:
         required: false
         content:
@@ -17212,6 +17242,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
               required:
                 - mode
@@ -17223,12 +17254,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DocumentIndexEnvelope"
-        "202": *a38
+        "202": *a36
         "401": *a1
-        "403": *a36
+        "403": *a38
         "422": *a4
         "429": *a5
-        "503": *a37
+        "503": *a39
   /api/documents/inbound/{id}/chat:
     post:
       tags:
@@ -17268,10 +17299,10 @@ paths:
                 type: string
                 description: "SSE frames: `data: <json>\\n\\n`. See the operation description for the per-`type` frame shapes."
         "401": *a1
-        "403": *a36
+        "403": *a38
         "422": *a4
         "429": *a5
-        "503": *a37
+        "503": *a39
     get:
       tags:
         - Documents
@@ -17334,10 +17365,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentReindexEnvelope"
         "401": *a1
-        "403": *a36
+        "403": *a38
         "422": *a4
         "429": *a5
-        "503": *a37
+        "503": *a39
   /api/documents/inbound/{id}/facts/{factId}:
     patch:
       tags:
@@ -17444,7 +17475,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateCustomMetricResponse"
         "401": *a1
-        "409": &a40
+        "409": &a41
           description: A custom metric with this name already exists for the caller.
           content:
             application/json:
@@ -17473,7 +17504,7 @@ paths:
                 $ref: "#/components/schemas/GetCustomMetricResponse"
         "401": *a1
         "403": *a11
-        "404": &a39
+        "404": &a40
           description: Custom metric not found (or owned by another user).
           content:
             application/json:
@@ -17507,8 +17538,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/UpdateCustomMetricResponse"
         "401": *a1
-        "404": *a39
-        "409": *a40
+        "404": *a40
+        "409": *a41
         "422": *a4
         "429": *a5
     delete:
@@ -17531,7 +17562,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteCustomMetricResponse"
         "401": *a1
-        "404": *a39
+        "404": *a40
         "422": *a4
         "429": *a5
   /api/custom-metrics/{id}/entries:
@@ -17575,7 +17606,7 @@ paths:
                 $ref: "#/components/schemas/ListCustomMetricEntriesEnvelope"
         "401": *a1
         "403": *a11
-        "404": *a39
+        "404": *a40
         "422": *a4
         "429": *a5
     post:
@@ -17604,7 +17635,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateCustomMetricEntryResponse"
         "401": *a1
-        "404": *a39
+        "404": *a40
         "409": *a7
         "422": *a4
         "429": *a12
@@ -17640,7 +17671,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/UpdateCustomMetricEntryResponse"
         "401": *a1
-        "404": &a41
+        "404": &a42
           description: Custom metric entry not found (or owned by another user).
           content:
             application/json:
@@ -17673,7 +17704,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteCustomMetricEntryResponse"
         "401": *a1
-        "404": *a41
+        "404": *a42
         "422": *a4
         "429": *a5
   /api/custom-metrics/{id}/entries/restore:
@@ -18085,7 +18116,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientOverviewEnvelope"
         "401": *a1
-        "403": &a42
+        "403": &a43
           description: >-
             The opt-in `nutrients` module is off for this account (errorCode `module.disabled`). Stop syncing and do not
             retry; offer the enable-in-settings hint. Only run the HealthKit read-authorization flow while the module is
@@ -18140,7 +18171,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientDailySeriesEnvelope"
         "401": *a1
-        "403": *a42
+        "403": *a43
         "422": *a4
         "429": *a5
   /api/nutrients/water:
@@ -18169,7 +18200,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NutrientWaterWriteEnvelope"
         "401": *a1
-        "403": *a42
+        "403": *a43
         "409": *a7
         "422": *a4
         "429": *a5
@@ -18671,26 +18702,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WithingsCredentialsUpdateEnvelope"
-        "400": &a43
+        "400": &a44
           description: Body is not parseable JSON.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "413": &a44
+        "413": &a45
           description: Body exceeds 64 KiB.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "415": &a45
+        "415": &a46
           description: Content-Type is not `application/json`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": &a46
+        "422": &a47
           description: "`clientId` and `clientSecret` are both required and each must be 1–200 characters. The envelope carries a
             single fixed message, not per-field issues."
           content:
@@ -18876,11 +18907,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FitbitCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -19023,11 +19054,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GoogleHealthCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -19180,11 +19211,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OuraCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -19260,21 +19291,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/OuraTestEnvelope"
         "401": *a1
-        "422": &a47
+        "422": &a48
           description: No usable connection for this provider — nothing stored, or the stored grant could no longer be resolved
             into an access token. `meta.errorCode` = `not_configured`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "429": &a48
+        "429": &a49
           description: More than 5 requests in 60 s from this user. `meta.errorCode` = `rate_limited_self` — this is the local
             limiter, distinct from a `rate_limited` 502 which is the provider's.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "502": &a49
+        "502": &a50
           description: "The probe did not complete. `meta.errorCode` names the class: `credentials_rejected` (the provider
             answered 401/403 — the stored grant is gone), `rate_limited` (the PROVIDER answered 429, which is not this
             endpoint's own limiter), `upstream_error` (5xx), `timeout` (no answer within 5 s), `connection_failed`
@@ -19319,11 +19350,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PolarCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -19399,9 +19430,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PolarTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/strava/credentials:
     get:
       tags:
@@ -19437,11 +19468,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StravaCredentialsUpdateEnvelope"
-        "400": *a43
+        "400": *a44
         "401": *a1
-        "413": *a44
-        "415": *a45
-        "422": *a46
+        "413": *a45
+        "415": *a46
+        "422": *a47
         "429": *a5
     delete:
       tags:
@@ -19519,9 +19550,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/StravaTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/integrations/status:
     get:
       tags:
@@ -19557,7 +19588,7 @@ paths:
                 $ref: "#/components/schemas/FitbitResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a48
+        "429": *a49
   /api/integrations/fitbit/test:
     post:
       tags:
@@ -19575,9 +19606,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/FitbitIntegrationTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/integrations/google-health/resume:
     post:
       tags:
@@ -19594,7 +19625,7 @@ paths:
                 $ref: "#/components/schemas/GoogleHealthResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a48
+        "429": *a49
   /api/integrations/google-health/test:
     post:
       tags:
@@ -19627,9 +19658,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/integrations/whoop/resume:
     post:
       tags:
@@ -19646,7 +19677,7 @@ paths:
                 $ref: "#/components/schemas/WhoopResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a48
+        "429": *a49
   /api/integrations/whoop/test:
     post:
       tags:
@@ -19663,9 +19694,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/WhoopIntegrationTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
-        "502": *a49
+        "422": *a48
+        "429": *a49
+        "502": *a50
   /api/integrations/withings/resume:
     post:
       tags:
@@ -19683,7 +19714,7 @@ paths:
                 $ref: "#/components/schemas/WithingsResumeEnvelope"
         "401": *a1
         "422": *a4
-        "429": *a48
+        "429": *a49
   /api/integrations/withings/test:
     post:
       tags:
@@ -19701,8 +19732,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/WithingsIntegrationTestEnvelope"
         "401": *a1
-        "422": *a47
-        "429": *a48
+        "422": *a48
+        "429": *a49
         "502":
           description: "The probe did not complete. The shared codes apply (`credentials_rejected`, `rate_limited`,
             `upstream_error`, `timeout`, `connection_failed`) and this path adds one of its own:
@@ -19942,7 +19973,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RecordActivityEnvelope"
         "401": *a1
-        "403": &a50
+        "403": &a51
           description: Refused. `meta.errorCode` is `sharing.not_permitted` when the request was made while acting on another
             account (grant management is never delegable), or `sharing.access.denied` when the caller may not act as the
             account they named. The latter is byte-identical for an account that does not exist and one that granted
@@ -19967,7 +19998,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AccountGrantListEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "422": *a4
         "429": *a5
     post:
@@ -20069,7 +20100,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AcceptedAccountGrantEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "404":
           description: No such invitation for this account.
           content:
@@ -20113,7 +20144,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RevokedAccountGrantEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "404":
           description: No such grant on this account's record.
           content:
@@ -20154,7 +20185,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RenouncedAccountGrantEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "404":
           description: No such grant held by this account.
           content:
@@ -20536,7 +20567,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "403": *a50
+        "403": *a51
         "409":
           description: "The record this browser session is on is not the record the request asserted. `meta.errorCode` is
             `sharing.session.changed`. It is not a refusal of access — the caller may well be entitled to both records —
@@ -20866,7 +20897,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectionListEnvelope"
         "401": *a1
-        "403": &a51
+        "403": &a52
           description: The operator has disabled the API instance-wide. Every route in this module refuses while that setting is
             off, for a cookie session as well as for a Bearer token; it is not a per-user permission and retrying will
             not help.
@@ -20899,7 +20930,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectionRevokeEnvelope"
         "401": *a1
-        "403": *a51
+        "403": *a52
         "404":
           description: No live connection with this id for this caller — also the answer for an already-revoked one, so a repeat
             revoke is 404 rather than an idempotent 200.
@@ -20926,7 +20957,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectorTokenListEnvelope"
         "401": *a1
-        "403": *a51
+        "403": *a52
         "422": *a4
         "429": *a5
     post:
@@ -20959,7 +20990,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "401": *a1
-        "403": *a51
+        "403": *a52
         "413":
           description: Body exceeds 16 KiB.
           content:
@@ -21002,7 +21033,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/McpConnectorTokenRevokeEnvelope"
         "401": *a1
-        "403": *a51
+        "403": *a52
         "404":
           description: No `health:read` token with this id for this caller. An already-revoked token is still found, so a repeat
             revoke answers 200.
@@ -21060,7 +21091,7 @@ paths:
       description: Returns the named family's resolved settings for the record the session is acting on. Cookie session or
         Bearer, while acting on a managed record the caller guards.
       parameters:
-        - &a52
+        - &a53
           name: family
           in: path
           required: true
@@ -21104,7 +21135,7 @@ paths:
         ride the audit row. Body capped at 64 KiB. Cookie session or Bearer, while acting on a managed record the caller
         guards.
       parameters:
-        - *a52
+        - *a53
       requestBody:
         required: true
         content:
@@ -21641,13 +21672,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupDocument"
-        "403": &a53
+        "403": &a54
           description: Caller is not an admin. `requireAdmin()` is cookie-only, so a Bearer token lands here whatever its scope.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "404": &a54
+        "404": &a55
           description: No stored copy with this id.
           content:
             application/json:
@@ -21721,8 +21752,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "403": *a53
-        "404": *a54
+        "403": *a54
+        "404": *a55
         "409":
           description: A restore of the same account is already queued or running (`meta.errorCode` = `backup.restore.active`,
             `meta.jobId` names it), the stored copy was replaced by a newer one while it was being checked
@@ -21766,7 +21797,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupRestoreJobListResponse"
-        "403": *a53
+        "403": *a54
   /api/admin/backups/restores/{jobId}:
     get:
       tags:
@@ -21789,7 +21820,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminBackupRestoreJobResponse"
-        "403": *a53
+        "403": *a54
         "404":
           description: No restore job with this id.
           content:
@@ -21808,7 +21839,7 @@ paths:
         request leaves the server. Needs neither the Documents module nor the list: with the list unset, `available` is
         false and any connection still stored is listed (with `originAllowed: false`) so it can be removed. Cookie
         session only; not delegable."
-      security: &a55
+      security: &a56
         - cookieAuth: []
       responses:
         "200":
@@ -21818,7 +21849,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourcesStatusEnvelope"
         "401": *a1
-        "403": &a56
+        "403": &a57
           description: "Refused before any request to the source: `documents.sources.browserOnly` for a Bearer caller,
             `sharing.not_permitted` while acting on another person's record (a delegate or guardian never uses the
             owner's archive), or `module.disabled` when the Documents module is off."
@@ -21841,9 +21872,9 @@ paths:
         `documents.sources.tokenRequired`), so a stored token is never sent to an address it was not saved for. A Papra
         organization id is letters, digits, `_` and `-`. The token is stored encrypted (AES-256-GCM) and never returned.
         Ten saves and tests a minute per person. Cookie session only; not delegable."
-      security: *a55
+      security: *a56
       parameters:
-        - &a57
+        - &a58
           name: system
           in: path
           required: true
@@ -21882,8 +21913,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceConnectionEnvelope"
         "401": *a1
-        "403": *a56
-        "404": &a58
+        "403": *a57
+        "404": &a59
           description: "`documents.sources.unavailable`: the operator has not listed any origin in `DOCUMENT_SOURCE_ORIGINS`, so
             the picker is off. `documents.sources.notConnected`: no connection is saved for this system.
             `documents.sources.notFound`: the source has no such document, or (Papra) no such organization, including
@@ -21902,7 +21933,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "429": *a5
-        "502": &a59
+        "502": &a60
           description: "The source could not answer usefully, with the reason in `meta.errorCode` and, when the source answered at
             all, its HTTP status in `meta.upstreamStatus` (its body is never passed on): `documents.sources.unreachable`
             (no connection, timeout, or a destination refused at dial time), `documents.sources.redirected` (the source
@@ -21921,9 +21952,9 @@ paths:
       description: Deletes the caller's connection for this system, and its token with it. Works even after the operator
         removed the origin from the list, and with the Documents module switched off. `disconnected` is false when there
         was nothing to delete. Cookie session only; not delegable.
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
       responses:
         "200":
           description: Removed, or there was nothing to remove.
@@ -21932,7 +21963,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceDisconnectEnvelope"
         "401": *a1
-        "403": *a56
+        "403": *a57
         "422": *a4
         "429": *a5
   /api/documents/sources/{system}/test:
@@ -21943,9 +21974,9 @@ paths:
       description: One request to the source with the stored token. Answers `ok` with the round-trip time and stamps
         `lastVerifiedAt`, or the reason in `meta.errorCode`. Shares the save's allowance of ten a minute. Cookie session
         only; not delegable.
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
       responses:
         "200":
           description: The source answered.
@@ -21954,9 +21985,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceTestEnvelope"
         "401": *a1
-        "403": *a56
-        "404": *a58
-        "422": &a60
+        "403": *a57
+        "404": *a59
+        "422": &a61
           description: "`documents.sources.originNotAllowed`: the base address's origin is not on the operator's list (checked on
             every request, so a connection saved earlier is cut off once its origin is removed), or another validation
             failure."
@@ -21965,7 +21996,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "429": *a5
-        "502": *a59
+        "502": *a60
   /api/documents/sources/{system}/tags:
     get:
       tags:
@@ -21973,9 +22004,9 @@ paths:
       summary: Tags of a connected archive
       description: The source's tags for the picker's filter, the first 250 by name, in the source's own ids. Shares the
         search allowance of sixty a minute. Cookie session only; not delegable.
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
       responses:
         "200":
           description: The tags.
@@ -21984,11 +22015,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceTagsEnvelope"
         "401": *a1
-        "403": *a56
-        "404": *a58
-        "422": *a60
+        "403": *a57
+        "404": *a59
+        "422": *a61
         "429": *a5
-        "502": *a59
+        "502": *a60
   /api/documents/sources/{system}/search:
     get:
       tags:
@@ -22002,9 +22033,9 @@ paths:
         under that source key: `new`, `imported` with the vault document's `documentId`, or `deleted` (deleted in
         HealthLog; importing it again stores nothing). Nothing is stored. Sixty searches a minute, shared with the tag
         read. Cookie session only; not delegable."
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
         - name: q
           in: query
           required: false
@@ -22045,11 +22076,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceSearchEnvelope"
         "401": *a1
-        "403": *a56
-        "404": *a58
-        "422": *a60
+        "403": *a57
+        "404": *a59
+        "422": *a61
         "429": *a5
-        "502": *a59
+        "502": *a60
   /api/documents/sources/{system}/import:
     post:
       tags:
@@ -22068,9 +22099,9 @@ paths:
         fetched), including a duplicate. `kind` sets the document type (default OTHER). Automatic AI reading follows the
         person's own setting. Counts against the person's upload allowance (60 an hour) and storage quota. 201 for a new
         document, 200 otherwise. Cookie session only; not delegable."
-      security: *a55
+      security: *a56
       parameters:
-        - *a57
+        - *a58
       requestBody:
         required: true
         content:
@@ -22094,6 +22125,7 @@ paths:
                     - REFERRAL
                     - INSURANCE
                     - VACCINATION
+                    - SICK_NOTE
                     - OTHER
                 link:
                   type: object
@@ -22127,7 +22159,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DocumentSourceImportEnvelope"
         "401": *a1
-        "403": *a56
+        "403": *a57
         "404":
           description: "`documents.sources.unavailable`: the operator has not listed any origin in `DOCUMENT_SOURCE_ORIGINS`, so
             the picker is off. `documents.sources.notConnected`: no connection is saved for this system.
@@ -22158,7 +22190,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "422": *a60
+        "422": *a61
         "429":
           description: "`documents.inbound.rateLimited` (the person's hourly upload allowance, with the rate-limit headers) or
             `documents.inbound.uploadBusy` (too many uploads in progress; `Retry-After: 1`)."
@@ -22166,7 +22198,277 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "502": *a59
+        "502": *a60
+  /api/symptoms/definitions:
+    get:
+      tags:
+        - Symptoms
+      summary: List your own symptoms (v1.40)
+      description: The record's active symptom definitions with their 30-day summary; `includeHidden=true` adds the hidden
+        ones. Rides the illness module.
+      parameters:
+        - in: query
+          name: includeHidden
+          schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+      responses:
+        "200":
+          description: The definitions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListSymptomDefinitionsEnvelope"
+        "401": *a1
+        "403": &a62
+          description: >-
+            `illness.disabled`: the record has the illness module switched off (or the operator turned it off
+            server-wide); symptoms ride that module.
+
+
+            Refused: this request named a record the caller may not act on (`meta.errorCode` = `sharing.access.denied`).
+            Byte-identical for an account that does not exist, an account that granted nothing, a grant whose sections
+            do not reach this surface, and a read grant on a request that writes — the response carries no reason, so it
+            is not an account-enumeration oracle. The reason reaches the record owner's activity feed and the operator's
+            audit trail instead. On the cookie transport the same code answers one further case: a session that has
+            entered a shared record and sends a request without its record-context assertion, which is a client older
+            than the fence — leave the record and reload. A request that names no record but the caller's own never
+            reaches this response, so a client that never switches and never sends the per-request account selector will
+            not see it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    post:
+      tags:
+        - Symptoms
+      summary: Define a symptom (v1.40)
+      description: Creates one definition. Idempotent under `Idempotency-Key`. Audits as `symptoms.definition.create` without
+        the label. Rate-limited to 30 a minute.
+      parameters:
+        - *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSymptomDefinitionRequest"
+      responses:
+        "201":
+          description: Definition created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSymptomDefinitionEnvelope"
+        "401": *a1
+        "403": *a62
+        "409": *a7
+        "422": *a4
+        "429": *a5
+  /api/symptoms/definitions/{id}:
+    patch:
+      tags:
+        - Symptoms
+      summary: Edit, hide or show a symptom (v1.40)
+      description: Partial edit. Audits as `symptoms.definition.update`, naming a label change without quoting it.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSymptomDefinitionRequest"
+      responses:
+        "200":
+          description: Definition updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateSymptomDefinitionEnvelope"
+        "401": *a1
+        "403": *a62
+        "404": &a63
+          description: "`symptoms.definition.notFound`: no definition with this id on the record."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    delete:
+      tags:
+        - Symptoms
+      summary: Hide or delete a symptom (v1.40)
+      description: Hides the definition and keeps its history. `?purge=true` deletes it and every occurrence of it.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: purge
+          schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+      responses:
+        "200":
+          description: Hidden or deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteSymptomDefinitionEnvelope"
+        "401": *a1
+        "403": *a62
+        "404": *a63
+        "422": *a4
+        "429": *a5
+  /api/symptoms/events:
+    get:
+      tags:
+        - Symptoms
+      summary: List symptom occurrences (v1.40)
+      description: Occurrences of the record's symptoms, newest first, narrowed by the optional query.
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        - in: query
+          name: definitionId
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - in: query
+          name: episodeId
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - in: query
+          name: limit
+          schema:
+            default: 200
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: A page of occurrences.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListSymptomEventsEnvelope"
+        "401": *a1
+        "403": *a62
+        "422": *a4
+        "429": *a5
+    post:
+      tags:
+        - Symptoms
+      summary: Log a symptom occurrence (v1.40)
+      description: Creates one occurrence. Idempotent under `Idempotency-Key`. A hidden definition can still be logged
+        against; another record's definition 404s (`symptoms.definition.notFound`). Audits as `symptoms.event.create`
+        without the note.
+      parameters:
+        - *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSymptomEventRequest"
+      responses:
+        "201":
+          description: Occurrence logged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSymptomEventEnvelope"
+        "401": *a1
+        "403": *a62
+        "404": *a63
+        "409": *a7
+        "422": *a4
+        "429": *a5
+  /api/symptoms/events/{id}:
+    patch:
+      tags:
+        - Symptoms
+      summary: Edit a symptom occurrence (v1.40)
+      description: Partial edit. Audits as `symptoms.event.update`, naming a note change without quoting it.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSymptomEventRequest"
+      responses:
+        "200":
+          description: Occurrence updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateSymptomEventEnvelope"
+        "401": *a1
+        "403": *a62
+        "404": &a64
+          description: "`symptoms.event.notFound`: no occurrence with this id on the record."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
+    delete:
+      tags:
+        - Symptoms
+      summary: Delete a symptom occurrence (v1.40)
+      description: Removes the occurrence. Audits as `symptoms.event.delete`.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteSymptomEventEnvelope"
+        "401": *a1
+        "403": *a62
+        "404": *a64
+        "422": *a4
+        "429": *a5
   /api/bugreport:
     post:
       security: []
@@ -29604,6 +29906,7 @@ components:
             - REFERRAL
             - INSURANCE
             - VACCINATION
+            - SICK_NOTE
             - OTHER
         episodeId:
           type: string
@@ -29639,6 +29942,7 @@ components:
             - REFERRAL
             - INSURANCE
             - VACCINATION
+            - SICK_NOTE
             - OTHER
         documentDate:
           anyOf:
@@ -29693,6 +29997,7 @@ components:
                 - REFERRAL
                 - INSURANCE
                 - VACCINATION
+                - SICK_NOTE
                 - OTHER
           required:
             - mode
@@ -31994,6 +32299,97 @@ components:
         leaves the singleton instance settings — registration, MFA requirement, default locale and timezone, module
         availability, notification and AI configuration, document cap and quota — exactly as they are. Send `true` only
         when rebuilding a host from a snapshot, because those settings apply to every account on the installation."
+    CreateSymptomDefinitionRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 40
+        icon:
+          anyOf:
+            - type: string
+            - type: "null"
+      required:
+        - label
+      description: Define a symptom of your own. `label` (1-40 characters) is encrypted at rest; `icon` is one of the cycle
+        custom-symptom icon names, null for the default glyph. At most eight active definitions per account (422
+        `symptoms.definition.limitReached`).
+    UpdateSymptomDefinitionRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 40
+        icon:
+          anyOf:
+            - type: string
+            - type: "null"
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 1000
+      description: "Partial edit; an omitted key leaves the column untouched. `isActive: false` hides the symptom (history
+        kept, slot freed); `isActive: true` shows it again and re-checks the cap."
+    CreateSymptomEventRequest:
+      type: object
+      properties:
+        definitionId:
+          type: string
+          minLength: 1
+          maxLength: 40
+        occurredAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        intensity:
+          type: integer
+          minimum: 0
+          maximum: 10
+        note:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+        episodeId:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 40
+            - type: "null"
+      required:
+        - definitionId
+        - intensity
+      description: Log one occurrence. `intensity` is 0-10 (0 none, 10 the worst imaginable). `occurredAt` defaults to now and
+        may not lie in the future beyond five minutes. `episodeId`, when given, must name one of the record's own
+        illness episodes that is still open (422 `symptoms.episode.notOpen` otherwise). The note is encrypted at rest.
+    UpdateSymptomEventRequest:
+      type: object
+      properties:
+        occurredAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        intensity:
+          type: integer
+          minimum: 0
+          maximum: 10
+        note:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+        episodeId:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 40
+            - type: "null"
+      description: "Partial edit of one occurrence. `note: null` clears the note, `episodeId: null` drops the link. A changed
+        `episodeId` must name an open episode; an unchanged link to an episode that has since resolved is kept."
     MedicationTreatmentClass:
       type: string
       enum:
@@ -32298,14 +32694,15 @@ components:
                 sharing.renounce.already_ended, sharing.renounce.not_found, sharing.revoke.already_ended,
                 sharing.revoke.not_found, sharing.session.changed, sharing.switch.invalid,
                 sharing.switch.wrong_transport; source-priority — source-priority.body.invalid_json,
-                source-priority.body.invalid_shape; tokens — tokens.documents.ceiling_reached,
-                tokens.measurements.ceiling_reached, tokens.workouts.ceiling_reached; vaccination —
-                vaccination.booster-invalid, vaccination.booster-no-antigen, vaccination.booster-out-of-scope,
-                vaccination.encounter-not-found, vaccination.identity-required, vaccination.invalid,
-                vaccination.link.invalid, vaccination.not-found, vaccination.practitioner-not-found; workout —
-                workout.batch.invalid, workout.batch.payload_too_large, workout.batch.source_not_permitted,
-                workout.batch.too_large, workout.delete.synced_source; (unprefixed) — about_me_conflict,
-                ai_response_truncated, coach_prefs_conflict, dashboard_layout_conflict, empty_file,
+                source-priority.body.invalid_shape; symptoms — symptoms.definition.limitReached,
+                symptoms.definition.notFound, symptoms.episode.notOpen, symptoms.event.notFound, symptoms.invalid;
+                tokens — tokens.documents.ceiling_reached, tokens.measurements.ceiling_reached,
+                tokens.workouts.ceiling_reached; vaccination — vaccination.booster-invalid,
+                vaccination.booster-no-antigen, vaccination.booster-out-of-scope, vaccination.encounter-not-found,
+                vaccination.identity-required, vaccination.invalid, vaccination.link.invalid, vaccination.not-found,
+                vaccination.practitioner-not-found; workout — workout.batch.invalid, workout.batch.payload_too_large,
+                workout.batch.source_not_permitted, workout.batch.too_large, workout.delete.synced_source; (unprefixed)
+                — about_me_conflict, ai_response_truncated, coach_prefs_conflict, dashboard_layout_conflict, empty_file,
                 health_score_config_conflict, insights_layout_conflict, invalid_base_updated_at,
                 json_carries_no_intake_time, json_not_an_array, medication_layout_conflict, missing_required_columns,
                 modules_conflict, mood_tag_layout_conflict, not_configured, notification_prefs_conflict, oidc_only,
@@ -36716,6 +37113,86 @@ components:
               - onsetAt
               - dayLogs
             additionalProperties: {}
+        symptomDefinitions:
+          default: []
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              label:
+                type: string
+                minLength: 1
+              labelEncrypted:
+                type: string
+                minLength: 1
+              icon:
+                anyOf:
+                  - type: string
+                  - type: "null"
+              sortOrder:
+                type: integer
+                minimum: -9007199254740991
+                maximum: 9007199254740991
+              isActive:
+                type: boolean
+              createdAt:
+                type: string
+                minLength: 1
+              updatedAt:
+                type: string
+                minLength: 1
+              events:
+                default: []
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      minLength: 1
+                    occurredAt:
+                      type: string
+                      minLength: 1
+                    intensity:
+                      type: integer
+                      minimum: 0
+                      maximum: 10
+                    note:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    noteEncrypted:
+                      anyOf:
+                        - type: string
+                          minLength: 1
+                        - type: "null"
+                    episodeId:
+                      anyOf:
+                        - type: string
+                          minLength: 1
+                        - type: "null"
+                    createdAt:
+                      type: string
+                      minLength: 1
+                    updatedAt:
+                      type: string
+                      minLength: 1
+                  required:
+                    - occurredAt
+                    - intensity
+                    - createdAt
+                    - updatedAt
+                  additionalProperties: {}
+            required:
+              - sortOrder
+              - isActive
+              - createdAt
+              - updatedAt
+              - events
+            additionalProperties: {}
         allergies:
           default: []
           type: array
@@ -36972,6 +37449,7 @@ components:
                   - REFERRAL
                   - INSURANCE
                   - VACCINATION
+                  - SICK_NOTE
                   - OTHER
               title:
                 anyOf:
@@ -39231,6 +39709,7 @@ components:
         - labResults
         - biomarkers
         - illnessEpisodes
+        - symptomDefinitions
         - allergies
         - familyHistory
         - workouts
@@ -64412,6 +64891,9 @@ components:
           enum:
             - DOCUMENT_INDEX
             - LABS_OCR_EXTRACT
+            - DOCUMENT_SUMMARY
+            - DOCUMENT_SUGGEST
+            - DOCUMENT_EXTRACT
         documentId:
           anyOf:
             - type: string
@@ -64429,9 +64911,15 @@ components:
             - anyOf:
                 - $ref: "#/components/schemas/DocumentIndexResponse"
                 - $ref: "#/components/schemas/OcrExtractResponse"
+                - $ref: "#/components/schemas/DocumentSummaryResponse"
+                - $ref: "#/components/schemas/DocumentSuggestResponse"
+                - $ref: "#/components/schemas/DocumentExtractRunResult"
             - type: "null"
           description: "Present once `status` is `SUCCEEDED`: the body the queuing route answers with synchronously.
-            `DOCUMENT_INDEX` carries `DocumentIndexResponse`, `LABS_OCR_EXTRACT` carries `OcrExtractResponse`."
+            `DOCUMENT_INDEX` carries `DocumentIndexResponse`, `LABS_OCR_EXTRACT` carries `OcrExtractResponse`,
+            `DOCUMENT_SUMMARY` carries `DocumentSummaryResponse`, `DOCUMENT_SUGGEST` carries `DocumentSuggestResponse`,
+            `DOCUMENT_EXTRACT` carries `DocumentExtractRunResult` (not the extract route's detail body). Decode by
+            `kind`; treat an unknown `kind` as a run this client did not start."
         error:
           anyOf:
             - type: object
@@ -64640,6 +65128,82 @@ components:
         reading this row likely duplicates (the review row defaults to unchecked when set); `confidence` is the model's
         per-field self-score (low fields are flagged for the human). Nothing is written until the commit route
         confirms."
+    DocumentSummaryResponse:
+      type: object
+      properties:
+        summary:
+          type: string
+        text:
+          type: string
+        persistence:
+          type: string
+          enum:
+            - stored
+            - withheld
+            - failed
+      additionalProperties: false
+    DocumentSuggestResponse:
+      type: object
+      properties:
+        suggestions:
+          type: object
+          properties:
+            title:
+              anyOf:
+                - type: string
+                - type: "null"
+            kind:
+              anyOf:
+                - type: string
+                  enum:
+                    - DOCTOR_REPORT
+                    - DISCHARGE_LETTER
+                    - LAB_RESULT
+                    - IMAGING
+                    - PRESCRIPTION
+                    - REFERRAL
+                    - INSURANCE
+                    - VACCINATION
+                    - SICK_NOTE
+                    - OTHER
+                - type: "null"
+            documentDate:
+              anyOf:
+                - type: string
+                - type: "null"
+          required:
+            - title
+            - kind
+            - documentDate
+          additionalProperties: false
+      required:
+        - suggestions
+      additionalProperties: false
+    DocumentExtractRunResult:
+      type: object
+      properties:
+        documentId:
+          type: string
+        factsStaged:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: How many facts were staged PENDING for review. Read them from `GET /api/documents/inbound/{id}`; the
+            confirm route stays the only write into the record.
+        status:
+          type: string
+          enum:
+            - STORED
+            - EXTRACTING
+            - EXTRACTED
+            - FAILED
+            - CONFIRMED
+            - DISCARDED
+      required:
+        - documentId
+        - factsStaged
+        - status
+      additionalProperties: false
     ListBiomarkersEnvelope:
       type: object
       properties:
@@ -67462,6 +68026,7 @@ components:
             - REFERRAL
             - INSURANCE
             - VACCINATION
+            - SICK_NOTE
             - OTHER
         title:
           anyOf:
@@ -67908,6 +68473,7 @@ components:
             - REFERRAL
             - INSURANCE
             - VACCINATION
+            - SICK_NOTE
             - OTHER
         title:
           anyOf:
@@ -68274,42 +68840,6 @@ components:
         - data
         - error
       additionalProperties: false
-    DocumentSuggestResponse:
-      type: object
-      properties:
-        suggestions:
-          type: object
-          properties:
-            title:
-              anyOf:
-                - type: string
-                - type: "null"
-            kind:
-              anyOf:
-                - type: string
-                  enum:
-                    - DOCTOR_REPORT
-                    - DISCHARGE_LETTER
-                    - LAB_RESULT
-                    - IMAGING
-                    - PRESCRIPTION
-                    - REFERRAL
-                    - INSURANCE
-                    - VACCINATION
-                    - OTHER
-                - type: "null"
-            documentDate:
-              anyOf:
-                - type: string
-                - type: "null"
-          required:
-            - title
-            - kind
-            - documentDate
-          additionalProperties: false
-      required:
-        - suggestions
-      additionalProperties: false
     DocumentSummaryEnvelope:
       type: object
       properties:
@@ -68326,20 +68856,6 @@ components:
       required:
         - data
         - error
-      additionalProperties: false
-    DocumentSummaryResponse:
-      type: object
-      properties:
-        summary:
-          type: string
-        text:
-          type: string
-        persistence:
-          type: string
-          enum:
-            - stored
-            - withheld
-            - failed
       additionalProperties: false
     DocumentIndexEnvelope:
       type: object
@@ -76379,6 +76895,293 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/DocumentSourceImport"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    ListSymptomDefinitionsEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomDefinitionList"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    SymptomDefinitionList:
+      type: object
+      properties:
+        definitions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomDefinition"
+        limit:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+      required:
+        - definitions
+        - limit
+      additionalProperties: false
+      description: The record's symptom definitions in display order, and the active-definition cap.
+    SymptomDefinition:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          anyOf:
+            - type: string
+            - type: "null"
+        icon:
+          anyOf:
+            - type: string
+            - type: "null"
+        sortOrder:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        isActive:
+          type: boolean
+        recent:
+          type: object
+          properties:
+            count30d:
+              type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            maxIntensity30d:
+              anyOf:
+                - type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+                - type: "null"
+            lastOccurredAt:
+              anyOf:
+                - type: string
+                - type: "null"
+          required:
+            - count30d
+            - maxIntensity30d
+            - lastOccurredAt
+          additionalProperties: false
+      required:
+        - id
+        - label
+        - icon
+        - sortOrder
+        - isActive
+        - recent
+      additionalProperties: false
+      description: "A symptom the person defined. `label` is decrypted (null only on an unreadable value). `recent` is
+        computed server-side: occurrences and the highest intensity over the last 30 days, and the last occurrence ever.
+        Each active definition is also the correlation channel `SYMPTOM:<id>`."
+    CreateSymptomDefinitionEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomDefinition"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    UpdateSymptomDefinitionEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomDefinition"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    DeleteSymptomDefinitionEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomDefinitionDeleted"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    SymptomDefinitionDeleted:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+          const: true
+        purged:
+          type: boolean
+        eventsDeleted:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+      required:
+        - deleted
+        - purged
+        - eventsDeleted
+      additionalProperties: false
+      description: "`purged: false` means the definition was hidden and its history kept; `purged: true` means it and
+        `eventsDeleted` occurrences were removed."
+    ListSymptomEventsEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomEventList"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    SymptomEventList:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomEvent"
+        limit:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        hasMore:
+          type: boolean
+      required:
+        - events
+        - limit
+        - hasMore
+      additionalProperties: false
+      description: A page of occurrences, newest first. `hasMore` is true when the page is full; page on with `to` set to the
+        oldest `occurredAt` seen.
+    SymptomEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        definitionId:
+          type: string
+        occurredAt:
+          type: string
+        intensity:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        note:
+          anyOf:
+            - type: string
+            - type: "null"
+        episodeId:
+          anyOf:
+            - type: string
+            - type: "null"
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - definitionId
+        - occurredAt
+        - intensity
+        - note
+        - episodeId
+        - createdAt
+        - updatedAt
+      additionalProperties: false
+      description: "One occurrence of a defined symptom: when, how strong (0-10), the decrypted note, and the illness episode
+        it was filed against (null when none)."
+    CreateSymptomEventEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomEvent"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    UpdateSymptomEventEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SymptomEvent"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    DeleteSymptomEventEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            deleted:
+              type: boolean
+              const: true
+          required:
+            - deleted
+          additionalProperties: false
         error:
           type: "null"
         meta:

@@ -603,6 +603,21 @@ async function main() {
       prisma.illnessDayLog,
     ),
   );
+  // v1.40 — person-defined symptoms: the name and the per-occurrence note.
+  results.push(
+    await rotateBytesColumn(
+      "SymptomDefinition",
+      "labelEncrypted",
+      prisma.symptomDefinition,
+    ),
+  );
+  results.push(
+    await rotateBytesColumn(
+      "SymptomEvent",
+      "noteEncrypted",
+      prisma.symptomEvent,
+    ),
+  );
 
   // ───── v1.19.0 ECG waveform (Bytes column) ─────
   // "waveformEncrypted" holds the JSON-encoded micro-volt sample array in the

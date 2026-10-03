@@ -124,6 +124,8 @@ const STATIC_SURFACE_MODULE = {
   "capture:mood": "mood",
   "capture:medication": "medications",
   "capture:workout": "workouts",
+  // v1.40 — an occurrence of a person-defined symptom rides the illness module.
+  "capture:symptom": "illness",
 
   // ── Dashboard widgets ──
   // CORE widgets (weight, blood pressure, pulse, body fat, the vital-derived
@@ -274,10 +276,13 @@ export function surfaceModulesOfKind(
 /**
  * The surface id of a correlation channel. Rated mood factors carry their own
  * `FACTOR:<key>` channel names but are mood entries all the same, so they
- * resolve to the mood channel.
+ * resolve to the mood channel; person-defined symptoms (`SYMPTOM:<id>`) resolve
+ * to the illness symptom channel the same way.
  */
 export function correlationChannelSurfaceId(channelKey: string): string {
-  return channelKey.startsWith("FACTOR:")
-    ? "correlation:MOOD"
-    : `correlation:${channelKey}`;
+  if (channelKey.startsWith("FACTOR:")) return "correlation:MOOD";
+  // A person-defined symptom (`SYMPTOM:<id>`, v1.40) rides the illness
+  // module, like the symptom-burden channel it sits beside.
+  if (channelKey.startsWith("SYMPTOM:")) return "correlation:SYMPTOM_SEVERITY";
+  return `correlation:${channelKey}`;
 }

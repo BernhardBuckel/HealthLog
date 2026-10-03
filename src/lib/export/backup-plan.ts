@@ -107,6 +107,10 @@ export const BACKED_UP_MODELS = [
   "IllnessEpisode",
   "IllnessDayLog",
   "IllnessSymptomLink",
+  // v1.40 — the person's own symptoms and every occurrence of them. Nothing
+  // else holds either; a restore without them loses the history outright.
+  "SymptomDefinition",
+  "SymptomEvent",
   "EcgRecording",
   "UserHealthProfile",
   "HealthProfileFactRevision",
@@ -262,6 +266,10 @@ export const BACKUP_WRITER_FILES: readonly string[] = [
   // because that reference is a pointer between two independently carried
   // tables and not a parent-child ride.
   "src/lib/export/ecg-backup.ts",
+  // The person's own symptoms, both ends beside each other; the occurrences
+  // ride inside their definition (`include: { events }` out, `events: {
+  // create }` back), the way a medication's side effects do.
+  "src/lib/export/symptoms-backup.ts",
   "src/lib/cycle/backup.ts",
   // The medication category is read through the one helper that normalises
   // it; the payload writer calls the helper rather than the delegate. The
@@ -284,6 +292,7 @@ export const BACKUP_RESTORE_FILES: readonly string[] = [
   "src/lib/export/environment-backup.ts",
   "src/lib/export/onboarding-backup.ts",
   "src/lib/export/ecg-backup.ts",
+  "src/lib/export/symptoms-backup.ts",
   "src/lib/cycle/backup.ts",
   // The restore writes the medication category through the same helper.
   "src/lib/medication-category.ts",
@@ -329,6 +338,8 @@ export const TWO_ENDED_MODELS = [
   "IllnessEpisode",
   "IllnessDayLog",
   "IllnessSymptomLink",
+  "SymptomDefinition",
+  "SymptomEvent",
   "UserHealthProfile",
   "HealthProfileFactRevision",
   "CycleProfile",

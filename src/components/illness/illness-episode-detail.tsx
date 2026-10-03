@@ -14,6 +14,7 @@ import Link from "next/link";
 
 import { EpisodeVisitsCard } from "@/components/illness/episode-visits-card";
 import { EpisodeDocumentsCard } from "@/components/documents/episode-documents-card";
+import { EpisodeSymptomsCard } from "@/components/symptoms/episode-symptoms-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -175,6 +176,10 @@ export function IllnessEpisodeDetail({ episodeId }: { episodeId: string }) {
           onLogDay={() => setLogOpen(true)}
         />
       ) : null}
+
+      {/* v1.40 — the person's own symptoms filed against this episode or
+          logged while it ran. Renders nothing when there are none. */}
+      {episode ? <EpisodeSymptomsCard episode={episode} /> : null}
 
       {isLoading ? (
         <Skeleton className="h-40 w-full" />

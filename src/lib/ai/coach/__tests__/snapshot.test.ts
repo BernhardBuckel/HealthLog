@@ -19,6 +19,7 @@ vi.mock("@/lib/db", () => ({
     user: { findUnique: vi.fn() },
     // v1.18.1 P4 — the illness context block reads active + recent episodes.
     illnessEpisode: { findMany: vi.fn(async () => []) },
+    symptomEvent: { groupBy: vi.fn(async () => []) },
     // v1.18.11 (#65) — the labs context block reads recent lab results.
     labResult: { findMany: vi.fn(async () => []) },
     // v1.38 — the visits context block reads upcoming appointments + the most
