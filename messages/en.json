@@ -484,6 +484,13 @@
       "action": "Confirm",
       "failed": "That did not work. Please try again.",
       "nothingToConfirm": "There is nothing to confirm here. Start the connection again from your assistant."
+    },
+    "insecureTransport": {
+      "title": "Signing in cannot complete on this page",
+      "body": "This server only sets its sign-in cookie over https://, but this page was opened over http://. The browser would drop the cookie, so signing in is switched off here.",
+      "fixLan": "Server on a home network without TLS: set SESSION_COOKIE_SECURE=false in its settings and restart it.",
+      "fixHttps": "Server behind an HTTPS proxy: open the https:// address instead, and make sure the proxy forwards X-Forwarded-Proto: https.",
+      "localhostNote": "This page is on http://localhost while the server sets its sign-in cookie for https:// only. Most browsers accept that on localhost; if signing in keeps returning here, set SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {

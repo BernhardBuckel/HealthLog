@@ -484,6 +484,13 @@
       "action": "Confirmer",
       "failed": "Cela n'a pas fonctionné. Veuillez réessayer.",
       "nothingToConfirm": "Il n'y a rien à confirmer ici. Relancez la connexion depuis votre assistant."
+    },
+    "insecureTransport": {
+      "title": "La connexion ne peut pas aboutir sur cette page",
+      "body": "Ce serveur ne pose son cookie de connexion qu'en https://, mais cette page a été ouverte en http://. Le navigateur rejetterait le cookie, la connexion est donc désactivée ici.",
+      "fixLan": "Serveur sur un réseau domestique sans TLS : mets SESSION_COOKIE_SECURE=false dans ses paramètres et redémarre-le.",
+      "fixHttps": "Serveur derrière un proxy HTTPS : ouvre plutôt l'adresse https:// et vérifie que le proxy transmet X-Forwarded-Proto: https.",
+      "localhostNote": "Cette page est sur http://localhost alors que le serveur ne pose son cookie de connexion qu'en https://. La plupart des navigateurs l'acceptent sur localhost ; si tu reviens ici après la connexion, mets SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {

@@ -484,6 +484,13 @@
       "action": "Confirmar",
       "failed": "No ha funcionado. Inténtalo de nuevo.",
       "nothingToConfirm": "Aquí no hay nada que confirmar. Vuelve a iniciar la conexión desde tu asistente."
+    },
+    "insecureTransport": {
+      "title": "No se puede completar el inicio de sesión en esta página",
+      "body": "Este servidor solo establece su cookie de sesión por https://, pero esta página se abrió por http://. El navegador descartaría la cookie, así que el inicio de sesión está desactivado aquí.",
+      "fixLan": "Servidor en una red doméstica sin TLS: pon SESSION_COOKIE_SECURE=false en su configuración y reinícialo.",
+      "fixHttps": "Servidor detrás de un proxy HTTPS: abre la dirección https:// y asegúrate de que el proxy reenvía X-Forwarded-Proto: https.",
+      "localhostNote": "Esta página está en http://localhost y el servidor solo establece su cookie de sesión para https://. La mayoría de los navegadores lo aceptan en localhost; si vuelves aquí tras iniciar sesión, pon SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {

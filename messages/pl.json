@@ -484,6 +484,13 @@
       "action": "Potwierdź",
       "failed": "Nie udało się. Spróbuj ponownie.",
       "nothingToConfirm": "Nie ma tu nic do potwierdzenia. Rozpocznij połączenie ponownie w swoim asystencie."
+    },
+    "insecureTransport": {
+      "title": "Na tej stronie nie da się dokończyć logowania",
+      "body": "Ten serwer ustawia ciasteczko logowania tylko przez https://, a ta strona została otwarta przez http://. Przeglądarka odrzuciłaby ciasteczko, więc logowanie jest tu wyłączone.",
+      "fixLan": "Serwer w sieci domowej bez TLS: ustaw SESSION_COOKIE_SECURE=false w jego ustawieniach i uruchom go ponownie.",
+      "fixHttps": "Serwer za proxy HTTPS: otwórz zamiast tego adres https:// i upewnij się, że proxy przekazuje X-Forwarded-Proto: https.",
+      "localhostNote": "Ta strona działa na http://localhost, a serwer ustawia ciasteczko logowania tylko dla https://. Większość przeglądarek akceptuje to na localhost; jeśli po zalogowaniu wracasz tutaj, ustaw SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {

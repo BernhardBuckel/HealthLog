@@ -484,6 +484,13 @@
       "action": "Conferma",
       "failed": "Non ha funzionato. Riprova.",
       "nothingToConfirm": "Qui non c'è nulla da confermare. Avvia di nuovo la connessione dal tuo assistente."
+    },
+    "insecureTransport": {
+      "title": "L'accesso non può essere completato su questa pagina",
+      "body": "Questo server imposta il cookie di accesso solo tramite https://, ma questa pagina è stata aperta tramite http://. Il browser scarterebbe il cookie, quindi l'accesso qui è disattivato.",
+      "fixLan": "Server in una rete domestica senza TLS: imposta SESSION_COOKIE_SECURE=false nelle sue impostazioni e riavvialo.",
+      "fixHttps": "Server dietro un proxy HTTPS: apri invece l'indirizzo https:// e assicurati che il proxy inoltri X-Forwarded-Proto: https.",
+      "localhostNote": "Questa pagina è su http://localhost mentre il server imposta il cookie di accesso solo per https://. La maggior parte dei browser lo accetta su localhost; se dopo l'accesso torni qui, imposta SESSION_COOKIE_SECURE=false."
     }
   },
   "dashboard": {
