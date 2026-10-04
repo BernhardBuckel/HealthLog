@@ -40,6 +40,11 @@ import {
   dayKeyForUserTz,
   canonicalDailyTimestamp,
 } from "@/lib/measurements/drain-per-sample-cumulative";
+import { isHealthLogOriginEntry } from "@/lib/apple-health/own-origin";
+import {
+  isSameReadingAcrossSource,
+  MEASURED_AT_TOLERANCE_MS,
+} from "@/lib/measurements/cross-source-merge";
 import { reconcileExternalMeasurement } from "@/lib/measurements/reconcile-external-measurement";
 import {
   insertNewMeasurementRows,
@@ -115,6 +120,13 @@ export interface ImportJobResult {
     durationMs: number;
   };
   clinical: { skipped: number };
+  /**
+   * Records left out because HealthLog wrote them into Apple Health itself and
+   * already holds them under their own source: `byMarker` carry the app's
+   * origin marker, `matchedManual` match a manual entry (same type and value,
+   * within 2 s) from before the marker existed.
+   */
+  writtenByHealthLog: { byMarker: number; matchedManual: number };
   /**
    * v1.15.0 — reproductive HealthKit samples routed into CYCLE day-logs
    * (NOT Measurement). Absent / zeroed when the account has no cycle
@@ -412,6 +424,11 @@ export async function streamParseExportXml(
     MeasurementType,
     Map<string, CumulativeSourceSubtotals>
   >();
+  // A record's contribution is committed at its close tag, once its child
+  // `<MetadataEntry>` rows are read: one of them can mark the sample as written
+  // by HealthLog itself, which has to keep it out of the import.
+  let pendingRecord: { commit: () => void; ownOrigin: boolean } | null = null;
+  const writtenByHealthLog = { byMarker: 0, matchedManual: 0 };
   // Spot-row batch awaiting flush.
   const spotBatch: PreparedMeasurement[] = [];
   // Workout-row batch awaiting flush.
@@ -468,9 +485,54 @@ export async function streamParseExportXml(
   };
 
   // ── Flush helpers ──────────────────────────────────────────
+  // A manual entry the app mirrored into Apple Health before it stamped its
+  // origin marker comes back in the export as a second copy of the reading.
+  // Leave it out when a MANUAL row of the same type and value sits within 2 s.
+  // Only MANUAL: Withings and import rows reach Apple Health through the app's
+  // mirror, which always sets the marker, so a value-and-time match against
+  // them would only add false positives. Same rule and tolerance as the sync
+  // path (`cross-source-merge.ts`).
+  const withoutManualMirrors = async (
+    rows: PreparedMeasurement[],
+  ): Promise<PreparedMeasurement[]> => {
+    if (rows.length === 0) return rows;
+    const candidates = await prisma.measurement.findMany({
+      where: {
+        userId,
+        source: "MANUAL",
+        deletedAt: null,
+        OR: rows.map((row) => ({
+          type: row.type,
+          measuredAt: {
+            gte: new Date(row.measuredAt.getTime() - MEASURED_AT_TOLERANCE_MS),
+            lte: new Date(row.measuredAt.getTime() + MEASURED_AT_TOLERANCE_MS),
+          },
+        })),
+      },
+      select: { type: true, source: true, value: true, measuredAt: true },
+    });
+    if (candidates.length === 0) return rows;
+    return rows.filter((row) => {
+      const mirrored = candidates.some((candidate) =>
+        isSameReadingAcrossSource(
+          {
+            type: row.type,
+            source: "APPLE_HEALTH",
+            value: row.value,
+            measuredAt: row.measuredAt,
+          },
+          candidate,
+        ),
+      );
+      if (mirrored) writtenByHealthLog.matchedManual += 1;
+      return !mirrored;
+    });
+  };
+
   const flushSpotBatch = async (): Promise<void> => {
     if (spotBatch.length === 0) return;
-    const chunk = spotBatch.splice(0, spotBatch.length);
+    const incoming = spotBatch.splice(0, spotBatch.length);
+    const chunk = await withoutManualMirrors(incoming);
     for (const row of chunk) widenSpan(row.measuredAt);
     const insertedArrivals: Array<{
       id: string;
@@ -907,46 +969,51 @@ export async function streamParseExportXml(
       const stat = bumpStat(mapped.type);
       stat.read += 1;
 
-      if (CUMULATIVE_HK_TYPES.has(mapped.type)) {
-        const dayKey = dayKeyForUserTz(mapped.takenAt, userTimezone);
-        const sourceHash = hashCumulativeSourceIdentity(
-          attrs.sourceName,
-          attrs.device,
-        );
-        let byDay = cumulativeBucket.get(mapped.type);
-        if (!byDay) {
-          byDay = new Map();
-          cumulativeBucket.set(mapped.type, byDay);
-        }
-        let bySource = byDay.get(dayKey);
-        if (!bySource) {
-          bySource = new Map();
-          byDay.set(dayKey, bySource);
-        }
-        bySource.set(
-          sourceHash,
-          (bySource.get(sourceHash) ?? 0) + mapped.value,
-        );
-      } else {
-        // Spot row: derive a stable externalId, queue for flush.
-        const externalId = hashSampleKey(
-          hkType,
-          attrs.value ?? "",
-          attrs.startDate,
-          attrs.endDate,
-        );
-        spotBatch.push({
-          userId,
-          type: mapped.type,
-          value: mapped.value,
-          unit: mapped.unit,
-          measuredAt: mapped.takenAt,
-          externalId,
-          externalSourceVersion: attrs.sourceVersion ?? null,
-          sleepStage: mapped.sleepStage ?? null,
-          deviceType: null,
-        });
-      }
+      pendingRecord = {
+        ownOrigin: false,
+        commit: () => {
+          if (CUMULATIVE_HK_TYPES.has(mapped.type)) {
+            const dayKey = dayKeyForUserTz(mapped.takenAt, userTimezone);
+            const sourceHash = hashCumulativeSourceIdentity(
+              attrs.sourceName,
+              attrs.device,
+            );
+            let byDay = cumulativeBucket.get(mapped.type);
+            if (!byDay) {
+              byDay = new Map();
+              cumulativeBucket.set(mapped.type, byDay);
+            }
+            let bySource = byDay.get(dayKey);
+            if (!bySource) {
+              bySource = new Map();
+              byDay.set(dayKey, bySource);
+            }
+            bySource.set(
+              sourceHash,
+              (bySource.get(sourceHash) ?? 0) + mapped.value,
+            );
+          } else {
+            // Spot row: derive a stable externalId, queue for flush.
+            const externalId = hashSampleKey(
+              hkType,
+              attrs.value ?? "",
+              attrs.startDate,
+              attrs.endDate,
+            );
+            spotBatch.push({
+              userId,
+              type: mapped.type,
+              value: mapped.value,
+              unit: mapped.unit,
+              measuredAt: mapped.takenAt,
+              externalId,
+              externalSourceVersion: attrs.sourceVersion ?? null,
+              sleepStage: mapped.sleepStage ?? null,
+              deviceType: null,
+            });
+          }
+        },
+      };
       return;
     }
 
@@ -1025,6 +1092,9 @@ export async function streamParseExportXml(
     }
 
     if (name === "MetadataEntry") {
+      if (pendingRecord && isHealthLogOriginEntry(attrs.key, attrs.value)) {
+        pendingRecord.ownOrigin = true;
+      }
       // Attach the SexualActivity protection flag to the open cycle record.
       // Apple writes `HKMetadataKeySexualActivityProtectionUsed` with a
       // `"0"`/`"1"` (or `"true"`/`"false"`) value.
@@ -1070,6 +1140,12 @@ export async function streamParseExportXml(
   };
 
   parser.onclosetag = async (tagName) => {
+    if (tagName === "Record" && pendingRecord) {
+      const rec = pendingRecord;
+      pendingRecord = null;
+      if (rec.ownOrigin) writtenByHealthLog.byMarker += 1;
+      else rec.commit();
+    }
     if (tagName === "Workout" && currentWorkout) {
       workoutBatch.push(currentWorkout);
       currentWorkout = null;
@@ -1212,6 +1288,7 @@ export async function streamParseExportXml(
     perType,
     workouts,
     clinical,
+    writtenByHealthLog,
     cycle,
     deferred,
     unknown,
