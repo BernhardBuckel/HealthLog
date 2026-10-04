@@ -329,29 +329,39 @@ export const GET = apiHandler(async (request: NextRequest) => {
     // enforced — a seed-era systolic-0, iOS #33 — must never surface as the
     // latest reading. Floors mirror VALUE_RANGES (the input validator's min);
     // this is a read-side selection guard, not a tightening of the write floor.
+    // Each of the two types reads the ladder-winning source per day (see
+    // `seriesRowsFrom`), like the other kinds, so a second provider is not
+    // blended into the pairs and a reading present in both appears once.
+    const bpPriority = await loadUserSourcePriority(user.id);
+    const readBp = (
+      type: "BLOOD_PRESSURE_SYS" | "BLOOD_PRESSURE_DIA",
+      floor: number,
+    ) =>
+      prisma
+        .$queryRawUnsafe<
+          Array<{ id: string; value: number; measured_at: Date }>
+        >(
+          `
+      SELECT m."id", m."value", m."measured_at"
+      FROM ${seriesRowsFrom(bpPriority, type, days)}
+      WHERE m."measured_at" >= $2
+        AND m."value" >= $3
+      ORDER BY m."measured_at" ASC, m."id" ASC
+    `,
+          user.id,
+          since,
+          floor,
+        )
+        .then((rows) =>
+          rows.map((r) => ({
+            id: r.id,
+            value: r.value,
+            measuredAt: r.measured_at,
+          })),
+        );
     const [sys, dia] = await Promise.all([
-      prisma.measurement.findMany({
-        where: {
-          userId: user.id,
-          type: "BLOOD_PRESSURE_SYS",
-          measuredAt: { gte: since },
-          deletedAt: null,
-          value: { gte: VALUE_RANGES.BLOOD_PRESSURE_SYS.min },
-        },
-        orderBy: { measuredAt: "asc" },
-        select: { id: true, value: true, measuredAt: true },
-      }),
-      prisma.measurement.findMany({
-        where: {
-          userId: user.id,
-          type: "BLOOD_PRESSURE_DIA",
-          measuredAt: { gte: since },
-          deletedAt: null,
-          value: { gte: VALUE_RANGES.BLOOD_PRESSURE_DIA.min },
-        },
-        orderBy: { measuredAt: "asc" },
-        select: { id: true, value: true, measuredAt: true },
-      }),
+      readBp("BLOOD_PRESSURE_SYS", VALUE_RANGES.BLOOD_PRESSURE_SYS.min),
+      readBp("BLOOD_PRESSURE_DIA", VALUE_RANGES.BLOOD_PRESSURE_DIA.min),
     ]);
 
     // Pair by closest timestamp within ±5 minutes. Both reads arrive
