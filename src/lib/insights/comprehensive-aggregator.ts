@@ -113,6 +113,7 @@ import {
   loadUserSourcePriority,
   type AccumulatorBucketRow,
 } from "@/lib/rollups/measurement-read";
+import { windowWeighting } from "@/lib/measurements/day-statistic";
 import { startOfUtcDay } from "@/lib/tz/start-of-utc-day";
 import {
   buildSourceRankCase,
@@ -544,7 +545,7 @@ async function buildFromRollups(
   // windowed columns (avg + anomaly) alongside; slope / r² / sd compose
   // from the per-bucket regression accumulators (v1.20.0 F6).
   for (const [type, buckets] of bucketsByType.entries()) {
-    const composed = aggregateBuckets(buckets);
+    const composed = aggregateBuckets(buckets, windowWeighting(type));
     if (composed.count === 0) continue;
     totalMeasurements += composed.count;
     const latest = latestByType.get(type);

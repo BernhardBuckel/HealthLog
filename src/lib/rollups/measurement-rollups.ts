@@ -43,6 +43,7 @@ import {
   utcBucketEnd,
   utcBucketStart,
 } from "@/lib/rollups/measurement-read";
+import { HOURLY_MEAN_DAY_TYPES } from "@/lib/measurements/day-statistic";
 import { startOfUtcDay } from "@/lib/tz/start-of-utc-day";
 import type {
   MeasurementType,
@@ -526,11 +527,15 @@ async function runRollupAggregate(
         AND m."deleted_at" IS NULL
       GROUP BY m."type", m."source", ${dateTrunc}
     `;
-    return db.$queryRawUnsafe<RollupRow[]>(
-      sql,
-      input.userId,
-      input.from,
-      input.to,
+    return applyHourlyMeanDay(
+      db,
+      input,
+      await db.$queryRawUnsafe<RollupRow[]>(
+        sql,
+        input.userId,
+        input.from,
+        input.to,
+      ),
     );
   }
 
@@ -569,12 +574,89 @@ async function runRollupAggregate(
       AND m."deleted_at" IS NULL
     GROUP BY m."type", m."source", ${dateTrunc}
   `;
-  return db.$queryRawUnsafe<RollupRow[]>(
-    sql,
+  return applyHourlyMeanDay(
+    db,
+    input,
+    await db.$queryRawUnsafe<RollupRow[]>(
+      sql,
+      input.userId,
+      input.from,
+      input.to,
+    ),
+  );
+}
+
+/**
+ * For a type whose DAY value is the mean of its per-hour means (see
+ * `day-statistic.ts`), replace the DAY bucket's `mean`. Only `mean` changes:
+ * `count`, `min`, `max` and the sums the regression composes from stay over
+ * every reading, so the band and the windowed slope are untouched.
+ *
+ * Hours are UTC hours, matching the UTC day this tier buckets by.
+ */
+async function applyHourlyMeanDay(
+  db: Pick<typeof prisma, "$queryRawUnsafe">,
+  input: {
+    userId: string;
+    granularity: RollupGranularity;
+    from: Date;
+    to: Date;
+  },
+  rows: RollupRow[],
+): Promise<RollupRow[]> {
+  if (input.granularity !== "DAY") return rows;
+  const types = [
+    ...new Set(
+      rows
+        .map((r) => r.type)
+        .filter((t) => HOURLY_MEAN_DAY_TYPES.has(t as MeasurementType)),
+    ),
+  ];
+  if (types.length === 0) return rows;
+  for (const t of types) {
+    if (!/^[A-Z0-9_]+$/.test(t)) {
+      throw new Error(`invalid measurement type: ${t}`);
+    }
+  }
+  const typeList = types.map((t) => `'${t}'::"measurement_type"`).join(",");
+  const means = await db.$queryRawUnsafe<
+    Array<{ type: string; source: string; bucket_start: Date; mean: number }>
+  >(
+    `
+    SELECT h."type"::text AS type,
+           h."source"::text AS source,
+           date_trunc('day', h.hr) AS bucket_start,
+           AVG(h.hour_mean)::double precision AS mean
+    FROM (
+      SELECT m."type", m."source",
+             date_trunc('hour', m."measured_at") AS hr,
+             AVG(m."value") AS hour_mean
+      FROM measurements m
+      WHERE m."user_id" = $1
+        AND m."type" IN (${typeList})
+        AND m."measured_at" >= $2
+        AND m."measured_at" <  $3
+        AND m."deleted_at" IS NULL
+      GROUP BY m."type", m."source", date_trunc('hour', m."measured_at")
+    ) h
+    GROUP BY 1, 2, 3
+  `,
     input.userId,
     input.from,
     input.to,
   );
+  const byKey = new Map(
+    means.map((m) => [
+      `${m.type}|${m.source}|${new Date(m.bucket_start).getTime()}`,
+      m.mean,
+    ]),
+  );
+  return rows.map((r) => {
+    const mean = byKey.get(
+      `${r.type}|${r.source}|${new Date(r.bucket_start).getTime()}`,
+    );
+    return mean === undefined ? r : { ...r, mean };
+  });
 }
 
 /**

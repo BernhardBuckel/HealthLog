@@ -26,6 +26,7 @@ import type { MeasurementType, SleepStage } from "@/generated/prisma/client";
 import { reconstructSleepNights } from "@/lib/analytics/sleep-night";
 import { VALUE_RANGES } from "@/lib/validations/measurement";
 import { loadUserSourcePriority } from "@/lib/rollups/measurement-read";
+import { usesHourlyMeanDay } from "@/lib/measurements/day-statistic";
 import { seriesRowsFrom } from "@/lib/measurements/series-canonical";
 import { resolveUserTimezone, userDayKey } from "@/lib/tz/resolver";
 import { convertGlucose, resolveGlucoseUnit } from "@/lib/glucose";
@@ -410,6 +411,11 @@ export const GET = apiHandler(async (request: NextRequest) => {
     ]);
     const type = KIND_TO_TYPE[kind];
     const seriesRows = seriesRowsFrom(priorityJson, type, days);
+    // A day of a type with an activity-dependent sampling rate (pulse) is the
+    // mean of its local hours' means, each hour once, so a workout hour with
+    // hundreds of times the readings does not outweigh the rest of the day (see
+    // `day-statistic.ts`). The hour grain is already one mean per hour.
+    const hourWeighted = grain === "day" && usesHourlyMeanDay(type);
     const bucketRows = await prisma.$queryRawUnsafe<
       Array<{
         bucket_start: Date;
@@ -418,7 +424,39 @@ export const GET = apiHandler(async (request: NextRequest) => {
         max_value: number;
       }>
     >(
-      `
+      hourWeighted
+        ? `
+      WITH localized AS (
+        SELECT
+          m."value",
+          m."value_min",
+          m."value_max",
+          date_trunc(
+            'hour',
+            (m."measured_at" AT TIME ZONE 'UTC') AT TIME ZONE $3
+          ) AS local_hour
+        FROM ${seriesRows}
+        WHERE m."measured_at" >= $4
+      ),
+      hourly AS (
+        SELECT
+          date_trunc($2, local_hour)                              AS local_day,
+          AVG("value")                                            AS hour_mean,
+          MIN(COALESCE("value_min", "value"))                     AS min_value,
+          MAX(COALESCE("value_max", "value"))                     AS max_value
+        FROM localized
+        GROUP BY local_hour
+      )
+      SELECT
+        local_day AT TIME ZONE $3                                AS bucket_start,
+        AVG(hour_mean)::double precision                         AS mean,
+        MIN(min_value)::double precision                         AS min_value,
+        MAX(max_value)::double precision                         AS max_value
+      FROM hourly
+      GROUP BY local_day
+      ORDER BY bucket_start ASC
+    `
+        : `
       WITH localized AS (
         SELECT
           m."value",

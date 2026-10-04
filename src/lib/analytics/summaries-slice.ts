@@ -60,6 +60,7 @@ import type { MeasurementType } from "@/generated/prisma/client";
 import { Prisma } from "@/generated/prisma/client";
 
 import { prisma } from "@/lib/db";
+import { windowWeighting } from "@/lib/measurements/day-statistic";
 import type { DataSummary } from "@/lib/analytics/trends";
 import { measurementTypeEnum } from "@/lib/validations/measurement";
 import { annotate } from "@/lib/logging/context";
@@ -1109,6 +1110,7 @@ async function computeAvg30LastYearForType(
       minValue: r.minValue,
       maxValue: r.maxValue,
     })),
+    windowWeighting(type),
   );
   return composed.count > 0 ? composed.mean : null;
 }
