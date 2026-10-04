@@ -116,6 +116,109 @@ describe("a record HealthLog wrote itself (the origin marker)", () => {
   });
 });
 
+const bpRecord = (
+  type: "Systolic" | "Diastolic",
+  value: number,
+  at: string,
+  children = "",
+) =>
+  `    <Record type="HKQuantityTypeIdentifierBloodPressure${type}" sourceName="Health" unit="mmHg" startDate="${at}" endDate="${at}" value="${value}">${children}</Record>`;
+const correlation = (inner: string, children = "") =>
+  `  <Correlation type="HKCorrelationTypeIdentifierBloodPressure" sourceName="Health" startDate="2026-05-14 08:00:00 +0200" endDate="2026-05-14 08:00:00 +0200">${children}\n${inner}\n  </Correlation>`;
+
+describe("blood pressure correlations and self-closing records", () => {
+  const AT = "2026-05-14 08:00:00 +0200";
+  async function runBp(records: string) {
+    const user = await prisma.user.create({
+      data: { username: "own-bp", email: "bp@example.test", role: "USER" },
+    });
+    const result = await streamParseExportXml({
+      xmlPath: writeXml(records),
+      userId: user.id,
+      userTimezone: "Europe/Berlin",
+      prisma,
+    });
+    const rows = await prisma.measurement.findMany({
+      where: {
+        userId: user.id,
+        type: { in: ["BLOOD_PRESSURE_SYS", "BLOOD_PRESSURE_DIA"] },
+      },
+      orderBy: [{ type: "asc" }],
+    });
+    return { result, values: rows.map((r) => r.value) };
+  }
+
+  it("imports an unmarked correlation's two records", async () => {
+    const { values, result } = await runBp(
+      correlation(
+        [bpRecord("Systolic", 121, AT), bpRecord("Diastolic", 79, AT)].join(
+          "\n",
+        ),
+      ),
+    );
+    expect(values).toEqual([121, 79]);
+    expect(result.writtenByHealthLog.byMarker).toBe(0);
+  });
+
+  it("leaves out both records when the marker is on the correlation, before them", async () => {
+    const { values, result } = await runBp(
+      correlation(
+        [bpRecord("Systolic", 121, AT), bpRecord("Diastolic", 79, AT)].join(
+          "\n",
+        ),
+        `\n    ${OWN}`,
+      ),
+    );
+    expect(values).toEqual([]);
+    expect(result.writtenByHealthLog.byMarker).toBe(2);
+  });
+
+  it("leaves out both records when the marker is on the correlation, after them", async () => {
+    const records = [
+      bpRecord("Systolic", 121, AT),
+      bpRecord("Diastolic", 79, AT),
+    ].join("\n");
+    const { values } = await runBp(
+      `  <Correlation type="HKCorrelationTypeIdentifierBloodPressure" sourceName="Health" startDate="${AT}" endDate="${AT}">\n${records}\n    ${OWN}\n  </Correlation>`,
+    );
+    expect(values).toEqual([]);
+  });
+
+  it("leaves out only the record that carries the marker", async () => {
+    const { values } = await runBp(
+      correlation(
+        [
+          bpRecord("Systolic", 121, AT, `\n      ${OWN}\n    `),
+          bpRecord("Diastolic", 79, AT),
+        ].join("\n"),
+      ),
+    );
+    expect(values).toEqual([79]);
+  });
+
+  it("does not let a correlation's marker spill onto the next record", async () => {
+    const { values } = await runBp(
+      [
+        correlation(
+          [bpRecord("Systolic", 121, AT), bpRecord("Diastolic", 79, AT)].join(
+            "\n",
+          ),
+          `\n    ${OWN}`,
+        ),
+        bpRecord("Systolic", 130, "2026-05-14 09:00:00 +0200"),
+      ].join("\n"),
+    );
+    expect(values).toEqual([130]);
+  });
+
+  it("imports a self-closing record, with no children to wait for", async () => {
+    const { rows } = await run(
+      `  <Record type="HKQuantityTypeIdentifierBodyMass" sourceName="Health" unit="kg" startDate="${AT}" endDate="${AT}" value="80.9"/>`,
+    );
+    expect(rows.map((r) => r.value)).toEqual([80.9]);
+  });
+});
+
 describe("the synthetic export fixture", () => {
   // `export-own-origin.synthetic.xml` is invented, in the shape Apple's DTD
   // documents. It shows the parser reads a file laid out like an export; it

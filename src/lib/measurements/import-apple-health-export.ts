@@ -429,6 +429,13 @@ export async function streamParseExportXml(
   // by HealthLog itself, which has to keep it out of the import.
   let pendingRecord: { commit: () => void; ownOrigin: boolean } | null = null;
   const writtenByHealthLog = { byMarker: 0, matchedManual: 0 };
+  // A `<Correlation>` (a blood pressure reading) wraps its records, and the
+  // marker may sit on the correlation itself, before or after them. Its records
+  // are held until it closes, then all kept or all left out together.
+  let currentCorrelation: {
+    ownOrigin: boolean;
+    held: Array<{ commit: () => void; ownOrigin: boolean }>;
+  } | null = null;
   // Spot-row batch awaiting flush.
   const spotBatch: PreparedMeasurement[] = [];
   // Workout-row batch awaiting flush.
@@ -1091,9 +1098,16 @@ export async function streamParseExportXml(
       return;
     }
 
+    if (name === "Correlation") {
+      currentCorrelation = { ownOrigin: false, held: [] };
+      return;
+    }
+
     if (name === "MetadataEntry") {
-      if (pendingRecord && isHealthLogOriginEntry(attrs.key, attrs.value)) {
-        pendingRecord.ownOrigin = true;
+      if (isHealthLogOriginEntry(attrs.key, attrs.value)) {
+        // On a record, or on the correlation that wraps it.
+        if (pendingRecord) pendingRecord.ownOrigin = true;
+        else if (currentCorrelation) currentCorrelation.ownOrigin = true;
       }
       // Attach the SexualActivity protection flag to the open cycle record.
       // Apple writes `HKMetadataKeySexualActivityProtectionUsed` with a
@@ -1121,16 +1135,15 @@ export async function streamParseExportXml(
 
     if (
       name === "Me" ||
-      name === "Correlation" ||
       name === "ActivitySummary" ||
       name === "WorkoutEvent" ||
       name === "WorkoutRoute" ||
       name === "FileReference" ||
       name === "HealthData"
     ) {
-      // Known elements we intentionally ignore at the open-tag stage.
-      // Correlation envelopes flatten naturally because their child
-      // `<Record>` elements still fire their own `onopentag`.
+      // Known elements we intentionally ignore at the open-tag stage. A
+      // `<Correlation>` is handled above: its child `<Record>` elements fire
+      // their own `onopentag`, and are held until it closes.
       return;
     }
 
@@ -1143,8 +1156,20 @@ export async function streamParseExportXml(
     if (tagName === "Record" && pendingRecord) {
       const rec = pendingRecord;
       pendingRecord = null;
-      if (rec.ownOrigin) writtenByHealthLog.byMarker += 1;
+      if (currentCorrelation) currentCorrelation.held.push(rec);
+      else if (rec.ownOrigin) writtenByHealthLog.byMarker += 1;
       else rec.commit();
+    }
+    if (tagName === "Correlation" && currentCorrelation) {
+      const correlation = currentCorrelation;
+      currentCorrelation = null;
+      for (const rec of correlation.held) {
+        if (correlation.ownOrigin || rec.ownOrigin) {
+          writtenByHealthLog.byMarker += 1;
+        } else {
+          rec.commit();
+        }
+      }
     }
     if (tagName === "Workout" && currentWorkout) {
       workoutBatch.push(currentWorkout);
