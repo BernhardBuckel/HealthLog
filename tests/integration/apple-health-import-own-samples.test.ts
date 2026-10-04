@@ -116,6 +116,35 @@ describe("a record HealthLog wrote itself (the origin marker)", () => {
   });
 });
 
+describe("the synthetic export fixture", () => {
+  // `export-own-origin.synthetic.xml` is invented, in the shape Apple's DTD
+  // documents. It shows the parser reads a file laid out like an export; it
+  // cannot show that Apple writes a custom metadata key verbatim.
+  it("leaves out the two marked records and imports the other three", async () => {
+    const user = await prisma.user.create({
+      data: { username: "own-fixture", email: "fx@example.test", role: "USER" },
+    });
+    const result = await streamParseExportXml({
+      xmlPath: join(
+        process.cwd(),
+        "tests/fixtures/apple-health/export-own-origin.synthetic.xml",
+      ),
+      userId: user.id,
+      userTimezone: "Europe/Berlin",
+      prisma,
+    });
+    const rows = await prisma.measurement.findMany({
+      where: { userId: user.id, type: "WEIGHT", source: "APPLE_HEALTH" },
+      orderBy: { measuredAt: "asc" },
+    });
+    expect(rows.map((r) => r.value)).toEqual([80.2, 80.4, 80.5]);
+    expect(result.writtenByHealthLog).toEqual({
+      byMarker: 2,
+      matchedManual: 0,
+    });
+  });
+});
+
 describe("a manual entry mirrored before the marker existed", () => {
   async function runAgainst(
     manual: { value: number; at: string; source?: "MANUAL" | "WITHINGS" },
