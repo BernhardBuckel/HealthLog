@@ -30,6 +30,7 @@ import {
 } from "@/lib/google-health/sync";
 import { GOOGLE_HEALTH_SYNC_LOCK_WAIT_MS } from "@/lib/google-health/sync-lock";
 import { runWithGoogleHealthStop } from "@/lib/google-health/client";
+import { GOOGLE_HEALTH_COLLECTION_KEYS } from "@/lib/google-health/collection-keys";
 
 export const GOOGLE_HEALTH_BACKFILL_QUEUE = "google-health-backfill";
 
@@ -39,6 +40,17 @@ export const GOOGLE_HEALTH_BACKFILL_QUEUE = "google-health-backfill";
  * the request pool, matching `FITBIT_BACKFILL_CONCURRENCY`.
  */
 export const GOOGLE_HEALTH_BACKFILL_CONCURRENCY = 1;
+
+/**
+ * The highest slice a backfill chain may reach. Every continued slice has
+ * finished at least one more collection than the one before it, so a healthy
+ * chain is at most one slice per collection long; the two extra slices are
+ * slack for the first one and the one that stamps the marker. A slice past
+ * this is a chain that counts progress it does not make, and it fails rather
+ * than queueing another.
+ */
+export const GOOGLE_HEALTH_BACKFILL_MAX_SLICE =
+  GOOGLE_HEALTH_COLLECTION_KEYS.length + 2;
 
 export interface GoogleHealthBackfillPayload {
   userId: string;
@@ -78,7 +90,10 @@ export interface GoogleHealthBackfillPayload {
  * `continued`, without the error line or the queue's failure count. Only an
  * attempt that finished nothing new throws, because that one is stuck: the
  * pg-boss retry and, after it, the next boot take it from there. Progress is
- * bounded by the number of collections, so the chain of slices is too.
+ * counted only once it is persisted (`runGoogleHealthCollection` adds a
+ * collection to `done` after its note is written), and the chain is capped at
+ * `GOOGLE_HEALTH_BACKFILL_MAX_SLICE`: a slice past it throws instead of
+ * running or sending another.
  *
  * Never beside another run of the same account: the sync takes the account's
  * lock, waiting a bounded time for an hourly or manual run to finish. If the
@@ -90,6 +105,17 @@ export async function runGoogleHealthBackfillForUser(
   shouldStop: () => boolean = () => false,
   slice: number = 0,
 ): Promise<{ imported: number; continued?: boolean }> {
+  if (slice > GOOGLE_HEALTH_BACKFILL_MAX_SLICE) {
+    annotate({
+      action: {
+        name: "google_health.backfill.slice_ceiling",
+        details: { slice, maxSlice: GOOGLE_HEALTH_BACKFILL_MAX_SLICE },
+      },
+    });
+    throw new Error(
+      `google-health backfill for user ${userId} reached slice ${slice}, past the ceiling of ${GOOGLE_HEALTH_BACKFILL_MAX_SLICE}`,
+    );
+  }
   if (await isGoogleHealthParked(userId)) {
     annotate({
       action: {
@@ -143,7 +169,7 @@ export async function runGoogleHealthBackfillForUser(
     // `done` is the resume set this attempt added to as it finished
     // collections; a larger set than it started with is progress.
     const finished = done.size - doneBefore;
-    if (finished > 0) {
+    if (finished > 0 && slice + 1 <= GOOGLE_HEALTH_BACKFILL_MAX_SLICE) {
       const boss = getGlobalBoss();
       const sent = boss
         ? await enqueueIntegrationBackfillAdmission(
