@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  OURA_OAUTH_LEGACY_TOKEN_URL,
   OURA_OAUTH_SCOPE,
+  OURA_OAUTH_TOKEN_URL,
   RESILIENCE_LEVELS,
   derivePeriodDaysFromCyclePhases,
   exchangeCode,
@@ -12,6 +14,7 @@ import {
   fetchVo2Max,
   getAuthorizationUrl,
   getOuraCredentials,
+  isAcceptedOuraIssuer,
   mapCardiovascularAge,
   mapDailyActivity,
   mapDailySleep,
@@ -129,6 +132,133 @@ describe("exchangeCode / refreshAccessToken", () => {
     await expect(refreshAccessToken("r1", CREDS)).rejects.toBeInstanceOf(
       OuraApiError,
     );
+  });
+});
+
+/**
+ * Oura moved its authorization server: apps from the current developer
+ * portal get codes from moi.ouraring.com, which the documented
+ * api.ouraring.com token endpoint refuses with 400 invalid_request. A code
+ * works once, so the live endpoint is always asked first.
+ */
+describe("token endpoint order", () => {
+  const MOI_ISS = "https://moi.ouraring.com/oauth/v2/ext/oauth-anonymous";
+  const OK = {
+    status: 200,
+    body: { access_token: "a", refresh_token: "r", expires_in: 86400 },
+  };
+  const urls = (mock: ReturnType<typeof installFetchMock>) =>
+    mock.mock.calls.map(([url]) => url);
+
+  it("exchanges a code at the live endpoint, sending the secret in the body", async () => {
+    const fetchMock = installFetchMock([OK]);
+    await exchangeCode("code", CREDS, MOI_ISS);
+    expect(OURA_OAUTH_TOKEN_URL).toBe(
+      "https://moi.ouraring.com/oauth/v2/ext/oauth-token",
+    );
+    expect(urls(fetchMock)).toEqual([OURA_OAUTH_TOKEN_URL]);
+    const body = String(fetchMock.mock.calls[0]![1]!.body);
+    expect(body).toContain("grant_type=authorization_code");
+    expect(body).toContain("client_id=cid");
+    expect(body).toContain("client_secret=csecret");
+  });
+
+  it("never hands a code from the current server to the legacy endpoint", async () => {
+    const fetchMock = installFetchMock([
+      { status: 400, body: { error: "invalid_request" } },
+      OK,
+    ]);
+    await expect(exchangeCode("code", CREDS, MOI_ISS)).rejects.toMatchObject({
+      upstreamError: "invalid_request",
+    });
+    expect(urls(fetchMock)).toEqual([OURA_OAUTH_TOKEN_URL]);
+    expect(urls(fetchMock)).not.toContain(OURA_OAUTH_LEGACY_TOKEN_URL);
+  });
+
+  it("asks the legacy endpoint only after the live one refused an older app's code", async () => {
+    const fetchMock = installFetchMock([
+      { status: 401, body: { error: "invalid_client" } },
+      OK,
+    ]);
+    const t = await exchangeCode("code", CREDS);
+    expect(t.access_token).toBe("a");
+    expect(urls(fetchMock)).toEqual([
+      OURA_OAUTH_TOKEN_URL,
+      OURA_OAUTH_LEGACY_TOKEN_URL,
+    ]);
+  });
+
+  it("does not try the legacy endpoint once the live one accepted the code", async () => {
+    const fetchMock = installFetchMock([OK]);
+    await exchangeCode("code", CREDS);
+    expect(urls(fetchMock)).toEqual([OURA_OAUTH_TOKEN_URL]);
+  });
+
+  it("refreshes at the live endpoint first", async () => {
+    const fetchMock = installFetchMock([OK]);
+    await refreshAccessToken("r1", CREDS);
+    expect(urls(fetchMock)).toEqual([OURA_OAUTH_TOKEN_URL]);
+  });
+
+  it.each([
+    [400, { error: "invalid_request" }],
+    [404, null],
+  ])(
+    "falls back to the legacy endpoint on a %i from the live one",
+    async (status, body) => {
+      const fetchMock = installFetchMock([{ status, body }, OK]);
+      const t = await refreshAccessToken("r1", CREDS);
+      expect(t.refresh_token).toBe("r");
+      expect(urls(fetchMock)).toEqual([
+        OURA_OAUTH_TOKEN_URL,
+        OURA_OAUTH_LEGACY_TOKEN_URL,
+      ]);
+    },
+  );
+
+  it("reports the live endpoint's refusal when both refuse", async () => {
+    installFetchMock([
+      { status: 400, body: { error: "invalid_grant" } },
+      { status: 400, body: { error: "invalid_request" } },
+    ]);
+    await expect(refreshAccessToken("dead", CREDS)).rejects.toMatchObject({
+      upstreamError: "invalid_grant",
+    });
+  });
+
+  it("does not fall back on a server error or a rate limit", async () => {
+    for (const status of [429, 503]) {
+      const fetchMock = installFetchMock([{ status }, OK]);
+      await expect(refreshAccessToken("r1", CREDS)).rejects.toBeInstanceOf(
+        OuraApiError,
+      );
+      expect(urls(fetchMock)).toEqual([OURA_OAUTH_TOKEN_URL]);
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("isAcceptedOuraIssuer", () => {
+  it("accepts no issuer and Oura's own servers", () => {
+    expect(isAcceptedOuraIssuer(null)).toBe(true);
+    expect(
+      isAcceptedOuraIssuer(
+        "https://moi.ouraring.com/oauth/v2/ext/oauth-anonymous",
+      ),
+    ).toBe(true);
+    expect(isAcceptedOuraIssuer("https://cloud.ouraring.com")).toBe(true);
+  });
+
+  it("refuses anything else", () => {
+    for (const iss of [
+      "https://evil.example/oauth",
+      "http://moi.ouraring.com/oauth",
+      "https://moi.ouraring.com.evil.example/",
+      "not a url",
+      "",
+    ]) {
+      expect(isAcceptedOuraIssuer(iss), iss).toBe(false);
+    }
   });
 });
 

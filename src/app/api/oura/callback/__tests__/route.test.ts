@@ -41,7 +41,12 @@ const {
 
 vi.mock("@/lib/jobs/boss-instance", () => ({ getGlobalBoss: bossMock }));
 
-vi.mock("@/lib/oura/client", () => ({ exchangeCode: exchangeMock }));
+vi.mock("@/lib/oura/client", async (importOriginal) => ({
+  isAcceptedOuraIssuer: (
+    await importOriginal<typeof import("@/lib/oura/client")>()
+  ).isAcceptedOuraIssuer,
+  exchangeCode: exchangeMock,
+}));
 vi.mock("@/lib/oura/credentials", () => ({
   getOuraClientCredentials: getCredsMock,
 }));
@@ -65,10 +70,12 @@ function makeReq(opts: {
   code?: string;
   state?: string;
   cookie?: string;
+  iss?: string;
 }): NextRequest {
   const params = new URLSearchParams();
   if (opts.code) params.set("code", opts.code);
   if (opts.state) params.set("state", opts.state);
+  if (opts.iss) params.set("iss", opts.iss);
   return {
     url: `https://app.example/api/oura/callback?${params}`,
     cookies: {
@@ -127,15 +134,44 @@ describe("GET /api/oura/callback", () => {
     const res = await GET(
       makeReq({ code: "auth-code", state: "S", cookie: "S" }),
     );
-    expect(exchangeMock).toHaveBeenCalledWith("auth-code", {
-      clientId: "c",
-      clientSecret: "s",
-    });
+    expect(exchangeMock).toHaveBeenCalledWith(
+      "auth-code",
+      { clientId: "c", clientSecret: "s" },
+      null,
+    );
     const data = userUpdate.mock.calls[0]![0].data;
     expect(data.ouraAccessTokenEncrypted).toBe("enc:at");
     expect(data.ouraRefreshTokenEncrypted).toBe("enc:rt");
     expect(auditLog).toHaveBeenCalledWith("oura.connect", { userId: "u1" });
     expect(res.headers.get("location")).toContain("oura=connected");
+  });
+});
+
+// Oura's current authorization server names itself on the callback
+// (RFC 9207); the issuer travels on to pick the token endpoint.
+describe("GET /api/oura/callback — issuer", () => {
+  it("passes Oura's issuer on to the code exchange", async () => {
+    const iss = "https://moi.ouraring.com/oauth/v2/ext/oauth-anonymous";
+    const res = await GET(makeReq({ code: "c", state: "S", cookie: "S", iss }));
+    expect(exchangeMock).toHaveBeenCalledWith(
+      "c",
+      { clientId: "c", clientSecret: "s" },
+      iss,
+    );
+    expect(res.headers.get("location")).toContain("oura=connected");
+  });
+
+  it("refuses a callback that names a foreign authorization server", async () => {
+    const res = await GET(
+      makeReq({
+        code: "c",
+        state: "S",
+        cookie: "S",
+        iss: "https://evil.example/oauth",
+      }),
+    );
+    expect(res.headers.get("location")).toContain("reason=issuer");
+    expect(exchangeMock).not.toHaveBeenCalled();
   });
 });
 
