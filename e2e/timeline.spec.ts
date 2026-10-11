@@ -79,6 +79,35 @@ test("opens on three months when the URL names no zoom", async ({ page }) => {
   await setTimelineModule(page, false);
 });
 
+test("only old data opens on everything, and an empty window offers it", async ({
+  page,
+}) => {
+  await setTimelineModuleOn(page);
+  const log = await mockTimeline(page, "full", TODAY, { onlyOld: true });
+  await page.goto("/timeline");
+  // The default three months hold nothing: the page opens on everything,
+  // without writing it into the URL.
+  await expect(
+    page.locator('[data-slot="timeline-zoom"] [data-value="all"]'),
+  ).toHaveAttribute("aria-checked", "true", { timeout: 20_000 });
+  await expect(page.locator('[data-slot="timeline-chart"]')).toBeVisible();
+  await expect(page).toHaveURL(/\/timeline$/);
+  expect(log.timelineQueries.map((q) => q.get("zoom"))).toEqual(
+    expect.arrayContaining(["quarter", "all"]),
+  );
+
+  // Three months asked for by name stay three months, and offer the rest.
+  await page.goto("/timeline?zoom=quarter");
+  const empty = page.locator('[data-slot="timeline-window-empty"]');
+  await expect(empty).toBeVisible({ timeout: 20_000 });
+  await page.locator('[data-slot="timeline-show-everything"]').click();
+  await expect(page).toHaveURL(/zoom=all/);
+  await expect(page.locator('[data-slot="timeline-chart"]')).toBeVisible();
+
+  // The next test starts from the module switched off.
+  await setTimelineModule(page, false);
+});
+
 test("switching it on opens the readiness inventory, which leads to the timeline", async ({
   page,
 }) => {

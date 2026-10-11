@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 import { TIMELINE_RANGE_MAX_DAYS } from "@/lib/day/contract";
 
 import { dayKey, dayNumber } from "../timeline-dates";
-import { clampRange, parseTimelineUrl, timelineSearch } from "../timeline-url";
+import {
+  clampRange,
+  hasDataBeforeWindow,
+  parseTimelineUrl,
+  timelineSearch,
+} from "../timeline-url";
 
 const TODAY = "2026-10-07";
 const parse = (search: string) =>
@@ -26,7 +31,7 @@ describe("timeline URL", () => {
     });
   });
 
-  it("falls back to all, without a word, on anything it cannot read", () => {
+  it("reads anything it cannot read as no zoom, the same default as none", () => {
     for (const search of [
       "zoom=decade",
       "zoom=range",
@@ -36,8 +41,17 @@ describe("timeline URL", () => {
       "zoom=range&from=2027-01-01&to=2027-02-01",
       "zoom=range&from=yesterday&to=today",
     ]) {
-      expect(parse(search), search).toEqual({ zoom: "all", range: null });
+      expect(parse(search), search).toEqual(parse(""));
     }
+  });
+
+  it("knows when a window misses the record's older entries", () => {
+    const quarter = { from: "2026-08-01" };
+    expect(hasDataBeforeWindow("2025-02-11", quarter)).toBe(true);
+    expect(hasDataBeforeWindow("2026-08-01", quarter)).toBe(false);
+    expect(hasDataBeforeWindow("2026-09-15", quarter)).toBe(false);
+    expect(hasDataBeforeWindow(null, quarter)).toBe(false);
+    expect(hasDataBeforeWindow("2025-02-11", null)).toBe(false);
   });
 
   it("pulls a range's end back to today and its span under the cap", () => {

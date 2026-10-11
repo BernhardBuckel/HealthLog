@@ -41,9 +41,11 @@ export function useTimeline(
   from: string | null,
   to: string | null,
   values: readonly string[],
+  enabled = true,
 ) {
   return useQuery({
     queryKey: queryKeys.timeline(zoom, from, to, values.join(",")),
+    enabled,
     queryFn: () =>
       apiGet<TimelineResponse>(timelinePath(zoom, from, to, values)),
     // Moving between zoom levels keeps the last answer on screen until the
