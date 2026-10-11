@@ -80,4 +80,32 @@ describe("loadRecordCandidates under a budget", () => {
     expect(out).toHaveLength(10);
     expect(truncated).toEqual([]);
   });
+
+  it("does not call a kind holding exactly its cap truncated", async () => {
+    prismaMock.encounter.findMany.mockResolvedValue(encounters(5));
+    const truncated: string[] = [];
+    const out = await loadRecordCandidates("u1", "visit", "", {
+      kinds: new Set(["visit"]),
+      rowsPerKind: 5,
+      onTruncated: (kind) => truncated.push(kind),
+    });
+    expect(out).toHaveLength(5);
+    expect(truncated).toEqual([]);
+    // One row past the cap is asked for, as the probe.
+    expect(prismaMock.encounter.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 6 }),
+    );
+  });
+
+  it("calls a kind with a row past its cap truncated, and keeps the cap", async () => {
+    prismaMock.encounter.findMany.mockResolvedValue(encounters(6));
+    const truncated: string[] = [];
+    const out = await loadRecordCandidates("u1", "visit", "", {
+      kinds: new Set(["visit"]),
+      rowsPerKind: 5,
+      onTruncated: (kind) => truncated.push(kind),
+    });
+    expect(out).toHaveLength(5);
+    expect(truncated).toEqual(["visit"]);
+  });
 });

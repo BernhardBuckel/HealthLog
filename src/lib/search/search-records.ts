@@ -143,22 +143,30 @@ export async function scanNewest<Row extends { id: string }>(args: {
       budget.truncated = true;
       break;
     }
-    const take = Math.min(batch, maxRows - scanned);
-    const rows = await read(cursor, take);
+    const remaining = maxRows - scanned;
+    // The batch that reaches the cap asks for one row more than it keeps:
+    // that row only answers whether anything is left, so a source holding
+    // exactly `maxRows` rows is read whole and not reported cut short.
+    const last = remaining <= batch;
+    const take = last ? remaining : batch;
+    const fetched = await read(cursor, last ? take + 1 : take);
+    const more = last && fetched.length > take;
+    const rows = more ? fetched.slice(0, take) : fetched;
     scanned += rows.length;
     budget.rows += rows.length;
     for (const row of rows) {
       const candidate = match(row);
       if (candidate) out.push(candidate);
     }
-    // A short batch is the end of the source.
-    if (rows.length < take) break;
-    // One more than the limit: the caller learns there is more.
-    if (out.length > wanted) break;
-    if (scanned >= maxRows) {
+    if (more) {
       budget.truncated = true;
       break;
     }
+    // A short batch, or the cap reached with nothing beyond it, is the end
+    // of the source.
+    if (rows.length < take || last) break;
+    // One more than the limit: the caller learns there is more.
+    if (out.length > wanted) break;
     cursor = rows[rows.length - 1].id;
   }
   return out;

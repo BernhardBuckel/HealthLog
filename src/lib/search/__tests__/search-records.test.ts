@@ -79,7 +79,24 @@ describe("scanNewest", () => {
     const s = source(10_000, 1_000_000);
     await scanNewest({ budget: b, wanted: 3, batch: 100, maxRows: 450, ...s });
     expect(b.rows).toBe(450);
-    expect(s.reads).toEqual([100, 100, 100, 100, 50]);
+    // The last batch probes one row past the cap and does not keep it.
+    expect(s.reads).toEqual([100, 100, 100, 100, 51]);
+    expect(b.truncated).toBe(true);
+  });
+
+  it("does not call a source holding exactly the cap truncated", async () => {
+    const b = budget();
+    const s = source(450, 1_000_000);
+    await scanNewest({ budget: b, wanted: 3, batch: 100, maxRows: 450, ...s });
+    expect(b.rows).toBe(450);
+    expect(b.truncated).toBe(false);
+  });
+
+  it("calls a source one row past the cap truncated", async () => {
+    const b = budget();
+    const s = source(451, 1_000_000);
+    await scanNewest({ budget: b, wanted: 3, batch: 100, maxRows: 450, ...s });
+    expect(b.rows).toBe(450);
     expect(b.truncated).toBe(true);
   });
 
