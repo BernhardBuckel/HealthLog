@@ -558,12 +558,13 @@ test("a chosen range lives in the URL: reload keeps it, Back returns to it", asy
   await popover.locator('[data-slot="timeline-range-apply"]').click();
   await expect(page).toHaveURL(new RegExp(`from=${later}&to=${TODAY}`));
 
-  // A parameter it cannot read opens the whole record.
+  // A parameter it cannot read opens the same default as no zoom: this
+  // record has entries in the last three months, so three months.
   await page.goto("/timeline?zoom=range&from=nonsense&to=2026-01-01");
-  await expect(zoom("all")).toHaveAttribute("aria-checked", "true", {
+  await expect(zoom("quarter")).toHaveAttribute("aria-checked", "true", {
     timeout: 20_000,
   });
-  await expect(desktop).toHaveAttribute("data-zoom", "all");
+  await expect(desktop).toHaveAttribute("data-zoom", "quarter");
 });
 
 async function setTimelineModuleOn(page: Page) {
@@ -985,7 +986,8 @@ test("the day's strip stays at the right edge, opens and closes the day, and nev
     await expect(strip).toHaveAttribute("data-state", "closed");
     await expect(toggle).toBeFocused();
     expect(await where()).toEqual(closed);
-    await expect(page).toHaveURL(/\/timeline$/);
+    // Closing the day takes `?day=` out and leaves the zoom it opened with.
+    await expect(page).toHaveURL(/\/timeline\?zoom=all$/);
   }
 
   // Both themes, open at 1440.
