@@ -109,6 +109,7 @@ describe("GET /api/auth/me/notification-prefs", () => {
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -145,6 +146,7 @@ describe("GET /api/auth/me/notification-prefs", () => {
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -183,6 +185,7 @@ describe("GET /api/auth/me/notification-prefs", () => {
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 });
@@ -232,6 +235,7 @@ describe("PATCH /api/auth/me/notification-prefs", () => {
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
       // v1.32.22 (M1) — the write echoes the fresh optimistic-concurrency token.
       updatedAt: expect.any(String),
     });
@@ -260,6 +264,7 @@ describe("PATCH /api/auth/me/notification-prefs", () => {
           measurementReminder: {
             clientManaged: false,
           },
+          content: { detail: "generic" },
         },
       },
     });
@@ -289,6 +294,7 @@ describe("PATCH /api/auth/me/notification-prefs", () => {
             measurementReminder: {
               clientManaged: false,
             },
+            content: { detail: "generic" },
           },
           next: {
             medication: {
@@ -310,6 +316,7 @@ describe("PATCH /api/auth/me/notification-prefs", () => {
             measurementReminder: {
               clientManaged: false,
             },
+            content: { detail: "generic" },
           },
           changed: ["medication"],
         }),
@@ -393,6 +400,7 @@ describe("PATCH /api/auth/me/notification-prefs", () => {
           measurementReminder: {
             clientManaged: false,
           },
+          content: { detail: "generic" },
         },
       },
     });
@@ -432,6 +440,7 @@ describe("PATCH /api/auth/me/notification-prefs", () => {
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
       // v1.32.22 (M1) — the write echoes the fresh optimistic-concurrency token.
       updatedAt: expect.any(String),
     });
@@ -460,6 +469,7 @@ describe("PATCH /api/auth/me/notification-prefs", () => {
           measurementReminder: {
             clientManaged: false,
           },
+          content: { detail: "generic" },
         },
       },
     });
@@ -505,9 +515,44 @@ describe("PATCH /api/auth/me/notification-prefs", () => {
           measurementReminder: {
             clientManaged: false,
           },
+          content: { detail: "generic" },
         },
       },
     });
+  });
+
+  it("persists content.detail and keeps the siblings", async () => {
+    vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      notificationPrefs: { mood: { reminderHour: 7 } },
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+
+    const res = await (PATCH as (r: Request) => Promise<Response>)(
+      mkPatch({ content: { detail: "detailed" } }),
+    );
+    expect(res.status).toBe(200);
+    const env = (await res.json()) as {
+      data: { content: { detail: string }; mood: { reminderHour: number } };
+    };
+    expect(env.data.content).toEqual({ detail: "detailed" });
+    expect(env.data.mood).toEqual({ reminderHour: 7 });
+    const written = vi.mocked(prisma.user.update).mock.calls[0]?.[0] as {
+      data: { notificationPrefs: { content: { detail: string } } };
+    };
+    expect(written.data.notificationPrefs.content).toEqual({
+      detail: "detailed",
+    });
+  });
+
+  it("rejects an unknown content.detail with 422", async () => {
+    vi.mocked(getSession).mockResolvedValue(SESSION_OK as never);
+
+    const res = await (PATCH as (r: Request) => Promise<Response>)(
+      mkPatch({ content: { detail: "everything" } }),
+    );
+    expect(res.status).toBe(422);
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it("v1.7.0 — rejects a mood.reminderHour outside 0..23 with 422", async () => {

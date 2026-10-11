@@ -1229,7 +1229,8 @@
       "bodyLogged": "Logged in the illness journal: {count} symptoms",
       "bodyNotLogged": "Nothing is logged in the illness journal for this day",
       "openIllness": "Open"
-    }
+    },
+    "sourceNotification": "Notification"
   },
   "medications": {
     "title": "Medications",
@@ -5325,7 +5326,8 @@
         "subtitle": "Choose which reminders you receive and where they're delivered.",
         "remindersHeading": "Reminders",
         "matrixLink": "Per-channel notifications",
-        "channelsLink": "Delivery channels"
+        "channelsLink": "Delivery channels",
+        "displayHeading": "On your phone"
       },
       "layout": {
         "title": "Layout",
@@ -8459,6 +8461,25 @@
         "changedRead": "You can now view the health record of the person you looked after, but not change it.",
         "changedManage": "You can manage the health record of the person you looked after."
       }
+    },
+    "links": {
+      "open": "Open in HealthLog"
+    },
+    "quickActions": {
+      "moodGood": "Good",
+      "moodOkay": "Okay",
+      "moodBad": "Bad"
+    },
+    "content": {
+      "title": "Health figures in notifications",
+      "description": "Whether a notification may show values such as your morning score.",
+      "detail": "Off, a notification only says what it is about, so a lock screen shows no health figures. On, it adds the figures, for example the morning score in the briefing. Tapping a notification opens the right place in the app either way.",
+      "toggleAria": "Show health figures in notifications",
+      "statusDetailed": "Figures shown",
+      "statusGeneric": "Without figures",
+      "detailedToast": "Notifications now include health figures.",
+      "genericToast": "Notifications no longer include health figures.",
+      "saveError": "Could not save. Please try again later."
     }
   },
   "i18n": {
@@ -11261,7 +11282,13 @@
     },
     "push": {
       "title": "Your morning briefing",
-      "bodyProvisional": "{line}\nLast night's sleep isn't in yet."
+      "bodyProvisional": "{line}\nLast night's sleep isn't in yet.",
+      "titleScore": "Morning score {score}",
+      "band": {
+        "green": "Looking steady today.",
+        "yellow": "A few things are worth a look today.",
+        "red": "Some areas need attention today."
+      }
     },
     "item": {
       "doseWindow": {

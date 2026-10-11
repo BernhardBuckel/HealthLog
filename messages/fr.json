@@ -1229,7 +1229,8 @@
       "bodyLogged": "Consigné dans le journal de maladie : {count} symptômes",
       "bodyNotLogged": "Rien n'est consigné dans le journal de maladie pour cette journée",
       "openIllness": "Ouvrir"
-    }
+    },
+    "sourceNotification": "Notification"
   },
   "medications": {
     "title": "Médicaments",
@@ -5325,7 +5326,8 @@
         "subtitle": "Choisissez les rappels que vous recevez et où ils sont envoyés.",
         "remindersHeading": "Rappels",
         "matrixLink": "Notifications par canal",
-        "channelsLink": "Canaux de diffusion"
+        "channelsLink": "Canaux de diffusion",
+        "displayHeading": "Sur ton téléphone"
       },
       "layout": {
         "title": "Disposition",
@@ -8459,6 +8461,25 @@
         "changedRead": "Vous pouvez désormais consulter le dossier de santé de la personne dont vous vous occupiez, mais pas le modifier.",
         "changedManage": "Vous pouvez gérer le dossier de santé de la personne dont vous vous occupiez."
       }
+    },
+    "links": {
+      "open": "Ouvrir dans HealthLog"
+    },
+    "quickActions": {
+      "moodGood": "Bien",
+      "moodOkay": "Moyen",
+      "moodBad": "Mal"
+    },
+    "content": {
+      "title": "Valeurs de santé dans les notifications",
+      "description": "Si une notification peut afficher des valeurs comme ton score du matin.",
+      "detail": "Désactivé, une notification dit seulement de quoi il s'agit, l'écran verrouillé n'affiche donc aucune valeur de santé. Activé, elle ajoute les valeurs, par exemple le score du matin dans le récapitulatif. Toucher une notification ouvre le bon endroit de l'app dans les deux cas.",
+      "toggleAria": "Afficher les valeurs de santé dans les notifications",
+      "statusDetailed": "Avec valeurs",
+      "statusGeneric": "Sans valeurs",
+      "detailedToast": "Les notifications incluent désormais des valeurs de santé.",
+      "genericToast": "Les notifications n'incluent plus de valeurs de santé.",
+      "saveError": "Enregistrement impossible. Réessaie plus tard."
     }
   },
   "i18n": {
@@ -11261,7 +11282,13 @@
     },
     "push": {
       "title": "Votre résumé du matin",
-      "bodyProvisional": "{line}\nLe sommeil de la nuit dernière n'est pas encore disponible."
+      "bodyProvisional": "{line}\nLe sommeil de la nuit dernière n'est pas encore disponible.",
+      "titleScore": "Score du matin {score}",
+      "band": {
+        "green": "Tout semble stable aujourd'hui.",
+        "yellow": "Quelques points méritent un coup d'œil aujourd'hui.",
+        "red": "Certains domaines demandent de l'attention aujourd'hui."
+      }
     },
     "item": {
       "doseWindow": {

@@ -1229,7 +1229,8 @@
       "bodyLogged": "Registrado en el diario de enfermedad: {count} síntomas",
       "bodyNotLogged": "No hay nada registrado en el diario de enfermedad para este día",
       "openIllness": "Abrir"
-    }
+    },
+    "sourceNotification": "Notificación"
   },
   "medications": {
     "title": "Medicamentos",
@@ -5325,7 +5326,8 @@
         "subtitle": "Elige qué recordatorios recibes y dónde se entregan.",
         "remindersHeading": "Recordatorios",
         "matrixLink": "Notificaciones por canal",
-        "channelsLink": "Canales de entrega"
+        "channelsLink": "Canales de entrega",
+        "displayHeading": "En tu teléfono"
       },
       "layout": {
         "title": "Diseño",
@@ -8459,6 +8461,25 @@
         "changedRead": "Ahora puedes ver el historial de salud de la persona a la que cuidabas, pero no modificarlo.",
         "changedManage": "Puedes gestionar el historial de salud de la persona a la que cuidabas."
       }
+    },
+    "links": {
+      "open": "Abrir en HealthLog"
+    },
+    "quickActions": {
+      "moodGood": "Bien",
+      "moodOkay": "Normal",
+      "moodBad": "Mal"
+    },
+    "content": {
+      "title": "Valores de salud en las notificaciones",
+      "description": "Si una notificación puede mostrar valores como tu puntuación de la mañana.",
+      "detail": "Desactivado, una notificación solo dice de qué trata, así que la pantalla de bloqueo no muestra valores de salud. Activado, añade los valores, por ejemplo la puntuación de la mañana en el resumen. Al tocar una notificación se abre el lugar adecuado de la app en ambos casos.",
+      "toggleAria": "Mostrar valores de salud en las notificaciones",
+      "statusDetailed": "Con valores",
+      "statusGeneric": "Sin valores",
+      "detailedToast": "Las notificaciones ahora incluyen valores de salud.",
+      "genericToast": "Las notificaciones ya no incluyen valores de salud.",
+      "saveError": "No se pudo guardar. Inténtalo de nuevo más tarde."
     }
   },
   "i18n": {
@@ -11261,7 +11282,13 @@
     },
     "push": {
       "title": "Tu resumen matinal",
-      "bodyProvisional": "{line}\nEl sueño de anoche aún no está disponible."
+      "bodyProvisional": "{line}\nEl sueño de anoche aún no está disponible.",
+      "titleScore": "Puntuación de la mañana {score}",
+      "band": {
+        "green": "Hoy todo parece estable.",
+        "yellow": "Hoy vale la pena revisar algunas cosas.",
+        "red": "Hoy algunas áreas necesitan atención."
+      }
     },
     "item": {
       "doseWindow": {

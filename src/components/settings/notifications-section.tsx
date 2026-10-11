@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Bell } from "lucide-react";
+import { Bell, Smartphone } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useTranslations } from "@/lib/i18n/context";
 import { LowStockCard } from "@/components/settings/low-stock-card";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { MoodReminderCard } from "@/components/settings/mood-reminder-card";
+import { NotificationContentCard } from "@/components/settings/notification-content-card";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -72,6 +73,18 @@ export function NotificationsSection() {
           ) : null}
         </section>
       ) : null}
+
+      {/* Group 2 — How notifications look on the phone. Not module-gated:
+          it applies to every notification the account receives. */}
+      <section className="space-y-4">
+        <SectionHeading
+          icon={Smartphone}
+          title={t("settings.sections.notifications.displayHeading")}
+        />
+        <div id="notification-content" className="scroll-mt-28">
+          <NotificationContentCard isAuthenticated={isAuthenticated} />
+        </div>
+      </section>
       {/* Cross-links to the other two notification surfaces. At the END of
           the page: a screen that opens with two ways off it never says what
           it is for. */}
