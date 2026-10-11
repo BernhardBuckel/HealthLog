@@ -1,0 +1,381 @@
+/**
+ * v1.42.2 — "record doses automatically", against a real Postgres.
+ *
+ * Proves, through the real pass, the real inventory hook, the real auto-miss
+ * pass, the reminder worker and the medication route:
+ *   - running the pass twice leaves exactly one taken intake per slot;
+ *   - a slot the person skipped by hand is left as they left it;
+ *   - a paused medication gets nothing;
+ *   - stock goes down once per recorded dose, never again on a re-run;
+ *   - nothing before the option was switched on is filled;
+ *   - the auto-miss pass leaves the slots the auto-take pass owns alone;
+ *   - no reminder goes out for the medication while the option is on;
+ *   - the route stamps the switch-on instant on an off→on flip only.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { NextRequest } from "next/server";
+
+import { cookieJar, headerJar } from "./mock-next-headers";
+import { getPrismaClient, truncateAllTables } from "./setup";
+
+vi.mock("next/headers", async () => {
+  const { cookieJar, headerJar } = await import("./mock-next-headers");
+  return {
+    headers: vi.fn(async () => ({
+      get: (name: string) => headerJar.get(name.toLowerCase()) ?? null,
+    })),
+    cookies: vi.fn(async () => ({
+      get: (name: string) => {
+        const value = cookieJar.get(name);
+        return value ? { name, value } : undefined;
+      },
+      set: (name: string, value: string) => {
+        cookieJar.set(name, value);
+      },
+      delete: (name: string) => {
+        cookieJar.delete(name);
+      },
+    })),
+  };
+});
+vi.mock("@/lib/db-compat", () => ({
+  ensureDbCompatibility: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@/lib/notifications/dispatcher", () => ({
+  dispatchNotification: vi.fn().mockResolvedValue({
+    dispatched: true,
+    channelsAttempted: 1,
+    channelsSucceeded: 1,
+  }),
+}));
+vi.mock("@/lib/notifications/medication-intake-sync", () => ({
+  queueMedicationIntakeSync: vi.fn(),
+}));
+
+const { dispatchNotification } = await import("@/lib/notifications/dispatcher");
+const { runIntakeAutoTakePass } = await import("@/lib/jobs/intake-auto-take");
+const { runIntakeAutoSkipPass } = await import("@/lib/jobs/intake-auto-skip");
+const { handleReminderCheck } =
+  await import("@/lib/jobs/reminder/medication-reminder-check");
+
+const TZ = "Europe/Berlin";
+let counter = 0;
+
+type Handler = (
+  request: NextRequest,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  context: { params: Promise<any> },
+) => Promise<Response>;
+
+async function makeUser(): Promise<string> {
+  const suffix = `${Date.now()}-${counter++}`;
+  const user = await getPrismaClient().user.create({
+    data: {
+      username: `auto-take-${suffix}`,
+      email: `auto-take-${suffix}@example.test`,
+      timezone: TZ,
+      locale: "en",
+    },
+  });
+  const session = await getPrismaClient().session.create({
+    data: {
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    },
+  });
+  cookieJar.set("healthlog_session", session.id);
+  return user.id;
+}
+
+/** A supplement taken every evening at 19:00, with a 30-tablet bottle. */
+async function seedEvening(
+  userId: string,
+  name: string,
+  options: {
+    autoMarkTakenSince: Date | null;
+    pausedAt?: Date | null;
+    active?: boolean;
+  },
+): Promise<string> {
+  const prisma = getPrismaClient();
+  const medication = await prisma.medication.create({
+    data: {
+      userId,
+      name,
+      dose: "1 capsule",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      autoMarkTaken: options.autoMarkTakenSince !== null,
+      autoMarkTakenSince: options.autoMarkTakenSince,
+      notificationsEnabled: true,
+      active: options.active ?? true,
+      pausedAt: options.pausedAt ?? null,
+      schedules: {
+        create: {
+          windowStart: "19:00",
+          windowEnd: "19:00",
+          timesOfDay: ["19:00"],
+          rrule: "FREQ=DAILY",
+          scheduleType: "SCHEDULED",
+        },
+      },
+    },
+    select: { id: true },
+  });
+  await prisma.medicationInventoryItem.create({
+    data: {
+      userId,
+      medicationId: medication.id,
+      state: "ACTIVE",
+      unitsTotal: 30,
+      unitsRemaining: 30,
+    },
+  });
+  return medication.id;
+}
+
+async function stock(medicationId: string): Promise<number> {
+  const items = await getPrismaClient().medicationInventoryItem.findMany({
+    where: { medicationId },
+    select: { unitsRemaining: true },
+  });
+  return items.reduce((sum, i) => sum + Number(i.unitsRemaining), 0);
+}
+
+async function liveRows(medicationId: string) {
+  return getPrismaClient().medicationIntakeEvent.findMany({
+    where: { medicationId, deletedAt: null },
+    orderBy: { scheduledFor: "asc" },
+    select: {
+      scheduledFor: true,
+      takenAt: true,
+      skipped: true,
+      autoMissed: true,
+      autoRecorded: true,
+      inventoryConsumption: true,
+    },
+  });
+}
+
+function at(iso: string): void {
+  vi.setSystemTime(new Date(iso));
+}
+
+beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.mocked(dispatchNotification).mockClear();
+  cookieJar.clear();
+  headerJar.clear();
+  await truncateAllTables(getPrismaClient());
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("auto-mark-taken pass", () => {
+  it("records each slot once, leaves the hand-skipped slot and the paused medication, and moves stock once", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    // Switched on Mon 2026-06-08 at 12:00 local.
+    const since = new Date("2026-06-08T10:00:00.000Z");
+    const evening = await seedEvening(userId, "Magnesium", {
+      autoMarkTakenSince: since,
+    });
+    const paused = await seedEvening(userId, "Vitamin D", {
+      autoMarkTakenSince: since,
+      active: false,
+      pausedAt: new Date("2026-06-07T00:00:00.000Z"),
+    });
+
+    // A Sunday slot before the switch: a pending placeholder that must stay.
+    await prisma.medicationIntakeEvent.create({
+      data: {
+        userId,
+        medicationId: evening,
+        scheduledFor: new Date("2026-06-07T17:00:00.000Z"),
+        source: "REMINDER",
+      },
+    });
+    // Tuesday: skipped by hand.
+    await prisma.medicationIntakeEvent.create({
+      data: {
+        userId,
+        medicationId: evening,
+        scheduledFor: new Date("2026-06-09T17:00:00.000Z"),
+        skipped: true,
+        source: "WEB",
+      },
+    });
+    // Wednesday: the projector's pending placeholder.
+    await prisma.medicationIntakeEvent.create({
+      data: {
+        userId,
+        medicationId: evening,
+        scheduledFor: new Date("2026-06-10T17:00:00.000Z"),
+        source: "REMINDER",
+      },
+    });
+
+    const now = Date.parse("2026-06-10T17:25:00.000Z"); // Wed 19:25 local
+    const first = await runIntakeAutoTakePass(prisma, { nowMs: now });
+    expect(first.recordedCount).toBe(2);
+    const second = await runIntakeAutoTakePass(prisma, {
+      nowMs: now + 15 * 60_000,
+    });
+    expect(second.recordedCount).toBe(0);
+
+    const rows = await liveRows(evening);
+    expect(
+      rows.map((r) => ({
+        at: r.scheduledFor.toISOString(),
+        taken: r.takenAt?.toISOString() ?? null,
+        skipped: r.skipped,
+        auto: r.autoRecorded,
+      })),
+    ).toEqual([
+      // Before the switch: untouched.
+      {
+        at: "2026-06-07T17:00:00.000Z",
+        taken: null,
+        skipped: false,
+        auto: false,
+      },
+      // Mon: created, taken at its time.
+      {
+        at: "2026-06-08T17:00:00.000Z",
+        taken: "2026-06-08T17:00:00.000Z",
+        skipped: false,
+        auto: true,
+      },
+      // Tue: the person's skip stands.
+      {
+        at: "2026-06-09T17:00:00.000Z",
+        taken: null,
+        skipped: true,
+        auto: false,
+      },
+      // Wed: the placeholder converted in place, no sibling.
+      {
+        at: "2026-06-10T17:00:00.000Z",
+        taken: "2026-06-10T17:00:00.000Z",
+        skipped: false,
+        auto: true,
+      },
+    ]);
+
+    // Two doses recorded, two capsules gone, each stamped once.
+    expect(await stock(evening)).toBe(28);
+    expect(
+      rows.filter((r) => r.autoRecorded && r.inventoryConsumption !== null),
+    ).toHaveLength(2);
+
+    // The paused medication got nothing and kept its stock.
+    expect(await liveRows(paused)).toEqual([]);
+    expect(await stock(paused)).toBe(30);
+  });
+
+  it("the auto-miss pass leaves the slots the auto-take pass owns", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const evening = await seedEvening(userId, "Omega-3", {
+      autoMarkTakenSince: new Date("2026-06-08T10:00:00.000Z"),
+    });
+    // A pending placeholder on an owned slot, more than 24 h old.
+    await prisma.medicationIntakeEvent.create({
+      data: {
+        userId,
+        medicationId: evening,
+        scheduledFor: new Date("2026-06-08T17:00:00.000Z"),
+        source: "REMINDER",
+      },
+    });
+    const now = Date.parse("2026-06-10T08:00:00.000Z");
+    const skip = await runIntakeAutoSkipPass(prisma, { nowMs: now });
+    expect(skip.skippedCount).toBe(0);
+
+    await runIntakeAutoTakePass(prisma, { nowMs: now });
+    const monday = (await liveRows(evening)).find(
+      (r) => r.scheduledFor.toISOString() === "2026-06-08T17:00:00.000Z",
+    );
+    expect(monday).toMatchObject({ autoMissed: false, autoRecorded: true });
+  });
+
+  it("sends no reminder for the medication while the option is on", async () => {
+    const userId = await makeUser();
+    const auto = await seedEvening(userId, "Zinc", {
+      autoMarkTakenSince: new Date("2026-06-01T00:00:00.000Z"),
+    });
+    const manual = await seedEvening(userId, "Iron", {
+      autoMarkTakenSince: null,
+    });
+    for (const tick of [
+      "2026-06-10T17:30:00.000Z",
+      "2026-06-10T19:00:00.000Z",
+      "2026-06-10T22:00:00.000Z",
+    ]) {
+      at(tick);
+      await handleReminderCheck([]);
+    }
+    const dispatchedFor = (medicationId: string) =>
+      vi
+        .mocked(dispatchNotification)
+        .mock.calls.filter(
+          ([arg]) =>
+            (arg as { metadata?: { medicationId?: string } }).metadata
+              ?.medicationId === medicationId,
+        ).length;
+    expect(dispatchedFor(manual)).toBeGreaterThan(0);
+    expect(dispatchedFor(auto)).toBe(0);
+  });
+
+  it("the route stamps the switch-on instant on a flip, and only then", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const medicationId = await seedEvening(userId, "B12", {
+      autoMarkTakenSince: null,
+    });
+    const route = await import("@/app/api/medications/[id]/route");
+    const put = (body: unknown) =>
+      (route.PUT as Handler)(
+        new NextRequest(`http://localhost/api/medications/${medicationId}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        }),
+        { params: Promise.resolve({ id: medicationId }) },
+      );
+
+    at("2026-06-10T10:00:00.000Z");
+    expect((await put({ autoMarkTaken: true })).status).toBe(200);
+    const on = await prisma.medication.findUniqueOrThrow({
+      where: { id: medicationId },
+      select: { autoMarkTaken: true, autoMarkTakenSince: true },
+    });
+    expect(on.autoMarkTaken).toBe(true);
+    expect(on.autoMarkTakenSince?.toISOString()).toBe(
+      "2026-06-10T10:00:00.000Z",
+    );
+
+    // Re-saving with the option already on never moves the floor.
+    at("2026-06-11T10:00:00.000Z");
+    expect((await put({ autoMarkTaken: true, name: "B12 forte" })).status).toBe(
+      200,
+    );
+    const resaved = await prisma.medication.findUniqueOrThrow({
+      where: { id: medicationId },
+      select: { autoMarkTakenSince: true },
+    });
+    expect(resaved.autoMarkTakenSince?.toISOString()).toBe(
+      "2026-06-10T10:00:00.000Z",
+    );
+
+    // Off clears it.
+    expect((await put({ autoMarkTaken: false })).status).toBe(200);
+    const off = await prisma.medication.findUniqueOrThrow({
+      where: { id: medicationId },
+      select: { autoMarkTaken: true, autoMarkTakenSince: true },
+    });
+    expect(off).toEqual({ autoMarkTaken: false, autoMarkTakenSince: null });
+  });
+});
