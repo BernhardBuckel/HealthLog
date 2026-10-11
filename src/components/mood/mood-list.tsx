@@ -1395,6 +1395,8 @@ function formatMoodSource(
       return t("mood.sourceTelegram");
     case "DAYLIO":
       return t("mood.sourceDaylio");
+    case "NOTIFICATION":
+      return t("mood.sourceNotification");
     default:
       return source;
   }

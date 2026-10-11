@@ -59,7 +59,8 @@ export interface WideEvent {
       | "api_key"
       | "cron_secret"
       | "telegram_webhook"
-      | "webhook_secret";
+      | "webhook_secret"
+      | "notification_action_token";
     /**
      * v1.36.0 — the account whose record this request read or wrote, when it
      * is not the caller's own. `user_id` above always stays the ACTOR: the

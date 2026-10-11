@@ -11,10 +11,10 @@ interface TelegramResponse {
   description?: string;
 }
 
-interface TelegramInlineKeyboardButton {
-  text: string;
-  callback_data: string;
-}
+/** A callback button, or a button that opens a URL (`https` only). */
+type TelegramInlineKeyboardButton =
+  | { text: string; callback_data: string }
+  | { text: string; url: string };
 
 interface TelegramReplyMarkup {
   inline_keyboard: TelegramInlineKeyboardButton[][];

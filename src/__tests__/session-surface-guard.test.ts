@@ -271,6 +271,13 @@ describe("S2 — the URL-token authentication set is frozen", () => {
     // renders nothing about the profile before the preview answers.
     "app/auth/claim/page.tsx":
       "carries the handover token from the query string into the claim requests' body",
+    // v1.42.2 — notification quick answers. A notification app (ntfy's
+    // `http` action) calls it with no session, so the signed, user- and
+    // action-bound, short-lived token in the path is the credential. Rate
+    // limited before verification, single-use through the mood entry's unique
+    // key, and scrubbed from logs by `PATH_SECRET_PATHS`.
+    "app/api/notifications/action/[token]/route.ts":
+      "signed single-use quick-answer token from a notification action",
   };
 
   /**
@@ -304,6 +311,7 @@ describe("S2 — the URL-token authentication set is frozen", () => {
     expect(bySegment.length).toBeGreaterThan(0);
     expect(bySegment).toEqual([
       "app/api/c/[token]/unlock/route.ts",
+      "app/api/notifications/action/[token]/route.ts",
       "app/api/whoop/webhook/[token]/route.ts",
       "app/api/withings/webhook/[token]/route.ts",
       "app/c/[token]/d/[id]/route.ts",

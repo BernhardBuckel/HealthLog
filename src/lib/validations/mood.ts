@@ -46,6 +46,8 @@ export const moodSourceEnum = z.enum([
   "WEB",
   "TELEGRAM",
   "DAYLIO",
+  // A quick answer tapped inside a mood-reminder notification (ntfy action).
+  "NOTIFICATION",
 ]);
 
 const MOOD_SCORE_MAP: Record<string, number> = {

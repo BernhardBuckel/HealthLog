@@ -15,6 +15,18 @@ import {
   buildMeasurementKeyboard,
 } from "@/lib/notifications/senders/telegram-keyboards";
 import { defaultLocale, locales, type Locale } from "@/lib/i18n/config";
+import { telegramLinkMode } from "@/lib/notifications/tap-target";
+
+function escapeHtmlText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return escapeHtmlText(value).replace(/"/g, "&quot;");
+}
 
 /**
  * v1.19.0 — resolve the bot locale for an interactive reminder. The
@@ -197,13 +209,31 @@ export async function sendViaTelegram(
         }
       : undefined);
 
+  // Tap target. Telegram has no "tap opens a URL" for a message, so the
+  // target rides an inline URL button under it (below any action row), or a
+  // text link where Telegram would refuse the button (see `telegramLinkMode`).
+  const linkMode = payload.tap?.url ? telegramLinkMode(payload.tap.url) : "none";
+  const linkedKeyboard =
+    linkMode === "button" && payload.tap?.url
+      ? {
+          inline_keyboard: [
+            ...(keyboard?.inline_keyboard ?? []),
+            [{ text: payload.tap.label, url: payload.tap.url }],
+          ],
+        }
+      : keyboard;
+  const text =
+    linkMode === "text" && payload.tap?.url
+      ? `${payload.message}\n\n<a href="${escapeHtmlAttribute(payload.tap.url)}">${escapeHtmlText(payload.tap.label)}</a>`
+      : payload.message;
+
   const result = await sendTelegramMessage(
     config.botToken,
     config.chatId,
-    payload.message,
+    text,
     {
       parseMode: "HTML",
-      replyMarkup: keyboard,
+      replyMarkup: linkedKeyboard,
     },
   );
 

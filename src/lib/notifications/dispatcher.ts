@@ -36,6 +36,7 @@ import {
   hasClientManagedApnsGate,
 } from "@/lib/notifications/client-managed-apns";
 import { recordPushAttempt } from "@/lib/notifications/senders/push-attempt-record";
+import { withDeliveryLinks } from "@/lib/notifications/delivery-links";
 import {
   claimManagedGuardianEgressAuthorization,
   completeManagedGuardianEgressAuthorization,
@@ -131,8 +132,10 @@ export async function dispatchNotification(
       recordUserId: delivery.recordUserId,
       recipientUserId: delivery.recipientUserId,
     };
-    const recipientPayload = await renderForRecipient(
-      deliveryPayload,
+    // Tap target + quick actions, resolved once so every channel of this
+    // delivery carries the same target and the same single-use tokens.
+    const recipientPayload = await withDeliveryLinks(
+      await renderForRecipient(deliveryPayload, delivery.recipientUserId),
       delivery.recipientUserId,
     );
     const channels = await prisma.notificationChannel.findMany({

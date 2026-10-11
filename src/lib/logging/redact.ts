@@ -68,6 +68,10 @@ export const PATH_SECRET_PATHS: ReadonlyArray<{
   // and its last segment is a route name. A full URL carrying the token is
   // still scrubbed, by the `hlp_` rule in `redactSecrets`.
   { prefix: "/claim/", pathStart: true },
+  // v1.42.2 — notification quick answers (ntfy `http` actions). The signed
+  // single-use action token is the request's only credential and rides the
+  // trailing path segment of `/api/notifications/action/<token>`.
+  { prefix: "/api/notifications/action/" },
 ];
 
 function redactPathSegments(input: string): string {
