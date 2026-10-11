@@ -35,6 +35,7 @@ import {
 } from "@/lib/rollups/measurement-rollups";
 import { aggregateBuckets } from "@/lib/rollups/measurement-read";
 import { buildComprehensiveAggregate } from "@/lib/insights/comprehensive-aggregator";
+import { windowWeighting } from "@/lib/measurements/day-statistic";
 
 vi.mock("@/lib/db-compat", () => ({
   ensureDbCompatibility: vi.fn().mockResolvedValue(undefined),
@@ -64,6 +65,81 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The instant the summary fixtures count back from: noon UTC yesterday.
+ *
+ * They used to count back from `Date.now()`, with each reading a few more
+ * minutes earlier than the last. Run between midnight and about 01:15 UTC,
+ * the earliest of those minutes slid across midnight into the day before,
+ * so a day gained a reading in another hour, and for a type whose day is a
+ * mean of hourly means (pulse) the composed mean moved off the plain AVG the
+ * tests compared it with: the suite went red for an hour every night. Noon
+ * leaves every offset inside its own day, so the layout is the same at any
+ * time the suite runs.
+ */
+function fixtureAnchor(): number {
+  const now = new Date();
+  return (
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) -
+    DAY_MS +
+    12 * 60 * 60 * 1000
+  );
+}
+
+/**
+ * Live SQL over the raw rows for the summary's count / min / max / mean,
+ * with the mean each type documents: a plain AVG over readings, or, for a
+ * type whose day is a mean of hourly means (`windowWeighting(type) ===
+ * "day"`), the mean of those per-day values.
+ */
+async function liveSummaryRows(userId: string, since: Date) {
+  const prisma = getPrismaClient();
+  const rows = await prisma.$queryRaw<
+    Array<{
+      type: string;
+      count: bigint;
+      min_value: number;
+      max_value: number;
+      mean_value: number;
+      day_mean_value: number;
+    }>
+  >`
+    WITH hourly AS (
+      SELECT m."type", date_trunc('day', m."measured_at") AS day,
+             AVG(m."value") AS v
+      FROM measurements m
+      WHERE m."user_id" = ${userId} AND m."measured_at" >= ${since}
+      GROUP BY m."type", date_trunc('day', m."measured_at"),
+               date_trunc('hour', m."measured_at")
+    ),
+    daily AS (
+      SELECT "type", day, AVG(v) AS v FROM hourly GROUP BY "type", day
+    ),
+    by_day AS (
+      SELECT "type", AVG(v)::double precision AS day_mean_value
+      FROM daily GROUP BY "type"
+    )
+    SELECT
+      m."type"::text                              AS type,
+      COUNT(*)                                    AS count,
+      MIN(m."value")::double precision            AS min_value,
+      MAX(m."value")::double precision            AS max_value,
+      AVG(m."value")::double precision            AS mean_value,
+      d.day_mean_value                            AS day_mean_value
+    FROM measurements m
+    JOIN by_day d ON d."type" = m."type"
+    WHERE m."user_id" = ${userId} AND m."measured_at" >= ${since}
+    GROUP BY m."type", d.day_mean_value
+  `;
+  return rows.map((row) => ({
+    ...row,
+    expectedMean:
+      windowWeighting(row.type) === "day" ? row.day_mean_value : row.mean_value,
+  }));
+}
 
 describe("measurement rollups — integration", () => {
   it("writes a DAY rollup row that matches the inserted measurements", async () => {
@@ -298,8 +374,8 @@ describe("measurement rollups — integration", () => {
     // type families exercise the per-type composition path. The
     // values are deliberately fractional so the round2 contract gets
     // a workout.
-    const now = Date.now();
-    const dayMs = 24 * 60 * 60 * 1000;
+    const now = fixtureAnchor();
+    const dayMs = DAY_MS;
     const seedRows: Array<{
       userId: string;
       type: "WEIGHT" | "PULSE";
@@ -336,26 +412,7 @@ describe("measurement rollups — integration", () => {
     // the source of truth — the read-swap must produce the same
     // count/min/max/mean byte-for-byte.
     const ninetyDaysAgo = new Date(Date.now() - 90 * dayMs);
-    const live = await prisma.$queryRaw<
-      Array<{
-        type: string;
-        count: bigint;
-        min_value: number;
-        max_value: number;
-        mean_value: number;
-      }>
-    >`
-      SELECT
-        m."type"::text                              AS type,
-        COUNT(*)                                    AS count,
-        MIN(m."value")::double precision            AS min_value,
-        MAX(m."value")::double precision            AS max_value,
-        AVG(m."value")::double precision            AS mean_value
-      FROM measurements m
-      WHERE m."user_id" = ${user.id}
-        AND m."measured_at" >= ${ninetyDaysAgo}
-      GROUP BY m."type"
-    `;
+    const live = await liveSummaryRows(user.id, ninetyDaysAgo);
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -366,9 +423,10 @@ describe("measurement rollups — integration", () => {
       expect(summary.count).toBe(Number(liveRow.count));
       expect(summary.min).toBe(round2(liveRow.min_value));
       expect(summary.max).toBe(round2(liveRow.max_value));
-      // The composed weighted mean equals AVG(value) over the same
-      // rows; both run through `round2`.
-      expect(summary.mean).toBe(round2(liveRow.mean_value));
+      // The composed mean equals the type's documented mean over the same
+      // rows (AVG, or the mean of hourly-mean days); both run through
+      // `round2`.
+      expect(summary.mean).toBe(round2(liveRow.expectedMean));
     }
   });
 
@@ -741,8 +799,8 @@ describe("measurement rollups — integration", () => {
 
     // 60 readings over 30 days, two types, deliberately spread so
     // anomalies + slopes + windowed avgs all have signal.
-    const now = Date.now();
-    const dayMs = 24 * 60 * 60 * 1000;
+    const now = fixtureAnchor();
+    const dayMs = DAY_MS;
     const seedRows: Array<{
       userId: string;
       type: "WEIGHT" | "PULSE";
@@ -777,26 +835,7 @@ describe("measurement rollups — integration", () => {
     // Parallel live aggregation over the same 90-day window using the
     // exact heavy-aggregate shape the cold-mount fallback runs.
     const ninetyDaysAgo = new Date(now - 90 * dayMs);
-    const live = await prisma.$queryRaw<
-      Array<{
-        type: string;
-        count: bigint;
-        min_value: number;
-        max_value: number;
-        mean_value: number;
-      }>
-    >`
-      SELECT
-        m."type"::text                              AS type,
-        COUNT(*)                                    AS count,
-        MIN(m."value")::double precision            AS min_value,
-        MAX(m."value")::double precision            AS max_value,
-        AVG(m."value")::double precision            AS mean_value
-      FROM measurements m
-      WHERE m."user_id" = ${user.id}
-        AND m."measured_at" >= ${ninetyDaysAgo}
-      GROUP BY m."type"
-    `;
+    const live = await liveSummaryRows(user.id, ninetyDaysAgo);
 
     const aggregate = await buildComprehensiveAggregate(user.id);
 
@@ -811,7 +850,7 @@ describe("measurement rollups — integration", () => {
       expect(summary.count).toBe(Number(liveRow.count));
       expect(summary.min).toBe(round2(liveRow.min_value));
       expect(summary.max).toBe(round2(liveRow.max_value));
-      expect(summary.mean).toBe(round2(liveRow.mean_value));
+      expect(summary.mean).toBe(round2(liveRow.expectedMean));
       // Narrow aggregate fills the non-composable windowed columns.
       // Slope tuples and avg7/avg30 are sourced from live SQL even on
       // the rollup-fresh path so the values are present (not null) as
