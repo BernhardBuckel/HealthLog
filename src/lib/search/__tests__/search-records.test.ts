@@ -19,8 +19,14 @@ import type { SearchCandidate } from "../match";
 import {
   readableSources,
   scanNewest,
+  searchRecords,
   type ScanBudget,
 } from "../search-records";
+
+const { loadRecordCandidates } = vi.hoisted(() => ({
+  loadRecordCandidates: vi.fn(async () => []),
+}));
+vi.mock("@/lib/mcp/record-search", () => ({ loadRecordCandidates }));
 
 function budget(deadlineIn = 10_000, clock = { t: 0 }): ScanBudget {
   return {
@@ -88,6 +94,64 @@ describe("scanNewest", () => {
     await scanNewest({ budget: b, wanted: 3, batch: 10, read, match: s.match });
     expect(s.reads.length).toBe(2);
     expect(b.truncated).toBe(true);
+  });
+});
+
+describe("an abandoned search", () => {
+  it("stops a scan at its next batch once the signal aborts", async () => {
+    const controller = new AbortController();
+    const b = { ...budget(), signal: controller.signal };
+    const s = source(10_000, 1_000_000);
+    const read = async (cursor: string | null, take: number) => {
+      controller.abort();
+      return s.read(cursor, take);
+    };
+    await scanNewest({ budget: b, wanted: 3, batch: 10, read, match: s.match });
+    expect(s.reads).toEqual([10]);
+    expect(b.truncated).toBe(true);
+  });
+
+  it("starts no source when the request is already gone", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const result = await searchRecords({
+      recordId: "u1",
+      query: "schulter",
+      limit: 5,
+      modules: null,
+      domainVisible: () => true,
+      displayLocale: "en",
+      timezone: "UTC",
+      signal: controller.signal,
+    });
+    // `prisma` is an empty object here: any source that ran would throw.
+    expect(loadRecordCandidates).not.toHaveBeenCalled();
+    expect(result.groups).toEqual([]);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("hands the clinical kinds the shared budget", async () => {
+    const clock = { t: 0 };
+    loadRecordCandidates.mockImplementationOnce(async (...args: unknown[]) => {
+      const options = args[3] as { shouldStop: () => boolean };
+      expect(options.shouldStop()).toBe(false);
+      clock.t = 2_000;
+      expect(options.shouldStop()).toBe(true);
+      return [];
+    });
+    await searchRecords({
+      recordId: "u1",
+      query: "schulter",
+      limit: 5,
+      modules: null,
+      // Only the clinical kinds: every other source would reach `prisma`.
+      domainVisible: (domain) => domain === "profile",
+      displayLocale: "en",
+      timezone: "UTC",
+      now: () => clock.t,
+      budgetMs: 1_500,
+    });
+    expect(loadRecordCandidates).toHaveBeenCalledTimes(1);
   });
 });
 

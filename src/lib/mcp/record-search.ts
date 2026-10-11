@@ -20,7 +20,7 @@
  * uses. The document body itself is never read for a search.
  *
  * Ranking and folding live in `@/lib/search/match`, shared with the in-app
- * search (`GET /api/search`), which reads its record kinds through
+ * search (`POST /api/search`), which reads its record kinds through
  * `loadRecordCandidates` here as well: one matcher, one set of record reads.
  *
  * Module switches. A record kind whose module the account has off (or the
@@ -349,7 +349,7 @@ async function visitCandidates(
   userId: string,
   owner: Owner,
   origin: string,
-  take: number,
+  read: KindRead,
   empty: boolean,
 ): Promise<SearchCandidate[]> {
   const rows = await prisma.encounter.findMany({
@@ -361,10 +361,10 @@ async function visitCandidates(
       ...(empty ? { occurredAt: { lte: new Date() } } : {}),
     },
     orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
-    take,
+    take: read.take,
     include: { practitioner: PRACTITIONER_SELECT },
   });
-  return rows.map((row) => {
+  return mapUntilStopped(rows, read, (row): SearchCandidate => {
     const practitioner = livePractitioner(row.practitioner);
     const reason = decryptText(row.reasonEncrypted);
     const outcome = decryptText(row.outcomeEncrypted);
@@ -476,15 +476,15 @@ async function conditionCandidates(
   userId: string,
   owner: Owner,
   origin: string,
-  take: number,
+  read: KindRead,
 ): Promise<SearchCandidate[]> {
   const rows = await prisma.illnessEpisode.findMany({
     where: { userId, deletedAt: null },
     orderBy: [{ onsetAt: "desc" }, { id: "asc" }],
-    take,
+    take: read.take,
     select: CONDITION_SELECT,
   });
-  return rows.map((row) => {
+  return mapUntilStopped(rows, read, (row): SearchCandidate => {
     const bodySite = decryptText(row.bodySiteEncrypted);
     const day = userDayKey(row.onsetAt, owner.timezone);
     const site = bodySite?.replace(/\s+/g, " ").trim();
@@ -604,7 +604,7 @@ async function documentCandidates(
   userId: string,
   owner: Owner,
   origin: string,
-  take: number,
+  read: KindRead,
   query: string,
   words: readonly string[],
   includeAiDeferred: boolean,
@@ -615,7 +615,7 @@ async function documentCandidates(
       where: { userId, deletedAt: null },
       select: DOCUMENT_SELECT,
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      take,
+      take: read.take,
     }),
     words.length > 0
       ? contentMatches(userId, words, includeAiDeferred)
@@ -654,66 +654,73 @@ async function documentCandidates(
         })
       : [];
 
-  return [...rows, ...extra].map((row) => {
-    const dated = row.documentDate ?? row.reportDate;
-    const kindLabel = documentKindLabel(row.kind, "en");
-    const name = row.title ?? row.filename ?? kindLabel;
-    return {
-      id: `document:${row.id}`,
-      title: scrubFenceMarkers(
-        `${name} (${kindLabel}${dated ? `, ${dateOnly(dated)}` : ""})`,
-      ),
-      url: recordUrl(origin, "document", row.id),
-      kindOrder: KIND_ORDER.document,
-      date: (dated ?? row.createdAt).getTime(),
-      record: true,
-      hit: {
-        kind: "document",
-        recordId: row.id,
-        title:
-          row.title ??
-          row.filename ??
-          documentKindLabel(row.kind, owner.display),
-        context: compact([
-          documentKindLabel(row.kind, owner.display),
-          row.title ? row.filename : null,
-        ]),
-        day: dated
-          ? dateOnly(dated)
-          : userDayKey(row.createdAt, owner.timezone),
-        path: recordPath("document", row.id),
-      },
-      contentWords: content.get(row.id),
-      fields: [
-        { text: row.title ?? "", weight: WEIGHT.primary },
-        { text: row.filename ?? "", weight: WEIGHT.primary },
-        {
-          text: [
-            "document",
-            enumWords(row.kind),
-            kindLabel,
-            documentKindLabel(row.kind, owner.locale),
-          ].join(" "),
-          weight: WEIGHT.secondary,
+  // The cap applies to the newest read; the extra rows are content and name
+  // hits beyond it, already bounded by their own read.
+  if (rows.length >= read.take) read.onTruncated();
+  return mapUntilStopped(
+    [...rows, ...extra],
+    { ...read, take: Infinity },
+    (row): SearchCandidate => {
+      const dated = row.documentDate ?? row.reportDate;
+      const kindLabel = documentKindLabel(row.kind, "en");
+      const name = row.title ?? row.filename ?? kindLabel;
+      return {
+        id: `document:${row.id}`,
+        title: scrubFenceMarkers(
+          `${name} (${kindLabel}${dated ? `, ${dateOnly(dated)}` : ""})`,
+        ),
+        url: recordUrl(origin, "document", row.id),
+        kindOrder: KIND_ORDER.document,
+        date: (dated ?? row.createdAt).getTime(),
+        record: true,
+        hit: {
+          kind: "document",
+          recordId: row.id,
+          title:
+            row.title ??
+            row.filename ??
+            documentKindLabel(row.kind, owner.display),
+          context: compact([
+            documentKindLabel(row.kind, owner.display),
+            row.title ? row.filename : null,
+          ]),
+          day: dated
+            ? dateOnly(dated)
+            : userDayKey(row.createdAt, owner.timezone),
+          path: recordPath("document", row.id),
         },
-      ],
-    };
-  });
+        contentWords: content.get(row.id),
+        fields: [
+          { text: row.title ?? "", weight: WEIGHT.primary },
+          { text: row.filename ?? "", weight: WEIGHT.primary },
+          {
+            text: [
+              "document",
+              enumWords(row.kind),
+              kindLabel,
+              documentKindLabel(row.kind, owner.locale),
+            ].join(" "),
+            weight: WEIGHT.secondary,
+          },
+        ],
+      };
+    },
+  );
 }
 
 async function vaccinationCandidates(
   userId: string,
   owner: Owner,
   origin: string,
-  take: number,
+  read: KindRead,
 ): Promise<SearchCandidate[]> {
   const rows = await prisma.vaccinationRecord.findMany({
     where: { userId, deletedAt: null },
     orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
-    take,
+    take: read.take,
     select: VACCINATION_SELECT,
   });
-  return rows.map((row) => {
+  return mapUntilStopped(rows, read, (row): SearchCandidate => {
     const practitioner = livePractitioner(row.practitioner);
     const entry = resolveVaccineEntry({ antigenSlug: row.antigenSlug });
     const own = ownVaccine(row);
@@ -790,6 +797,47 @@ export interface RecordSearchOptions {
   includeAiDeferredText?: boolean;
   /** Newest rows read per kind; defaults to `MAX_ROWS_PER_KIND`. */
   rowsPerKind?: number;
+  /**
+   * Asked before each kind starts and before every row a kind decrypts.
+   * Once it says stop, the kind keeps what it has (its newest rows) and
+   * `onTruncated` is told. The in-app search hands its shared time budget
+   * and the request's abort signal in here.
+   */
+  shouldStop?: () => boolean;
+  /**
+   * Told when a kind did not see all of its rows: it filled its newest
+   * `rowsPerKind` read, or `shouldStop` ended it part-way.
+   */
+  onTruncated?: (kind: RecordKind) => void;
+}
+
+/** How one kind reads: its row cap, and the stop and truncation hooks. */
+interface KindRead {
+  take: number;
+  shouldStop: () => boolean;
+  onTruncated: () => void;
+}
+
+/**
+ * Map a kind's rows newest first until `shouldStop` says stop. The rows are
+ * read already; what this bounds is the decrypting and the building, which is
+ * where a large record spends its time.
+ */
+function mapUntilStopped<Row, Out>(
+  rows: readonly Row[],
+  read: KindRead,
+  build: (row: Row) => Out,
+): Out[] {
+  if (rows.length >= read.take) read.onTruncated();
+  const out: Out[] = [];
+  for (const row of rows) {
+    if (read.shouldStop()) {
+      read.onTruncated();
+      break;
+    }
+    out.push(build(row));
+  }
+  return out;
 }
 
 /**
@@ -811,26 +859,40 @@ export async function loadRecordCandidates(
     options.kinds ? Promise.resolve(options.kinds) : readableKinds(userId),
     loadOwner(userId, options.displayLocale),
   ]);
+  const shouldStop = options.shouldStop ?? (() => false);
+  const reading = (kind: RecordKind): KindRead | null => {
+    if (!kinds.has(kind)) return null;
+    const onTruncated = () => options.onTruncated?.(kind);
+    if (shouldStop()) {
+      onTruncated();
+      return null;
+    }
+    return { take, shouldStop, onTruncated };
+  };
+  const visit = reading("visit");
+  const condition = reading("condition");
+  const document = reading("document");
+  const vaccination = reading("vaccination");
   const groups = await Promise.all([
-    kinds.has("visit")
-      ? visitCandidates(userId, owner, origin, take, empty)
+    visit
+      ? visitCandidates(userId, owner, origin, visit, empty)
       : Promise.resolve([]),
-    kinds.has("condition")
-      ? conditionCandidates(userId, owner, origin, take)
+    condition
+      ? conditionCandidates(userId, owner, origin, condition)
       : Promise.resolve([]),
-    kinds.has("document")
+    document
       ? documentCandidates(
           userId,
           owner,
           origin,
-          take,
+          document,
           query,
           words,
           options.includeAiDeferredText === true,
         )
       : Promise.resolve([]),
-    kinds.has("vaccination")
-      ? vaccinationCandidates(userId, owner, origin, take)
+    vaccination
+      ? vaccinationCandidates(userId, owner, origin, vaccination)
       : Promise.resolve([]),
   ]);
   return groups.flat();

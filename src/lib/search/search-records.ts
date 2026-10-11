@@ -1,5 +1,5 @@
 /**
- * The in-app record search behind `GET /api/search` (Discussion #1117): one
+ * The in-app record search behind `POST /api/search` (Discussion #1117): one
  * query over visits, conditions, documents, vaccinations, lab results,
  * medications, symptoms, workouts and the free-text notes on mood entries,
  * readings and illness days, each hit with the in-app path that opens it.
@@ -16,7 +16,11 @@
  *     batches of `SCAN_BATCH`, and stops as soon as it holds more hits than
  *     the caller's limit (newest first, so those are the newest matches);
  *   - one search shares a time budget (`SEARCH_TIME_BUDGET_MS`); a source
- *     checks it before every batch and stops when it has run out;
+ *     checks it before every batch and stops when it has run out, the
+ *     clinical kinds check it before every row they decrypt, and a source
+ *     that has not started yet when it runs out is not started at all;
+ *   - the request's abort signal ends the search the same way: a client that
+ *     typed on, or a newer search by the same actor, stops this one;
  *   - at most `SOURCE_CONCURRENCY` sources read at once, so one search holds
  *     a few pool connections, not one per table;
  *   - only matching rows are kept: a batch's decrypted text is dropped once
@@ -101,10 +105,17 @@ const MAX_DOCUMENT_SNIPPETS = 5;
 export interface ScanBudget {
   readonly deadline: number;
   readonly now: () => number;
+  /** Aborted when nobody waits for the answer any more. */
+  readonly signal?: AbortSignal;
   /** A cap or the deadline stopped a source before it read everything. */
   truncated: boolean;
   /** Rows read, for the annotation. */
   rows: number;
+}
+
+/** The search may not read any further: out of time, or abandoned. */
+export function budgetSpent(budget: ScanBudget): boolean {
+  return budget.signal?.aborted === true || budget.now() >= budget.deadline;
 }
 
 /**
@@ -128,7 +139,7 @@ export async function scanNewest<Row extends { id: string }>(args: {
   let cursor: string | null = null;
   let scanned = 0;
   for (;;) {
-    if (budget.now() >= budget.deadline) {
+    if (budgetSpent(budget)) {
       budget.truncated = true;
       break;
     }
@@ -161,15 +172,23 @@ function after(cursor: string | null): {
   return cursor ? { cursor: { id: cursor }, skip: 1 } : {};
 }
 
-/** Run `tasks` with at most `limit` in flight. */
+/**
+ * Run `tasks` with at most `limit` in flight. A task not yet started when
+ * the budget is spent is not started: the search says `truncated` instead.
+ */
 async function inPool(
   tasks: ReadonlyArray<() => Promise<void>>,
   limit: number,
+  budget: ScanBudget,
 ): Promise<void> {
   let next = 0;
   const worker = async () => {
     while (next < tasks.length) {
       const task = tasks[next++];
+      if (budgetSpent(budget)) {
+        budget.truncated = true;
+        continue;
+      }
       await task();
     }
   };
@@ -805,6 +824,12 @@ export interface SearchRecordsArgs {
   displayLocale: Locale;
   /** The record's zone, for the calendar day of an instant. */
   timezone: string;
+  /**
+   * Aborted when the answer is no longer wanted (the client went away, or
+   * the same actor started a newer search): every source stops at its next
+   * check.
+   */
+  signal?: AbortSignal;
   /** Overrides for tests. */
   now?: () => number;
   budgetMs?: number;
@@ -837,6 +862,7 @@ export async function searchRecords(
   const budget: ScanBudget = {
     deadline: started + (args.budgetMs ?? SEARCH_TIME_BUDGET_MS),
     now,
+    signal: args.signal,
     truncated: false,
     rows: 0,
   };
@@ -877,19 +903,21 @@ export async function searchRecords(
           displayLocale: args.displayLocale,
           includeAiDeferredText: true,
           rowsPerKind: RECORD_ROWS_PER_KIND,
+          // The same budget as every other source: each kind checks it
+          // before every row it decrypts, so a large record cannot hold the
+          // search past its time.
+          shouldStop: () => budgetSpent(budget),
+          // A kind that holds more than its newest `RECORD_ROWS_PER_KIND`,
+          // or that the budget stopped part-way, may have older matches the
+          // search did not see.
+          onTruncated: () => {
+            budget.truncated = true;
+          },
         },
       );
       budget.rows += candidates.length;
-      // Each kind reads its newest `RECORD_ROWS_PER_KIND`; a kind that
-      // filled the read may have older rows the search did not see.
-      const perKind = new Map<string, number>();
       for (const candidate of candidates) {
-        const kind = candidate.hit?.kind ?? "";
-        perKind.set(kind, (perKind.get(kind) ?? 0) + 1);
         if (keepIfHit(ctx, candidate)) collected.push(candidate);
-      }
-      if ([...perKind.values()].some((n) => n >= RECORD_ROWS_PER_KIND)) {
-        budget.truncated = true;
       }
     });
   }
@@ -903,7 +931,7 @@ export async function searchRecords(
   add("illnessNote", () => illnessNoteCandidates(ctx));
   add("measurementNote", () => measurementNoteCandidates(ctx));
 
-  await inPool(tasks, SOURCE_CONCURRENCY);
+  await inPool(tasks, SOURCE_CONCURRENCY, budget);
 
   const ranked: Ranked[] = collected
     .filter((candidate) => candidate.hit)

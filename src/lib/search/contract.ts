@@ -1,5 +1,5 @@
 /**
- * The in-app record search (`GET /api/search`): its vocabulary and wire
+ * The in-app record search (`POST /api/search`): its vocabulary and wire
  * types. Pure constants and types, no validator, so the command palette
  * imports this file and nothing server-side. The Zod schemas the route parses
  * with and the OpenAPI table publishes live in `./wire-schemas.ts`.

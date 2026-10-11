@@ -17,12 +17,15 @@ import { dataEnvelope, recordRefusal, stdResponses } from "./shared";
 
 export const searchPaths: NonNullable<ZodOpenApiObject["paths"]> = {
   "/api/search": {
-    get: {
+    post: {
       tags: ["Records"],
       summary: "Search the record",
       description:
-        "One search over the record: visits and procedures, conditions, documents (title, file name and indexed text), vaccinations, lab results (analyte names and notes), medications, symptoms, workouts by sport, and the notes on mood entries, readings and illness days. Hits are grouped by kind, the best group first, and each carries the in-app path that opens the record. Matching ignores case and accents and reads German umlauts typed as ae, oe, ue or ss. A source whose module the record has switched off is not read. The search reads each source newest first under a per-source row cap and a time budget; `truncated` says when that cut it short. The query is never logged. Rate limited per acting account (60 a minute). A grant scoped to some sections of the record does not open it, like the timeline.",
-      requestParams: { query: searchQuerySchema },
+        "One search over the record: visits and procedures, conditions, documents (title, file name and indexed text), vaccinations, lab results (analyte names and notes), medications, symptoms, workouts by sport, and the notes on mood entries, readings and illness days. Hits are grouped by kind, the best group first, and each carries the in-app path that opens the record. Matching ignores case and accents and reads German umlauts typed as ae, oe, ue or ss. A source whose module the record has switched off is not read. The search reads each source newest first under a per-source row cap and a time budget; `truncated` says when that cut it short. The query travels in the JSON body, never in the URL, and is never logged. Rate limited per acting account (20 a minute), and one search at a time: a newer search by the same account stops the one before it, which then answers 409 `search.superseded`. A grant scoped to some sections of the record does not open it, like the timeline.",
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: searchQuerySchema } },
+      },
       responses: {
         "200": {
           description: "The hits, grouped by kind.",

@@ -1,5 +1,5 @@
 /**
- * v1.42.2 (#1117) — `GET /api/search` against real Postgres.
+ * v1.42.2 (#1117) — `POST /api/search` against real Postgres.
  *
  * What the unit tests cannot show: that encrypted text is found after the
  * decrypt whichever way the umlaut is typed, that the reads are narrowed to
@@ -79,17 +79,20 @@ async function signIn(userId: string) {
 }
 
 async function search(q: string, limit?: number): Promise<Response> {
-  const { GET } = await import("@/app/api/search/route");
-  const params = new URLSearchParams({ q });
-  if (limit) params.set("limit", String(limit));
+  const { POST } = await import("@/app/api/search/route");
   return (
-    GET as unknown as (
+    POST as unknown as (
       req: NextRequest,
       ctx: { params: Promise<object> },
     ) => Promise<Response>
-  )(new NextRequest(`http://localhost/api/search?${params}`), {
-    params: Promise.resolve({}),
-  });
+  )(
+    new NextRequest("http://localhost/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(limit ? { q, limit } : { q }),
+    }),
+    { params: Promise.resolve({}) },
+  );
 }
 
 async function hits(q: string, limit?: number): Promise<SearchResponse> {

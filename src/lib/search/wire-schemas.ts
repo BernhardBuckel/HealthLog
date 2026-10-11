@@ -1,5 +1,5 @@
 /**
- * Zod schemas for `GET /api/search`. The route parses its query with these
+ * Zod schemas for `POST /api/search`. The route parses its body with these
  * and the OpenAPI table publishes them. Server and OpenAPI side only: the
  * palette imports its types from `./contract.ts`.
  */
