@@ -1,5 +1,19 @@
 import { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
+import {
+  pinTimeZoneOnConnect,
+  sessionOptionsDisabled,
+  TIME_ZONE_OPTION,
+} from "@/lib/db-session";
+
+export {
+  pinTimeZoneOnConnect,
+  SESSION_TIME_ZONE,
+  SET_SESSION_TIME_ZONE,
+  sessionOptionsDisabled,
+  timeZoneSessionOptions,
+} from "@/lib/db-session";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -109,22 +123,6 @@ export function getWorkMem(): string {
 }
 
 /**
- * Whether the app may send the libpq `options` startup parameter at all.
- *
- * PgBouncer refuses a connection that carries a startup parameter it does not
- * know (`unsupported startup parameter: options`) unless the operator lists
- * it in `ignore_startup_parameters`. Up to v1.41 such a host could set the
- * statement timeout to 0, which dropped the whole string; v1.42 always sends
- * `work_mem`, so that no longer worked. `DATABASE_SESSION_OPTIONS_DISABLED`
- * (1, true or yes) sends none of the session settings; the pooler or the
- * database's own defaults then apply.
- */
-export function sessionOptionsDisabled(): boolean {
-  const raw = process.env.DATABASE_SESSION_OPTIONS_DISABLED?.trim();
-  return raw !== undefined && /^(1|true|yes)$/i.test(raw);
-}
-
-/**
  * Build the libpq `options` startup string applying the session settings.
  * Passed straight through `PrismaPg` to the underlying `pg.Pool`, which
  * forwards it as the connection's `options` startup parameter so every
@@ -143,16 +141,18 @@ export function buildSessionOptions(): string | undefined {
     timeoutMs > 0
       ? `-c statement_timeout=${timeoutMs} -c idle_in_transaction_session_timeout=${timeoutMs} `
       : "";
-  return `${timeouts}-c work_mem=${getWorkMem()}`;
+  return `${timeouts}-c work_mem=${getWorkMem()} ${TIME_ZONE_OPTION}`;
 }
 
 function createPrismaClient() {
-  const adapter = new PrismaPg({
+  const pool = new Pool({
     connectionString: process.env.DATABASE_URL!,
     max: getPrismaPoolMax(),
     connectionTimeoutMillis: getPoolConnectionTimeoutMs(),
     options: buildSessionOptions(),
   });
+  pinTimeZoneOnConnect(pool);
+  const adapter = new PrismaPg(pool, { disposeExternalPool: true });
   return new PrismaClient({ adapter });
 }
 

@@ -26,6 +26,7 @@ describe("maintenance session settings behind a pooler", () => {
       "SET maintenance_work_mem = '128MB'",
       "SET max_parallel_maintenance_workers = '0'",
       "SET lock_timeout = '300000'",
+      "SET TimeZone = 'UTC'",
     ]);
   });
   it("keeps maintenance in one process so it needs no /dev/shm segment", () => {
