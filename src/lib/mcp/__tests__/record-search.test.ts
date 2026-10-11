@@ -151,13 +151,13 @@ import {
   USER_TEXT_FENCE_END,
   USER_TEXT_FENCE_START,
 } from "@/lib/ai/coach/data-fence";
+import { MAX_DOCUMENT_EXCERPT_CHARS } from "../record-search";
 import {
-  MAX_DOCUMENT_EXCERPT_CHARS,
   MAX_RECORD_RESULTS,
   queryWords,
   rankCandidates,
   type SearchCandidate,
-} from "../record-search";
+} from "@/lib/search/match";
 import type { McpAuthContext } from "../auth";
 
 const ctx = (userId: string): McpAuthContext => ({
