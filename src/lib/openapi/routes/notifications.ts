@@ -188,7 +188,7 @@ export const notificationChannelPaths: NonNullable<ZodOpenApiObject["paths"]> =
               "application/json": {
                 schema: dataEnvelope(
                   notificationActionResult,
-                  "NotificationActionResult",
+                  "NotificationActionResponse",
                 ),
               },
             },

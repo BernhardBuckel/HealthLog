@@ -698,6 +698,52 @@ describe("sendViaApns — dispatcher fan-out", () => {
     expect(note.payload).toEqual({ eventType: "MEDICATION_REMINDER" });
   });
 
+  it("carries the resolved tap path as the `url` payload key", async () => {
+    vi.mocked(prisma.device.findMany).mockResolvedValueOnce([
+      { id: "d1", apnsToken: "tok-a", apnsEnvironment: "sandbox" },
+    ] as never);
+    sendMock.mockResolvedValueOnce({ sent: [{ device: "tok-a" }], failed: [] });
+
+    await sendViaApns("u-1", {
+      title: "t",
+      message: "m",
+      eventType: "MOOD_REMINDER",
+      metadata: { localDate: "2026-10-11" },
+      tap: {
+        path: "/mood?add=1",
+        url: "https://health.example/mood?add=1",
+        label: "Open",
+      },
+    });
+
+    const note = sendMock.mock.calls[0][0];
+    expect(note.payload).toEqual({
+      eventType: "MOOD_REMINDER",
+      localDate: "2026-10-11",
+      url: "/mood?add=1",
+    });
+    // Unchanged keys: the category still names the event.
+    expect(note.category).toBe("MOOD_REMINDER");
+  });
+
+  it("never gives a managed Guardian a tap path, even when one is set", async () => {
+    vi.mocked(prisma.device.findMany).mockResolvedValueOnce([
+      { id: "d1", apnsToken: "tok-a", apnsEnvironment: "sandbox" },
+    ] as never);
+    sendMock.mockResolvedValueOnce({ sent: [{ device: "tok-a" }], failed: [] });
+
+    await sendViaApns("guardian-1", {
+      title: "t",
+      message: "m",
+      eventType: "MEDICATION_REMINDER",
+      recordUserId: "record-1",
+      recipientUserId: "guardian-1",
+      tap: { path: "/medications", url: null, label: "Open" },
+    });
+
+    expect(sendMock.mock.calls[0][0].payload.url).toBeUndefined();
+  });
+
   it("forwards reminderId on MEASUREMENT_REMINDER and strips unlisted keys", async () => {
     // The iOS "Erledigt" action POSTs the reminder completion directly
     // from a foreground / handled notification, so the reminder's id must

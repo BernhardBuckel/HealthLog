@@ -234,6 +234,8 @@ choice existed keeps sending:
   message are masked as they are on every other channel.
 - `priority` is a word: `urgent` for an event flagged urgent, `high` for
   medication reminders, `default` for everything else.
+- `url`, when `APP_URL` is set, is the page the notification leads to (see
+  [Tap targets](#what-tapping-a-notification-opens)). Absent otherwise.
 
 **Gotify** sends the body Gotify's `POST /message` endpoint expects:
 
@@ -449,6 +451,93 @@ Two gotchas worth knowing before you blame a stale token:
 > a web/PWA-only self-hoster never needs it and there is no toggle for it
 > in the web UI. If you only run the PWA, ignore it entirely — your
 > medication reminders come from the server cron over the channels above.
+
+## Tap targets, content and quick answers
+
+### What tapping a notification opens
+
+Every notification leads somewhere in the app. The server decides where,
+once per event type, and every channel carries the same target:
+
+| Notification                                 | Opens                                                                              |
+| -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Mood reminder                                | `/mood`, with the mood entry sheet already open                                    |
+| Morning briefing                             | the dashboard                                                                      |
+| Medication reminder, low supply, shared dose | `/medications` (low supply opens the medication)                                   |
+| Check-up and measurement reminders           | `/checkups`                                                                        |
+| Proactive Coach nudge                        | the Coach conversation it started                                                  |
+| Cycle reminders                              | `/cycle` (nothing with discreet notifications on)                                  |
+| New sign-in                                  | Settings, Security                                                                 |
+| Integration sync failing                     | Settings, Integrations (an admin alert about another account opens the admin page) |
+| Illness red flag                             | the illness episode                                                                |
+| Other system alerts                          | the dashboard, or the admin status page for operator alerts                        |
+
+How each channel carries it:
+
+- **ntfy**: the `Click` header, so tapping the notification opens the page.
+- **Telegram**: an **Open in HealthLog** button under the message, below any
+  action buttons. Telegram only accepts `https` button links on a public
+  host, so a plain-HTTP instance gets a text link instead, and an instance
+  on `localhost` gets no link.
+- **Web Push**: the service worker opens the page, or focuses an open
+  HealthLog tab and navigates it there.
+- **APNs**: the path rides the payload as `url`.
+- **Webhook**: the generic body gains a `url` field; the Gotify body gains
+  `extras["client::notification"].click.url`, which the Gotify app opens.
+- **Email**: a link line under the message.
+
+ntfy, Telegram, the webhook and email need an absolute link, built from
+`APP_URL` (or `NEXT_PUBLIC_APP_URL`). Without one those channels deliver as
+before, just without a link. A notification about a profile you look after
+as a Guardian carries no deep link, because your session opens on your own
+record.
+
+### Health figures in notifications
+
+Settings, Notifications, **Health figures in notifications** decides what a
+notification may say on a lock screen:
+
+- **Off** (the default): a notification says what it is about and shows no
+  health figure. The morning briefing reads "Your morning briefing".
+- **On**: notifications add their figures. The morning briefing becomes
+  "Morning score 78" with the day's one-line summary underneath.
+
+Tap targets and quick answers work the same either way. The setting is
+stored as `content.detail` (`generic` or `detailed`) in the notification
+preferences (`PATCH /api/auth/me/notification-prefs`) and travels with the
+account backup.
+
+### Quick answers on the mood reminder
+
+On **ntfy** the mood reminder carries three buttons, **Good**, **Okay** and
+**Bad**. Tapping one logs a mood entry straight from the notification,
+without opening the app, and clears the notification. They map onto the
+five-point mood scale as Good = 4, Okay = 3, Bad = 2; the outer points
+stay in the app. The entry is marked with the source **Notification**.
+
+Each button calls `POST <APP_URL>/api/notifications/action/<token>`. The
+token is the only credential, so it is built to be harmless on its own:
+
+- it is signed with `API_TOKEN_HMAC_KEY` and names one account and one
+  answer, so it cannot be moved to another account or another answer;
+- it expires six hours after the reminder was sent;
+- the three answers of one reminder are one use between them: the first
+  tap logs, every later tap on that reminder is refused;
+- the route is rate-limited before it reads the token, refuses when the
+  mood module has been turned off, and the token is scrubbed from logs.
+
+The buttons need `APP_URL`, because the ntfy app calls the URL from your
+phone. Your phone has to reach the instance at that address.
+
+**Telegram** keeps its own keyboard on the mood reminder: the full 1 to 5
+scale, a note and a "later" button.
+
+**Web Push** offers no buttons. Most browsers show at most two actions,
+which cannot carry a three-way answer, and Safari on iPhone shows none.
+Tapping the notification opens the mood entry sheet instead.
+
+**APNs**: the iOS app draws its own buttons from the notification category
+it registers for the mood reminder.
 
 ## Which channel should I pick?
 

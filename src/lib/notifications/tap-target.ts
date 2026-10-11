@@ -63,7 +63,6 @@ export function isSafeAppPath(value: unknown): value is string {
   if (!value.startsWith("/")) return false;
   if (value.startsWith("//")) return false;
   if (value.includes("\\")) return false;
-  // eslint-disable-next-line no-control-regex
   if (/[\s\u0000-\u001f\u007f]/.test(value)) return false;
   return true;
 }
