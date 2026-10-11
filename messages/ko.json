@@ -12560,8 +12560,8 @@
   },
   "palette": {
     "title": "검색",
-    "description": "페이지, 설정, 모듈 또는 작업을 찾습니다.",
-    "placeholder": "페이지, 설정, 모듈 검색…",
+    "description": "페이지, 설정, 모듈, 작업 또는 내 기록의 항목을 찾습니다.",
+    "placeholder": "페이지, 설정, 내 기록 검색…",
     "results": "결과",
     "noResults": "“{query}”에 대한 결과가 없습니다.",
     "moduleOn": "켜짐",
@@ -12575,7 +12575,8 @@
       "insights": "인사이트",
       "settings": "설정",
       "modules": "모듈",
-      "actions": "작업"
+      "actions": "작업",
+      "records": "내 기록에서"
     },
     "actions": {
       "capture": "새 항목",
@@ -12583,6 +12584,28 @@
       "backup": "백업 만들기",
       "today": "오늘 열기",
       "shortcuts": "키보드 단축키 보기"
+    },
+    "records": {
+      "loading": "내 기록을 검색하는 중…",
+      "empty": "내 기록에서 “{query}”에 대한 결과가 없습니다.",
+      "error": "내 기록을 검색할 수 없습니다. 잠시 후 다시 시도하세요.",
+      "truncated": "최근 항목만 검색했습니다.",
+      "kind": {
+        "visit": "진료",
+        "condition": "질환",
+        "document": "문서",
+        "vaccination": "예방접종",
+        "lab": "검사 결과",
+        "medication": "약",
+        "symptom": "증상",
+        "workout": "운동",
+        "note": "메모"
+      },
+      "source": {
+        "mood": "기분 메모",
+        "measurement": "측정값 메모",
+        "illness": "질병 일지"
+      }
     }
   },
   "shortcuts": {

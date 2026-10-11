@@ -27,9 +27,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDeepLinkedRecord } from "@/hooks/use-deep-linked-record";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { useEncounters, type Encounter } from "@/hooks/use-encounters";
+import { apiGet } from "@/lib/api/api-fetch";
 import { useTranslations } from "@/lib/i18n/context";
 import { EncounterSheet } from "./encounter-sheet";
 import { VisitCard } from "./visit-card";
+
+/** One visit by id, for a link to a visit older than the list reads. */
+function fetchVisit(id: string): Promise<Encounter | null> {
+  return apiGet<Encounter>(`/api/encounters/${encodeURIComponent(id)}`).catch(
+    () => null,
+  );
+}
 
 export function VisitsSection({ enabled = true }: { enabled?: boolean }) {
   const { t } = useTranslations();
@@ -60,6 +68,9 @@ export function VisitsSection({ enabled = true }: { enabled?: boolean }) {
     records: list.data ? [...upcoming, ...past] : undefined,
     anchorAttribute: "data-encounter-id",
     open: canManageVisits ? openSheet : undefined,
+    // The list reads the newest hundred of each arm; a search hit can name an
+    // older visit, which is read on its own.
+    resolve: fetchVisit,
   });
   const empty = upcoming.length === 0 && past.length === 0;
   // The last visit that took place: the start of the visit preparation.

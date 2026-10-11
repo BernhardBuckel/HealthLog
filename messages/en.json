@@ -12560,8 +12560,8 @@
   },
   "palette": {
     "title": "Search",
-    "description": "Find a page, a setting, a module or an action.",
-    "placeholder": "Search pages, settings, modules…",
+    "description": "Find a page, a setting, a module, an action or an entry in your records.",
+    "placeholder": "Search pages, settings, your records…",
     "results": "Results",
     "noResults": "Nothing found for “{query}”.",
     "moduleOn": "On",
@@ -12575,7 +12575,8 @@
       "insights": "Insights",
       "settings": "Settings",
       "modules": "Modules",
-      "actions": "Actions"
+      "actions": "Actions",
+      "records": "In your records"
     },
     "actions": {
       "capture": "New entry",
@@ -12583,6 +12584,28 @@
       "backup": "Create a backup",
       "today": "Open today",
       "shortcuts": "Show keyboard shortcuts"
+    },
+    "records": {
+      "loading": "Searching your records…",
+      "empty": "Nothing in your records for “{query}”.",
+      "error": "Your records could not be searched. Try again in a moment.",
+      "truncated": "Only the most recent entries were searched.",
+      "kind": {
+        "visit": "Visit",
+        "condition": "Condition",
+        "document": "Document",
+        "vaccination": "Vaccination",
+        "lab": "Lab result",
+        "medication": "Medication",
+        "symptom": "Symptom",
+        "workout": "Workout",
+        "note": "Note"
+      },
+      "source": {
+        "mood": "Mood note",
+        "measurement": "Note on a reading",
+        "illness": "Illness diary"
+      }
     }
   },
   "shortcuts": {

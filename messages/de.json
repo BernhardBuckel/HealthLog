@@ -12560,8 +12560,8 @@
   },
   "palette": {
     "title": "Suche",
-    "description": "Finde eine Seite, eine Einstellung, ein Modul oder eine Aktion.",
-    "placeholder": "Seiten, Einstellungen, Module suchen…",
+    "description": "Finde eine Seite, eine Einstellung, ein Modul, eine Aktion oder einen Eintrag in deinen Daten.",
+    "placeholder": "Seiten, Einstellungen, deine Einträge suchen…",
     "results": "Treffer",
     "noResults": "Nichts gefunden für „{query}“.",
     "moduleOn": "An",
@@ -12575,7 +12575,8 @@
       "insights": "Insights",
       "settings": "Einstellungen",
       "modules": "Module",
-      "actions": "Aktionen"
+      "actions": "Aktionen",
+      "records": "In deinen Einträgen"
     },
     "actions": {
       "capture": "Neuer Eintrag",
@@ -12583,6 +12584,28 @@
       "backup": "Backup erstellen",
       "today": "Heute öffnen",
       "shortcuts": "Tastenkürzel zeigen"
+    },
+    "records": {
+      "loading": "Deine Einträge werden durchsucht…",
+      "empty": "Nichts in deinen Einträgen für „{query}“.",
+      "error": "Deine Einträge konnten nicht durchsucht werden. Versuch es gleich noch einmal.",
+      "truncated": "Nur die neuesten Einträge wurden durchsucht.",
+      "kind": {
+        "visit": "Arztbesuch",
+        "condition": "Erkrankung",
+        "document": "Dokument",
+        "vaccination": "Impfung",
+        "lab": "Laborwert",
+        "medication": "Medikament",
+        "symptom": "Symptom",
+        "workout": "Training",
+        "note": "Notiz"
+      },
+      "source": {
+        "mood": "Stimmungsnotiz",
+        "measurement": "Notiz zu einem Messwert",
+        "illness": "Krankheitstagebuch"
+      }
     }
   },
   "shortcuts": {

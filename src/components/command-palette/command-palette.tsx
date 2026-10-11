@@ -36,16 +36,24 @@ import { pushRecent, readRecent } from "@/lib/command-palette/recent";
 import { scrollToAnchorWhenReady } from "@/lib/dom/scroll-to-anchor";
 import { useCoachLaunch } from "@/lib/insights/coach-launch-context";
 import { useTranslations } from "@/lib/i18n/context";
+import type { SearchHit } from "@/lib/search/contract";
 import { cn } from "@/lib/utils";
 
 import { setCommandPaletteOpen, useCommandPaletteOpen } from "./palette-store";
+import { RecordHitContent } from "./record-hit";
 import { usePaletteIndex } from "./use-palette-index";
+import { useRecordSearch } from "./use-record-search";
 
 /**
  * The command palette: one field, and below it the places, settings, module
  * switches and actions that match, grouped. Arrow keys move, Enter opens,
  * Escape closes. A module's entry is a switch: Enter flips it and the palette
  * stays open.
+ *
+ * After the local results comes "In your records": the server's search over
+ * the record (`useRecordSearch`, `GET /api/search`), once the typing pauses.
+ * Its hits are options like any other, after the local ones, so the arrows
+ * and Enter work across both; each opens the page that shows the record.
  *
  * Accessibility follows the combobox pattern: the field is the
  * `role="combobox"` that keeps focus, the results are a `listbox` of grouped
@@ -177,8 +185,15 @@ export function PaletteBody({ isMobile }: { isMobile: boolean }) {
     () => sections.flatMap((section) => section.entries),
     [sections],
   );
-  const activeIndex =
-    flat.length === 0 ? -1 : Math.min(active, flat.length - 1);
+  const records = useRecordSearch(query);
+  const recordHits = useMemo(
+    () => records.data?.groups.flatMap((group) => group.hits) ?? [],
+    [records.data],
+  );
+  const showRecords = records.query !== null;
+  const shownHits = showRecords ? recordHits : [];
+  const total = flat.length + shownHits.length;
+  const activeIndex = total === 0 ? -1 : Math.min(active, total - 1);
   const optionId = (i: number) => `${listId}-option-${i}`;
 
   // Keep the highlighted option in view as the arrows move through a list
@@ -231,19 +246,33 @@ export function PaletteBody({ isMobile }: { isMobile: boolean }) {
     }
   }
 
+  function openRecord(path: string) {
+    setCommandPaletteOpen(false);
+    router.push(path);
+  }
+
+  function runAt(index: number) {
+    if (index < 0) return;
+    if (index < flat.length) {
+      run(flat[index]);
+      return;
+    }
+    const hit = shownHits[index - flat.length];
+    if (hit) openRecord(hit.path);
+  }
+
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.nativeEvent.isComposing) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (flat.length === 0) return;
+      if (total === 0) return;
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setActive((activeIndex + step + flat.length) % flat.length);
+      setActive((activeIndex + step + total) % total);
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      const entry = flat[activeIndex];
-      if (entry) run(entry);
+      runAt(activeIndex);
       return;
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -278,7 +307,7 @@ export function PaletteBody({ isMobile }: { isMobile: boolean }) {
           autoFocus
           type="text"
           role="combobox"
-          aria-expanded={flat.length > 0}
+          aria-expanded={total > 0}
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={
@@ -319,7 +348,9 @@ export function PaletteBody({ isMobile }: { isMobile: boolean }) {
         data-slot="command-palette-results"
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2"
       >
-        {sections.length === 0 ? (
+        {sections.length === 0 &&
+        (!showRecords ||
+          (!records.loading && !records.error && shownHits.length === 0)) ? (
           <p
             data-slot="command-palette-empty"
             className="text-muted-foreground px-3 py-8 text-center text-sm"
@@ -414,6 +445,27 @@ export function PaletteBody({ isMobile }: { isMobile: boolean }) {
             );
           })
         )}
+        {showRecords &&
+        !(
+          sections.length === 0 &&
+          !records.loading &&
+          !records.error &&
+          shownHits.length === 0
+        ) ? (
+          <RecordSection
+            headingId={`${listId}-group-records`}
+            hits={shownHits}
+            firstIndex={flat.length}
+            activeIndex={activeIndex}
+            optionId={optionId}
+            loading={records.loading}
+            error={records.error}
+            truncated={records.data?.truncated === true}
+            query={records.query ?? ""}
+            onHover={setActive}
+            onOpen={openRecord}
+          />
+        ) : null}
       </div>
 
       {isMobile ? null : (
@@ -441,6 +493,107 @@ export function PaletteBody({ isMobile }: { isMobile: boolean }) {
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * "In your records": the server's hits after the local results. A status line
+ * (searching, nothing found, failed, older entries not read) is plain text,
+ * not an option, so the arrows skip it.
+ */
+function RecordSection({
+  headingId,
+  hits,
+  firstIndex,
+  activeIndex,
+  optionId,
+  loading,
+  error,
+  truncated,
+  query,
+  onHover,
+  onOpen,
+}: {
+  headingId: string;
+  hits: ReadonlyArray<SearchHit>;
+  firstIndex: number;
+  activeIndex: number;
+  optionId: (i: number) => string;
+  loading: boolean;
+  error: boolean;
+  truncated: boolean;
+  query: string;
+  onHover: (i: number) => void;
+  onOpen: (path: string) => void;
+}) {
+  const { t } = useTranslations();
+  const status = error
+    ? t("palette.records.error")
+    : hits.length === 0
+      ? loading
+        ? t("palette.records.loading")
+        : t("palette.records.empty", { query })
+      : null;
+  return (
+    <div
+      role="group"
+      aria-labelledby={headingId}
+      aria-busy={loading}
+      data-group="records"
+      className="pb-1"
+    >
+      <div
+        id={headingId}
+        className="text-muted-foreground px-3 pt-3 pb-1 text-xs font-medium tracking-wide uppercase"
+      >
+        {t("palette.groups.records")}
+      </div>
+      {hits.map((hit, n) => {
+        const i = firstIndex + n;
+        const selected = i === activeIndex;
+        return (
+          <div
+            key={hit.id}
+            id={optionId(i)}
+            role="option"
+            aria-selected={selected}
+            data-entry={`record:${hit.id}`}
+            data-kind={hit.kind}
+            onMouseMove={() => {
+              if (!selected) onHover(i);
+            }}
+            onMouseDown={(event) => {
+              // Keep focus in the field; the click opens the record.
+              event.preventDefault();
+            }}
+            onClick={() => onOpen(hit.path)}
+            className={cn(
+              "flex min-h-11 cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-sm",
+              selected && "bg-accent text-accent-foreground",
+            )}
+          >
+            <RecordHitContent hit={hit} />
+          </div>
+        );
+      })}
+      {status ? (
+        <p
+          data-slot="command-palette-records-status"
+          aria-live="polite"
+          className="text-muted-foreground px-3 py-2 text-xs"
+        >
+          {status}
+        </p>
+      ) : null}
+      {truncated && !error ? (
+        <p
+          data-slot="command-palette-records-truncated"
+          className="text-muted-foreground px-3 pt-1 pb-2 text-xs"
+        >
+          {t("palette.records.truncated")}
+        </p>
+      ) : null}
     </div>
   );
 }
