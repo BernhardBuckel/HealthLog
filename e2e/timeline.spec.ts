@@ -67,6 +67,18 @@ test("is off by default: no navigation entry, a deep link meets the notice", asy
   await expect(page.locator(navEntry)).toHaveCount(0);
 });
 
+test("opens on three months when the URL names no zoom", async ({ page }) => {
+  await mockTimeline(page, "ready", TODAY);
+  await page.goto("/settings/modules");
+  await setTimelineModule(page, true);
+  await page.goto("/timeline");
+  await expect(
+    page.locator('[data-slot="timeline-zoom"] [data-value="quarter"]'),
+  ).toHaveAttribute("aria-checked", "true", { timeout: 20_000 });
+  // The next test starts from the module switched off.
+  await setTimelineModule(page, false);
+});
+
 test("switching it on opens the readiness inventory, which leads to the timeline", async ({
   page,
 }) => {
@@ -113,7 +125,7 @@ test("the timeline hands the selected day to the day view through ?day=", async 
 }) => {
   await setTimelineModuleOn(page);
   const log = await mockTimeline(page, "full", TODAY);
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
 
   const chart = page.locator('[data-slot="timeline-chart"]');
   await expect(chart).toBeVisible({ timeout: 20_000 });
@@ -196,7 +208,7 @@ test("value lines: quarterly means, gaps kept, short ones bridged, as many as th
 }) => {
   await setTimelineModuleOn(page);
   const log = await mockTimeline(page, "full", TODAY);
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
   const sys = page.locator('svg [data-series="BLOOD_PRESSURE_SYS"]');
   await expect(sys).toBeVisible({ timeout: 20_000 });
   await expect(
@@ -346,7 +358,7 @@ test("each mean's dot sits on the middle of its text and never wraps apart from 
 
   // A narrow chart: the selection bar's means wrap between units only.
   await page.setViewportSize({ width: 800, height: 900 });
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
   await expect(page.locator('[data-slot="timeline-chart"]')).toBeVisible({
     timeout: 20_000,
   });
@@ -360,7 +372,7 @@ test("each mean's dot sits on the middle of its text and never wraps apart from 
 
   // The phone chronicle's means follow the same rule.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
   await check("timeline-chronicle-means");
   await testInfo.attach("chronicle-means-390", {
     body: await page.screenshot(),
@@ -373,7 +385,7 @@ test("one medication is one row: its doses cut the bar, its pause is a gap in it
 }) => {
   await setTimelineModuleOn(page);
   await mockTimeline(page, "full", TODAY);
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
   const lane = page.locator('svg [data-lane="medications"]');
   await expect(lane).toBeVisible({ timeout: 20_000 });
   // The medication's own span is not drawn beside its course.
@@ -423,7 +435,7 @@ test("a chosen range lives in the URL: reload keeps it, Back returns to it", asy
 }) => {
   await setTimelineModuleOn(page);
   const log = await mockTimeline(page, "full", TODAY);
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
   const chart = page.locator('[data-slot="timeline-chart"]');
   await expect(chart).toBeVisible({ timeout: 20_000 });
   const desktop = page.locator('[data-slot="timeline-desktop"]');
@@ -555,7 +567,7 @@ test("on a phone the chronicle replaces the chart and opens a day per row", asyn
   await setTimelineModuleOn(page);
   await mockTimeline(page, "full", TODAY);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
 
   const chronicle = page.locator('[data-slot="timeline-chronicle"]');
   await expect(chronicle).toBeVisible({ timeout: 20_000 });
@@ -596,7 +608,7 @@ test("on a phone the chronicle replaces the chart and opens a day per row", asyn
   expect((await chronicle.boundingBox())!.y).toBe(listTop);
   await sheet.locator('[data-slot="timeline-range-apply"]').click();
   await expect(page).toHaveURL(/[?&]zoom=range&from=\d{4}-\d{2}-\d{2}/);
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
   await expect(chronicle).toBeVisible({ timeout: 20_000 });
 
   await page
@@ -703,7 +715,7 @@ test("a value point reads on its own, by pointer and by keyboard", async ({
   await setTimelineModuleOn(page);
   await mockTimeline(page, "full", TODAY);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/timeline");
+  await page.goto("/timeline?zoom=all");
   const targets = page.locator('[data-slot="timeline-point-target"]');
   await expect(targets.first()).toBeAttached({ timeout: 20_000 });
 
@@ -868,7 +880,7 @@ test("the day's strip stays at the right edge, opens and closes the day, and nev
 
   for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/timeline");
+    await page.goto("/timeline?zoom=all");
     await expect(
       page.locator('[data-slot="timeline-chart"] > svg'),
     ).toBeVisible({ timeout: 20_000 });
@@ -929,7 +941,7 @@ test("the day's strip stays at the right edge, opens and closes the day, and nev
   await page.setViewportSize({ width: 1440, height: 900 });
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
-    await page.goto("/timeline");
+    await page.goto("/timeline?zoom=all");
     await toggle.click();
     await expect(panel).toHaveAttribute("data-shell", "docked");
     await testInfo.attach(`day-strip-1440-${colorScheme}`, {

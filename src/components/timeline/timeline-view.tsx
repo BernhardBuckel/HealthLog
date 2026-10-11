@@ -146,10 +146,10 @@ export function TimelineView() {
   const canAddLifeEvent = !caps.inSharedRecord;
 
   // The zoom and a chosen range live in the URL (`timeline-url.ts`), so Back
-  // and a bookmark return to them. Without a `zoom`, an incoming `?day=`
-  // opens three months around that day and anything else the whole record.
+  // and a bookmark return to them. Without a `zoom` the page opens on three
+  // months: around an incoming `?day=`, otherwise up to today.
   const urlState = parseTimelineUrl(searchParams, today);
-  const zoom: TimelineZoom = urlState.zoom ?? (dayParam ? "quarter" : "all");
+  const zoom: TimelineZoom = urlState.zoom ?? "quarter";
   const range = zoom === "range" ? urlState.range : null;
   const [grouping, setGrouping] = useState<ChronicleGrouping>("month");
   // The selection follows `?day=` (Back, Forward, the day panel's previous
