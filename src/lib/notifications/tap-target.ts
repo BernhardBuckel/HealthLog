@@ -5,7 +5,7 @@
  * the dispatcher resolves the path once per delivery and every channel
  * carries the same target in its own vocabulary:
  *
- *  - ntfy     → `Click` header (absolute URL)
+ *  - ntfy     → `click` in the JSON publish body (absolute URL)
  *  - Telegram → an inline URL button (absolute `https` URL only, see
  *               `telegramLinkMode`)
  *  - Web Push → `url` in the service-worker payload (same-origin path)

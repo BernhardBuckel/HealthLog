@@ -179,6 +179,12 @@ HealthLog publishes to that topic.
    **Server URL** (defaults to `https://ntfy.sh`; point it at your own
    server if you self-host ntfy) and **Topic**, then save.
 
+HealthLog publishes each message as JSON to the server's root URL (the topic
+travels in the body, see ntfy's
+[publish as JSON](https://docs.ntfy.sh/publish/#publish-as-json)), so titles
+and button labels in any language arrive as written. A reverse proxy in front
+of your own ntfy has to pass `POST /` through, not only `POST /<topic>`.
+
 If your ntfy server requires auth, an access token can be attached; the
 server URL is validated at save time and dialled through the egress guard
 (`src/lib/notifications/senders/ntfy.ts`). A self-hosted ntfy on your own
@@ -474,7 +480,8 @@ once per event type, and every channel carries the same target:
 
 How each channel carries it:
 
-- **ntfy**: the `Click` header, so tapping the notification opens the page.
+- **ntfy**: the message's `click` field, so tapping the notification opens
+  the page.
 - **Telegram**: an **Open in HealthLog** button under the message, below any
   action buttons. Telegram only accepts `https` button links on a public
   host, so a plain-HTTP instance gets a text link instead, and an instance
