@@ -112,6 +112,7 @@ const subsystemSurface = {
   "pr-detection": { audience: "system" },
   "medication-inventory-expire": { audience: "system" },
   "intake-auto-skip": { audience: "system" },
+  "intake-auto-take": { audience: "system" },
   "apple-health-import-v2": { audience: "account" },
   "apple-health-import": { audience: "account" },
   "apple-health-import-reconcile": { audience: "account" },

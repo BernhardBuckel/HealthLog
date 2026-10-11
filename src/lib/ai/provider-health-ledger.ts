@@ -203,14 +203,14 @@ export const postgresProviderHealthLedger: ProviderHealthLedger = {
            next_retry_at, updated_at)
         VALUES
           (gen_random_uuid()::text, ${userId}, ${providerType}, 'ok', NULL,
-           0, NOW(), NULL, NULL, NOW())
+           0, (NOW() AT TIME ZONE 'UTC'), NULL, NULL, (NOW() AT TIME ZONE 'UTC'))
         ON CONFLICT (user_id, provider_type) DO UPDATE SET
           last_result = 'ok',
           last_status = NULL,
           consecutive_failures = 0,
-          last_ok_at = NOW(),
+          last_ok_at = (NOW() AT TIME ZONE 'UTC'),
           next_retry_at = NULL,
-          updated_at = NOW()
+          updated_at = (NOW() AT TIME ZONE 'UTC')
       `;
     } catch {
       // Fire-and-forget — a failed write never blocks the hot path.
@@ -240,13 +240,13 @@ export const postgresProviderHealthLedger: ProviderHealthLedger = {
            next_retry_at, updated_at)
         VALUES
           (gen_random_uuid()::text, ${userId}, ${providerType}, ${result},
-           ${status}, 1, NULL, NOW(), NOW() + ${interval}::interval, NOW())
+           ${status}, 1, NULL, (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC') + ${interval}::interval, (NOW() AT TIME ZONE 'UTC'))
         ON CONFLICT (user_id, provider_type) DO UPDATE SET
           last_result = ${result},
           last_status = ${status},
           consecutive_failures = provider_health.consecutive_failures + 1,
-          last_failure_at = NOW(),
-          next_retry_at = NOW() + CASE
+          last_failure_at = (NOW() AT TIME ZONE 'UTC'),
+          next_retry_at = (NOW() AT TIME ZONE 'UTC') + CASE
             WHEN ${result} = 'hard_failed'
               AND provider_health.consecutive_failures + 1 >= ${pauseFrom}::int
             THEN LEAST(
@@ -258,7 +258,7 @@ export const postgresProviderHealthLedger: ProviderHealthLedger = {
             )
             ELSE ${interval}::interval
           END,
-          updated_at = NOW()
+          updated_at = (NOW() AT TIME ZONE 'UTC')
       `;
     } catch {
       // Fire-and-forget.

@@ -378,7 +378,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
           AND "type" = 'BLOOD_PRESSURE_SYS'::"measurement_type"
           AND "deleted_at" IS NULL
           AND "value" >= $3
-          AND "measured_at" >= date_trunc('day', $2::timestamptz)
+          AND "measured_at" >= date_trunc('day', $2::timestamptz AT TIME ZONE 'UTC')
         ORDER BY date_trunc('day', "measured_at"), (${rank}), "source"::text
       ) c
         ON c.d = date_trunc('day', m."measured_at")

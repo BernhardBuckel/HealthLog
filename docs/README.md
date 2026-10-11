@@ -34,6 +34,10 @@ notes, and machine-readable specs that ship alongside the source:
   managed profiles for somebody with no login and the guardians who look
   after them, what revocation does and does not undo, and which trust
   properties of the instance are unchanged by any of it.
+- [`using/`](./using/) — notes on using the app that sit close to the
+  code. [`using/search.md`](./using/search.md) covers the command palette's
+  record search: opening it, what it finds, how matching works, and its
+  limits on very large and shared records.
 - [`migration/`](./migration/) — migration notes. Currently only
   v1.3 to v1.4; later releases are covered by `CHANGELOG.md` and
   <https://docs.healthlog.dev>.

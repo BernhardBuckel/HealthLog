@@ -41,6 +41,7 @@ import {
 import { getUserTodayBounds as getUserTodayBoundsUtil } from "@/lib/tz/local-day";
 import { getWorkerPrisma, parseTimeToMinutes } from "./shared";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
+import { sendsMedicationReminders } from "@/lib/medications/auto-mark-taken";
 import {
   LIVE_ERA_REVISION_ARGS,
   liveEraStart as liveEraStartOf,
@@ -662,7 +663,7 @@ export async function handleReminderCheck(
               }),
             });
 
-            if (med.notificationsEnabled) {
+            if (sendsMedicationReminders(med, { now, timeZone: userTz })) {
               const claimed = await claimNotificationEvent(prisma, {
                 recordUserId: med.user.id,
                 eventType: "MEDICATION_REMINDER",
@@ -726,7 +727,7 @@ export async function handleReminderCheck(
             // banner, every other channel the user configured still delivers
             // — so the gate lives in the dispatcher's APNs branch, which is
             // the only place that knows whether an APNs send was on the table.
-            if (med.notificationsEnabled) {
+            if (sendsMedicationReminders(med, { now, timeZone: userTz })) {
               const recipientLocale = await resolveJobLocale(med.user.locale);
               const { title, message } = getPhaseMessage(
                 currentPhase,

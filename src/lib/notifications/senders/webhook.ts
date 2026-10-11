@@ -69,6 +69,9 @@ export function buildWebhookBody(
   const message = plainPushText(stripHtml(payload.message), payload.eventType);
   const eventType = payload.discreet ? "reminder" : payload.eventType;
   const band = priorityBand(payload);
+  // The tap target as an absolute URL, when the operator configured a public
+  // origin (`tap-target.ts`).
+  const url = payload.tap?.url ?? null;
 
   if (config.format === "gotify") {
     return JSON.stringify({
@@ -80,6 +83,9 @@ export function buildWebhookBody(
         // body is never markdown (hard rule).
         "client::display": { contentType: "text/plain" },
         "healthlog::event": { type: eventType },
+        // Gotify's Android client opens this URL when the notification is
+        // tapped.
+        ...(url ? { "client::notification": { click: { url } } } : {}),
       },
     });
   }
@@ -102,6 +108,9 @@ export function buildWebhookBody(
     content: truncateCodePoints(text, DISCORD_CONTENT_LIMIT),
     text,
     allowed_mentions: { parse: [] },
+    // Additive: where the notification leads in the app, for a relay rule
+    // that wants to attach a link. Absent without a public origin.
+    ...(url ? { url } : {}),
   });
 }
 

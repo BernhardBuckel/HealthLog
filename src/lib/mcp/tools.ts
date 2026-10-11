@@ -65,6 +65,7 @@ import { NUTRIENT_CODES } from "@/lib/nutrients/catalog";
 import { loadIntradayPulse } from "@/lib/analytics/intraday-pulse-io";
 import { DEFAULT_TIMEZONE, userDayKey } from "@/lib/tz/format";
 import { encodeOffsetCursor, decodeOffsetCursor } from "@/lib/mcp/pagination";
+import { loadAutoTakeRollingAnchors } from "@/lib/medications/auto-take";
 import {
   computeDisplayDue,
   OVERDUE_LOOKBACK_MS,
@@ -90,10 +91,12 @@ import {
   fetchRecord,
   isRecordKind,
   loadRecordCandidates,
+} from "@/lib/mcp/record-search";
+import {
   rankCandidates,
   WEIGHT as SEARCH_WEIGHT,
   type SearchCandidate,
-} from "@/lib/mcp/record-search";
+} from "@/lib/search/match";
 import type { McpAuthContext } from "./auth";
 import { dueSchedules } from "@/lib/medications/intake-tracking";
 import { liveEraStartsByMedication } from "@/lib/medications/scheduling/live-era";
@@ -2008,6 +2011,18 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       // The live era start per medication (see `live-era.ts`).
       const eraStartByMedId = liveEraStartsByMedication(eraFloors);
 
+      // v1.42.2 — under auto-take a rolling cadence stands where the job
+      // will record next (see `auto-take.ts`).
+      const engineLastIntakeAt = await loadAutoTakeRollingAnchors(prisma, {
+        userId: ctx.userId,
+        medicationIds: medications
+          .filter((m) => m.autoMarkTaken)
+          .map((m) => m.id),
+        now,
+        userTz,
+        lastIntakeAt: (id) => lastTakenAtByMedId.get(id) ?? null,
+      });
+
       const rows = medications.map((m) => {
         const display = computeDisplayDue({
           medication: {
@@ -2022,7 +2037,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           schedules: dueSchedules(m),
           now,
           userTz,
-          lastIntakeAt: lastTakenAtByMedId.get(m.id) ?? null,
+          lastIntakeAt: engineLastIntakeAt(m.id),
           resolvedSlots: resolvedSlotsByMedId.get(m.id) ?? [],
           eraStart: eraStartByMedId.get(m.id) ?? null,
         });

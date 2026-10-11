@@ -27,6 +27,10 @@ import {
   type CourseStatus,
 } from "@/lib/medications/course-window";
 import { userDayKey } from "@/lib/tz/format";
+import {
+  moveAutoTakeFloorToNow,
+  windowWidens,
+} from "@/lib/medications/auto-take";
 
 type Tx = Prisma.TransactionClient;
 
@@ -129,17 +133,32 @@ async function loadOwned(tx: Tx, userId: string, medicationId: string) {
 
 type ProjectedWindow = { startsOn: Date | null; endsOn: Date | null };
 
-/** Write the medication's window from its courses. The only writer. */
+/**
+ * Write the medication's window from its courses. The only writer.
+ *
+ * v1.42.2 — a window that now reaches further into the past than before
+ * (an earlier start, a later or removed end) would let the auto-take pass
+ * fill the days it reopens as taken; its floor moves to now instead.
+ */
 async function project(tx: Tx, medicationId: string): Promise<ProjectedWindow> {
-  const courses = await tx.medicationCourse.findMany({
-    where: { medicationId },
-    select: { startsOn: true, endsOn: true },
-  });
+  const [before, courses] = await Promise.all([
+    tx.medication.findUnique({
+      where: { id: medicationId },
+      select: { startsOn: true, endsOn: true },
+    }),
+    tx.medicationCourse.findMany({
+      where: { medicationId },
+      select: { startsOn: true, endsOn: true },
+    }),
+  ]);
   const window = projectCourseWindow(courses);
   await tx.medication.update({
     where: { id: medicationId },
     data: { startsOn: window.startsOn, endsOn: window.endsOn },
   });
+  if (before && windowWidens(before, window)) {
+    await moveAutoTakeFloorToNow(tx, medicationId);
+  }
   return window;
 }
 

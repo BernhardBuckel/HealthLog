@@ -2,8 +2,9 @@
  * The timeline's zoom and chosen range in the URL (v1.42):
  * `?zoom=year`, `?zoom=range&from=2026-03-01&to=2026-04-15`. Back and a
  * bookmark both land where the person was. Anything that does not read as
- * a zoom, or a range without two valid ends, falls back to `all` without a
- * word: a stale bookmark should open the timeline, not an error.
+ * a zoom, or a range without two valid ends, reads as no zoom at all and
+ * opens on the same default without a word: a stale bookmark should open
+ * the timeline, not an error.
  */
 import {
   TIMELINE_RANGE_MAX_DAYS,
@@ -57,7 +58,6 @@ export function parseTimelineUrl(
   const zoom = (TIMELINE_ZOOMS as readonly string[]).includes(raw ?? "")
     ? (raw as TimelineZoom)
     : null;
-  if (raw !== null && zoom === null) return { zoom: "all", range: null };
   if (zoom !== "range") return { zoom, range: null };
   const from = params.get(FROM_PARAM);
   const to = params.get(TO_PARAM);
@@ -69,9 +69,65 @@ export function parseTimelineUrl(
     from > to ||
     from > today
   ) {
-    return { zoom: "all", range: null };
+    return { zoom: null, range: null };
   }
   return { zoom, range: clampRange({ from, to }, today, null) };
+}
+
+/** The zoom the page opens on when the URL names none. */
+export const DEFAULT_ZOOM: TimelineZoom = "quarter";
+
+/** The shortest default window over a young record, in days to today. */
+export const YOUNG_RECORD_MIN_DAYS = 28;
+
+/**
+ * What the page opens on when the URL names no zoom, decided from the
+ * default three months' answer (`window`, whether it holds anything, and
+ * the record's first entry):
+ *
+ *   - a record that starts inside the three months opens on three months
+ *     clamped to its first entry, at least four weeks up to today, so a
+ *     few days of data neither hide in a sliver nor stretch thin
+ *     (`from` set);
+ *   - an older record with entries in the three months opens on them
+ *     (`from` null);
+ *   - an older record with none there opens on everything;
+ *   - an empty record: null, the plain empty state.
+ */
+export type DefaultWindow =
+  { zoom: "quarter"; from: string | null } | { zoom: "all" } | null;
+
+export function resolveDefaultWindow(input: {
+  dataFrom: string | null;
+  window: { from: string; to: string };
+  windowHasData: boolean;
+  today: string;
+}): DefaultWindow {
+  const { dataFrom, window, today } = input;
+  if (dataFrom === null) return null;
+  if (dataFrom >= window.from) {
+    const minimum = dayKey(dayNumber(today) - (YOUNG_RECORD_MIN_DAYS - 1));
+    const start = dataFrom < minimum ? dataFrom : minimum;
+    return {
+      zoom: "quarter",
+      from: start > window.from ? start : null,
+    };
+  }
+  return input.windowHasData
+    ? { zoom: "quarter", from: null }
+    : { zoom: "all" };
+}
+
+/**
+ * True when a window shows nothing while the record has entries from before
+ * it: the page then offers everything instead of a dead end. `dataFrom` is
+ * the earliest date anything in the record carries.
+ */
+export function hasDataBeforeWindow(
+  dataFrom: string | null,
+  window: { from: string } | null,
+): boolean {
+  return dataFrom !== null && window !== null && dataFrom < window.from;
 }
 
 /**

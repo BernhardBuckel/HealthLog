@@ -7,24 +7,37 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { prismaMock, syncUserGoogleHealthMock, isParkedMock } = vi.hoisted(
-  () => ({
-    prismaMock: {
-      googleHealthConnection: {
-        findMany: vi.fn(),
-        findUnique: vi.fn(async () => null),
-        update: vi.fn(),
-      },
+const {
+  prismaMock,
+  syncUserGoogleHealthMock,
+  isParkedMock,
+  bossSend,
+  resumeState,
+} = vi.hoisted(() => ({
+  prismaMock: {
+    googleHealthConnection: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(
+        async (): Promise<{
+          backfillProgress: unknown;
+          backfillCompletedAt: Date | null;
+        } | null> => null,
+      ),
+      update: vi.fn(),
     },
-    syncUserGoogleHealthMock: vi.fn(),
-    isParkedMock: vi.fn(async () => false),
-  }),
-);
+  },
+  syncUserGoogleHealthMock: vi.fn(),
+  isParkedMock: vi.fn(async () => false),
+  bossSend: vi.fn(),
+  // Collections the mocked walk "finishes" in this attempt, added to the
+  // resume set the way `runGoogleHealthCollection` adds them.
+  resumeState: { finishes: [] as string[], doneBefore: [] as string[] },
+}));
 
 vi.mock("@/lib/db", () => ({ prisma: prismaMock }));
 
 vi.mock("@/lib/jobs/boss-instance", () => ({
-  getGlobalBoss: () => ({ send: vi.fn() }),
+  getGlobalBoss: () => ({ send: bossSend }),
 }));
 
 vi.mock("@/lib/logging/context", () => ({
@@ -40,19 +53,26 @@ vi.mock("@/lib/safe-fetch", async (importOriginal) => {
 
 vi.mock("@/lib/google-health/sync-core", () => ({
   GOOGLE_HEALTH_INTEGRATION_KEY: "google-health",
-  readGoogleHealthBackfillDone: () => new Set<string>(),
+  readGoogleHealthBackfillDone: () => new Set<string>(resumeState.doneBefore),
   runWithGoogleHealthBackfillResume: async (
     _userId: string,
-    _done: Set<string>,
+    done: Set<string>,
     fn: () => Promise<unknown>,
-  ) => ({ result: await fn(), skipped: [] }),
+  ) => {
+    const result = await fn();
+    for (const key of resumeState.finishes) done.add(key);
+    return { result, skipped: [] };
+  },
 }));
 vi.mock("@/lib/google-health/sync", () => ({
   isGoogleHealthParked: isParkedMock,
   syncUserGoogleHealth: (...a: unknown[]) => syncUserGoogleHealthMock(...a),
 }));
 
-import { runGoogleHealthBackfillForUser } from "../google-health-backfill";
+import {
+  GOOGLE_HEALTH_BACKFILL_MAX_SLICE,
+  runGoogleHealthBackfillForUser,
+} from "../google-health-backfill";
 import {
   GOOGLE_HEALTH_DATA_TYPES,
   forEachDataPointPage,
@@ -63,6 +83,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   isParkedMock.mockResolvedValue(false);
   prismaMock.googleHealthConnection.update.mockResolvedValue({});
+  prismaMock.googleHealthConnection.findUnique.mockResolvedValue(null);
+  bossSend.mockResolvedValue("job-next");
+  resumeState.finishes = [];
+  resumeState.doneBefore = [];
 });
 
 describe("runGoogleHealthBackfillForUser — verdict-gated marker", () => {
@@ -148,5 +172,127 @@ describe("runGoogleHealthBackfillForUser — verdict-gated marker", () => {
     ).rejects.toThrow(/incomplete/);
     expect(safeFetchMock).toHaveBeenCalledTimes(3);
     expect(prismaMock.googleHealthConnection.update).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A long history walks in slices. A slice that finished more collections than
+ * it started with is progressing, not failing: it queues the next slice and
+ * ends quietly, without the error line or the failure count. Only a slice that
+ * finished nothing new is stuck and keeps throwing.
+ */
+describe("runGoogleHealthBackfillForUser — slices", () => {
+  it("continues a progressing slice instead of failing it", async () => {
+    resumeState.doneBefore = ["steps"];
+    resumeState.finishes = ["sleep", "weight"];
+    syncUserGoogleHealthMock.mockResolvedValue({ imported: 9, failed: true });
+
+    await expect(
+      runGoogleHealthBackfillForUser("u1", undefined, 2),
+    ).resolves.toEqual({
+      imported: 9,
+      continued: true,
+    });
+
+    expect(bossSend).toHaveBeenCalledTimes(1);
+    const [queue, payload, options] = bossSend.mock.calls[0]!;
+    expect(queue).toBe("integration-backfill-admission");
+    expect(payload).toMatchObject({
+      kind: "google-health-backfill",
+      data: { userId: "u1", slice: 3 },
+    });
+    // Its own key, so the exclusive policy does not swallow it while this
+    // slice is still active.
+    expect(options).toMatchObject({
+      singletonKey: "google-health-backfill|u1|slice-3",
+      startAfter: expect.any(Number),
+    });
+    // Not complete: no stamp.
+    expect(prismaMock.googleHealthConnection.update).not.toHaveBeenCalled();
+  });
+
+  it("still throws for a slice that finished nothing new", async () => {
+    resumeState.doneBefore = ["steps"];
+    resumeState.finishes = [];
+    syncUserGoogleHealthMock.mockResolvedValue({ imported: 3, failed: true });
+
+    await expect(runGoogleHealthBackfillForUser("u1")).rejects.toThrow(
+      /incomplete/,
+    );
+    expect(bossSend).not.toHaveBeenCalled();
+  });
+
+  it("throws rather than drop the work when the next slice cannot be queued", async () => {
+    resumeState.finishes = ["sleep"];
+    bossSend.mockResolvedValue(null);
+    syncUserGoogleHealthMock.mockResolvedValue({ imported: 1, failed: true });
+
+    await expect(runGoogleHealthBackfillForUser("u1")).rejects.toThrow(
+      /incomplete/,
+    );
+  });
+
+  it("fails a slice past the ceiling without walking or queueing", async () => {
+    syncUserGoogleHealthMock.mockResolvedValue({ imported: 1, failed: true });
+    resumeState.finishes = ["sleep"];
+
+    await expect(
+      runGoogleHealthBackfillForUser(
+        "u1",
+        undefined,
+        GOOGLE_HEALTH_BACKFILL_MAX_SLICE + 1,
+      ),
+    ).rejects.toThrow(/past the ceiling/);
+    expect(syncUserGoogleHealthMock).not.toHaveBeenCalled();
+    expect(bossSend).not.toHaveBeenCalled();
+  });
+
+  it("does not queue a slice past the ceiling even when this one progressed", async () => {
+    resumeState.finishes = ["sleep"];
+    syncUserGoogleHealthMock.mockResolvedValue({ imported: 1, failed: true });
+
+    await expect(
+      runGoogleHealthBackfillForUser(
+        "u1",
+        undefined,
+        GOOGLE_HEALTH_BACKFILL_MAX_SLICE,
+      ),
+    ).rejects.toThrow(/incomplete/);
+    expect(bossSend).not.toHaveBeenCalled();
+  });
+
+  it("caps the chain at the number of collections plus two", () => {
+    expect(GOOGLE_HEALTH_BACKFILL_MAX_SLICE).toBe(17 + 2);
+  });
+
+  it("stamps the marker on the slice that finishes the history", async () => {
+    resumeState.doneBefore = ["steps", "sleep"];
+    resumeState.finishes = ["weight"];
+    syncUserGoogleHealthMock.mockResolvedValue({ imported: 4, failed: false });
+
+    await expect(
+      runGoogleHealthBackfillForUser("u1", undefined, 5),
+    ).resolves.toEqual({
+      imported: 4,
+    });
+    expect(bossSend).not.toHaveBeenCalled();
+    expect(
+      prismaMock.googleHealthConnection.update.mock.calls[0]![0].data
+        .backfillCompletedAt,
+    ).toBeInstanceOf(Date);
+  });
+
+  it("walks nothing again once an earlier slice completed the import", async () => {
+    prismaMock.googleHealthConnection.findUnique.mockResolvedValue({
+      backfillProgress: null,
+      backfillCompletedAt: new Date(),
+    });
+
+    await expect(
+      runGoogleHealthBackfillForUser("u1", undefined, 4),
+    ).resolves.toEqual({
+      imported: 0,
+    });
+    expect(syncUserGoogleHealthMock).not.toHaveBeenCalled();
   });
 });

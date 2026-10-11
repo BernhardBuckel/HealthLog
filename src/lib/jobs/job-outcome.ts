@@ -129,6 +129,8 @@ export const JOB_FACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "in_window",
   "insufficient",
   "intake_auto_skip_count",
+  "intake_auto_take_medications",
+  "intake_auto_take_recorded",
   "intakes_pruned",
   "inventory_expired_count",
   "inventory_items_migrated",

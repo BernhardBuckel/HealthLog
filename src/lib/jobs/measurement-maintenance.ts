@@ -77,7 +77,7 @@ export interface MeasurementMaintenancePayload {
  * whatever its container settings.
  */
 export const MAINTENANCE_SESSION_OPTIONS =
-  "-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c maintenance_work_mem=128MB -c max_parallel_maintenance_workers=0 -c lock_timeout=300000";
+  "-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c maintenance_work_mem=128MB -c max_parallel_maintenance_workers=0 -c lock_timeout=300000 -c TimeZone=UTC";
 
 /**
  * The same settings as `SET` statements, for a host behind a connection

@@ -296,6 +296,12 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
       "mood.update.invalid",
     ],
     "notification-prefs": ["notification-prefs.body.invalid_json"],
+    notification: [
+      "notification.action.already_used",
+      "notification.action.expired",
+      "notification.action.invalid",
+      "notification.action.module_disabled",
+    ],
     nutrient: [
       "nutrient.batch.invalid",
       "nutrient.batch.too_large",
@@ -342,6 +348,7 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
       "report-selection.leaves.unknown",
     ],
     route: ["route.retired"],
+    search: ["search.invalid"],
     "share-link": [
       "share-link.document.decryptFailed",
       "share-link.document.notFound",

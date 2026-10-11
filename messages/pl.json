@@ -1229,7 +1229,8 @@
       "bodyLogged": "Zapisano w dzienniku choroby: {count} objawów",
       "bodyNotLogged": "Na ten dzień nic nie zapisano w dzienniku choroby",
       "openIllness": "Otwórz"
-    }
+    },
+    "sourceNotification": "Powiadomienie"
   },
   "medications": {
     "title": "Leki",
@@ -1321,6 +1322,14 @@
       "enabledToast": "Rejestrowanie przyjęć włączone",
       "disabledToast": "Rejestrowanie przyjęć wyłączone",
       "toggleFailed": "Nie udało się zmienić rejestrowania przyjęć."
+    },
+    "autoMarkTaken": {
+      "label": "Zapisuj przyjęcia automatycznie",
+      "helper": "HealthLog zapisuje każdą zaplanowaną dawkę jako przyjętą o jej porze. Nadal możesz ręcznie zmienić lub pominąć dawkę. Przypomnienia nie są wysyłane.",
+      "cardHint": "Zapisywane automatycznie",
+      "enabledToast": "Przyjęcia są teraz zapisywane automatycznie",
+      "disabledToast": "Przyjęcia nie są już zapisywane automatycznie",
+      "toggleFailed": "Nie udało się zmienić automatycznego zapisu."
     },
     "withoutNotification": "Bez powiadomienia",
     "pausedSince": "Wstrzymane od",
@@ -1778,6 +1787,7 @@
     "sourceImport": "Import",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "przez {origin}",
+    "intakeRecordedAutomatically": "Zapisano automatycznie",
     "intakeHistoryEmptyTitle": "Brak przyjęć",
     "intakeHistoryEmptyDescription": "Gdy tylko zarejestrujesz przyjęcie, pojawi się tu wraz z godziną i źródłem.",
     "intakeHistoryEmptyAction": "Zarejestruj przyjęcie",
@@ -2843,7 +2853,7 @@
     "coach": {
       "refusalOutOfScope": "Mogę pomóc tylko w sprawach danych zdrowotnych z twojego logu: pomiarów, leków, nastroju, trendów. Pytań spoza tego zakresu nie podejmuję.",
       "refusalInjection": "Twoja wiadomość zawiera instrukcje, które próbują nadpisać moje wytyczne. Jestem coachem HealthLog i podsumowuję wyłącznie twoje własne dane zdrowotne. Przeformułuj pytanie w tych ramach.",
-      "errorBudget": "Osiągnięto dzienny limit coacha. Limit resetuje się o północy (UTC).",
+      "errorBudget": "Osiągnięto dzienny limit coacha. Limit resetuje się o północy w Twojej strefie czasowej.",
       "errorProvider": "Coach nie mógł teraz skontaktować się z dostawcą analizy. Spróbuj za chwilę.",
       "errorDemo": "W wersji demo Coach nie odpowiada.",
       "errorNoProvider": "Coach czyta Twoje zapisane dane zdrowotne i odpowiada na pytania o nie (to nie porada medyczna). HealthLog potrzebuje do tego dostawcy AI: połącz własny klucz lub model lokalny.",
@@ -2999,7 +3009,7 @@
       "settingsSaved": "Zapisano",
       "settingsCancel": "Anuluj",
       "dailyLimitTitle": "Osiągnięto dzienny limit",
-      "dailyLimitBody": "Osiągnięto dzienny limit. Limit resetuje się o północy (UTC).",
+      "dailyLimitBody": "Osiągnięto dzienny limit. Limit resetuje się o północy w Twojej strefie czasowej.",
       "providerRateLimitTitle": "Dostawca z ograniczeniem",
       "providerRateLimitBody": "Dostawca jest tymczasowo przeciążony; reset za ~5 min.",
       "cluster": {
@@ -5325,7 +5335,8 @@
         "subtitle": "Wybierz, które przypomnienia otrzymujesz i gdzie są dostarczane.",
         "remindersHeading": "Przypomnienia",
         "matrixLink": "Powiadomienia wg kanału",
-        "channelsLink": "Kanały dostarczania"
+        "channelsLink": "Kanały dostarczania",
+        "displayHeading": "Na telefonie"
       },
       "layout": {
         "title": "Układ",
@@ -6830,6 +6841,7 @@
       "nocreds": "Oura nie jest skonfigurowana na tym serwerze. Poproś administratora o dodanie danych OAuth Oura.",
       "token": "Wymiana tokena z Oura nie powiodła się. Rozpocznij połączenie ponownie.",
       "rate_limited": "Zbyt wiele prób połączenia. Poczekaj chwilę i spróbuj ponownie.",
+      "issuer": "Odpowiedź logowania nie pochodziła z serwera autoryzacji Oura, więc połączenie zostało przerwane dla Twojego bezpieczeństwa. Rozpocznij połączenie ponownie. Jeśli to się powtarza, powiadom administratora.",
       "generic": "Nieznany błąd podczas łączenia. Rozpocznij połączenie ponownie."
     },
     "integrationSetupGuide": "Przewodnik konfiguracji",
@@ -7237,7 +7249,7 @@
       "typeCodex": "Logowanie ChatGPT (osobiste)",
       "typeLocal": "Model lokalny (osobisty)",
       "typeGateway": "Brama zgodna z OpenAI (osobista)",
-      "spendToday": "Dzisiaj ({date}): {total} tokenów, w tym {operator} na kluczu operatora.",
+      "spendToday": "Dzisiaj, według dnia kalendarzowego każdego konta: {total} tokenów, w tym {operator} na kluczu operatora (konta ze zużyciem: {accounts}).",
       "statusPaused": "Wstrzymany",
       "pausedHint": "Wstrzymany po powtarzających się błędach dla {count} użytkowników do {at}. Potem zostanie automatycznie ponowiony.",
       "modelNotServed": "Punkt końcowy nie oferuje już modelu {model}. Wybierz w ustawieniach AI model, który oferuje."
@@ -8459,6 +8471,25 @@
         "changedRead": "Możesz teraz przeglądać dokumentację zdrowotną osoby pod Twoją opieką, ale nie możesz jej zmieniać.",
         "changedManage": "Możesz zarządzać dokumentacją zdrowotną osoby pod Twoją opieką."
       }
+    },
+    "links": {
+      "open": "Otwórz w HealthLog"
+    },
+    "quickActions": {
+      "moodGood": "Dobrze",
+      "moodOkay": "W porządku",
+      "moodBad": "Źle"
+    },
+    "content": {
+      "title": "Wartości zdrowotne w powiadomieniach",
+      "description": "Czy powiadomienie może pokazywać wartości, takie jak poranny wynik.",
+      "detail": "Wyłączone: powiadomienie mówi tylko, czego dotyczy, więc ekran blokady nie pokazuje wartości zdrowotnych. Włączone: dodaje wartości, na przykład poranny wynik w podsumowaniu. Dotknięcie powiadomienia w obu przypadkach otwiera właściwe miejsce w aplikacji.",
+      "toggleAria": "Pokazuj wartości zdrowotne w powiadomieniach",
+      "statusDetailed": "Z wartościami",
+      "statusGeneric": "Bez wartości",
+      "detailedToast": "Powiadomienia zawierają teraz wartości zdrowotne.",
+      "genericToast": "Powiadomienia nie zawierają już wartości zdrowotnych.",
+      "saveError": "Nie udało się zapisać. Spróbuj ponownie później."
     }
   },
   "i18n": {
@@ -10858,6 +10889,7 @@
       "saveError": "Nie udało się zapisać zmiany.",
       "deleteError": "Nie udało się usunąć dokumentu.",
       "download": "Pobierz",
+      "openInNewTab": "Otwórz w nowej karcie",
       "delete": "Usuń",
       "titleLabel": "Tytuł",
       "titlePlaceholder": "Dodaj tytuł",
@@ -11261,7 +11293,13 @@
     },
     "push": {
       "title": "Twoje poranne podsumowanie",
-      "bodyProvisional": "{line}\nBrakuje jeszcze snu z zeszłej nocy."
+      "bodyProvisional": "{line}\nBrakuje jeszcze snu z zeszłej nocy.",
+      "titleScore": "Poranny wynik {score}",
+      "band": {
+        "green": "Dziś wszystko wygląda stabilnie.",
+        "yellow": "Dziś warto przyjrzeć się kilku rzeczom.",
+        "red": "Dziś niektóre obszary wymagają uwagi."
+      }
     },
     "item": {
       "doseWindow": {
@@ -12226,7 +12264,6 @@
     "notShared": "Niektóre obszary nie są Ci udostępnione.",
     "inTimeline": "Na osi czasu",
     "askCoach": "Zapytaj Coacha o ten dzień",
-    "chartHint": "Kliknij punkt, aby otworzyć jego dzień.",
     "loadFailed": "Nie udało się wczytać tego dnia.",
     "dayOf": "Dzień {n} z {m}",
     "dayN": "Dzień {n}",
@@ -12248,16 +12285,10 @@
     "captureShort": "Zapisz",
     "inTimelineShort": "Oś czasu",
     "askCoachPrompt": "Co się działo {date}?",
-    "chartHintTouch": "Dotknij punktu, aby zobaczyć wartość.",
-    "chartHintBar": "Kliknij słupek, aby otworzyć jego dzień.",
-    "chartHintTouchBar": "Dotknij słupka, aby zobaczyć wartości.",
-    "chartHintCell": "Kliknij dzień, aby go otworzyć.",
-    "chartHintTouchCell": "Dotknij dnia, aby zobaczyć jego wartość.",
     "coachChips": "Dni w tej odpowiedzi",
     "description": "Wszystko, co Twoje wpisy zawierają dla tego dnia.",
     "openDocument": "Otwórz dokument",
     "previousReading": "Wcześniej, {date}",
-    "rugLegend": "Punkty pod osią oznaczają dni z wpisami, pierścień dzień godny uwagi.",
     "sheetExpand": "Rozwiń na pełną wysokość",
     "sheetShrink": "Zmniejsz",
     "valuesLegend": "Punkt to ten dzień, pasek to 30 dni wcześniej",
@@ -12560,8 +12591,8 @@
   },
   "palette": {
     "title": "Szukaj",
-    "description": "Znajdź stronę, ustawienie, moduł lub akcję.",
-    "placeholder": "Szukaj stron, ustawień, modułów…",
+    "description": "Znajdź stronę, ustawienie, moduł, akcję lub wpis w swoich danych.",
+    "placeholder": "Szukaj stron, ustawień, swoich wpisów…",
     "results": "Wyniki",
     "noResults": "Brak wyników dla „{query}”.",
     "moduleOn": "Wł.",
@@ -12575,7 +12606,8 @@
       "insights": "Insights",
       "settings": "Ustawienia",
       "modules": "Moduły",
-      "actions": "Akcje"
+      "actions": "Akcje",
+      "records": "W twoich wpisach"
     },
     "actions": {
       "capture": "Nowy wpis",
@@ -12583,6 +12615,28 @@
       "backup": "Utwórz kopię zapasową",
       "today": "Otwórz dzisiaj",
       "shortcuts": "Pokaż skróty klawiszowe"
+    },
+    "records": {
+      "loading": "Przeszukiwanie twoich wpisów…",
+      "empty": "Brak wyników w twoich wpisach dla „{query}”.",
+      "error": "Nie udało się przeszukać twoich wpisów. Spróbuj ponownie za chwilę.",
+      "truncated": "Przeszukano tylko najnowsze wpisy.",
+      "kind": {
+        "visit": "Wizyta",
+        "condition": "Choroba",
+        "document": "Dokument",
+        "vaccination": "Szczepienie",
+        "lab": "Wynik badania",
+        "medication": "Lek",
+        "symptom": "Objaw",
+        "workout": "Trening",
+        "note": "Notatka"
+      },
+      "source": {
+        "mood": "Notatka o nastroju",
+        "measurement": "Notatka do pomiaru",
+        "illness": "Dziennik choroby"
+      }
     }
   },
   "shortcuts": {

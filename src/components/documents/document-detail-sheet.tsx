@@ -23,6 +23,7 @@ import {
   ArrowRight,
   Check,
   Download,
+  ExternalLink,
   FlaskConical,
   Pencil,
   Plus,
@@ -194,6 +195,43 @@ function DocumentDownloadButton({
         {blocked
           ? t("documents.detail.loadError")
           : t("documents.detail.download")}
+      </span>
+    </Button>
+  );
+}
+
+/**
+ * Open the stored original in a new browser tab, for the types the browser
+ * renders itself (the inline serving class: PDF, JPEG, PNG, WebP, GIF), so a
+ * long report gets the browser's own zoom and search.
+ *
+ * It opens the object URL the sheet already holds rather than the route: a
+ * plain navigation carries no record-session assertion, so the fence would
+ * refuse it once the session has been inside a shared record. The bytes are
+ * already in hand, so the tab opens inside the click and no popup blocker
+ * steps in. A type outside the inline class never gets the control.
+ */
+function DocumentOpenInTabButton({
+  readyUrl,
+  unavailable,
+}: {
+  readyUrl: string | null;
+  unavailable: boolean;
+}) {
+  const { t } = useTranslations();
+  return (
+    <Button
+      variant="outline"
+      data-slot="document-open-in-tab"
+      disabled={readyUrl === null || unavailable}
+      aria-label={t("documents.detail.openInNewTab")}
+      onClick={() => {
+        if (readyUrl) window.open(readyUrl, "_blank", "noopener");
+      }}
+    >
+      <ExternalLink className="size-4" aria-hidden />
+      <span className="hidden sm:inline">
+        {t("documents.detail.openInNewTab")}
       </span>
     </Button>
   );
@@ -759,8 +797,8 @@ export function DocumentDetailSheet({
           doc ? (
             // Delete sits bottom-LEFT, quieted to a text button: the
             // bottom-right slot reads as the primary/confirm action, and a
-            // destructive control there is a footgun. Share + Download — the
-            // safe, expected actions — keep the trailing edge. On phones their
+            // destructive control there is a footgun. Share, open in a new tab and
+            // Download, the safe, expected actions, keep the trailing edge. On phones their
             // labels collapse to icon-only (aria-labelled) so three controls
             // never overflow the sheet at 360 px; the labels return at `sm+`.
             <div className="flex w-full items-center justify-between gap-2">
@@ -824,6 +862,12 @@ export function DocumentDetailSheet({
                     </span>
                   </Button>
                 )}
+                {doc.servingClass === "inline" ? (
+                  <DocumentOpenInTabButton
+                    readyUrl={inlineSrc}
+                    unavailable={inlineFailed}
+                  />
+                ) : null}
                 <DocumentDownloadButton
                   documentId={doc.id}
                   filename={doc.filename}

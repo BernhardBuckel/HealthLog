@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildSessionOptions,
   getConnectionBudget,
+  pinTimeZoneOnConnect,
+  SET_SESSION_TIME_ZONE,
+  timeZoneSessionOptions,
   getPgBossPoolMax,
   getPoolConnectionTimeoutMs,
   getPrismaPoolMax,
@@ -135,14 +138,14 @@ describe("buildSessionOptions", () => {
   it("keeps work_mem when the timeout is disabled", () => {
     process.env.DATABASE_STATEMENT_TIMEOUT_MS = "0";
     delete process.env.DATABASE_WORK_MEM;
-    expect(buildSessionOptions()).toBe("-c work_mem=16MB");
+    expect(buildSessionOptions()).toBe("-c work_mem=16MB -c TimeZone=UTC");
   });
 
   it("sets the default work_mem beside the timeouts", () => {
     delete process.env.DATABASE_STATEMENT_TIMEOUT_MS;
     delete process.env.DATABASE_WORK_MEM;
     expect(buildSessionOptions()).toBe(
-      "-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000 -c work_mem=16MB",
+      "-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000 -c work_mem=16MB -c TimeZone=UTC",
     );
   });
 
@@ -163,6 +166,38 @@ describe("buildSessionOptions", () => {
     process.env.DATABASE_WORK_MEM = "8MB -c statement_timeout=0";
     expect(buildSessionOptions()).toContain("-c work_mem=16MB");
     expect(buildSessionOptions()).toContain("statement_timeout=60000");
+  });
+});
+
+// Every session runs in UTC whatever the database default says: the stored
+// `timestamp` values are UTC and `now()` reads through the session zone.
+describe("session time zone pin", () => {
+  afterEach(() => {
+    delete process.env.DATABASE_SESSION_OPTIONS_DISABLED;
+  });
+
+  it("rides the startup options of every pool", () => {
+    expect(buildSessionOptions()).toContain("-c TimeZone=UTC");
+    expect(timeZoneSessionOptions()).toBe("-c TimeZone=UTC");
+  });
+
+  it("adds no connect hook while the startup options carry the pin", () => {
+    const on = vi.fn();
+    pinTimeZoneOnConnect({ on } as never);
+    expect(on).not.toHaveBeenCalled();
+  });
+
+  it("pins by statement on connect when the startup options are off", async () => {
+    process.env.DATABASE_SESSION_OPTIONS_DISABLED = "true";
+    expect(timeZoneSessionOptions()).toBeUndefined();
+    const on = vi.fn();
+    pinTimeZoneOnConnect({ on } as never);
+    expect(on).toHaveBeenCalledWith("connect", expect.any(Function));
+    const query = vi.fn().mockResolvedValue(undefined);
+    const hook = on.mock.calls[0][1] as (client: unknown) => void;
+    hook({ query });
+    expect(query).toHaveBeenCalledWith(SET_SESSION_TIME_ZONE);
+    expect(SET_SESSION_TIME_ZONE).toBe("SET TIME ZONE 'UTC'");
   });
 });
 

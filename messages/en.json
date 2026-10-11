@@ -1229,7 +1229,8 @@
       "bodyLogged": "Logged in the illness journal: {count} symptoms",
       "bodyNotLogged": "Nothing is logged in the illness journal for this day",
       "openIllness": "Open"
-    }
+    },
+    "sourceNotification": "Notification"
   },
   "medications": {
     "title": "Medications",
@@ -1321,6 +1322,14 @@
       "enabledToast": "Intake tracking on",
       "disabledToast": "Intake tracking off",
       "toggleFailed": "Could not change intake tracking."
+    },
+    "autoMarkTaken": {
+      "label": "Record doses automatically",
+      "helper": "HealthLog records each scheduled dose as taken at its time. You can still change or skip a dose by hand. No reminders are sent.",
+      "cardHint": "Recorded automatically",
+      "enabledToast": "Doses are now recorded automatically",
+      "disabledToast": "Doses are no longer recorded automatically",
+      "toggleFailed": "Could not change automatic recording."
     },
     "withoutNotification": "Without notification",
     "pausedSince": "Paused since",
@@ -1778,6 +1787,7 @@
     "sourceImport": "Import",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "via {origin}",
+    "intakeRecordedAutomatically": "Recorded automatically",
     "intakeHistoryEmptyTitle": "No intakes recorded yet",
     "intakeHistoryEmptyDescription": "Log a dose on the daily intake page to start building the history.",
     "intakeHistoryEmptyAction": "Open daily intake",
@@ -2843,7 +2853,7 @@
     "coach": {
       "refusalOutOfScope": "I can only help with the health metrics in your log: measurements, medications, mood, trends. I cannot answer questions outside that scope.",
       "refusalInjection": "I noticed wording that tries to override my instructions. I am the HealthLog Coach and only summarise your own health data. Please rephrase your question in those terms.",
-      "errorBudget": "You've reached today's Coach usage limit. The budget refreshes at midnight UTC.",
+      "errorBudget": "You've reached today's Coach usage limit. The budget refreshes at midnight in your time zone.",
       "errorProvider": "The Coach could not reach an Insights provider just now. Please try again in a moment.",
       "errorDemo": "The Coach doesn't answer in the demo.",
       "errorNoProvider": "The Coach reads your logged health data and answers questions about it (not medical advice). HealthLog needs an AI provider for that. Connect your own key or a local model.",
@@ -2999,7 +3009,7 @@
       "settingsSaved": "Saved",
       "settingsCancel": "Cancel",
       "dailyLimitTitle": "Daily limit reached",
-      "dailyLimitBody": "Daily limit reached. The budget refreshes at midnight UTC.",
+      "dailyLimitBody": "Daily limit reached. The budget refreshes at midnight in your time zone.",
       "providerRateLimitTitle": "Provider rate-limited",
       "providerRateLimitBody": "Provider temporarily rate-limited; retry in ~5 min.",
       "cluster": {
@@ -5325,7 +5335,8 @@
         "subtitle": "Choose which reminders you receive and where they're delivered.",
         "remindersHeading": "Reminders",
         "matrixLink": "Per-channel notifications",
-        "channelsLink": "Delivery channels"
+        "channelsLink": "Delivery channels",
+        "displayHeading": "On your phone"
       },
       "layout": {
         "title": "Layout",
@@ -6830,6 +6841,7 @@
       "nocreds": "Oura is not configured on this server. Ask your administrator to add the Oura OAuth credentials.",
       "token": "The token exchange with Oura failed. Please start the connection again.",
       "rate_limited": "Too many connection attempts. Wait a moment and try again.",
+      "issuer": "The sign-in answer did not come from Oura's own authorization server, so the connection was stopped for your safety. Please start the connection again. If this keeps happening, tell your administrator.",
       "generic": "Unknown error while connecting. Please start the connection again."
     },
     "integrationSetupGuide": "Setup guide",
@@ -7237,7 +7249,7 @@
       "typeCodex": "ChatGPT sign-in (personal)",
       "typeLocal": "Local model (personal)",
       "typeGateway": "OpenAI-compatible gateway (personal)",
-      "spendToday": "Today ({date}): {total} tokens, {operator} of them on the operator's own key.",
+      "spendToday": "Today, on each account's own calendar day: {total} tokens, {operator} of them on the operator's own key (accounts with spend: {accounts}).",
       "statusPaused": "Paused",
       "pausedHint": "Paused after repeated failures for {count} users until {at}. It is tried again automatically then.",
       "modelNotServed": "The endpoint no longer offers the model {model}. Choose a model it lists in the AI settings."
@@ -8459,6 +8471,25 @@
         "changedRead": "You can now view the health record of the person you looked after, but not change it.",
         "changedManage": "You can manage the health record of the person you looked after."
       }
+    },
+    "links": {
+      "open": "Open in HealthLog"
+    },
+    "quickActions": {
+      "moodGood": "Good",
+      "moodOkay": "Okay",
+      "moodBad": "Bad"
+    },
+    "content": {
+      "title": "Health figures in notifications",
+      "description": "Whether a notification may show values such as your morning score.",
+      "detail": "Off, a notification only says what it is about, so a lock screen shows no health figures. On, it adds the figures, for example the morning score in the briefing. Tapping a notification opens the right place in the app either way.",
+      "toggleAria": "Show health figures in notifications",
+      "statusDetailed": "Figures shown",
+      "statusGeneric": "Without figures",
+      "detailedToast": "Notifications now include health figures.",
+      "genericToast": "Notifications no longer include health figures.",
+      "saveError": "Could not save. Please try again later."
     }
   },
   "i18n": {
@@ -10858,6 +10889,7 @@
       "saveError": "Couldn't save the change.",
       "deleteError": "Couldn't delete the document.",
       "download": "Download",
+      "openInNewTab": "Open in new tab",
       "delete": "Delete",
       "titleLabel": "Title",
       "titlePlaceholder": "Add a title",
@@ -11261,7 +11293,13 @@
     },
     "push": {
       "title": "Your morning briefing",
-      "bodyProvisional": "{line}\nLast night's sleep isn't in yet."
+      "bodyProvisional": "{line}\nLast night's sleep isn't in yet.",
+      "titleScore": "Morning score {score}",
+      "band": {
+        "green": "Looking steady today.",
+        "yellow": "A few things are worth a look today.",
+        "red": "Some areas need attention today."
+      }
     },
     "item": {
       "doseWindow": {
@@ -12226,7 +12264,6 @@
     "notShared": "Some areas are not shared with you.",
     "inTimeline": "In the timeline",
     "askCoach": "Ask the Coach about this day",
-    "chartHint": "Click a point to open its day.",
     "loadFailed": "This day could not be loaded.",
     "dayOf": "Day {n} of {m}",
     "dayN": "Day {n}",
@@ -12248,16 +12285,10 @@
     "captureShort": "Log",
     "inTimelineShort": "Timeline",
     "askCoachPrompt": "What happened on {date}?",
-    "chartHintTouch": "Tap a point to see its value.",
-    "chartHintBar": "Click a bar to open its day.",
-    "chartHintTouchBar": "Tap a bar to see its values.",
-    "chartHintCell": "Click a day to open it.",
-    "chartHintTouchCell": "Tap a day to see its value.",
     "coachChips": "Days in this answer",
     "description": "Everything your records hold for this day.",
     "openDocument": "Open document",
     "previousReading": "Before, {date}",
-    "rugLegend": "Dots under the axis mark days with entries, a ring marks a notable day.",
     "sheetExpand": "Expand to full height",
     "sheetShrink": "Shrink",
     "valuesLegend": "Dot for this day, bar for the 30 days before",
@@ -12560,8 +12591,8 @@
   },
   "palette": {
     "title": "Search",
-    "description": "Find a page, a setting, a module or an action.",
-    "placeholder": "Search pages, settings, modules…",
+    "description": "Find a page, a setting, a module, an action or an entry in your records.",
+    "placeholder": "Search pages, settings, your records…",
     "results": "Results",
     "noResults": "Nothing found for “{query}”.",
     "moduleOn": "On",
@@ -12575,7 +12606,8 @@
       "insights": "Insights",
       "settings": "Settings",
       "modules": "Modules",
-      "actions": "Actions"
+      "actions": "Actions",
+      "records": "In your records"
     },
     "actions": {
       "capture": "New entry",
@@ -12583,6 +12615,28 @@
       "backup": "Create a backup",
       "today": "Open today",
       "shortcuts": "Show keyboard shortcuts"
+    },
+    "records": {
+      "loading": "Searching your records…",
+      "empty": "Nothing in your records for “{query}”.",
+      "error": "Your records could not be searched. Try again in a moment.",
+      "truncated": "Only the most recent entries were searched.",
+      "kind": {
+        "visit": "Visit",
+        "condition": "Condition",
+        "document": "Document",
+        "vaccination": "Vaccination",
+        "lab": "Lab result",
+        "medication": "Medication",
+        "symptom": "Symptom",
+        "workout": "Workout",
+        "note": "Note"
+      },
+      "source": {
+        "mood": "Mood note",
+        "measurement": "Note on a reading",
+        "illness": "Illness diary"
+      }
     }
   },
   "shortcuts": {

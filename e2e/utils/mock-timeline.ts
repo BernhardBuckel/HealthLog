@@ -822,11 +822,19 @@ export interface TimelineMockLog {
 /**
  * Answer the timeline routes from the `full` or `ready` record. Returns a
  * log of what the page asked for and posted, for assertions.
+ *
+ * `onlyOld`: the record's entries all lie before the last year, so a
+ * quarter or year window answers empty (with the record's `dataFrom`) and
+ * only everything, or a chosen range, carries them.
+ *
+ * `dataFrom`: the record's first entry as the answers name it, to stand in
+ * for a young record.
  */
 export async function mockTimeline(
   page: Page,
   state: "full" | "ready",
   today: string,
+  options: { onlyOld?: boolean; dataFrom?: string } = {},
 ): Promise<TimelineMockLog> {
   const log: TimelineMockLog = { timelineQueries: [], lifeEventPosts: [] };
   await page.route(/\/api\/timeline\/readiness(\?|$)/, (route) =>
@@ -843,7 +851,19 @@ export async function mockTimeline(
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");
     const bucket = bucketFor(zoom, from, to);
-    const dataFrom = state === "full" ? "2019-01-01" : "2024-05-01";
+    const dataFrom =
+      options.dataFrom ?? (state === "full" ? "2019-01-01" : "2024-05-01");
+    if (options.onlyOld && (zoom === "quarter" || zoom === "year")) {
+      return json(route, 200, {
+        ...body,
+        zoom,
+        bucket,
+        range: { from, to, dataFrom },
+        lanes: body.lanes.map((lane) => ({ ...lane, items: [] })),
+        standing: [],
+        series: values.map((key) => ({ key, unit: null, points: [] })),
+      });
+    }
     // A chosen range answers its own window, as the server does.
     const chosen = zoom === "range" && from && to;
     const all =
@@ -854,7 +874,11 @@ export async function mockTimeline(
       ...body,
       zoom,
       bucket,
-      ...(chosen ? { range: { from, to, dataFrom } } : {}),
+      ...(chosen
+        ? { range: { from, to, dataFrom } }
+        : options.dataFrom
+          ? { range: { ...body.range, dataFrom } }
+          : {}),
       // Any other value the menu offers answers a flat line of its own.
       series: values.map(
         (key) =>

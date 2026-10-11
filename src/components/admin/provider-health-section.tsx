@@ -34,10 +34,11 @@ import { formatDateTime } from "@/lib/format";
  * the users' own plans. The operator ceiling is enforced against the second
  * figure, so both belong on screen.
  */
+/** Summed over every account's own current day, the day its ceilings use. */
 interface SpendToday {
-  dateKey: string;
   totalTokens: number;
   operatorTokens: number;
+  accounts: number;
 }
 
 interface ProviderHealthRow {
@@ -107,7 +108,7 @@ export function ProviderHealthSection() {
       {spendToday ? (
         <p className="text-muted-foreground text-sm" data-slot="ai-spend-today">
           {t("admin.providerHealth.spendToday", {
-            date: spendToday.dateKey,
+            accounts: groupDigits(spendToday.accounts),
             total: groupDigits(spendToday.totalTokens),
             operator: groupDigits(spendToday.operatorTokens),
           })}

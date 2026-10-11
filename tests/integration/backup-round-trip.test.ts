@@ -3621,6 +3621,16 @@ const COLUMN_EXCLUSIONS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Columns the restore carries on purpose as "set where it was set" rather
+ * than the same value, each with the reason. A presence check still fails a
+ * column that stops coming back at all.
+ */
+const COLUMN_PRESENCE_ONLY: Readonly<Record<string, string>> = {
+  "Medication.autoMarkTakenSince":
+    "the auto-take floor restarts at the restore, so doses a portable file cannot carry as removed are not filled again; pinned in the restore test for it",
+};
+
+/**
  * Columns a release adds ahead of the backup ends that carry them, so the
  * packages built in parallel on its branch each own their own section of the
  * export and the restore. NOT an exclusion: each entry names the package that
@@ -3760,6 +3770,7 @@ function comparison(
   // A declared foreign key may be re-pointed at a row the restore minted, so
   // it is held to being set where it was set, not to the same id.
   if (column.isForeignKey) return "presence";
+  if (key in COLUMN_PRESENCE_ONLY) return "presence";
   return "value";
 }
 
@@ -3915,7 +3926,12 @@ describe("every column of every two-ended model survives a real restore", () => 
       const rows = seededRows.get(model.name)!;
       expect(rows.length, `${model.name} seeded no row`).toBeGreaterThan(0);
       for (const column of model.columns) {
-        if (comparison(column) !== "value") continue;
+        if (
+          comparison(column) !== "value" &&
+          !(`${model.name}.${column.name}` in COLUMN_PRESENCE_ONLY)
+        ) {
+          continue;
+        }
         // Filling it would turn the fixture's row into a tombstone, and which
         // models carry tombstones is a row decision, not a column one.
         if (column.name === "deletedAt") continue;
@@ -4092,6 +4108,7 @@ describe("every column of every two-ended model survives a real restore", () => 
     );
     const stale = [
       ...Object.keys(COLUMN_EXCLUSIONS),
+      ...Object.keys(COLUMN_PRESENCE_ONLY),
       ...Object.keys(RELEASE_PENDING_COLUMNS),
       ...Object.keys(READ_THROUGH),
       ...Object.keys(FILL_OVERRIDES),
@@ -4312,6 +4329,110 @@ describe("the account's own settings survive a real restore", () => {
       "the restore changed these identity, credential or bookkeeping columns " +
         "on the account it restored into",
     ).toEqual([]);
+  });
+});
+
+describe("automatic dose recording after a restore", () => {
+  it("starts its floor at the restore, so a dose removed before the export stays removed", async () => {
+    const prisma = getPrismaClient();
+    await seedAdminSession(prisma);
+    await createOwner(prisma);
+    await prisma.user.update({
+      where: { id: OWNER_ID },
+      data: { timezone: "UTC" },
+    });
+    const now = Date.now();
+    const dayAt12 = (offset: number) => {
+      const d = new Date(now + offset * 86_400_000);
+      return new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12),
+      );
+    };
+    const since = dayAt12(-10);
+    const medication = await prisma.medication.create({
+      data: {
+        userId: OWNER_ID,
+        name: "Evening supplement",
+        dose: "1",
+        createdAt: dayAt12(-20),
+        autoMarkTaken: true,
+        autoMarkTakenSince: since,
+        schedules: {
+          create: {
+            windowStart: "12:00",
+            windowEnd: "12:00",
+            timesOfDay: ["12:00"],
+            rrule: "FREQ=DAILY",
+            scheduleType: "SCHEDULED",
+          },
+        },
+      },
+      select: { id: true },
+    });
+    // The pass filled the last days; the person removed the dose two days
+    // ago (they did not take it). A portable file carries no removal.
+    const removed = dayAt12(-2);
+    for (let offset = -6; offset <= -1; offset++) {
+      const at = dayAt12(offset);
+      await prisma.medicationIntakeEvent.create({
+        data: {
+          userId: OWNER_ID,
+          medicationId: medication.id,
+          scheduledFor: at,
+          takenAt: at,
+          source: "REMINDER",
+          autoRecorded: true,
+          deletedAt:
+            at.getTime() === removed.getTime()
+              ? new Date(at.getTime() + 3_600_000)
+              : null,
+        },
+      });
+    }
+
+    const { payload } = await buildFullBackupPayload(prisma, OWNER_ID, {
+      purpose: "portable-export",
+    });
+    await prisma.user.delete({ where: { id: OWNER_ID } });
+    await createOwner(prisma);
+    const backup = await prisma.dataBackup.create({
+      data: {
+        userId: OWNER_ID,
+        type: "TWO_ENDED_ROUND_TRIP",
+        data: encrypt(JSON.stringify(payload)),
+      },
+    });
+    const restoredFrom = Date.now();
+    const response = await POST(
+      new Request(`http://localhost/api/admin/backups/${backup.id}/restore`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: "RESTORE" }),
+      }) as never,
+      { params: Promise.resolve({ id: backup.id }) },
+    );
+    expect(response.status).toBe(200);
+
+    const restored = await prisma.medication.findFirstOrThrow({
+      where: { userId: OWNER_ID },
+      select: { id: true, autoMarkTaken: true, autoMarkTakenSince: true },
+    });
+    expect(restored.autoMarkTaken).toBe(true);
+    expect(restored.autoMarkTakenSince!.getTime()).toBeGreaterThanOrEqual(
+      restoredFrom,
+    );
+
+    const { runIntakeAutoTakePass } =
+      await import("@/lib/jobs/intake-auto-take");
+    await runIntakeAutoTakePass(prisma, { nowMs: Date.now() });
+    const onRemovedSlot = await prisma.medicationIntakeEvent.count({
+      where: {
+        medicationId: restored.id,
+        deletedAt: null,
+        scheduledFor: removed,
+      },
+    });
+    expect(onRemovedSlot).toBe(0);
   });
 });
 

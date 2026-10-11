@@ -38,6 +38,7 @@ import {
   type LifeEventDTO,
   type TimelineBucket,
   type TimelineLaneKey,
+  type TimelineResponse,
   type TimelineZoom,
 } from "@/lib/day/contract";
 import type { MeasurementType } from "@/generated/prisma/client";
@@ -69,7 +70,10 @@ import { RangeFields } from "./range-fields";
 import { RangeSheet, ZoomControl } from "./range-picker";
 import {
   clampRange,
+  DEFAULT_ZOOM,
+  hasDataBeforeWindow,
   parseTimelineUrl,
+  resolveDefaultWindow,
   timelineSearch,
   type TimelineRange,
 } from "./timeline-url";
@@ -131,6 +135,15 @@ export const DEFAULT_VALUES = [
   "RESTING_HEART_RATE",
 ];
 
+/** Nothing to draw: no lane item, nothing standing, no reading. */
+function timelineIsEmpty(data: TimelineResponse): boolean {
+  return (
+    data.lanes.every((l) => l.items.length === 0) &&
+    data.standing.length === 0 &&
+    data.series.every((s) => s.points.length === 0)
+  );
+}
+
 const VALUES_KEY = "healthlog.timeline.values";
 const HIDDEN_LANES_KEY = "healthlog.timeline.hiddenLanes";
 
@@ -146,11 +159,11 @@ export function TimelineView() {
   const canAddLifeEvent = !caps.inSharedRecord;
 
   // The zoom and a chosen range live in the URL (`timeline-url.ts`), so Back
-  // and a bookmark return to them. Without a `zoom`, an incoming `?day=`
-  // opens three months around that day and anything else the whole record.
+  // and a bookmark return to them. Without a `zoom` the page opens on three
+  // months: around an incoming `?day=`, otherwise up to today.
   const urlState = parseTimelineUrl(searchParams, today);
-  const zoom: TimelineZoom = urlState.zoom ?? (dayParam ? "quarter" : "all");
-  const range = zoom === "range" ? urlState.range : null;
+  const askedZoom: TimelineZoom = urlState.zoom ?? DEFAULT_ZOOM;
+  const range = askedZoom === "range" ? urlState.range : null;
   const [grouping, setGrouping] = useState<ChronicleGrouping>("month");
   // The selection follows `?day=` (Back, Forward, the day panel's previous
   // and next) and otherwise the last click or key. A pick remembers the
@@ -216,18 +229,49 @@ export function TimelineView() {
     [hiddenList],
   );
 
-  const requestWindow =
-    zoom === "all"
+  const askedWindow =
+    askedZoom === "all"
       ? null
-      : zoom === "range"
+      : askedZoom === "range"
         ? range
-        : windowFor(zoom, today, selected ?? dayParam);
-  const timeline = useTimeline(
-    zoom,
-    requestWindow?.from ?? null,
-    requestWindow?.to ?? null,
+        : windowFor(askedZoom, today, selected ?? dayParam);
+  // Opened without a zoom on three months that hold nothing, while the
+  // record has entries from before them: open on everything instead of a
+  // dead end. The URL stays as it is, so choosing a zoom still works. Once
+  // decided it holds until the URL names a zoom, so picking or opening a
+  // day on the full view does not snap it back to three months.
+  const [opensOnAll, setOpensOnAll] = useState(false);
+  if (opensOnAll && urlState.zoom !== null) setOpensOnAll(false);
+  const asked = useTimeline(
+    askedZoom,
+    askedWindow?.from ?? null,
+    askedWindow?.to ?? null,
     values,
+    !opensOnAll,
   );
+  // Without a zoom the window adapts to the record (`resolveDefaultWindow`):
+  // decided from the three months' answer, before anything is drawn, so the
+  // page never draws one window and then jumps to another.
+  const defaultWindow =
+    urlState.zoom === null &&
+    !opensOnAll &&
+    askedWindow &&
+    asked.data &&
+    !asked.isPlaceholderData
+      ? resolveDefaultWindow({
+          dataFrom: asked.data.range.dataFrom,
+          window: askedWindow,
+          windowHasData: !timelineIsEmpty(asked.data),
+          today,
+        })
+      : null;
+  if (defaultWindow?.zoom === "all") setOpensOnAll(true);
+  const youngFrom =
+    defaultWindow?.zoom === "quarter" ? defaultWindow.from : null;
+  const everything = useTimeline("all", null, null, values, opensOnAll);
+  const zoom: TimelineZoom = opensOnAll ? "all" : askedZoom;
+  const requestWindow = opensOnAll ? null : askedWindow;
+  const timeline = opensOnAll ? everything : asked;
   const readiness = useTimelineReadiness();
   const lifeEvents = useLifeEvents(canAddLifeEvent);
 
@@ -300,7 +344,7 @@ export function TimelineView() {
         ? t("timeline.readiness.lanes.mood")
         : t(MEASUREMENT_TYPE_LABEL_KEYS[key as MeasurementType] ?? key);
 
-  const window_ = data
+  const shownWindow = data
     ? windowFor(
         zoom,
         today,
@@ -308,6 +352,11 @@ export function TimelineView() {
         zoom === "all" || zoom === "range" ? data.range : null,
       )
     : null;
+  // A young record's three months start at its first entry.
+  const window_ =
+    shownWindow && youngFrom && youngFrom > shownWindow.from
+      ? { from: youngFrom, to: shownWindow.to }
+      : shownWindow;
   // A new range starts as the chosen one, or as what is on screen, up to
   // today.
   const rangeDraft = clampRange(
@@ -329,11 +378,12 @@ export function TimelineView() {
     .filter((l) => l.items.length > 0)
     .map((l) => l.key)
     .sort((a, b) => LANE_ORDER.indexOf(a) - LANE_ORDER.indexOf(b));
-  const isEmpty =
+  const isEmpty = !!data && timelineIsEmpty(data);
+  // An empty window with entries before it offers everything.
+  const showEverything =
     !!data &&
-    presentLanes.length === 0 &&
-    data.standing.length === 0 &&
-    data.series.every((s) => s.points.length === 0);
+    zoom !== "all" &&
+    hasDataBeforeWindow(data.range.dataFrom, requestWindow);
 
   const zoomOptions = TIMELINE_ZOOMS.map((z) => ({
     value: z,
@@ -436,6 +486,24 @@ export function TimelineView() {
             }
           />
         </div>
+      ) : showEverything && (isEmpty || !window_) ? (
+        // A window with nothing in it while the record has older entries:
+        // one step to all of them.
+        <EmptyState
+          data-slot="timeline-window-empty"
+          title={t("timeline.selection.empty")}
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-11 sm:min-h-9"
+              onClick={() => setZoom("all")}
+              data-slot="timeline-show-everything"
+            >
+              {t("timeline.range.clear")}
+            </Button>
+          }
+        />
       ) : isEmpty || !data || !window_ ? (
         <EmptyState
           title={t("timeline.empty.title")}

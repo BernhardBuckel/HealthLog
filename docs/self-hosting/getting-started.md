@@ -77,6 +77,26 @@ process (`pnpm dev` against a host Postgres) or a **custom compose** that
 does not derive it — in that case uncomment and set `DATABASE_URL`
 explicitly in `.env` (see the commented example there).
 
+### Using an existing or shared Postgres
+
+HealthLog can live in a database on a Postgres instance you already run.
+It stores every time as UTC and pins each connection it opens to UTC
+(`TimeZone=UTC`, sent with the libpq `options` startup parameter), so the
+server's or the database's own `timezone` setting does not matter: an
+instance set to `Europe/Berlin` works the same as one set to UTC. The app
+checks the setting at startup and logs a warning naming the zone if a
+connection still reports something else.
+
+Behind PgBouncer with `DATABASE_SESSION_OPTIONS_DISABLED=1` (see
+[Scaling](./scaling.md#postgres-connection-pool-sizing)) the app pins the
+zone with `SET TIME ZONE 'UTC'` on each new connection instead; PgBouncer
+keeps that setting per client in transaction pooling too. If the startup
+warning still appears, set the database default as well:
+
+```sql
+ALTER DATABASE healthlog SET timezone TO 'UTC';
+```
+
 ## 3. Bring the stack up
 
 ```bash

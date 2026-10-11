@@ -69,6 +69,14 @@ export default function CheckupsPageClient() {
   const [view, setView] = useState(
     linkedVisit ? "visits" : linkedSite ? "body-sites" : "vorsorge",
   );
+  // A link to a visit can arrive while the page is already open (the search
+  // opens one from wherever the person is): it moves to the visits tab then
+  // too, rather than only on the first render.
+  const [observedVisit, setObservedVisit] = useState(linkedVisit);
+  if (linkedVisit !== observedVisit) {
+    setObservedVisit(linkedVisit);
+    if (linkedVisit) setView("visits");
+  }
 
   const refresh = useCallback(
     () =>

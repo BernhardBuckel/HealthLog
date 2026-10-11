@@ -1229,7 +1229,8 @@
       "bodyLogged": "Consigné dans le journal de maladie : {count} symptômes",
       "bodyNotLogged": "Rien n'est consigné dans le journal de maladie pour cette journée",
       "openIllness": "Ouvrir"
-    }
+    },
+    "sourceNotification": "Notification"
   },
   "medications": {
     "title": "Médicaments",
@@ -1321,6 +1322,14 @@
       "enabledToast": "Suivi des prises activé",
       "disabledToast": "Suivi des prises désactivé",
       "toggleFailed": "Impossible de modifier le suivi des prises."
+    },
+    "autoMarkTaken": {
+      "label": "Enregistrer les prises automatiquement",
+      "helper": "HealthLog enregistre chaque dose prévue comme prise à son heure. Vous pouvez toujours modifier ou sauter une dose à la main. Aucun rappel n'est envoyé.",
+      "cardHint": "Enregistré automatiquement",
+      "enabledToast": "Les prises sont désormais enregistrées automatiquement",
+      "disabledToast": "Les prises ne sont plus enregistrées automatiquement",
+      "toggleFailed": "Impossible de modifier l'enregistrement automatique."
     },
     "withoutNotification": "Sans notification",
     "pausedSince": "En pause depuis",
@@ -1778,6 +1787,7 @@
     "sourceImport": "Import",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "via {origin}",
+    "intakeRecordedAutomatically": "Enregistrée automatiquement",
     "intakeHistoryEmptyTitle": "Aucune prise pour l’instant",
     "intakeHistoryEmptyDescription": "Dès que tu enregistreras une prise, elle apparaîtra ici avec l’heure et la source.",
     "intakeHistoryEmptyAction": "Enregistrer une prise",
@@ -2843,7 +2853,7 @@
     "coach": {
       "refusalOutOfScope": "Je ne peux aider que pour les données de santé de ton journal : mesures, médicaments, humeur, tendances. Les questions hors de ce périmètre ne sont pas traitées.",
       "refusalInjection": "Ton message contient des instructions qui cherchent à remplacer mes consignes. Je suis le coach HealthLog et je ne résume que tes propres données de santé. Reformule ta question dans ce cadre.",
-      "errorBudget": "Tu as atteint la limite quotidienne du coach. Le quota se réinitialise à minuit (UTC).",
+      "errorBudget": "Tu as atteint la limite quotidienne du coach. Le quota se réinitialise à minuit dans ton fuseau horaire.",
       "errorProvider": "Le coach n’a pas pu joindre un fournisseur d’analyse maintenant. Réessaie dans un instant.",
       "errorDemo": "Dans la démo, le Coach ne répond pas.",
       "errorNoProvider": "Le coach lit tes données de santé enregistrées et répond aux questions à leur sujet (pas un avis médical). HealthLog a besoin d'un fournisseur d'IA pour cela : connecte ta propre clé ou un modèle local.",
@@ -2999,7 +3009,7 @@
       "settingsSaved": "Enregistré",
       "settingsCancel": "Annuler",
       "dailyLimitTitle": "Limite quotidienne atteinte",
-      "dailyLimitBody": "Limite quotidienne atteinte. Le quota se réinitialise à minuit (UTC).",
+      "dailyLimitBody": "Limite quotidienne atteinte. Le quota se réinitialise à minuit dans ton fuseau horaire.",
       "providerRateLimitTitle": "Fournisseur limité en débit",
       "providerRateLimitBody": "Le fournisseur est temporairement saturé ; réinitialisation dans ~5 min.",
       "cluster": {
@@ -5325,7 +5335,8 @@
         "subtitle": "Choisissez les rappels que vous recevez et où ils sont envoyés.",
         "remindersHeading": "Rappels",
         "matrixLink": "Notifications par canal",
-        "channelsLink": "Canaux de diffusion"
+        "channelsLink": "Canaux de diffusion",
+        "displayHeading": "Sur ton téléphone"
       },
       "layout": {
         "title": "Disposition",
@@ -6830,6 +6841,7 @@
       "nocreds": "Oura n'est pas configuré sur ce serveur. Demandez à votre administrateur d'ajouter les identifiants OAuth Oura.",
       "token": "L'échange de jeton avec Oura a échoué. Veuillez relancer la connexion.",
       "rate_limited": "Trop de tentatives de connexion. Patientez un instant et réessayez.",
+      "issuer": "La réponse de connexion ne provenait pas du serveur d'autorisation d'Oura, la connexion a donc été interrompue par sécurité. Veuillez relancer la connexion. Si cela se reproduit, prévenez votre administrateur.",
       "generic": "Erreur inconnue lors de la connexion. Veuillez relancer la connexion."
     },
     "integrationSetupGuide": "Guide de configuration",
@@ -7237,7 +7249,7 @@
       "typeCodex": "Connexion ChatGPT (personnelle)",
       "typeLocal": "Modèle local (personnel)",
       "typeGateway": "Passerelle compatible OpenAI (personnelle)",
-      "spendToday": "Aujourd'hui ({date}) : {total} jetons, dont {operator} sur la clé de l'opérateur.",
+      "spendToday": "Aujourd'hui, selon le jour civil de chaque compte : {total} jetons, dont {operator} sur la clé de l'opérateur (comptes avec consommation : {accounts}).",
       "statusPaused": "En pause",
       "pausedHint": "En pause après des échecs répétés pour {count} utilisateurs jusqu’au {at}. Il sera ensuite réessayé automatiquement.",
       "modelNotServed": "Le point d’accès ne propose plus le modèle {model}. Choisissez dans les réglages IA un modèle qu’il propose."
@@ -8459,6 +8471,25 @@
         "changedRead": "Vous pouvez désormais consulter le dossier de santé de la personne dont vous vous occupiez, mais pas le modifier.",
         "changedManage": "Vous pouvez gérer le dossier de santé de la personne dont vous vous occupiez."
       }
+    },
+    "links": {
+      "open": "Ouvrir dans HealthLog"
+    },
+    "quickActions": {
+      "moodGood": "Bien",
+      "moodOkay": "Moyen",
+      "moodBad": "Mal"
+    },
+    "content": {
+      "title": "Valeurs de santé dans les notifications",
+      "description": "Si une notification peut afficher des valeurs comme ton score du matin.",
+      "detail": "Désactivé, une notification dit seulement de quoi il s'agit, l'écran verrouillé n'affiche donc aucune valeur de santé. Activé, elle ajoute les valeurs, par exemple le score du matin dans le récapitulatif. Toucher une notification ouvre le bon endroit de l'app dans les deux cas.",
+      "toggleAria": "Afficher les valeurs de santé dans les notifications",
+      "statusDetailed": "Avec valeurs",
+      "statusGeneric": "Sans valeurs",
+      "detailedToast": "Les notifications incluent désormais des valeurs de santé.",
+      "genericToast": "Les notifications n'incluent plus de valeurs de santé.",
+      "saveError": "Enregistrement impossible. Réessaie plus tard."
     }
   },
   "i18n": {
@@ -10858,6 +10889,7 @@
       "saveError": "Impossible d'enregistrer la modification.",
       "deleteError": "Impossible de supprimer le document.",
       "download": "Télécharger",
+      "openInNewTab": "Ouvrir dans un nouvel onglet",
       "delete": "Supprimer",
       "titleLabel": "Titre",
       "titlePlaceholder": "Ajouter un titre",
@@ -11261,7 +11293,13 @@
     },
     "push": {
       "title": "Votre résumé du matin",
-      "bodyProvisional": "{line}\nLe sommeil de la nuit dernière n'est pas encore disponible."
+      "bodyProvisional": "{line}\nLe sommeil de la nuit dernière n'est pas encore disponible.",
+      "titleScore": "Score du matin {score}",
+      "band": {
+        "green": "Tout semble stable aujourd'hui.",
+        "yellow": "Quelques points méritent un coup d'œil aujourd'hui.",
+        "red": "Certains domaines demandent de l'attention aujourd'hui."
+      }
     },
     "item": {
       "doseWindow": {
@@ -12226,7 +12264,6 @@
     "notShared": "Certaines rubriques ne sont pas partagées avec vous.",
     "inTimeline": "Dans la chronologie",
     "askCoach": "Interroger le Coach sur ce jour",
-    "chartHint": "Cliquez sur un point pour ouvrir son jour.",
     "loadFailed": "Impossible de charger ce jour.",
     "dayOf": "Jour {n} sur {m}",
     "dayN": "Jour {n}",
@@ -12248,16 +12285,10 @@
     "captureShort": "Enregistrer",
     "inTimelineShort": "Chronologie",
     "askCoachPrompt": "Que s’est-il passé le {date} ?",
-    "chartHintTouch": "Touchez un point pour voir sa valeur.",
-    "chartHintBar": "Cliquez sur une barre pour ouvrir son jour.",
-    "chartHintTouchBar": "Touchez une barre pour voir ses valeurs.",
-    "chartHintCell": "Cliquez sur un jour pour l’ouvrir.",
-    "chartHintTouchCell": "Touchez un jour pour voir sa valeur.",
     "coachChips": "Jours dans cette réponse",
     "description": "Tout ce que vos entrées contiennent pour ce jour.",
     "openDocument": "Ouvrir le document",
     "previousReading": "Avant, {date}",
-    "rugLegend": "Les points sous l’axe marquent les jours avec entrées, un anneau un jour remarquable.",
     "sheetExpand": "Agrandir en pleine hauteur",
     "sheetShrink": "Réduire",
     "valuesLegend": "Point pour ce jour, barre pour les 30 jours précédents",
@@ -12560,8 +12591,8 @@
   },
   "palette": {
     "title": "Recherche",
-    "description": "Trouver une page, un réglage, un module ou une action.",
-    "placeholder": "Rechercher des pages, réglages, modules…",
+    "description": "Trouver une page, un réglage, un module, une action ou une entrée de votre dossier.",
+    "placeholder": "Rechercher des pages, réglages, votre dossier…",
     "results": "Résultats",
     "noResults": "Aucun résultat pour « {query} ».",
     "moduleOn": "Activé",
@@ -12575,7 +12606,8 @@
       "insights": "Insights",
       "settings": "Paramètres",
       "modules": "Modules",
-      "actions": "Actions"
+      "actions": "Actions",
+      "records": "Dans votre dossier"
     },
     "actions": {
       "capture": "Nouvelle saisie",
@@ -12583,6 +12615,28 @@
       "backup": "Créer une sauvegarde",
       "today": "Ouvrir aujourd’hui",
       "shortcuts": "Afficher les raccourcis clavier"
+    },
+    "records": {
+      "loading": "Recherche dans votre dossier…",
+      "empty": "Rien dans votre dossier pour « {query} ».",
+      "error": "Votre dossier n’a pas pu être parcouru. Réessayez dans un instant.",
+      "truncated": "Seules les entrées les plus récentes ont été parcourues.",
+      "kind": {
+        "visit": "Consultation",
+        "condition": "Maladie",
+        "document": "Document",
+        "vaccination": "Vaccination",
+        "lab": "Résultat d’analyse",
+        "medication": "Médicament",
+        "symptom": "Symptôme",
+        "workout": "Entraînement",
+        "note": "Note"
+      },
+      "source": {
+        "mood": "Note d’humeur",
+        "measurement": "Note sur une mesure",
+        "illness": "Journal de maladie"
+      }
     }
   },
   "shortcuts": {

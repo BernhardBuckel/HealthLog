@@ -19,6 +19,7 @@
  * One extra connection per running locked job.
  */
 import { Client } from "pg";
+import { timeZoneSessionOptions } from "@/lib/db-session";
 import { caughtAs } from "@/lib/logging/signal";
 
 /** What a guarded run came to. */
@@ -50,7 +51,11 @@ export async function withJobLock<T>(
   connectionString: string | undefined = process.env.DATABASE_URL,
   options: JobLockOptions = {},
 ): Promise<GuardedRun<T>> {
-  const client = new Client({ connectionString, keepAlive: true });
+  const client = new Client({
+    connectionString,
+    keepAlive: true,
+    options: timeZoneSessionOptions(),
+  });
   // An idle client whose server goes away emits `error`; unhandled, that
   // takes the whole worker down. The run itself notices the database is
   // gone through its own queries.

@@ -427,7 +427,10 @@ async function evaluateOfflineGeoNotice(): Promise<void> {
           host: resolveGeoProviderHost(),
           docsUrl: GEOLITE2_DOCS_URL,
         },
-        metadata: { source: "geo-offline-detection" },
+        metadata: {
+          source: "geo-offline-detection",
+          url: "/admin/system-status",
+        },
       });
     }
   } catch (err) {

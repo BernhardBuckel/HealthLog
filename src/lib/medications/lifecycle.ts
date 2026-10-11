@@ -21,9 +21,13 @@
 
 import { annotate } from "@/lib/logging/context";
 import { auditLog } from "@/lib/auth/audit";
+import {
+  moveAutoTakeFloorToNow,
+  type AutoTakeFloorClient,
+} from "@/lib/medications/auto-take";
 
 interface ReconcilePrisma {
-  medication: {
+  medication: AutoTakeFloorClient["medication"] & {
     findUnique: (args: {
       where: { id: string };
       select: { oneShot: true; active: true };
@@ -105,6 +109,8 @@ export async function reconcileOneShotState(
     where: { id: medicationId, userId, oneShot: true },
     data: { active: shouldBeActive },
   });
+  // v1.42.2 — active again: the auto-take pass starts from now.
+  if (shouldBeActive) await moveAutoTakeFloorToNow(prismaClient, medicationId);
 
   await auditLog("medication.oneShot.reconciled", {
     userId,

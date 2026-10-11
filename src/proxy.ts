@@ -41,6 +41,11 @@ export const PUBLIC_PATHS = [
   "/api/health",
   "/api/version",
   "/api/notifications/vapid",
+  // v1.42.2 — notification quick answers. A notification app (ntfy's `http`
+  // action) calls this with no session; the signed, single-use, short-lived
+  // token in the path is the whole credential, verified by the route after
+  // its rate limit. Trailing slash: admits only `/action/<token>`.
+  "/api/notifications/action/",
   "/api/monitoring/",
   "/api/withings/webhook",
   // v1.11.0 — WHOOP webhook (`recovery.updated` / `sleep.updated` /
@@ -220,6 +225,9 @@ const DEMO_MUTATION_ALLOWLIST: ReadonlyArray<{ path: string; method: string }> =
     // The per-profile routes (`/api/managed-profiles/{id}`, its guardians)
     // are different paths and stay closed too.
     { path: "/api/auth/profile", method: "PUT" },
+    // v1.42.2 — the record search is a read that travels as a POST so the
+    // query stays out of URLs and access logs. It writes nothing.
+    { path: "/api/search", method: "POST" },
   ];
 
 // Legacy route redirects (German → English)

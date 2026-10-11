@@ -216,7 +216,7 @@ async function reserveFor(
   ask: SummaryRequest,
   providerType: ProviderChainType,
 ): Promise<AiRunBudget | null> {
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(ask.userId);
   const reservation = await reserveBudget(
     ask.userId,
     budgetFor(ask.mode),

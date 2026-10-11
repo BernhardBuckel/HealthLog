@@ -483,7 +483,7 @@ describe("the reaper", () => {
     const { readDailySpend, buildDateKey } =
       await import("@/lib/ai/coach/budget");
     expect(
-      (await readDailySpend(user.id, buildDateKey())).total,
+      (await readDailySpend(user.id, await buildDateKey(user.id))).total,
     ).toBeGreaterThan(0);
 
     const { reapAiRuns } = await import("@/lib/documents/ai-runs/store");
@@ -493,7 +493,9 @@ describe("the reaper", () => {
       timedOut: 0,
       deleted: 0,
     });
-    expect((await readDailySpend(user.id, buildDateKey())).total).toBe(0);
+    expect(
+      (await readDailySpend(user.id, await buildDateKey(user.id))).total,
+    ).toBe(0);
 
     const run = await getPrismaClient().documentAiRun.findUniqueOrThrow({
       where: { id: runId },

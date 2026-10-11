@@ -277,3 +277,25 @@ describe("sendViaEmail — transport and envelope faults are named too", () => {
     expect(result.failureCode).toBe(failureCode);
   });
 });
+
+describe("sendViaEmail — tap target", () => {
+  it("appends the tap link as a plain-text line", async () => {
+    loadEmailConfigMock.mockReturnValue(transport);
+    sendMailMock.mockResolvedValue({ messageId: "1" });
+
+    await sendViaEmail(
+      { recipient: "you@example.com" },
+      payload({
+        tap: {
+          path: "/settings/security",
+          url: "https://health.example/settings/security",
+          label: "Open in HealthLog",
+        },
+      }),
+    );
+
+    expect(sendMailMock.mock.calls[0][0].text).toBe(
+      "Body\n\nOpen in HealthLog: https://health.example/settings/security",
+    );
+  });
+});

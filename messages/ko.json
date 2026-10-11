@@ -1229,7 +1229,8 @@
       "bodyLogged": "아픈 날 일지에 증상 {count}개를 기록했어요",
       "bodyNotLogged": "이 날은 아픈 날 일지에 기록된 게 없어요",
       "openIllness": "열기"
-    }
+    },
+    "sourceNotification": "알림"
   },
   "medications": {
     "title": "복약",
@@ -1321,6 +1322,14 @@
       "enabledToast": "복용 기록 켜짐",
       "disabledToast": "복용 기록 꺼짐",
       "toggleFailed": "복용 기록 설정을 바꾸지 못했어요."
+    },
+    "autoMarkTaken": {
+      "label": "복용 자동 기록",
+      "helper": "HealthLog가 예정된 각 복용을 해당 시간에 복용한 것으로 기록합니다. 복용은 언제든 직접 변경하거나 건너뛸 수 있습니다. 알림은 보내지 않습니다.",
+      "cardHint": "자동으로 기록됨",
+      "enabledToast": "이제 복용이 자동으로 기록됩니다",
+      "disabledToast": "더 이상 복용이 자동으로 기록되지 않습니다",
+      "toggleFailed": "자동 기록을 변경하지 못했습니다."
     },
     "withoutNotification": "알림 없음",
     "pausedSince": "일시중지 시작",
@@ -1778,6 +1787,7 @@
     "sourceImport": "불러오기",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "{origin} 경유",
+    "intakeRecordedAutomatically": "자동으로 기록됨",
     "intakeHistoryEmptyTitle": "아직 복용 기록이 없어요",
     "intakeHistoryEmptyDescription": "일일 복용 페이지에서 용량을 기록하면 이력이 쌓여요.",
     "intakeHistoryEmptyAction": "일일 복용 열기",
@@ -2843,7 +2853,7 @@
     "coach": {
       "refusalOutOfScope": "기록에 있는 건강 지표(측정값, 약, 기분, 추이)만 도와드릴 수 있어요. 그 밖의 질문에는 답할 수 없어요.",
       "refusalInjection": "제 지시를 덮어쓰려는 표현이 보였어요. 저는 HealthLog 코치이고 회원님의 건강 데이터만 정리해 드려요. 그 범위로 질문을 다시 적어 주세요.",
-      "errorBudget": "오늘 코치 사용 한도에 도달했어요. 사용량은 UTC 자정에 초기화돼요.",
+      "errorBudget": "오늘 코치 사용 한도에 도달했어요. 사용량은 내 시간대의 자정에 초기화돼요.",
       "errorProvider": "지금은 코치가 인사이트 제공자에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
       "errorDemo": "데모에서는 코치가 답하지 않아요.",
       "errorNoProvider": "코치는 기록된 건강 데이터를 읽고 그에 대한 질문에 답해요(의학적 조언은 아니에요). 그러려면 HealthLog에 AI 제공자가 필요해요. 직접 발급한 키나 로컬 모델을 연결해 주세요.",
@@ -2999,7 +3009,7 @@
       "settingsSaved": "저장됨",
       "settingsCancel": "취소",
       "dailyLimitTitle": "하루 한도 도달",
-      "dailyLimitBody": "하루 한도에 도달했어요. 사용량은 UTC 자정에 초기화돼요.",
+      "dailyLimitBody": "하루 한도에 도달했어요. 사용량은 내 시간대의 자정에 초기화돼요.",
       "providerRateLimitTitle": "제공자 요청 제한",
       "providerRateLimitBody": "제공자가 일시적으로 요청을 제한하고 있어요. 5분쯤 뒤에 다시 시도해 주세요.",
       "cluster": {
@@ -5325,7 +5335,8 @@
         "subtitle": "받을 알림과 전달될 곳을 골라요.",
         "remindersHeading": "알림",
         "matrixLink": "채널별 알림",
-        "channelsLink": "전송 채널"
+        "channelsLink": "전송 채널",
+        "displayHeading": "휴대폰에서"
       },
       "layout": {
         "title": "화면 구성",
@@ -6830,6 +6841,7 @@
       "nocreds": "이 서버에는 Oura가 설정돼 있지 않아요. 관리자에게 Oura OAuth 자격 증명을 추가해 달라고 요청하세요.",
       "token": "Oura와의 토큰 교환에 실패했어요. 연결을 다시 시작해 주세요.",
       "rate_limited": "연결 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.",
+      "issuer": "로그인 응답이 Oura의 인증 서버에서 오지 않아서 안전을 위해 연결을 중단했어요. 연결을 다시 시작해 주세요. 계속 발생하면 관리자에게 알려 주세요.",
       "generic": "연결 중 알 수 없는 오류가 났어요. 연결을 다시 시작해 주세요."
     },
     "integrationSetupGuide": "설정 가이드",
@@ -7955,7 +7967,7 @@
       "typeCodex": "ChatGPT 로그인 (개인)",
       "typeLocal": "로컬 모델 (개인)",
       "typeGateway": "OpenAI 호환 게이트웨이 (개인)",
-      "spendToday": "오늘({date}): 토큰 {total}개, 그중 {operator}개는 운영자 키에서 사용되었습니다.",
+      "spendToday": "오늘(각 계정의 현지 날짜 기준): 토큰 {total}개, 그중 {operator}개는 운영자 키에서 사용되었습니다(사용량이 있는 계정: {accounts}개).",
       "statusPaused": "일시 중지됨",
       "pausedHint": "반복된 오류로 사용자 {count}명에 대해 {at}까지 일시 중지되었습니다. 그 후 자동으로 다시 시도합니다.",
       "modelNotServed": "엔드포인트가 더 이상 {model} 모델을 제공하지 않습니다. AI 설정에서 제공되는 모델을 선택하세요."
@@ -8459,6 +8471,25 @@
         "changedRead": "이제 돌보던 분의 건강 기록을 볼 수 있지만 변경할 수는 없어요.",
         "changedManage": "돌보던 분의 건강 기록을 관리할 수 있어요."
       }
+    },
+    "links": {
+      "open": "HealthLog에서 열기"
+    },
+    "quickActions": {
+      "moodGood": "좋음",
+      "moodOkay": "보통",
+      "moodBad": "나쁨"
+    },
+    "content": {
+      "title": "알림의 건강 수치",
+      "description": "알림에 아침 점수 같은 수치를 표시할지 정합니다.",
+      "detail": "끄면 알림은 무엇에 관한 것인지만 알려 주므로 잠금 화면에 건강 수치가 나타나지 않아요. 켜면 수치도 함께 보여 줘요. 예를 들어 브리핑에 아침 점수가 표시됩니다. 어느 쪽이든 알림을 누르면 앱의 알맞은 곳이 열려요.",
+      "toggleAria": "알림에 건강 수치 표시",
+      "statusDetailed": "수치 표시",
+      "statusGeneric": "수치 없이",
+      "detailedToast": "이제 알림에 건강 수치가 포함됩니다.",
+      "genericToast": "이제 알림에 건강 수치가 포함되지 않습니다.",
+      "saveError": "저장하지 못했어요. 나중에 다시 시도해 주세요."
     }
   },
   "i18n": {
@@ -10858,6 +10889,7 @@
       "saveError": "변경 내용을 저장하지 못했어요.",
       "deleteError": "문서를 삭제하지 못했어요.",
       "download": "다운로드",
+      "openInNewTab": "새 탭에서 열기",
       "delete": "삭제",
       "titleLabel": "제목",
       "titlePlaceholder": "제목 입력",
@@ -11261,7 +11293,13 @@
     },
     "push": {
       "title": "아침 브리핑",
-      "bodyProvisional": "{line}\n어젯밤 수면은 아직 들어오지 않았어요."
+      "bodyProvisional": "{line}\n어젯밤 수면은 아직 들어오지 않았어요.",
+      "titleScore": "아침 점수 {score}",
+      "band": {
+        "green": "오늘은 안정적으로 보여요.",
+        "yellow": "오늘은 몇 가지를 살펴볼 만해요.",
+        "red": "오늘은 몇몇 영역에 주의가 필요해요."
+      }
     },
     "item": {
       "doseWindow": {
@@ -12226,7 +12264,6 @@
     "notShared": "일부 영역은 공유되지 않았어요.",
     "inTimeline": "타임라인에서 보기",
     "askCoach": "이 날에 대해 코치에게 묻기",
-    "chartHint": "점을 클릭하면 그날이 열려요.",
     "loadFailed": "이 날을 불러오지 못했어요.",
     "dayOf": "{m}일 중 {n}일째",
     "dayN": "{n}일째",
@@ -12248,16 +12285,10 @@
     "captureShort": "기록",
     "inTimelineShort": "타임라인",
     "askCoachPrompt": "{date}에 무슨 일이 있었나요?",
-    "chartHintTouch": "점을 탭하면 값이 보여요.",
-    "chartHintBar": "막대를 클릭하면 그날이 열려요.",
-    "chartHintTouchBar": "막대를 탭하면 값이 보여요.",
-    "chartHintCell": "날짜 칸을 클릭하면 그날이 열려요.",
-    "chartHintTouchCell": "날짜 칸을 탭하면 값이 보여요.",
     "coachChips": "이 답변에 쓰인 날",
     "description": "이 날에 대한 모든 기록이에요.",
     "openDocument": "문서 열기",
     "previousReading": "이전, {date}",
-    "rugLegend": "축 아래 점은 기록이 있는 날을, 고리는 눈에 띄는 날을 표시해요.",
     "sheetExpand": "전체 높이로 펼치기",
     "sheetShrink": "줄이기",
     "valuesLegend": "점은 이 날, 막대는 직전 30일",
@@ -12560,8 +12591,8 @@
   },
   "palette": {
     "title": "검색",
-    "description": "페이지, 설정, 모듈 또는 작업을 찾습니다.",
-    "placeholder": "페이지, 설정, 모듈 검색…",
+    "description": "페이지, 설정, 모듈, 작업 또는 내 기록의 항목을 찾습니다.",
+    "placeholder": "페이지, 설정, 내 기록 검색…",
     "results": "결과",
     "noResults": "“{query}”에 대한 결과가 없습니다.",
     "moduleOn": "켜짐",
@@ -12575,7 +12606,8 @@
       "insights": "인사이트",
       "settings": "설정",
       "modules": "모듈",
-      "actions": "작업"
+      "actions": "작업",
+      "records": "내 기록에서"
     },
     "actions": {
       "capture": "새 항목",
@@ -12583,6 +12615,28 @@
       "backup": "백업 만들기",
       "today": "오늘 열기",
       "shortcuts": "키보드 단축키 보기"
+    },
+    "records": {
+      "loading": "내 기록을 검색하는 중…",
+      "empty": "내 기록에서 “{query}”에 대한 결과가 없습니다.",
+      "error": "내 기록을 검색할 수 없습니다. 잠시 후 다시 시도하세요.",
+      "truncated": "최근 항목만 검색했습니다.",
+      "kind": {
+        "visit": "진료",
+        "condition": "질환",
+        "document": "문서",
+        "vaccination": "예방접종",
+        "lab": "검사 결과",
+        "medication": "약",
+        "symptom": "증상",
+        "workout": "운동",
+        "note": "메모"
+      },
+      "source": {
+        "mood": "기분 메모",
+        "measurement": "측정값 메모",
+        "illness": "질병 일지"
+      }
     }
   },
   "shortcuts": {

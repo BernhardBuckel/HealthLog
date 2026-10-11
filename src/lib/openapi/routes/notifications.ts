@@ -17,6 +17,10 @@ import type { ZodOpenApiObject } from "zod-openapi";
 
 import { CHANNEL_TYPES, EVENT_TYPES } from "@/lib/notifications/types";
 import {
+  QUICK_ACTION_IDS,
+  type QuickActionId,
+} from "@/lib/notifications/action-token";
+import {
   notificationPreferenceSchema,
   reEnableChannelSchema,
 } from "@/lib/validations/notifications";
@@ -148,8 +152,67 @@ const reEnableChannelRequest = reEnableChannelSchema.meta({
     "Clear the auto-disable on one of the caller's own channels. A channel id the caller does not own answers 404.",
 });
 
+const notificationActionResult = z
+  .object({
+    logged: z.literal(true),
+    action: z
+      .enum(QUICK_ACTION_IDS as [QuickActionId, ...QuickActionId[]])
+      .describe(
+        "The answer that was logged: mood-good = 4 (GUT), mood-okay = 3 (OKAY), mood-bad = 2 (SCHLECHT) on the five-point mood scale.",
+      ),
+  })
+  .meta({
+    id: "NotificationActionResult",
+    description: "A quick answer from a notification, logged as a mood entry.",
+  });
+
 export const notificationChannelPaths: NonNullable<ZodOpenApiObject["paths"]> =
   {
+    "/api/notifications/action/{token}": {
+      post: {
+        tags: ["Notifications"],
+        summary: "Log a quick answer tapped inside a notification",
+        description:
+          "Called by a notification app (ntfy `http` action), never by a signed-in client: the signed path token is the only credential. The token is bound to one user and one answer, expires six hours after the reminder was sent, and is single-use across all answers offered on that reminder. Rate-limited per client address before the token is read. Writes a mood entry with source `NOTIFICATION`; refused with 403 when the mood module is off.",
+        requestParams: {
+          path: z.object({
+            token: z
+              .string()
+              .describe("Signed action token from the notification's URL."),
+          }),
+        },
+        responses: {
+          "200": {
+            description: "The answer was logged.",
+            content: {
+              "application/json": {
+                schema: dataEnvelope(
+                  notificationActionResult,
+                  "NotificationActionResponse",
+                ),
+              },
+            },
+          },
+          ...stdResponses,
+          "401": {
+            description: "Invalid token (forged, altered, or unknown user).",
+            content: { "application/json": { schema: errorEnvelope } },
+          },
+          "403": {
+            description: "The mood module is turned off for this account.",
+            content: { "application/json": { schema: errorEnvelope } },
+          },
+          "409": {
+            description: "This reminder was already answered.",
+            content: { "application/json": { schema: errorEnvelope } },
+          },
+          "410": {
+            description: "The answer expired.",
+            content: { "application/json": { schema: errorEnvelope } },
+          },
+        },
+      },
+    },
     "/api/notifications/preferences": {
       get: {
         tags: ["Notifications"],

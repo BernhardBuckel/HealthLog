@@ -250,7 +250,7 @@ export async function runStatusCompletion(
   // credential (`admin-openai` / `admin-codex`). A self-hoster on their own key
   // or a local model is measured against the generous user-plan ceiling, so
   // their own hardware/plan is never rationed by the operator's bill.
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(userId);
   // Thinking is billed as output, so a reasoning call reserves its thinking
   // budget too; the reconcile below settles on the reported count.
   const estimatedTokens =

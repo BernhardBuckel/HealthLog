@@ -10,7 +10,9 @@
  *
  * Oura specifics: standard authorization-code OAuth WITH refresh tokens (the
  * sync layer refreshes on 401, persisting BOTH rotated tokens). The token
- * endpoint takes client_id/secret in the body. Collections are read by
+ * endpoint takes client_id/secret in the body (client_secret_post) and lives
+ * on moi.ouraring.com, with the documented api.ouraring.com endpoint as a
+ * fallback for older apps. Collections are read by
  * `start_date` / `end_date` (YYYY-MM-DD) and page via `next_token`.
  */
 import { getEvent } from "@/lib/logging/context";
@@ -22,7 +24,63 @@ import { envOr, envValue } from "@/lib/env";
 
 const OURA_API_BASE = "https://api.ouraring.com";
 const OURA_OAUTH_AUTH_URL = "https://cloud.ouraring.com/oauth/authorize";
-const OURA_OAUTH_TOKEN_URL = "https://api.ouraring.com/oauth/token";
+
+/**
+ * Oura's live token endpoint. Apps created in the current developer portal
+ * get their codes from this authorization server (the callback carries
+ * `iss=https://moi.ouraring.com/oauth/v2/ext/oauth-anonymous`), and the
+ * documented `api.ouraring.com/oauth/token` answers those codes with
+ * `400 invalid_request`. Older apps are served here too.
+ */
+export const OURA_OAUTH_TOKEN_URL =
+  "https://moi.ouraring.com/oauth/v2/ext/oauth-token";
+
+/**
+ * The documented endpoint, kept only as a fallback for the older apps the
+ * live endpoint turns away. Never tried first for a code: an authorization
+ * code works once (RFC 6749 4.1.2), so a rejected first attempt would burn
+ * it before the right endpoint saw it.
+ */
+export const OURA_OAUTH_LEGACY_TOKEN_URL =
+  "https://api.ouraring.com/oauth/token";
+
+/** The origin of Oura's current authorization server. */
+const OURA_MOI_ORIGIN = "https://moi.ouraring.com";
+
+/**
+ * Authorization-server origins an `iss` callback parameter may name
+ * (RFC 9207). Anything else is a mix-up and refused.
+ */
+const OURA_ISSUER_ORIGINS = new Set([
+  OURA_MOI_ORIGIN,
+  "https://cloud.ouraring.com",
+  "https://api.ouraring.com",
+]);
+
+/**
+ * Check the `iss` the authorization server sent with the callback. Absent is
+ * fine (older apps never send one); present, it must name one of Oura's own
+ * authorization servers.
+ */
+export function isAcceptedOuraIssuer(iss: string | null): boolean {
+  if (iss === null) return true;
+  try {
+    const url = new URL(iss);
+    return url.protocol === "https:" && OURA_ISSUER_ORIGINS.has(url.origin);
+  } catch {
+    return false;
+  }
+}
+
+/** True when the code was issued by the current authorization server. */
+function issuedByMoi(iss: string | null | undefined): boolean {
+  if (!iss) return false;
+  try {
+    return new URL(iss).origin === OURA_MOI_ORIGIN;
+  } catch {
+    return false;
+  }
+}
 
 export interface OuraCredentials {
   clientId: string;
@@ -76,12 +134,18 @@ export interface OuraTokenResponse {
   scope?: string;
 }
 
-async function postToken(
+interface TokenAttempt {
+  status: number;
+  json: unknown;
+}
+
+async function requestToken(
+  url: string,
   params: URLSearchParams,
   verb: string,
-): Promise<OuraTokenResponse> {
+): Promise<TokenAttempt> {
   const start = performance.now();
-  const res = await safeFetch(OURA_OAUTH_TOKEN_URL, {
+  const res = await safeFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -89,7 +153,7 @@ async function postToken(
     },
     body: params.toString(),
   });
-  const json = await res.json().catch(() => null);
+  const json: unknown = await res.json().catch(() => null);
   const verdict = classifyOuraResponse(res.status);
   getEvent()?.addExternalCall({
     service: "oura",
@@ -98,33 +162,91 @@ async function postToken(
     status: res.status,
     error: verdict.classification === "success" ? undefined : verdict.reason,
   });
+  return { status: res.status, json };
+}
+
+function upstreamError(json: unknown): string | undefined {
+  if (json === null || typeof json !== "object") return undefined;
+  const error = (json as { error?: unknown }).error;
+  return typeof error === "string" ? error : undefined;
+}
+
+/**
+ * Whether the legacy endpoint is worth asking after the live one refused:
+ * a 400, 401 or 404. The live endpoint may not know an older app's client,
+ * code or refresh token at all, and its refusal does not tell "unknown here"
+ * apart from "bad grant" reliably, so every such refusal gets the one retry.
+ * Server errors and rate limits do not: they say nothing about the grant.
+ */
+const FALLBACK_STATUSES = new Set([400, 401, 404]);
+
+function belongsElsewhere(attempt: TokenAttempt): boolean {
+  return FALLBACK_STATUSES.has(attempt.status);
+}
+
+function tokenResult(attempt: TokenAttempt, verb: string): OuraTokenResponse {
+  const verdict = classifyOuraResponse(attempt.status);
   if (verdict.classification !== "success") {
     throw new OuraApiError({
       verb,
       classification: verdict.classification,
       httpStatus: verdict.httpStatus,
       reason: verdict.reason,
-      upstreamError: typeof json?.error === "string" ? json.error : undefined,
+      upstreamError: upstreamError(attempt.json),
     });
   }
   // A 2xx with an empty or non-JSON body (captive portal, gateway 200, 204)
   // leaves `json` null. Casting it straight to the token type handed callers a
   // null they then dereferenced, surfacing an unclassified TypeError instead of
   // a handled integration error. Narrow explicitly and classify as transient.
-  if (json === null || typeof json !== "object") {
+  if (attempt.json === null || typeof attempt.json !== "object") {
     throw new OuraApiError({
       verb,
       classification: "transient",
-      httpStatus: res.status,
+      httpStatus: attempt.status,
       reason: "empty_token_body",
     });
   }
-  return json as OuraTokenResponse;
+  return attempt.json as OuraTokenResponse;
 }
 
+/**
+ * Ask the live endpoint, then the legacy one when `mayFallBack` allows it and
+ * the live endpoint refused with 400, 401 or 404. The legacy endpoint is
+ * never asked first.
+ */
+async function postToken(
+  params: URLSearchParams,
+  verb: string,
+  mayFallBack: boolean,
+): Promise<OuraTokenResponse> {
+  const live = await requestToken(OURA_OAUTH_TOKEN_URL, params, verb);
+  if (mayFallBack && belongsElsewhere(live)) {
+    const legacy = await requestToken(
+      OURA_OAUTH_LEGACY_TOKEN_URL,
+      params,
+      `${verb}.legacy`,
+    );
+    if (legacy.status >= 200 && legacy.status < 300) {
+      return tokenResult(legacy, verb);
+    }
+    // Neither endpoint took it. The live endpoint's answer is the one that
+    // describes the grant for every current app, so report that one.
+  }
+  return tokenResult(live, verb);
+}
+
+/**
+ * Exchange an authorization code. `iss` is the callback's issuer parameter:
+ * a code from the current authorization server goes to the live endpoint
+ * only, since a second attempt elsewhere could never succeed. Without an
+ * issuer (an older app) the legacy endpoint is the fallback after the live
+ * one has refused the code; the live endpoint is always asked first.
+ */
 export async function exchangeCode(
   code: string,
   creds: OuraCredentials,
+  iss?: string | null,
 ): Promise<OuraTokenResponse> {
   return postToken(
     new URLSearchParams({
@@ -135,9 +257,15 @@ export async function exchangeCode(
       client_secret: creds.clientSecret,
     }),
     "exchangeCode",
+    !issuedByMoi(iss),
   );
 }
 
+/**
+ * Refresh an access token: live endpoint first, the legacy endpoint when the
+ * live one refuses it (a refresh token of an older app).
+ * A refused refresh does not consume the token, so the retry is safe.
+ */
 export async function refreshAccessToken(
   refreshToken: string,
   creds: OuraCredentials,
@@ -150,6 +278,7 @@ export async function refreshAccessToken(
       client_secret: creds.clientSecret,
     }),
     "refreshAccessToken",
+    true,
   );
 }
 

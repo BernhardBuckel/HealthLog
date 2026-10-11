@@ -230,7 +230,9 @@ describe("POST /api/insights/chat — integration", () => {
     // the reservation is refunded so the ledger stays at the cap.
     const { userId } = await seedUserWithSession();
     const prisma = getPrismaClient();
-    const dateKey = new Date().toISOString().slice(0, 10);
+    // The account's own day, the key the route reserves under.
+    const { buildDateKey } = await import("@/lib/ai/coach/budget");
+    const dateKey = await buildDateKey(userId);
     // v1.21.0 — the daily cap is now provider-aware: the seeded user resolves
     // to a user-egress chain, so the applicable ceiling is USER_PLAN_CAP. Seed
     // the spend at that ceiling so the reservation trips the gate. (Seeding the

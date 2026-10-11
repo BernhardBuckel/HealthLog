@@ -346,6 +346,11 @@ export interface WizardPayload {
    * schedule as a record: nothing due, no reminders, no adherence.
    */
   trackIntake: boolean;
+  /**
+   * v1.42.2 — record each scheduled dose as taken automatically once its
+   * time has passed. No reminder is sent while it is on.
+   */
+  autoMarkTaken: boolean;
   /** Every parallel schedule under construction. Always >= 1 entry. */
   schedules: ScheduleDraft[];
   /** Which schedule Steps 5-7 currently edit. */
@@ -395,6 +400,7 @@ export function emptyWizardPayload(): WizardPayload {
     endsOn: null,
     notificationsEnabled: true,
     trackIntake: true,
+    autoMarkTaken: false,
     schedules: [draft],
     activeScheduleIndex: 0,
   };
@@ -695,6 +701,12 @@ export interface CreateMedicationBody {
    * always tracks intake.
    */
   trackIntake: boolean;
+  /**
+   * v1.42.2 — auto-mark-taken, sent on every create and edit (hydrated from
+   * the stored value). The server stamps its floor only on an off→on flip,
+   * so re-sending the stored value never moves it. Off for as-needed.
+   */
+  autoMarkTaken: boolean;
   schedules: Array<{
     id?: string;
     windowStart: string;
@@ -923,6 +935,8 @@ export function buildCreateBody(
     // medication kept as a record. Turning a medication into an as-needed
     // one means doses will be logged, so it tracks intake again.
     trackIntake: isAsNeeded ? true : committed.trackIntake,
+    // An as-needed medication has no slot to record.
+    autoMarkTaken: isAsNeeded ? false : committed.autoMarkTaken,
     schedules: draftsToEmit.map((draft) =>
       encodeScheduleDraft(draft, isOneShot),
     ),
@@ -1149,6 +1163,8 @@ export interface MedicationPayload {
   asNeeded?: boolean;
   /** v1.39.1 (#1033) — intake tracking; absent = tracked. */
   trackIntake?: boolean;
+  /** v1.42.2 — auto-mark-taken; absent = off. */
+  autoMarkTaken?: boolean;
   schedules: Array<{
     id?: string;
     windowStart: string;
@@ -1301,6 +1317,7 @@ export function hydrateWizardPayload(
     endsOn: initial.endsOn,
     notificationsEnabled: initial.notificationsEnabled ?? true,
     trackIntake: initial.trackIntake !== false,
+    autoMarkTaken: initial.autoMarkTaken === true,
     schedules: drafts,
     activeScheduleIndex: 0,
   };

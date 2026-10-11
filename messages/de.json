@@ -1229,7 +1229,8 @@
       "bodyLogged": "Im Krankheitstagebuch erfasst: {count} Symptome",
       "bodyNotLogged": "Für diesen Tag ist im Krankheitstagebuch nichts erfasst",
       "openIllness": "Öffnen"
-    }
+    },
+    "sourceNotification": "Benachrichtigung"
   },
   "medications": {
     "title": "Medikamente",
@@ -1321,6 +1322,14 @@
       "enabledToast": "Einnahmen werden erfasst",
       "disabledToast": "Einnahmen werden nicht erfasst",
       "toggleFailed": "Einnahme-Erfassung konnte nicht geändert werden."
+    },
+    "autoMarkTaken": {
+      "label": "Einnahmen automatisch erfassen",
+      "helper": "HealthLog erfasst jede geplante Dosis zu ihrer Uhrzeit als eingenommen. Du kannst eine Dosis weiterhin selbst ändern oder überspringen. Erinnerungen entfallen.",
+      "cardHint": "Wird automatisch erfasst",
+      "enabledToast": "Einnahmen werden jetzt automatisch erfasst",
+      "disabledToast": "Einnahmen werden nicht mehr automatisch erfasst",
+      "toggleFailed": "Automatische Erfassung konnte nicht geändert werden."
     },
     "withoutNotification": "Ohne Benachrichtigung",
     "pausedSince": "Pausiert seit",
@@ -1778,6 +1787,7 @@
     "sourceImport": "Import",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "über {origin}",
+    "intakeRecordedAutomatically": "Automatisch erfasst",
     "intakeHistoryEmptyTitle": "Noch keine Einnahmen erfasst",
     "intakeHistoryEmptyDescription": "Trage eine Einnahme auf der Tagesübersicht ein, um den Verlauf aufzubauen.",
     "intakeHistoryEmptyAction": "Zur Tagesübersicht",
@@ -2843,7 +2853,7 @@
     "coach": {
       "refusalOutOfScope": "Ich kann nur bei den Gesundheitsdaten in deinem Log helfen: Messwerte, Medikamente, Stimmung, Trends. Fragen außerhalb dieses Themas beantworte ich nicht.",
       "refusalInjection": "In deiner Nachricht stehen Anweisungen, die meine Vorgaben überschreiben sollen. Ich bin der HealthLog-Coach und fasse ausschließlich deine eigenen Gesundheitsdaten zusammen. Formuliere deine Frage bitte in diesem Rahmen neu.",
-      "errorBudget": "Du hast das heutige Coach-Limit erreicht. Das Budget setzt sich um Mitternacht (UTC) zurück.",
+      "errorBudget": "Du hast das heutige Coach-Limit erreicht. Das Budget setzt sich um Mitternacht in deiner Zeitzone zurück.",
       "errorProvider": "Der Coach konnte gerade keinen Auswertungs-Anbieter erreichen. Bitte versuche es in einem Moment erneut.",
       "errorDemo": "In der Demo antwortet der Coach nicht.",
       "errorNoProvider": "Der Coach liest deine erfassten Gesundheitsdaten und beantwortet Fragen dazu (keine medizinische Beratung). Dafür braucht HealthLog einen KI-Anbieter. Verbinde deinen eigenen Schlüssel oder ein lokales Modell.",
@@ -2999,7 +3009,7 @@
       "settingsSaved": "Gespeichert",
       "settingsCancel": "Abbrechen",
       "dailyLimitTitle": "Heute-Limit erreicht",
-      "dailyLimitBody": "Tageslimit erreicht. Das Budget setzt sich um Mitternacht (UTC) zurück.",
+      "dailyLimitBody": "Tageslimit erreicht. Das Budget setzt sich um Mitternacht in deiner Zeitzone zurück.",
       "providerRateLimitTitle": "Provider rate-limited",
       "providerRateLimitBody": "Provider ist temporär überlastet; Reset in ~5 min.",
       "cluster": {
@@ -5325,7 +5335,8 @@
         "subtitle": "Wähle, welche Erinnerungen du erhältst und wohin sie zugestellt werden.",
         "remindersHeading": "Erinnerungen",
         "matrixLink": "Benachrichtigungen je Kanal",
-        "channelsLink": "Zustellkanäle"
+        "channelsLink": "Zustellkanäle",
+        "displayHeading": "Auf dem Handy"
       },
       "layout": {
         "title": "Layout",
@@ -6830,6 +6841,7 @@
       "nocreds": "Oura ist auf diesem Server nicht konfiguriert. Bitte deinen Administrator, die Oura-OAuth-Zugangsdaten zu hinterlegen.",
       "token": "Der Token-Austausch mit Oura ist fehlgeschlagen. Bitte starte die Verbindung erneut.",
       "rate_limited": "Zu viele Verbindungsversuche. Warte einen Moment und versuche es erneut.",
+      "issuer": "Die Anmeldeantwort kam nicht vom Autorisierungsserver von Oura, deshalb wurde die Verbindung zu deiner Sicherheit abgebrochen. Bitte starte die Verbindung erneut. Wenn das wieder passiert, sag deinem Administrator Bescheid.",
       "generic": "Unbekannter Fehler bei der Verbindung. Bitte starte die Verbindung erneut."
     },
     "integrationSetupGuide": "Einrichtungsanleitung",
@@ -7237,7 +7249,7 @@
       "typeCodex": "ChatGPT-Anmeldung (persönlich)",
       "typeLocal": "Lokales Modell (persönlich)",
       "typeGateway": "OpenAI-kompatibles Gateway (persönlich)",
-      "spendToday": "Heute ({date}): {total} Tokens, davon {operator} auf dem Schlüssel des Betreibers.",
+      "spendToday": "Heute, jeweils am eigenen Kalendertag jedes Kontos: {total} Tokens, davon {operator} auf dem Schlüssel des Betreibers (Konten mit Verbrauch: {accounts}).",
       "statusPaused": "Pausiert",
       "pausedHint": "Nach wiederholten Fehlern für {count} Nutzer pausiert bis {at}. Danach wird er automatisch wieder versucht.",
       "modelNotServed": "Der Endpunkt bietet das Modell {model} nicht mehr an. Wähle in den KI-Einstellungen ein Modell, das er anbietet."
@@ -8459,6 +8471,25 @@
         "changedRead": "Du kannst die Gesundheitsakte der Person, die du betreut hast, jetzt ansehen, aber nicht ändern.",
         "changedManage": "Du kannst die Gesundheitsakte der Person, die du betreut hast, verwalten."
       }
+    },
+    "links": {
+      "open": "In HealthLog öffnen"
+    },
+    "quickActions": {
+      "moodGood": "Gut",
+      "moodOkay": "Okay",
+      "moodBad": "Schlecht"
+    },
+    "content": {
+      "title": "Gesundheitswerte in Benachrichtigungen",
+      "description": "Ob eine Benachrichtigung Werte wie deinen Morgenscore zeigen darf.",
+      "detail": "Aus: Eine Benachrichtigung sagt nur, worum es geht, der Sperrbildschirm zeigt keine Gesundheitswerte. An: Sie nennt auch die Werte, etwa den Morgenscore im Überblick. Ein Tipp auf die Benachrichtigung öffnet in beiden Fällen die passende Stelle in der App.",
+      "toggleAria": "Gesundheitswerte in Benachrichtigungen zeigen",
+      "statusDetailed": "Mit Werten",
+      "statusGeneric": "Ohne Werte",
+      "detailedToast": "Benachrichtigungen zeigen jetzt Gesundheitswerte.",
+      "genericToast": "Benachrichtigungen zeigen keine Gesundheitswerte mehr.",
+      "saveError": "Speichern fehlgeschlagen. Bitte später erneut versuchen."
     }
   },
   "i18n": {
@@ -10858,6 +10889,7 @@
       "saveError": "Die Änderung konnte nicht gespeichert werden.",
       "deleteError": "Das Dokument konnte nicht gelöscht werden.",
       "download": "Herunterladen",
+      "openInNewTab": "In neuem Tab öffnen",
       "delete": "Löschen",
       "titleLabel": "Titel",
       "titlePlaceholder": "Titel hinzufügen",
@@ -11261,7 +11293,13 @@
     },
     "push": {
       "title": "Dein Morgenüberblick",
-      "bodyProvisional": "{line}\nDer Schlaf von letzter Nacht fehlt noch."
+      "bodyProvisional": "{line}\nDer Schlaf von letzter Nacht fehlt noch.",
+      "titleScore": "Morgenscore {score}",
+      "band": {
+        "green": "Heute sieht es stabil aus.",
+        "yellow": "Heute lohnt sich ein Blick auf ein paar Dinge.",
+        "red": "Heute brauchen einige Bereiche Aufmerksamkeit."
+      }
     },
     "item": {
       "doseWindow": {
@@ -12226,7 +12264,6 @@
     "notShared": "Einige Bereiche sind für dich nicht freigegeben.",
     "inTimeline": "In der Zeitleiste",
     "askCoach": "Im Coach nach diesem Tag fragen",
-    "chartHint": "Klick auf einen Punkt öffnet den Tag.",
     "loadFailed": "Dieser Tag konnte nicht geladen werden.",
     "dayOf": "Tag {n} von {m}",
     "dayN": "Tag {n}",
@@ -12248,16 +12285,10 @@
     "captureShort": "Erfassen",
     "inTimelineShort": "Zeitleiste",
     "askCoachPrompt": "Was war am {date}?",
-    "chartHintTouch": "Antippen zeigt den Wert.",
-    "chartHintBar": "Klick auf einen Balken öffnet den Tag.",
-    "chartHintTouchBar": "Antippen zeigt die Werte.",
-    "chartHintCell": "Klick auf einen Tag öffnet ihn.",
-    "chartHintTouchCell": "Antippen zeigt den Wert des Tages.",
     "coachChips": "Tage in dieser Antwort",
     "description": "Alles, was deine Einträge für diesen Tag enthalten.",
     "openDocument": "Dokument öffnen",
     "previousReading": "Vorher, {date}",
-    "rugLegend": "Punkte unter der Achse markieren Tage mit Einträgen, ein Ring einen auffälligen Tag.",
     "sheetExpand": "Auf volle Höhe aufziehen",
     "sheetShrink": "Verkleinern",
     "valuesLegend": "Punkt für diesen Tag, Strich für die 30 Tage davor",
@@ -12560,8 +12591,8 @@
   },
   "palette": {
     "title": "Suche",
-    "description": "Finde eine Seite, eine Einstellung, ein Modul oder eine Aktion.",
-    "placeholder": "Seiten, Einstellungen, Module suchen…",
+    "description": "Finde eine Seite, eine Einstellung, ein Modul, eine Aktion oder einen Eintrag in deinen Daten.",
+    "placeholder": "Seiten, Einstellungen, deine Einträge suchen…",
     "results": "Treffer",
     "noResults": "Nichts gefunden für „{query}“.",
     "moduleOn": "An",
@@ -12575,7 +12606,8 @@
       "insights": "Insights",
       "settings": "Einstellungen",
       "modules": "Module",
-      "actions": "Aktionen"
+      "actions": "Aktionen",
+      "records": "In deinen Einträgen"
     },
     "actions": {
       "capture": "Neuer Eintrag",
@@ -12583,6 +12615,28 @@
       "backup": "Backup erstellen",
       "today": "Heute öffnen",
       "shortcuts": "Tastenkürzel zeigen"
+    },
+    "records": {
+      "loading": "Deine Einträge werden durchsucht…",
+      "empty": "Nichts in deinen Einträgen für „{query}“.",
+      "error": "Deine Einträge konnten nicht durchsucht werden. Versuch es gleich noch einmal.",
+      "truncated": "Nur die neuesten Einträge wurden durchsucht.",
+      "kind": {
+        "visit": "Arztbesuch",
+        "condition": "Erkrankung",
+        "document": "Dokument",
+        "vaccination": "Impfung",
+        "lab": "Laborwert",
+        "medication": "Medikament",
+        "symptom": "Symptom",
+        "workout": "Training",
+        "note": "Notiz"
+      },
+      "source": {
+        "mood": "Stimmungsnotiz",
+        "measurement": "Notiz zu einem Messwert",
+        "illness": "Krankheitstagebuch"
+      }
     }
   },
   "shortcuts": {

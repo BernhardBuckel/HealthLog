@@ -163,6 +163,8 @@ interface IntakeUpsert {
   takenAt: string | null;
   skipped: boolean;
   source: string;
+  /** v1.42.2 — recorded by the server (`autoMarkTaken`), not the person. */
+  autoRecorded: boolean;
   syncVersion: number;
   updatedAt: string;
 }
@@ -389,6 +391,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
           takenAt: true,
           skipped: true,
           source: true,
+          autoRecorded: true,
           syncVersion: true,
           deletedAt: true,
           updatedAt: true,
@@ -543,6 +546,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
         takenAt: row.takenAt?.toISOString() ?? null,
         skipped: row.skipped,
         source: row.source,
+        autoRecorded: row.autoRecorded,
         syncVersion: row.syncVersion,
         updatedAt: row.updatedAt.toISOString(),
       });

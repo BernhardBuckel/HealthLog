@@ -33,6 +33,7 @@ import { recordPushAttemptForPayload } from "@/lib/notifications/senders/push-at
 import { plainPushText } from "@/lib/notifications/strip-emoji";
 import { stripHtml } from "@/lib/notifications/strip-html";
 import { isManagedGuardianDelivery } from "@/lib/notifications/managed-delivery";
+import type { NotificationTap } from "@/lib/notifications/types";
 
 export interface ApnsPayload {
   /** APNs `aps.alert.title` + `aps.alert.body`. */
@@ -597,6 +598,7 @@ export async function sendViaApns(
     suppressActions?: boolean;
     recordUserId?: string;
     recipientUserId?: string;
+    tap?: NotificationTap;
   },
 ): Promise<SendOutcome> {
   const config = loadApnsConfig();
@@ -751,6 +753,13 @@ export async function sendViaApns(
                     ? stripCycleMetadata(payload.metadata)
                     : payload.metadata,
             ),
+            // The resolved tap target (`tap-target.ts`): a same-origin path
+            // the app opens on tap. Overrides a producer's `metadata.url`,
+            // which the resolver already took into account. Never on a
+            // managed delivery or a discreet one (the resolver returns null).
+            ...(!managedDelivery && payload.tap?.path
+              ? { url: payload.tap.path }
+              : {}),
           },
           threadId: routingEvent,
           // The iOS app registers a `UNNotificationCategory` per event-type

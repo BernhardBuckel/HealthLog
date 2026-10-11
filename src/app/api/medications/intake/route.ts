@@ -438,6 +438,8 @@ export const POST = apiHandler(async (request: NextRequest) => {
           data: {
             takenAt: resolvedTakenAt,
             skipped: false,
+            // v1.42.2 — the person confirmed it; no longer automatic.
+            autoRecorded: false,
             syncVersion: { increment: 1 },
             // v1.8.5 — persist the resolved site on the taken branch.
             ...(resolvedInjectionSite !== null && {
@@ -525,7 +527,13 @@ export const POST = apiHandler(async (request: NextRequest) => {
     updated = await prisma.medicationIntakeEvent.update({
       where: { id: intakeId },
       // v1.7.0 sync — bump the reconciliation counter on the skip toggle.
-      data: { takenAt: null, skipped: true, syncVersion: { increment: 1 } },
+      // v1.42.2 — a skip the person records clears the automatic marker.
+      data: {
+        takenAt: null,
+        skipped: true,
+        autoRecorded: false,
+        syncVersion: { increment: 1 },
+      },
     });
     // v1.16.10 — the row stopped being taken; refund whatever its
     // consumption stamp recorded (no-op for a never-consumed row).

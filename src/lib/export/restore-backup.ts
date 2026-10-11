@@ -1232,6 +1232,22 @@ export async function restoreBackup(
               oneShot: m.oneShot ?? false,
               asNeeded: m.asNeeded ?? false,
               trackIntake: m.trackIntake ?? true,
+              // v1.42.2 — an option that is on always carries its floor, and
+              // a restored floor is never before the restore: a portable file
+              // carries no removed doses, so a dose the person deleted in the
+              // days before the export would otherwise be filled again as
+              // taken by the next auto-take pass.
+              autoMarkTaken: m.autoMarkTaken ?? false,
+              autoMarkTakenSince: m.autoMarkTaken
+                ? new Date(
+                    Math.max(
+                      m.autoMarkTakenSince
+                        ? Date.parse(m.autoMarkTakenSince)
+                        : 0,
+                      restoreStartedAt.getTime(),
+                    ),
+                  )
+                : null,
               deliveryForm: m.deliveryForm ?? "ORAL",
               trackInjectionSites: m.trackInjectionSites ?? false,
               allowedInjectionSites: m.allowedInjectionSites ?? [],
@@ -1603,6 +1619,7 @@ export async function restoreBackup(
                 takenAt: e.takenAt ? new Date(e.takenAt) : null,
                 skipped: e.skipped ?? false,
                 autoMissed: e.autoMissed ?? false,
+                autoRecorded: e.autoRecorded ?? false,
                 attributionSource: e.attributionSource ?? "AUTO",
                 source: e.source ?? "WEB",
                 idempotencyKey: e.idempotencyKey ?? null,

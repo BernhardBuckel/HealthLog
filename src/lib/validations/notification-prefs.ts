@@ -11,7 +11,8 @@
  *   {
  *     "medication": { "clientManaged": boolean },
  *     "mood": { "reminderHour": 0..23 },
- *     "cycle": { "clientManaged": boolean }
+ *     "cycle": { "clientManaged": boolean },
+ *     "content": { "detail": "generic" | "detailed" }
  *   }
  *
  * The schema is intentionally additive — every new category grows the
@@ -140,6 +141,23 @@ const coachPrefsSchema = z
   .partial();
 
 /**
+ * v1.42.2 — what a notification may show. `generic` (the default) says what
+ * the notification is about and carries no health figure, so a lock screen
+ * reads "Your morning briefing" rather than a score; `detailed` adds the
+ * figures (the morning score). Tap targets and quick answers are the same in
+ * both. Read by the producers that have a figure to show.
+ */
+export const NOTIFICATION_CONTENT_DETAILS = ["generic", "detailed"] as const;
+export type NotificationContentDetail =
+  (typeof NOTIFICATION_CONTENT_DETAILS)[number];
+
+const contentPrefsSchema = z
+  .object({
+    detail: z.enum(NOTIFICATION_CONTENT_DETAILS),
+  })
+  .partial();
+
+/**
  * v1.7.0 — per-device delivery override schema for the device PATCH.
  * NULL clears the override (the device inherits the user-level roaming
  * default).
@@ -159,6 +177,7 @@ export const notificationPrefsSchema = z
     cycle: cyclePrefsSchema,
     coach: coachPrefsSchema,
     measurementReminder: measurementReminderPrefsSchema,
+    content: contentPrefsSchema,
   })
   .partial();
 
@@ -225,6 +244,10 @@ export interface NotificationPrefs {
      */
     clientManaged: boolean;
   };
+  content: {
+    /** v1.42.2 — whether notifications may carry health figures. */
+    detail: NotificationContentDetail;
+  };
 }
 
 /**
@@ -277,6 +300,9 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   measurementReminder: {
     clientManaged: false,
   },
+  content: {
+    detail: "generic",
+  },
 };
 
 /**
@@ -325,6 +351,10 @@ export function resolveNotificationPrefs(
       ...base.measurementReminder,
       ...(incoming.measurementReminder ?? {}),
     },
+    content: {
+      ...base.content,
+      ...(incoming.content ?? {}),
+    },
   });
 }
 
@@ -354,6 +384,7 @@ function applyDeliveryDefaultMapping(
     cycle: { ...prefs.cycle },
     coach: { ...prefs.coach },
     measurementReminder: { ...prefs.measurementReminder },
+    content: { ...prefs.content },
   };
 }
 
@@ -492,6 +523,7 @@ function cloneDefaults(): NotificationPrefs {
     measurementReminder: {
       ...DEFAULT_NOTIFICATION_PREFS.measurementReminder,
     },
+    content: { ...DEFAULT_NOTIFICATION_PREFS.content },
   };
 }
 
@@ -517,5 +549,17 @@ function mergeOverDefaults(input: NotificationPrefsInput): NotificationPrefs {
       ...DEFAULT_NOTIFICATION_PREFS.measurementReminder,
       ...(input.measurementReminder ?? {}),
     },
+    content: {
+      ...DEFAULT_NOTIFICATION_PREFS.content,
+      ...(input.content ?? {}),
+    },
   });
+}
+
+/**
+ * v1.42.2 — producer-side helper. Whether this user's notifications may carry
+ * health figures. A null / drifted row resolves to the default (`generic`).
+ */
+export function notificationsShowFigures(raw: unknown): boolean {
+  return parseNotificationPrefs(raw).content.detail === "detailed";
 }

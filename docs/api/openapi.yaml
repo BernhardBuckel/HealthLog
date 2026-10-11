@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: HealthLog API
-  version: 1.42.1
+  version: 1.42.2
   description: >-
     Self-hosted personal-health-tracking PWA — public API surface for the iOS native client and external ingest.
 
@@ -13103,6 +13103,7 @@ paths:
               - WEB
               - TELEGRAM
               - DAYLIO
+              - NOTIFICATION
         - in: query
           name: from
           schema:
@@ -21632,6 +21633,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /api/notifications/action/{token}:
+    post:
+      tags:
+        - Notifications
+      summary: Log a quick answer tapped inside a notification
+      description: "Called by a notification app (ntfy `http` action), never by a signed-in client: the signed path token is
+        the only credential. The token is bound to one user and one answer, expires six hours after the reminder was
+        sent, and is single-use across all answers offered on that reminder. Rate-limited per client address before the
+        token is read. Writes a mood entry with source `NOTIFICATION`; refused with 403 when the mood module is off."
+      parameters:
+        - in: path
+          name: token
+          schema:
+            type: string
+            description: Signed action token from the notification's URL.
+          required: true
+          description: Signed action token from the notification's URL.
+      responses:
+        "200":
+          description: The answer was logged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationActionResponse"
+        "401":
+          description: Invalid token (forged, altered, or unknown user).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: The mood module is turned off for this account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: This reminder was already answered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "410":
+          description: The answer expired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
   /api/notifications/preferences:
     get:
       tags:
@@ -23675,6 +23726,52 @@ paths:
         "401": *a1
         "403": *a68
         "404": *a69
+        "422": *a4
+        "429": *a5
+  /api/search:
+    post:
+      tags:
+        - Records
+      summary: Search the record
+      description: "One search over the record: visits and procedures, conditions, documents (title, file name and indexed
+        text), vaccinations, lab results (analyte names and notes), medications, symptoms, workouts by sport, and the
+        notes on mood entries, readings and illness days. Hits are grouped by kind, the best group first, and each
+        carries the in-app path that opens the record. Matching ignores case and accents and reads German umlauts typed
+        as ae, oe, ue or ss. A source whose module the record has switched off is not read. The search reads each source
+        newest first under a per-source row cap and a time budget; `truncated` says when that cut it short. The query
+        travels in the JSON body, never in the URL, and is never logged. Rate limited per acting account (20 a minute),
+        and one search at a time: a newer search by the same account stops the one before it, which then answers 409
+        `search.superseded`. A grant scoped to some sections of the record does not open it, like the timeline."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                q:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                  description: What to look for. Matched without regard to case or accents, and German umlauts may be typed as ae, oe, ue
+                    or ss.
+                limit:
+                  default: 5
+                  description: Most hits per group.
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+              required:
+                - q
+      responses:
+        "200":
+          description: The hits, grouped by kind.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchEnvelope"
+        "401": *a1
+        "403": *a11
         "422": *a4
         "429": *a5
   /api/bugreport:
@@ -26244,6 +26341,15 @@ components:
             does not know the field cannot have seen the stored schedule, which is served in `recordedSchedules`). Name
             `trackIntake` to change the schedule of such a medication."
           type: boolean
+        autoMarkTaken:
+          description: "v1.42.2 — record each scheduled dose as taken automatically. Default false. When true the server records a
+            taken intake (`autoRecorded: true`) for every scheduled slot once its time has passed, from the moment the
+            option was switched on (`autoMarkTakenSince`); slots before that are never filled. A slot the person already
+            took, skipped or removed is left alone, and the person can still change or skip any dose by hand. While on,
+            no medication reminder is sent for this medication on any channel; a client that arms local reminders should
+            not arm them either. Has no effect on an as-needed medication or one whose intake tracking is off. Omitted
+            on update leaves the current value."
+          type: boolean
         schedules:
           type: array
           items:
@@ -26647,6 +26753,15 @@ components:
             does not know the field cannot have seen the stored schedule, which is served in `recordedSchedules`). Name
             `trackIntake` to change the schedule of such a medication."
           type: boolean
+        autoMarkTaken:
+          description: "v1.42.2 — record each scheduled dose as taken automatically. Default false. When true the server records a
+            taken intake (`autoRecorded: true`) for every scheduled slot once its time has passed, from the moment the
+            option was switched on (`autoMarkTakenSince`); slots before that are never filled. A slot the person already
+            took, skipped or removed is left alone, and the person can still change or skip any dose by hand. While on,
+            no medication reminder is sent for this medication on any channel; a client that arms local reminders should
+            not arm them either. Has no effect on an as-needed medication or one whose intake tracking is off. Omitted
+            on update leaves the current value."
+          type: boolean
         schedules:
           type: array
           items:
@@ -26856,7 +26971,7 @@ components:
             - ko
         today:
           description: "Optional override of the reference date used to resolve relative phrases (\"tomorrow\", \"next Monday\").
-            Format: `YYYY-MM-DD`. Defaults to the server's UTC day."
+            Format: `YYYY-MM-DD`. Defaults to the account's own day in its time zone."
           type: string
           pattern: ^\d{4}-\d{2}-\d{2}$
       required:
@@ -27417,6 +27532,14 @@ components:
           properties:
             clientManaged:
               type: boolean
+        content:
+          type: object
+          properties:
+            detail:
+              type: string
+              enum:
+                - generic
+                - detailed
         baseUpdatedAt:
           description: "Optimistic-concurrency base token: the `updatedAt` the client last read for this resource. Omit it for the
             legacy unconditional write (older clients are unaffected). When present, the write is guarded on the stored
@@ -28816,6 +28939,7 @@ components:
             - WEB
             - TELEGRAM
             - DAYLIO
+            - NOTIFICATION
         externalId:
           description: "iOS-side source-stable id for idempotent dedup on the `(userId, source, externalId)` key. Must be stable
             across app restarts — an object description or memory address (`<Class: 0x…>`, `0x12ab34cd`) is a new value
@@ -29336,6 +29460,7 @@ components:
             - WEB
             - TELEGRAM
             - DAYLIO
+            - NOTIFICATION
         externalId:
           type: string
           minLength: 1
@@ -34373,19 +34498,21 @@ components:
                 mood.create.external_id_not_delegable, mood.create.invalid, mood.duplicate_timestamp,
                 mood.linkedContext.invalid, mood.list.invalid, mood.not_found, mood.ratedFactor.out_of_range,
                 mood.restore.invalid, mood.update.invalid; notification-prefs — notification-prefs.body.invalid_json;
-                nutrient — nutrient.batch.invalid, nutrient.batch.too_large, nutrient.daily.invalid,
-                nutrient.read.invalid, nutrient.water.invalid, nutrient.water.invalid_day; onboarding —
-                onboarding.answers.invalid, onboarding.answers.rateLimited, onboarding.complete.invalid,
-                onboarding.complete.recordNotFound, onboarding.complete.recordTargetMismatch,
-                onboarding.disclaimer.invalid, onboarding.restart.invalid, onboarding.restart.rateLimited,
-                onboarding.tour.invalid; passkey — passkey.challenge.expired, passkey.response.invalid, passkey.unknown,
-                passkey.verification.failed; personal_records — personal_records.invalid_query; practitioner —
-                practitioner.invalid; profile — profile.update.emailInUse, profile.update.emailRateLimited,
-                profile.update.emailSecondFactorRequired, profile.update.invalidBody, profile.update.nothingSaved;
-                profile_claim — profile_claim.invalid, profile_claim.oidc_only_unsupported, profile_claim.taken;
-                record_write — record_write.rate_limited; report-selection — report-selection.body.invalid_json,
-                report-selection.body.invalid_shape, report-selection.leaves.unknown; route — route.retired; share-link
-                — share-link.document.decryptFailed, share-link.document.notFound, share-link.document.rateLimited,
+                notification — notification.action.already_used, notification.action.expired,
+                notification.action.invalid, notification.action.module_disabled; nutrient — nutrient.batch.invalid,
+                nutrient.batch.too_large, nutrient.daily.invalid, nutrient.read.invalid, nutrient.water.invalid,
+                nutrient.water.invalid_day; onboarding — onboarding.answers.invalid, onboarding.answers.rateLimited,
+                onboarding.complete.invalid, onboarding.complete.recordNotFound,
+                onboarding.complete.recordTargetMismatch, onboarding.disclaimer.invalid, onboarding.restart.invalid,
+                onboarding.restart.rateLimited, onboarding.tour.invalid; passkey — passkey.challenge.expired,
+                passkey.response.invalid, passkey.unknown, passkey.verification.failed; personal_records —
+                personal_records.invalid_query; practitioner — practitioner.invalid; profile —
+                profile.update.emailInUse, profile.update.emailRateLimited, profile.update.emailSecondFactorRequired,
+                profile.update.invalidBody, profile.update.nothingSaved; profile_claim — profile_claim.invalid,
+                profile_claim.oidc_only_unsupported, profile_claim.taken; record_write — record_write.rate_limited;
+                report-selection — report-selection.body.invalid_json, report-selection.body.invalid_shape,
+                report-selection.leaves.unknown; route — route.retired; search — search.invalid; share-link —
+                share-link.document.decryptFailed, share-link.document.notFound, share-link.document.rateLimited,
                 share-link.documents.invalid, share-link.report.notFound, share-link.report.rateLimited,
                 share-link.selection.forbidden_leaf, share-link.selection.unknown_leaf; sharing —
                 sharing.accept.expired, sharing.accept.not_found, sharing.accept.not_pending, sharing.accept.revoked,
@@ -37138,6 +37265,13 @@ components:
                 type: boolean
               trackIntake:
                 type: boolean
+              autoMarkTaken:
+                type: boolean
+              autoMarkTakenSince:
+                anyOf:
+                  - type: string
+                    minLength: 1
+                  - type: "null"
               category:
                 type: string
                 maxLength: 64
@@ -37794,6 +37928,8 @@ components:
               skipped:
                 type: boolean
               autoMissed:
+                type: boolean
+              autoRecorded:
                 type: boolean
               attributionSource:
                 type: string
@@ -44205,6 +44341,9 @@ components:
           type: boolean
         source:
           type: string
+        autoRecorded:
+          type: boolean
+          description: v1.42.2 — the server recorded this dose because the medication has `autoMarkTaken` on. Counts as taken.
         syncVersion:
           type: integer
           minimum: 0
@@ -44221,6 +44360,7 @@ components:
         - takenAt
         - skipped
         - source
+        - autoRecorded
         - syncVersion
         - updatedAt
       additionalProperties: false
@@ -46620,6 +46760,12 @@ components:
           type: boolean
           description: True when the nightly cron closed the slot as missed (no user action). Auto-missed rows count against
             adherence but never consume inventory.
+        autoRecorded:
+          type: boolean
+          description: v1.42.2 — true when the server recorded this dose because the medication has `autoMarkTaken` on, not the
+            person. It counts as taken everywhere (adherence, history, Coach) and consumed inventory like a manual take.
+            Any take or skip the person records on the row clears it. Clients label such a dose "recorded
+            automatically".
         attributionSource:
           type: string
           enum:
@@ -46701,6 +46847,7 @@ components:
         - takenAt
         - skipped
         - autoMissed
+        - autoRecorded
         - attributionSource
         - source
         - idempotencyKey
@@ -47564,6 +47711,13 @@ components:
               format: date-time
               pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
             - type: "null"
+        remindersActive:
+          type: boolean
+          description: "v1.42.2 — whether the server sends dose reminders for this medication: true only when
+            `notificationsEnabled` is on, the medication is `active`, its course has not ended (`endsOn` is today or
+            later on the person's clock, or unset), its intake is tracked (`trackIntake`), it is not `asNeeded`, and
+            `autoMarkTaken` is off. The same decision gates every server-side reminder send. A client that arms local
+            reminders arms them from this, not from `notificationsEnabled`. Read-only — computed, not stored."
         nextDueAt:
           anyOf:
             - type: string
@@ -47604,6 +47758,23 @@ components:
             any channel, and it is excluded from every adherence figure. Its stored schedule then travels in
             `recordedSchedules` while `schedules` is served empty, so a client that arms reminders from `schedules`
             stays silent without an update."
+        autoMarkTaken:
+          type: boolean
+          description: "v1.42.2 — doses are recorded automatically. False (the default) for every medication that existed before
+            the field. When true the server records each scheduled dose as taken (an intake with `autoRecorded: true`,
+            `takenAt` = the slot time) shortly after its time passes, from `autoMarkTakenSince` on. A slot the person
+            took, skipped or removed is never touched, and they can still change or skip any dose. No medication
+            reminder is sent for it on any channel while it is on; a client that arms local reminders should not arm
+            them for it either. `notificationsEnabled` keeps the person's own setting and applies again once this is
+            switched off."
+        autoMarkTakenSince:
+          anyOf:
+            - type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            - type: "null"
+          description: v1.42.2 — when `autoMarkTaken` was last switched on. No slot anchored before it is ever recorded
+            automatically. NULL while the option is off. Read-only — set by the server on the switch.
         createdAt:
           type: string
           format: date-time
@@ -47735,6 +47906,7 @@ components:
         - rxNormCode
         - pausedAt
         - snoozedUntil
+        - remindersActive
         - nextDueAt
         - nextDueOverdue
         - startsOn
@@ -47742,6 +47914,8 @@ components:
         - oneShot
         - asNeeded
         - trackIntake
+        - autoMarkTaken
+        - autoMarkTakenSince
         - createdAt
         - updatedAt
         - schedules
@@ -47906,6 +48080,9 @@ components:
               format: date-time
               pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
             - type: "null"
+        remindersActive:
+          type: boolean
+          description: v1.42.2 — whether the server sends dose reminders for this medication. See the `Medication` component.
         nextDueAt:
           description: "Present on the READ paths only — the list and single GET compute it; the create / update responses return
             the stored row and omit it. v1.7.0 server-computed next due instant across all the medication's schedules
@@ -47957,6 +48134,23 @@ components:
             any channel, and it is excluded from every adherence figure. Its stored schedule then travels in
             `recordedSchedules` while `schedules` is served empty, so a client that arms reminders from `schedules`
             stays silent without an update."
+        autoMarkTaken:
+          type: boolean
+          description: "v1.42.2 — doses are recorded automatically. False (the default) for every medication that existed before
+            the field. When true the server records each scheduled dose as taken (an intake with `autoRecorded: true`,
+            `takenAt` = the slot time) shortly after its time passes, from `autoMarkTakenSince` on. A slot the person
+            took, skipped or removed is never touched, and they can still change or skip any dose. No medication
+            reminder is sent for it on any channel while it is on; a client that arms local reminders should not arm
+            them for it either. `notificationsEnabled` keeps the person's own setting and applies again once this is
+            switched off."
+        autoMarkTakenSince:
+          anyOf:
+            - type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            - type: "null"
+          description: v1.42.2 — when `autoMarkTaken` was last switched on. No slot anchored before it is ever recorded
+            automatically. NULL while the option is off. Read-only — set by the server on the switch.
         createdAt:
           type: string
           format: date-time
@@ -48058,11 +48252,14 @@ components:
         - rxNormCode
         - pausedAt
         - snoozedUntil
+        - remindersActive
         - startsOn
         - endsOn
         - oneShot
         - asNeeded
         - trackIntake
+        - autoMarkTaken
+        - autoMarkTakenSince
         - createdAt
         - updatedAt
         - schedules
@@ -49988,6 +50185,9 @@ components:
                   type: boolean
                 autoMissed:
                   type: boolean
+                autoRecorded:
+                  type: boolean
+                  description: v1.42.2 — the dose was recorded automatically (`autoMarkTaken`), not by the person.
                 doseTaken:
                   anyOf:
                     - type: string
@@ -50013,6 +50213,7 @@ components:
                 - takenAt
                 - skipped
                 - autoMissed
+                - autoRecorded
                 - doseTaken
                 - source
               additionalProperties: false
@@ -52677,6 +52878,19 @@ components:
             - nudgeRoutine
             - nudgeFrequency
           additionalProperties: false
+        content:
+          type: object
+          properties:
+            detail:
+              type: string
+              enum:
+                - generic
+                - detailed
+              description: What a notification may show. "generic" (default) names what it is about with no health figure; "detailed"
+                adds figures such as the morning score. Tap targets and quick answers are the same in both.
+          required:
+            - detail
+          additionalProperties: false
         updatedAt:
           description: "Optimistic-concurrency token: the stored row's `updatedAt` at read/write time. Echo it back as
             `baseUpdatedAt` on the next write. Opaque — only ever echo a server-returned value, never parse or
@@ -52689,6 +52903,7 @@ components:
         - mood
         - cycle
         - coach
+        - content
       additionalProperties: false
     PatchNotificationPrefsResponse:
       type: object
@@ -65116,6 +65331,7 @@ components:
             - WEB
             - TELEGRAM
             - DAYLIO
+            - NOTIFICATION
         externalId:
           anyOf:
             - type: string
@@ -78271,6 +78487,42 @@ components:
       required:
         - ok
       additionalProperties: false
+    NotificationActionResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/NotificationActionResult"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    NotificationActionResult:
+      type: object
+      properties:
+        logged:
+          type: boolean
+          const: true
+        action:
+          type: string
+          enum:
+            - mood-good
+            - mood-okay
+            - mood-bad
+          description: "The answer that was logged: mood-good = 4 (GUT), mood-okay = 3 (OKAY), mood-bad = 2 (SCHLECHT) on the
+            five-point mood scale."
+      required:
+        - logged
+        - action
+      additionalProperties: false
+      description: A quick answer from a notification, logged as a mood entry.
     GetNotificationPreferences:
       type: object
       properties:
@@ -82204,6 +82456,137 @@ components:
         - data
         - error
       additionalProperties: false
+    SearchEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SearchResponse"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    SearchResponse:
+      type: object
+      properties:
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                enum:
+                  - visit
+                  - condition
+                  - document
+                  - vaccination
+                  - lab
+                  - medication
+                  - symptom
+                  - workout
+                  - note
+              hits:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchHit"
+              more:
+                type: boolean
+            required:
+              - kind
+              - hits
+              - more
+            additionalProperties: false
+        truncated:
+          type: boolean
+          description: The search stopped before it had read every entry (a per-kind row cap or the time budget), so older entries
+            may match and are not listed.
+      required:
+        - groups
+        - truncated
+      additionalProperties: false
+    SearchHit:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - visit
+            - condition
+            - document
+            - vaccination
+            - lab
+            - medication
+            - symptom
+            - workout
+            - note
+        title:
+          anyOf:
+            - $ref: "#/components/schemas/SearchMarkedText"
+            - type: "null"
+        context:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchMarkedText"
+        snippet:
+          anyOf:
+            - $ref: "#/components/schemas/SearchMarkedText"
+            - type: "null"
+        day:
+          anyOf:
+            - type: string
+            - type: "null"
+        path:
+          type: string
+          description: In-app path that opens the record, never an API path.
+        source:
+          anyOf:
+            - type: string
+              enum:
+                - mood
+                - measurement
+                - illness
+            - type: "null"
+      required:
+        - id
+        - kind
+        - title
+        - context
+        - snippet
+        - day
+        - path
+        - source
+      additionalProperties: false
+    SearchMarkedText:
+      type: object
+      properties:
+        text:
+          type: string
+        marks:
+          type: array
+          items:
+            type: array
+            prefixItems:
+              - type: integer
+                minimum: -9007199254740991
+                maximum: 9007199254740991
+              - type: integer
+                minimum: -9007199254740991
+                maximum: 9007199254740991
+          description: Half-open [start, end) character ranges of `text` a query word matched.
+      required:
+        - text
+        - marks
+      additionalProperties: false
     __schema0:
       anyOf:
         - type: string
@@ -82646,6 +83029,14 @@ components:
               format: date-time
               pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
             - type: "null"
+        remindersActive:
+          description: "Present on the READ paths only (list and single GET). v1.42.2 — whether the server sends dose reminders
+            for this medication: true only when `notificationsEnabled` is on, the medication is `active`, its course has
+            not ended (`endsOn` is today or later on the person's clock, or unset), its intake is tracked
+            (`trackIntake`), it is not `asNeeded`, and `autoMarkTaken` is off. The same decision gates every server-side
+            reminder send. A client that arms local reminders arms them from this, not from `notificationsEnabled`.
+            Read-only — computed, not stored."
+          type: boolean
         nextDueAt:
           description: "Present on the READ paths only — the list and single GET compute it; the create / update responses return
             the stored row and omit it. v1.7.0 server-computed next due instant across all the medication's schedules
@@ -82697,6 +83088,23 @@ components:
             any channel, and it is excluded from every adherence figure. Its stored schedule then travels in
             `recordedSchedules` while `schedules` is served empty, so a client that arms reminders from `schedules`
             stays silent without an update."
+        autoMarkTaken:
+          type: boolean
+          description: "v1.42.2 — doses are recorded automatically. False (the default) for every medication that existed before
+            the field. When true the server records each scheduled dose as taken (an intake with `autoRecorded: true`,
+            `takenAt` = the slot time) shortly after its time passes, from `autoMarkTakenSince` on. A slot the person
+            took, skipped or removed is never touched, and they can still change or skip any dose. No medication
+            reminder is sent for it on any channel while it is on; a client that arms local reminders should not arm
+            them for it either. `notificationsEnabled` keeps the person's own setting and applies again once this is
+            switched off."
+        autoMarkTakenSince:
+          anyOf:
+            - type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            - type: "null"
+          description: v1.42.2 — when `autoMarkTaken` was last switched on. No slot anchored before it is ever recorded
+            automatically. NULL while the option is off. Read-only — set by the server on the switch.
         createdAt:
           type: string
           format: date-time
@@ -82738,6 +83146,8 @@ components:
         - oneShot
         - asNeeded
         - trackIntake
+        - autoMarkTaken
+        - autoMarkTakenSince
         - createdAt
         - updatedAt
         - schedules

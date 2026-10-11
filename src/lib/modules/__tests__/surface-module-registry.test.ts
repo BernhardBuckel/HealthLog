@@ -68,6 +68,7 @@ import {
 import { TREND_CHART_CONFIG } from "@/lib/insights/trend-chart-select";
 import { SYMPTOM_CHANNEL_PREFIX } from "@/lib/symptoms/shared";
 import { DAY_SECTION_KEYS, TIMELINE_LANE_KEYS } from "@/lib/day/contract";
+import { SEARCH_SOURCE_KEYS } from "@/lib/search/sources";
 import {
   SURFACE_KINDS,
   SURFACE_MODULE,
@@ -167,6 +168,13 @@ describe("every surface id names a surface that exists", () => {
   it("timeline-lane: a lane the timeline renders", () => {
     const keys = new Set<string>(TIMELINE_LANE_KEYS);
     for (const id of localIds("timeline-lane")) {
+      expect(keys.has(id), id).toBe(true);
+    }
+  });
+
+  it("search: a source the record search reads", () => {
+    const keys = new Set<string>(SEARCH_SOURCE_KEYS);
+    for (const id of localIds("search")) {
       expect(keys.has(id), id).toBe(true);
     }
   });
@@ -289,6 +297,9 @@ describe("every surface that shows a module's data is owned by it", () => {
     ["day-section:lifeEvents", "timeline"],
     ["day-section:symptoms", "illness"],
     ["timeline-lane:documents", "inboundDocuments"],
+    ["search:document", "inboundDocuments"],
+    ["search:moodNote", "mood"],
+    ["search:symptomNote", "illness"],
   ])("%s is owned by %s", (id, owner) => {
     expect(surfaceModule(id)).toBe(owner);
   });

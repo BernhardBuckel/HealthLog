@@ -276,6 +276,11 @@ const PINNED_AFFORDANCES: Record<
   "src/components/medications/sections/intake-tracking-section.tsx": {
     "toast.success": 1,
   },
+  // v1.42.2 — the auto-mark-taken switch confirms the flip, like its
+  // intake-tracking sibling.
+  "src/components/medications/sections/auto-mark-taken-section.tsx": {
+    "toast.success": 1,
+  },
   "src/components/medications/sections/inventory-section.tsx": {
     "toast.success": 1,
   },

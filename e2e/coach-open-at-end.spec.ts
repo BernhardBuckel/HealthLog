@@ -185,12 +185,26 @@ test.describe("Coach: a saved conversation opens at its end", () => {
         waitUntil: "domcontentloaded",
       });
 
-      const thread = page.locator('[data-slot="coach-message-thread"]');
-      await expect(thread).toBeVisible({ timeout: 15_000 });
+      // The empty state carries the same `coach-message-thread` slot, so the
+      // thread being visible says nothing about the conversation having
+      // arrived; the height used to be read from the empty state on a slow
+      // run. Wait for the frame only a loaded thread renders, and for every
+      // stored answer in it.
+      await expect(
+        page.locator('[data-slot="coach-message-thread-frame"]'),
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(
+        page.locator('[data-slot="coach-assistant-turn"]'),
+      ).toHaveCount(8, { timeout: 15_000 });
+      const thread = page.locator(
+        '[data-slot="coach-message-thread-frame"] [data-slot="coach-message-thread"]',
+      );
       // The thread scrolls at all: otherwise "at the end" proves nothing.
-      expect(
-        await thread.evaluate((el) => el.scrollHeight > el.clientHeight + 200),
-      ).toBe(true);
+      await expect
+        .poll(() =>
+          thread.evaluate((el) => el.scrollHeight > el.clientHeight + 200),
+        )
+        .toBe(true);
 
       const chart = page.locator(
         '[data-slot="coach-result-chart"][data-ref="r1"]',

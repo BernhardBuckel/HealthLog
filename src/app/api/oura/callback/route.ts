@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth/session";
 import { annotate, getEvent } from "@/lib/logging/context";
 import { auditLog } from "@/lib/auth/audit";
 import { encrypt } from "@/lib/crypto";
-import { exchangeCode } from "@/lib/oura/client";
+import { exchangeCode, isAcceptedOuraIssuer } from "@/lib/oura/client";
 import { getOuraClientCredentials } from "@/lib/oura/credentials";
 import {
   oauthStateCookieName,
@@ -67,11 +67,20 @@ export const GET = apiHandler(async (request: NextRequest) => {
 
   if (!code) return ERR("nocode");
 
+  // RFC 9207: an authorization server that names itself must be Oura's. The
+  // issuer also tells which token endpoint the code belongs to. Older apps
+  // send none, which is fine.
+  const iss = searchParams.get("iss");
+  if (!isAcceptedOuraIssuer(iss)) {
+    annotate({ meta: { reason: "issuer" } });
+    return ERR("issuer");
+  }
+
   try {
     const creds = await getOuraClientCredentials(userId);
     if (!creds) return ERR("nocreds");
 
-    const tokens = await exchangeCode(code, creds);
+    const tokens = await exchangeCode(code, creds, iss);
 
     await prisma.user.update({
       where: { id: userId },

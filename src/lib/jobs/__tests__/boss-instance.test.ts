@@ -70,6 +70,7 @@ describe("web-process pg-boss producer", () => {
       connectionString: "postgres://healthlog@test/db",
       max: 2,
       connectionTimeoutMillis: 20_000,
+      options: "-c TimeZone=UTC",
       migrate: false,
       schedule: false,
       supervise: false,
@@ -111,6 +112,7 @@ describe("worker pg-boss pool", () => {
       connectionString: "postgres://healthlog@test/db",
       max: 2,
       connectionTimeoutMillis: 20_000,
+      options: "-c TimeZone=UTC",
     });
   });
 });

@@ -606,7 +606,6 @@ export function SleepStageStackedBar({ breakdown }: SleepStageStackedBarProps) {
                     : 0,
               }))}
               axis="band"
-              mark="bar"
               // The plot's margin (8) + the y axis (60) on the left, the
               // margin (16) on the right.
               insetLeft={8 + 60}
