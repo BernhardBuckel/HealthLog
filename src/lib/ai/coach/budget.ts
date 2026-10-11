@@ -14,8 +14,11 @@
  * every other per-day surface.
  */
 import { prisma } from "@/lib/db";
-import { userDayKey } from "@/lib/tz/format";
-import { resolveUserTimezone } from "@/lib/tz/resolver";
+import { isValidTimezone, shiftDateKey, userDayKey } from "@/lib/tz/format";
+import {
+  resolveServerDefaultTimezone,
+  resolveUserTimezone,
+} from "@/lib/tz/resolver";
 import type { ProviderChainType } from "@/lib/ai/provider-chain";
 
 /**
@@ -227,6 +230,65 @@ export async function readDailySpend(
     total: row?.totalTokens ?? 0,
     operator: row?.operatorTokens ?? 0,
   };
+}
+
+/** The day's spend across every account, for the operator's readout. */
+export interface InstanceDailySpend extends DailySpend {
+  /** Accounts with a spend row on their own current day. */
+  accounts: number;
+}
+
+/**
+ * Every account's spend on that account's own current day, summed.
+ *
+ * Since the budget day turned local, one date key no longer names "today"
+ * for everybody: at 23:30 in Berlin a row keyed with the Berlin date belongs
+ * to a Berlin account's today, while an account in New York is still on the
+ * day before. Each ceiling is enforced on the account's own day, so the
+ * operator's figure is the sum of exactly those rows, one per account: the
+ * spend that counts against the ceilings right now.
+ *
+ * Every zone's today lies within one day of the UTC date, so the read
+ * fetches those three keys only and keeps the rows whose key is their
+ * account's current day, resolved the way `buildDateKey` resolves it (the
+ * account's zone when valid, otherwise the server default).
+ */
+export async function readInstanceSpendToday(
+  at: Date = new Date(),
+): Promise<InstanceDailySpend> {
+  const utcKey = userDayKey(at, "UTC");
+  const rows = await prisma.coachUsage.findMany({
+    where: {
+      dateKey: {
+        in: [shiftDateKey(utcKey, -1), utcKey, shiftDateKey(utcKey, 1)],
+      },
+    },
+    select: {
+      dateKey: true,
+      totalTokens: true,
+      operatorTokens: true,
+      user: { select: { timezone: true } },
+    },
+  });
+  const serverTz = await resolveServerDefaultTimezone();
+  const todayByZone = new Map<string, string>();
+  const spend: InstanceDailySpend = { total: 0, operator: 0, accounts: 0 };
+  for (const row of rows) {
+    const zone =
+      row.user.timezone && isValidTimezone(row.user.timezone)
+        ? row.user.timezone
+        : serverTz;
+    let today = todayByZone.get(zone);
+    if (today === undefined) {
+      today = userDayKey(at, zone);
+      todayByZone.set(zone, today);
+    }
+    if (row.dateKey !== today) continue;
+    spend.total += row.totalTokens;
+    spend.operator += row.operatorTokens;
+    spend.accounts += 1;
+  }
+  return spend;
 }
 
 /**
