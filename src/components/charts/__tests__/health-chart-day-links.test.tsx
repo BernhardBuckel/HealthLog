@@ -52,11 +52,10 @@ describe("<HealthChart> day links", () => {
     vi.resetModules();
   });
 
-  it("a metric page's chart opens its days: plot, caption and table", async () => {
+  it("a metric page's chart opens its days: plot and table", async () => {
     const html = await renderChart({ dayLinks: true, showDataTable: true });
     expect(html).toContain('data-day-links="true"');
-    expect(html).toContain('data-slot="chart-day-caption"');
-    expect(html).toContain("Click a point to open its day.");
+    expect(html).not.toContain('data-slot="chart-day-caption"');
     const links = html.match(/data-slot="day-link"/g) ?? [];
     expect(links).toHaveLength(10);
     expect(html).toMatch(/href="[^"]*\?day=\d{4}-\d{2}-\d{2}"/);

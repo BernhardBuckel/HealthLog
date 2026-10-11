@@ -84,12 +84,9 @@ test.describe("every chart drawn in days opens its days", () => {
       .locator('[data-slot="chart-plot"][data-day-links="true"]')
       .first();
     await expect(plot).toBeVisible();
-    // Under the chart: the caption and the row of day dots, which draws the
+    // Under the chart: the row of day dots, which draws the
     // days the index names, one of them ringed as notable.
     const rug = page.locator('[data-slot="day-rug"]').first();
-    await expect(
-      page.locator('[data-slot="chart-day-caption"]').first(),
-    ).toBeVisible();
     await expect(rug.locator("[data-day]").first()).toBeAttached();
     await expect(rug.locator('[data-notable="true"]')).toHaveCount(1);
 

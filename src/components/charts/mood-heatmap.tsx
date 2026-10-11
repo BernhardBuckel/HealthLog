@@ -1,6 +1,5 @@
 "use client";
 
-import { ChartDayCaption, useCoarsePointer } from "@/components/day/chart-day";
 import { dayAnchor } from "@/components/day/chart-day-links";
 import { OPEN_DAY_CELL, useHeatmapDay } from "@/components/day/heatmap-day";
 import { useCalendarDate } from "@/hooks/use-calendar-date";
@@ -102,14 +101,13 @@ export function MoodHeatmapBody({
 /**
  * The loading shape of the stretched heatmap, at exactly the height the
  * painted heatmap takes: the reserved grid box, the legend line, the day
- * caption and the data-table toggle. `days` is the window when it is already
+ * data-table toggle. `days` is the window when it is already
  * known; without it the shape assumes a window short enough to reach the cell
  * ceiling on every width down to 360 px (eight weeks), the height most
  * calendars settle at.
  */
 export function MoodHeatmapSkeleton({ days = 56 }: { days?: number }) {
   const timeZone = useDisplayTimezone();
-  const coarse = useCoarsePointer();
   return (
     <div
       data-slot="mood-heatmap-skeleton"
@@ -120,7 +118,6 @@ export function MoodHeatmapSkeleton({ days = 56 }: { days?: number }) {
         <div className="bg-muted/50 h-full w-full animate-pulse rounded-md motion-reduce:animate-none" />
       </MoodHeatmapBody>
       <div className="mt-2 h-4" />
-      <ChartDayCaption coarse={coarse} mark="cell" rug={false} />
       <div className="border-border mt-3 border-t pt-3">
         <div className="min-h-11" />
       </div>
@@ -411,7 +408,6 @@ export function MoodHeatmap({
       </div>
       {loggedCells.length > 0 ? (
         <>
-          <ChartDayCaption coarse={heatmapDay.coarse} mark="cell" rug={false} />
           {/* The keyboard and screen-reader way to each logged day's value,
               and to the day itself. */}
           <ChartDataTable

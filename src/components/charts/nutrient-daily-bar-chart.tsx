@@ -173,7 +173,6 @@ export function NutrientDailyBarChart({
         links={chartDays}
         points={points.map((p) => ({ timestamp: dayAnchor(p.day) }))}
         axis="band"
-        mark="bar"
         // The y axis (44) on the left, the margin (12) on the right.
         insetLeft={44}
         insetRight={12}

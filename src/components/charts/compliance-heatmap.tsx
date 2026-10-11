@@ -1,6 +1,5 @@
 "use client";
 
-import { ChartDayCaption } from "@/components/day/chart-day";
 import { dayAnchor } from "@/components/day/chart-day-links";
 import { OPEN_DAY_CELL, useHeatmapDay } from "@/components/day/heatmap-day";
 import { useCalendarDate } from "@/hooks/use-calendar-date";
@@ -368,7 +367,6 @@ export function ComplianceHeatmap({
       </div>
       {activeCells.length > 0 ? (
         <>
-          <ChartDayCaption coarse={heatmapDay.coarse} mark="cell" rug={false} />
           {/* The keyboard and screen-reader way to each active day's doses,
               and to the day itself. */}
           <ChartDataTable
