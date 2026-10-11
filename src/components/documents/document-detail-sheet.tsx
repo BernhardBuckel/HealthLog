@@ -23,6 +23,7 @@ import {
   ArrowRight,
   Check,
   Download,
+  ExternalLink,
   FlaskConical,
   Pencil,
   Plus,
@@ -38,6 +39,7 @@ import { toast } from "sonner";
 import { useIllnessEpisodes } from "@/components/illness/use-illness";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-button";
 import { DateField } from "@/components/ui/date-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -193,6 +195,43 @@ function DocumentDownloadButton({
         {blocked
           ? t("documents.detail.loadError")
           : t("documents.detail.download")}
+      </span>
+    </Button>
+  );
+}
+
+/**
+ * Open the stored original in a new browser tab, for the types the browser
+ * renders itself (the inline serving class: PDF, JPEG, PNG, WebP, GIF), so a
+ * long report gets the browser's own zoom and search.
+ *
+ * It opens the object URL the sheet already holds rather than the route: a
+ * plain navigation carries no record-session assertion, so the fence would
+ * refuse it once the session has been inside a shared record. The bytes are
+ * already in hand, so the tab opens inside the click and no popup blocker
+ * steps in. A type outside the inline class never gets the control.
+ */
+function DocumentOpenInTabButton({
+  readyUrl,
+  unavailable,
+}: {
+  readyUrl: string | null;
+  unavailable: boolean;
+}) {
+  const { t } = useTranslations();
+  return (
+    <Button
+      variant="outline"
+      data-slot="document-open-in-tab"
+      disabled={readyUrl === null || unavailable}
+      aria-label={t("documents.detail.openInNewTab")}
+      onClick={() => {
+        if (readyUrl) window.open(readyUrl, "_blank", "noopener");
+      }}
+    >
+      <ExternalLink className="size-4" aria-hidden />
+      <span className="hidden sm:inline">
+        {t("documents.detail.openInNewTab")}
       </span>
     </Button>
   );
@@ -442,6 +481,8 @@ export function DocumentDetailSheet({
   /** Bumped on a failed write; remounts the link block onto server state. */
   const [linkResets, setLinkResets] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
+  // Delete asks first, like every other way of deleting from the vault.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   /**
    * The visit this SESSION filed the document against, if any.
@@ -756,8 +797,8 @@ export function DocumentDetailSheet({
           doc ? (
             // Delete sits bottom-LEFT, quieted to a text button: the
             // bottom-right slot reads as the primary/confirm action, and a
-            // destructive control there is a footgun. Share + Download — the
-            // safe, expected actions — keep the trailing edge. On phones their
+            // destructive control there is a footgun. Share, open in a new tab and
+            // Download, the safe, expected actions, keep the trailing edge. On phones their
             // labels collapse to icon-only (aria-labelled) so three controls
             // never overflow the sheet at 360 px; the labels return at `sm+`.
             <div className="flex w-full items-center justify-between gap-2">
@@ -769,8 +810,9 @@ export function DocumentDetailSheet({
                 <Button
                   variant="ghost"
                   className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={() => remove.mutate(doc.id)}
+                  onClick={() => setConfirmDeleteOpen(true)}
                   disabled={remove.isPending}
+                  data-slot="document-detail-delete"
                 >
                   <Trash2 className="size-4" aria-hidden />
                   {t("documents.detail.delete")}
@@ -820,6 +862,12 @@ export function DocumentDetailSheet({
                     </span>
                   </Button>
                 )}
+                {doc.servingClass === "inline" ? (
+                  <DocumentOpenInTabButton
+                    readyUrl={inlineSrc}
+                    unavailable={inlineFailed}
+                  />
+                ) : null}
                 <DocumentDownloadButton
                   documentId={doc.id}
                   filename={doc.filename}
@@ -865,7 +913,7 @@ export function DocumentDetailSheet({
                   {doc.filename ?? title}
                 </p>
                 <p className="text-muted-foreground text-xs">
-                  {t("documents.detail.previewUnavailable")} ·{" "}
+                  {t("documents.detail.previewUnavailable")},{" "}
                   {formatBytes(doc.byteSize, locale)}
                 </p>
                 <DocumentDownloadButton
@@ -989,7 +1037,7 @@ export function DocumentDetailSheet({
                       setTitleDraft(doc.title ?? "");
                       setEditingTitle(true);
                     }}
-                    className="border-input hover:bg-muted/50 focus-visible:ring-ring/50 flex min-h-10 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+                    className="border-input hover:bg-muted/50 focus-visible:border-input-focus flex min-h-10 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm focus-visible:outline-none"
                   >
                     <span
                       className={cn(
@@ -1181,8 +1229,15 @@ export function DocumentDetailSheet({
                   date: format.date(doc.createdAt),
                   size: formatBytes(doc.byteSize, locale),
                 })}
-                {doc.filename ? ` · ${doc.filename}` : ""}
               </p>
+              {doc.filename ? (
+                <p
+                  className="text-muted-foreground truncate text-xs"
+                  title={doc.filename}
+                >
+                  {doc.filename}
+                </p>
+              ) : null}
 
               {/* Where an imported document came from (#1038). Meta, so
                   muted like the line above; the id is what the person looks
@@ -1212,6 +1267,19 @@ export function DocumentDetailSheet({
           open={shareOpen}
           onOpenChange={setShareOpen}
           documents={[{ id: doc.id, title }]}
+        />
+      ) : null}
+      {doc ? (
+        <ConfirmDialog
+          open={confirmDeleteOpen}
+          onOpenChange={setConfirmDeleteOpen}
+          title={t("documents.deleteConfirm.titleOne")}
+          body={t("documents.deleteConfirm.body")}
+          confirmLabel={t("documents.deleteConfirm.action")}
+          onConfirm={() => remove.mutate(doc.id)}
+          pending={remove.isPending}
+          slot="document-detail-delete"
+          destructive
         />
       ) : null}
     </>

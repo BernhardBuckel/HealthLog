@@ -9,12 +9,17 @@ import {
   Shield,
   Sun,
 } from "lucide-react";
+import { CommandPaletteTrigger } from "@/components/command-palette/command-palette-trigger";
 import { AccountSwitcherMenuItems } from "@/components/layout/account-switcher-menu";
 import {
   isSettingsUtilityDestination,
   visibleUtilityDestinations,
 } from "@/components/layout/nav-model";
 import { SHELL_HEADER_BAND } from "@/components/layout/shell-metrics";
+import {
+  TopBarActionsOutlet,
+  TopBarContextOutlet,
+} from "@/components/layout/top-bar-actions";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/ui/logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -88,26 +93,40 @@ export function TopBar() {
         "bg-card/80 border-border sticky top-0 z-40 flex items-center justify-between px-4 backdrop-blur-md md:px-6",
         SHELL_HEADER_BAND,
       )}
-      // iOS PWA on notched iPhones overlays the status bar onto the
-      // sticky header unless we reserve the safe-area inset. The
-      // inline style adds `safe-area-inset-top` as padding-top on
-      // devices that report one and is a no-op on every other
-      // platform. The band stays 4rem tall either way (border-box), so
-      // on a device that reports an inset the content area inside it
-      // gives up those pixels.
-      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+      // The status-bar inset of the installed app is the shell's
+      // (`shell-safe-area` in `auth-shell.tsx`), not this band's: padded
+      // inside its own 4rem, a 59 px inset left the bar a 5 px content box.
     >
       {/* Mobile logo */}
-      <Link href="/" className="flex items-center gap-2 md:hidden">
+      <Link
+        href="/"
+        className="shell-desktop:hidden flex min-h-11 items-center gap-2"
+      >
         <Logo className="text-primary" size={20} />
         <span className="font-bold tracking-tight">HealthLog</span>
       </Link>
 
-      {/* Desktop: empty spacer (user controls are in sidebar) */}
-      <div className="hidden md:block" />
+      {/* Desktop: the page's context, where a page gives one (the Coach's
+          trail); otherwise an empty spacer. User controls are in the
+          sidebar. */}
+      <TopBarContextOutlet className="shell-desktop:flex hidden min-w-0 flex-1 items-center" />
+
+      {/* v1.42 — the command palette's door, on every signed-in page: a
+          magnifier at every width. `ml-auto` keeps it at the trailing end,
+          just left of any docked panel's strip. */}
+      <CommandPaletteTrigger />
+
+      {/* Page-owned actions (the Coach's conversations toggle). `ml-auto`
+          keeps them at the trailing edge, right before the mobile avatar
+          menu; `empty:hidden` takes the slot out of the row on every page
+          that leaves it empty, so the header lays out exactly as before. */}
+      {/* On desktop the last action sits 12 px from the bar's trailing edge
+          (`md:-mr-3` against `md:px-6`), so a panel toggle stands against the
+          panel it controls. */}
+      <TopBarActionsOutlet className="ml-auto flex shrink-0 items-center gap-1 empty:hidden md:-mr-3" />
 
       {/* Mobile-only auth section (desktop uses sidebar user section) */}
-      <div className="flex items-center gap-2 md:hidden">
+      <div className="shell-desktop:hidden flex items-center gap-2">
         {isLoading ? (
           <Skeleton className="bg-muted h-4 w-20 rounded" />
         ) : user ? (

@@ -1,5 +1,765 @@
 # Changelog
 
+## [1.42.2] — 2026-10-11
+
+Actionable notifications, record search in the command palette, automatic
+intake recording, and fixes for Oura, non-UTC databases, documents and
+Google Health backfills.
+
+### Added
+
+- **Notification tap targets (#1203).** One map resolves a target path per
+  event type; ntfy carries it as `Click`, Telegram as an "Open in HealthLog"
+  button on public https (text link on plain http), web push as `url`,
+  webhook and Gotify as a URL field, email as a link line, APNs as `url`.
+  No target for guardian deliveries, discreet cycle mode or the silent sync
+  push. ntfy titles and action labels outside ASCII are sent RFC 2047
+  encoded.
+- **Notification content preference.** `notificationPrefs.content.detail`
+  (`generic` default, `detailed`) on `PATCH /api/auth/me/notification-prefs`;
+  with `detailed` the morning briefing title carries the score.
+- **Mood quick answers on ntfy.** Three actions post to
+  `POST /api/notifications/action/[token]`: an HMAC token bound to user and
+  answer, valid six hours, single use per reminder, rate limited before
+  verification, recorded once in the idempotency table so a purged entry
+  cannot be answered again. Mood entries record source `NOTIFICATION`. A
+  reminder tapped while acting in another record opens the mood page
+  without the entry sheet. ntfy messages are published as JSON.
+- **Record search (#1117).** `POST /api/search` (query in the body, so it
+  never appears in a URL or proxy log; read-level access, one search at a
+  time per account, 20 a minute) searches visits and
+  procedures, conditions, documents, vaccinations, lab results, medications,
+  symptoms, workouts and notes, decrypting encrypted text in bounded batches
+  with a shared time budget, and reports `truncated` when a bound stopped a
+  source. Matching is case-, accent- and umlaut-spelling-blind and shared
+  with the MCP `search` tool. The palette lists hits under "In your records";
+  each hit deep-links to its entry. Migration 0397 adds a partial index on
+  live readings that carry a note.
+- **Open in new tab (#1202)** for PDF and image originals in the document
+  vault.
+- **Record doses automatically.** `Medication.autoMarkTaken` (with
+  `autoMarkTakenSince`, migration 0395): a job every 15 minutes records each
+  due dose as taken from the moment the option is switched on, through the
+  schedule engine, never over a dose taken, skipped or deleted by hand, with
+  the same stock and rollup follow-ups as a manual take. Intakes carry
+  `autoRecorded`; no reminders are sent for such a medication. List and
+  detail responses carry the resolved `remindersActive`
+  (false also once a course has ended). Rolling cadences step past slots the
+  job will not record, and the card shows the same next slot.
+
+### Fixed
+
+- **Oura token exchange (#1204).** Codes are exchanged at
+  `moi.ouraring.com/oauth/v2/ext/oauth-token`; a code issued by that server is
+  never sent to the legacy endpoint. Refresh falls back to
+  `api.ouraring.com/oauth/token` once. The callback validates `iss` (RFC 9207).
+- **Non-UTC database time zone (#1200).** Every connection (Prisma, pg-boss,
+  lock and maintenance clients) runs with `TimeZone=UTC`, with a `SET`
+  fallback when session options are disabled; raw SQL reads the clock as
+  `NOW() AT TIME ZONE 'UTC'`; boot warns when the session zone is not UTC.
+- **Google Health backfill (#1194).** A slice that saved progress enqueues
+  the next slice and ends without `job.run.failed`; a slice without saved
+  progress still fails, and the chain stops after collections + 2 slices.
+- **Admin AI spend card** sums today's spend on each account's local day.
+- **Daily AI budget** is keyed on the account's local day.
+- **Day view:** Escape inside the date picker no longer closes the day.
+
+### Changed
+
+- Docked strips run the full height, the header search is a magnifier icon,
+  `g p` toggles the day panel.
+- Without a zoom in the URL the timeline fits its window to the record: three
+  months, clamped to the first entry (at least 28 days) for a young record,
+  and everything when the last three months are empty. An empty window offers
+  "Show everything" when older entries exist.
+- The explanatory line under day-linked charts is gone.
+
+### API
+
+- New: `POST /api/search`, `POST /api/notifications/action/{token}`.
+- Medication: `autoMarkTaken`, `autoMarkTakenSince`, `remindersActive`;
+  intakes and sync intake upserts: `autoRecorded`.
+- `notificationPrefs.content.detail` on the notification preferences.
+- APNs payloads carry `url` on every visible push.
+
+## [1.42.1] — 2026-10-10
+
+Fixes for Google Health syncing and the measurement maintenance run.
+
+### Fixed
+
+- **Google Health parked after a reconnect (#1194).** A backfill walk used
+  one access token throughout; after Google's one-hour expiry the walk saw
+  401s and the connection was parked at `error_reauth` although the refresh
+  token was valid. Resources now take a token source that renews before
+  expiry and once more on a mid-walk 401; a 429 is waited out (Retry-After,
+  RetryInfo or backoff) and stays transient; parking follows only a refused
+  grant at the token endpoint, and an account parked by a data-call 401
+  recovers on its next run. One sync per account at a time: the hourly run
+  skips, a manual sync answers 409 `sync_in_progress`, backfill and sleep
+  repair wait. An interrupted backfill resumes from `backfill_progress`
+  (migration 0393).
+- **Overlapping Google Health sleep segments (#1195).** A batch keeps one
+  reading per natural key (the longer segment), a remaining collision is
+  settled through `reconcileExternalMeasurement`, and overlapping sessions
+  no longer clear each other's rows. Night totals use the union of segments.
+- **Measurement maintenance on Docker (#1192).** The maintenance connection
+  sets `max_parallel_maintenance_workers=0` and needs no `/dev/shm` segment;
+  the bundled `docker-compose.yml` sets `shm_size: 256mb` for the database.
+- **Dashboard spacing.** The tile row sat flush against the top card; a
+  `display: contents` wrapper had swallowed the gap.
+
+### API
+
+- `POST /api/google-health/sync` may answer 409 `sync_in_progress`.
+
+## [1.42.0] — 2026-10-09
+
+A day view behind every dated value, an optional timeline with life events,
+air quality and pollen per day, a Health Connect import, and the handover of
+a managed profile to the person it describes. The measurement table drops
+the samples the nightly fold used to keep, after a one-time repair of means
+an earlier fold computed from part of a day.
+
+### Added
+
+- **Day view (#613).** `?day=YYYY-MM-DD` opens one local day over the
+  current page: docked from 1280 px beside a fixed strip at the right edge
+  that opens and closes it and keeps it, with the last day, across pages; a
+  side sheet below that and a bottom sheet on a phone. On `/coach` it sits
+  next to the conversation list, each with its own strip. It shows the value
+  it was opened from, what ran through the day (one entry per medication
+  with the day's dose, the cycle day and phase), eight curated readings
+  against the 30-day usual range (the rest behind "All values"), the day's
+  scores (health score, readiness, recovery, sleep score, strain) and the
+  day's entries in clock order. Readings and scores link to their pages, and
+  the date in the header opens a calendar with Today. Every chart drawn in days opens it (on touch the tooltip offers the
+  day first), as do data tables, the measurement, mood and intake lists,
+  heatmaps, lab readings, documents, workouts, symptom and illness days and
+  the days a Coach answer read. Back and Escape close it, Alt with an arrow
+  steps a day. A planned visit shows what changed since the last one from
+  `GET /api/day/notable`. Not offered: the dashboard's today area, tile
+  charts, the cycle calendar, model text, future dates, the clinician share
+  link and the doctor-report PDF.
+- **Timeline module (#613).** Opt-in. One SVG time axis from 768 px with
+  lanes for life events, conditions, allergies, medications, vaccinations,
+  visits and procedures, labs and documents (one row per medication, dose
+  changes and pauses as segments of its bar), a year, month or week grid or
+  any range, and as many value lines as the record has types, as quarterly,
+  monthly, weekly or daily means by span (a short gap dashed, a longer one
+  left open, a mean from fewer than three readings drawn hollow, each point
+  with its own tooltip); a chronicle, newest first, on a phone. Switching the module on opens a readiness inventory that rates
+  each lane and links each gap; it stays available as Data coverage.
+- **Life events.** Title, kind (family, home, work, loss, other), a start
+  at day, month or year precision, optional end and note; title and note
+  encrypted at rest (migration 0387). Owner only in this release: no share
+  level or MANAGE grant reads or writes them, and no model ever receives
+  them. They travel in both backup purposes and are wiped with the account.
+- **Air quality, pollen and UV (#615).** The environment fetch adds the
+  Open-Meteo air-quality feed (CAMS, `domains=auto`): PM2.5, PM10, NO2,
+  SO2, CO, the ozone 8-hour high, European and US AQI, UV, dust, aerosol
+  depth and six pollen groups, folded into local days (means and maxima need
+  18 of 24 hours) and stored as null where the feed has no value
+  (migration 0381). Pollen exists only in the European domain. A nightly
+  gap fill covers up to 90 days per account. PM2.5, the ozone high and the
+  highest pollen join the correlation channels. An account switch under
+  Location & weather (on by default), attributions beside the values, and a
+  dashboard chip on a day with high pollen, a warm night or very poor air.
+- **Air quality for the past.** A background job fills air quality, pollen
+  and UV for earlier local days with an entry: after the update, when the
+  home is set and when air quality is switched on. A day inside a location
+  period is fetched at that place, a day from the home's effective date on
+  at the home; a day before it with no period stays empty rather than
+  borrowing a place the person was not at. The source reaches back to 2013
+  in Europe and to August 2022 elsewhere, pollen from 2021 in Europe only;
+  older days stay empty. Nearby days share one
+  request of up to 90 days, a run holds itself to 300 of the account's 400
+  daily calls and half of each instance window, and a long history spreads
+  over several nights. Location & weather shows the progress (migration
+  0391).
+- **`get_environment` and `get_day`** for the Coach and MCP.
+  `get_environment` is module-gated and carries no coordinate or place name;
+  `get_day` leaves out life events, notes and document names and honours
+  the person's Coach exclusions.
+- **Health Connect import (#972).** Upload the ZIP Android's Health Connect
+  exports under Export & Import. It is read in the background (read-only
+  SQLite, schema version 9 or later, 1 GiB upload cap, one import per
+  account): daily totals from the top-priority app, per-minute heart rate
+  for 90 days and hourly means before that, sleep stages, workouts, cycle
+  days, water and nutrients, under the new source `HEALTH_CONNECT`
+  (migrations 0379, 0380). Apps already connected directly are skipped and a
+  second import of the same file writes nothing.
+- **Managed profile handover (#959).** A guardian with a fresh second factor
+  creates a one-time link (1, 7 or 14 days, shown once with a QR code) and
+  proposes no access, view only or manage per guardian. The person opens
+  `/claim/<token>`, sets a username, email and password, and decides each
+  guardian's access after signing in. Pending invitations are withdrawn;
+  disclaimer, onboarding and AI consent reset. Refused on `OIDC_ONLY`
+  instances (migrations 0383, 0390).
+- **Custom vaccines (#1005).** A record defines its own vaccine with the
+  antigens it covers, series length and booster interval; its doses count
+  into each antigen's series and settle boosters (migration 0386).
+- **Workout editing (#1162).** A hand-entered workout opens its form from
+  the detail page and saves as an overwrite of the same row.
+- **HRV RMSSD from Apple Health (#1110).** iOS 27's
+  `HKQuantityTypeIdentifierHeartRateVariabilityRMSSD` is stored as
+  `HRV_RMSSD` (1 to 300 ms) with its own source-priority ladder, charted
+  apart from SDNN.
+- **Apple Health arrival per type (#1173).** The Apple Health card shows
+  when each type last arrived, by which trigger (including the new
+  `manual` for Sync all) and when it last brought a new value
+  (migration 0384).
+- **Documents layout.** Preview cards or a compact list, months flowing
+  side by side (the default) or stacked, per account (migration 0388). Only
+  a field the person picked is stored, so an untouched one follows the
+  default.
+- **Measurement maintenance.** An admin card and
+  `POST /api/admin/maintenance/measurements` run `VACUUM (ANALYZE)` and a
+  `REINDEX INDEX CONCURRENTLY` per index, largest first.
+- **Query statistics.** The bundled database loads `pg_stat_statements`;
+  `CREATE EXTENSION` once to read it (`docs/ops/query-statistics.md`).
+- **Score history.** `/insights/health-score` charts the daily health score
+  with its usual band, broken where the score's recipe changed, from
+  `GET /api/insights/score-history`; readiness, recovery, sleep score,
+  stress and strain share one 7, 30, 90 days or all range picker.
+- **Top card switch.** The dashboard layout settings can hide the top card
+  (`todayCardVisible`).
+- **Keyboard shortcuts.** `g` then `d`, `m`, `l`, `t`, `i`, `c` or `s` opens
+  a page, `n` the add menu, `[` and `]` step the open day, and `?` (or the
+  account menu) lists them; ignored while typing in a field.
+- **Command palette.** Cmd+K (Ctrl+K) or the search field in the top bar
+  finds pages, Insights pages, every Settings card by its anchor, module
+  switches and actions (new entry, the Coach, a backup, today, the
+  shortcuts), filtered by modules, AI availability, role and a shared
+  record's grant; typo-tolerant, with recent places when empty.
+
+### Changed
+
+- **Correlations remove season and trend.** Every daily pair is correlated
+  on residuals after a linear trend and one annual harmonic are taken out
+  of both series (trend only under 120 days), with p-values on the
+  Pyper-Peterman effective sample size. Weather channels compare the mean
+  of the day before and the day itself with the same day's outcome. Some
+  earlier findings no longer qualify.
+- **Fold leftovers.** The nightly folds delete the raw samples they fold
+  instead of keeping them for 75 days. A re-sent raw sample whose hour or
+  day a live `stats:` row covers is a duplicate with reason `folded_window`,
+  in the batch route, the export import and the Health Connect import. A
+  background purge removes the backlog in batches of 5,000 per account; the
+  sync feed and a restore leave these deletions out. Health Connect heart
+  rate is folded like Apple Health's.
+- **Duplicate batches.** A batch of samples the server already holds is
+  answered without a write and queues no record detection or reminder
+  sweep; caches are evicted only for a foreground or manual sync or a
+  hand-entered reading, and marked stale otherwise.
+- **Locations encrypted.** The home location, travel periods and stored
+  environment days keep their coarse location sealed (migration 0382); a
+  background job seals existing rows.
+- **Lighter client.** Settings sections load on their own (611 to 403 KB
+  gz) and the shared shell no longer carries Zod (199 to 136 KB gz).
+- **Wellness scores** show their course on each tile and page; the sleep
+  score and readiness reads add `series`. The proxy caveat line is gone.
+- **Empty states and add actions.** An empty list carries the one add
+  action; the Insights pages add through the header plus.
+- **Touch and small screens.** 44 px targets on touch screens, a sidebar
+  that fits short windows without a native scrollbar, the phone shell on a
+  phone held sideways, 16 px fields, safe areas in the installed app and
+  sheets that stay above the on-screen keyboard.
+- **Provider pause.** From five consecutive hard failures a provider is
+  skipped for a window that starts at 30 minutes and doubles, capped at a
+  day; a dead Codex refresh token reads as a sign-in to renew.
+- **`work_mem`** is set per app connection from `DATABASE_WORK_MEM`
+  (16MB); `DATABASE_SESSION_OPTIONS_DISABLED` sends no session options for
+  hosts behind PgBouncer.
+- Volume queues keep finished jobs for 96 hours instead of seven days.
+
+### Fixed
+
+- **Means folded from part of a day.** The folds cut at a fixed offset
+  instead of the local day boundary, so a second run replaced a mean-type
+  day, and the boundary hour of heart rate, HRV and SpO2, with the mean of
+  its later part. Folds now stop at the local day boundary, and a one-time
+  repair per account recomputes each mean from its samples and writes only
+  values that differ (migration 0389). It covers the last 75 days of daily
+  means and the 75 days before the 90-day raw window of hourly means, where
+  every sample of the day is still kept. Older days stay as they are: their
+  remaining samples can be a fragment of the day, and a mean over them would
+  be worse than the stored one. The nightly folds follow the same rule for a
+  day or hour that already has a mean. The purge waits for the repair.
+- **Push after an update.** Reload on the new-version hint unregistered the
+  service worker, which ended the Web Push subscription; it now updates the
+  worker instead.
+- **Discord and Slack webhooks.** A Discord webhook URL answered the test
+  and every reminder with "Cannot send an empty message", and a Slack
+  incoming webhook refused the body too: the generic format carried neither
+  Discord's `content` nor Slack's `text`. It now sends both as plain text
+  (title and message, cut to Discord's 2000 characters), tells Discord to
+  resolve no mentions, and keeps `title`, `message`, `eventType` and
+  `priority` unchanged for Home Assistant and n8n rules. Discreet mode
+  covers the new fields.
+- **MCP deep links.** `/insights?metric=` and `/labs?analyte=` open the
+  metric's page and the marker's page.
+- **Apple Health status** no longer reads "waiting for first data" after an
+  export import.
+- **Strain** falls back to the device's day strain when no computed value
+  exists.
+- Failed briefing runs name each account's outcome, a briefing held back
+  for a causal claim gets one repair attempt instead of hourly retries, and
+  the tiered context converts stored times to the reader's zone.
+- Google Health re-reads two hours of intraday heart rate per sync, and the
+  first cycle of each local day a full day (#1023).
+- The capture sheet opens from the dashboard's add button on phones; the
+  installed app follows its own theme in the status bar and toasts.
+- `source-map-js` 1.2.2, `postcss-selector-parser` 7.1.6 and `smol-toml`
+  1.9.0 close CVE-2026-93749, CVE-2026-104844 and GHSA-r4xh-jqrq-34v2 in the
+  build and development toolchain.
+
+### Removed
+
+- The "took it twice" and "skipped a dose" achievements.
+
+### API
+
+All changes are additive.
+
+- New routes: `/api/day/{date}`, `/api/day/index`, `/api/day/notable`,
+  `/api/timeline`, `/api/timeline/readiness`, `/api/life-events`,
+  `/api/vaccinations/custom`, `/api/environment/preferences`,
+  `/api/documents/inbound/layout`, `/api/import/health-connect-export`.
+- The measurement source enum gains `HEALTH_CONNECT`.
+- `/api/auth/me` adds `timezone`, `glucoseUnit` and `features.trackIntake`;
+  module availability lists `timeline`.
+- `POST /api/measurements/batch` accepts `syncTrigger: "manual"`; a re-sent
+  sample whose hour or day is already condensed returns `duplicate` with
+  reason `folded_window`.
+- `GET /api/integrations/healthkit` adds `lastReceivedAt`, `lastTrigger` and
+  `lastNewSampleAt` per type.
+- The sync feed lists only deletions a person makes, not those of the
+  condensing step.
+- `GET /api/environment` adds `airQuality` (with `history`, the progress of
+  the past-days backfill), `latestDay` and `attributions`.
+- `GET`/`PUT /api/auth/me/source-priority` add `inUse`.
+- A dose for a record-only medication is refused with 422
+  `medication.intake.notTracked`; failed passkey sign-ins answer with
+  `passkey.*` codes instead of a 500.
+- `/api/medications/compliance` adds `meta.aggregate` and `?days=`;
+  `/api/mood/insights` takes `?days=` and returns `stabilityWindowDays`.
+- Coach steps can name the tools `get_day` and `get_environment`, the
+  domains `day` and `environment`, and a `day` date.
+- Vaccination doses carry `customVaccineId`, correlation findings `nEff`,
+  workouts `storedAvgHr` and `storedMaxHr`, and the sleep score and
+  readiness reads a `series` of past values.
+- `/api/life-events*` answer only the record's owner; a delegate gets 403,
+  the day's `lifeEvents` section reads `not_shared` and the timeline has no
+  `life` lane.
+- `POST /api/environment/backfill` answers 429
+  `environment.backfill_rate_limited` (three an hour per account) and 409
+  `environment.backfill_pending` while one is queued.
+- `GET /api/environment` may return `lat` and `lon` as `null`.
+- The handover claim preview no longer carries `grantId`; a guardian's
+  `displayName` may be `null`.
+- The restore report adds the catalog `environmentLocationCiphertext`.
+- `get_day` names documents and visits by kind only.
+
+### Thanks
+
+@lutzkind for #613, #615 and #586, @CritLoren for #972 and #1005, @ckaotik
+for #959, @BernhardBuckel for #1110, @mills1975 for #1173 and @NebuPookins
+for #1162.
+
+## [1.41.2] — 2026-10-07
+
+More room for a Coach turn, prompt caching that holds across its rounds, and
+MCP tool results that match their schemas.
+
+### Changed
+
+- **Turn budget.** A turn on the person's own provider gets 165k tokens,
+  200 s and 16 rounds (was 120k, 150 s, 12); a turn on the operator's budget
+  55k tokens, 120 s and 8 rounds (was 40k, 90 s, 6). The final answer's
+  reserve keeps its share of each (1,650 tokens), the concurrent-turn slot
+  follows the longer wall time, and a turn shows up to 64 steps.
+
+### Fixed
+
+- **Cached input in the turn budget.** Codex requests carry a stable
+  `prompt_cache_key` and session id per conversation, as the official client
+  does, so later rounds of a turn read the prefix from the provider's cache
+  instead of paying for it again; `api.openai.com` gets the same key, gateways
+  do not. Anthropic usage now counts cache reads and cache writes in the
+  turn's total (they are reported beside `input_tokens`), so a cached round is
+  weighted at a tenth instead of almost nothing and a cache write in full.
+  Local and OpenAI-compatible servers that report
+  `prompt_tokens_details.cached_tokens` have it counted.
+- **MCP output schemas (#1170).** `list_metrics` declares the `availability`
+  its rows already returned, the Coach-backed reads declare `searchedWindow`
+  and `available`, and `get_intraday_pulse` declares each bucket's `min` and
+  `max`. The advertised
+  schemas close every object, so a strict client refused these results. Every
+  tool's real output is now validated against its advertised schema under a
+  strict 2020-12 validator. Thanks to @RyRyMason for #1170.
+- **Deleted readings in MCP discovery.** The `list_metrics` discovery rows and
+  the `search` clinical-signal probe count live rows only: a measurement type
+  whose readings were all deleted is no longer listed as present, and the
+  probes use the live-rows index instead of walking every deleted row.
+
+## [1.41.1] — 2026-10-07
+
+A calmer thinking row in the Coach.
+
+### Changed
+
+- **One thinking row.** While the Coach works, a single row shows a brain
+  icon and the current step in body text with a soft moving highlight and
+  animated dots ("Reading blood pressure…"); no running seconds. The interim
+  table line under it is gone; tables appear with the answer. Afterwards the
+  row reads "Thought process · N steps", stays closed unless opened, and
+  closes again when a turn finishes. Opened, the steps stand on a thin line,
+  each with its own icon and the reasoning summary under its title.
+
+### Fixed
+
+- **Coach in the demo.** A refused chat on a demo instance says that the
+  Coach doesn't answer in the demo instead of reporting an unreachable
+  provider; demo refusals carry `meta.errorCode: "demo.readOnly"`.
+
+## [1.41.0] — 2026-10-07
+
+The Coach reasons before it answers, shows what it is doing while it works,
+asks when a question is ambiguous, and remembers what it is told.
+
+### Added
+
+- **Reasoning.** Codex, OpenAI, Anthropic, OpenRouter, gateways and local
+  servers receive the requested reasoning in their documented dialect;
+  reasoning summaries stream to the Coach, signed or encrypted reasoning state
+  is carried between tool rounds and never stored, and a model that rejects a
+  reasoning parameter is retried without it (the downgrade is learned per
+  provider, endpoint and model for an hour, only from a 400 that names the
+  parameter). Thinking depth per person under Coach settings (Off, Low,
+  Medium, High; Medium by default); an operator switch and maximum under
+  Admin, Assistant; turns on the operator's budget are capped at Medium.
+  `/api/auth/me` publishes the resolved `coachReasoning`.
+- **Budgeted tool loop.** A turn runs against a token, time and round budget
+  (own provider 120k tokens, 150 s, 12 rounds; operator 40k, 90 s, 6 rounds)
+  with a no-progress brake and a reserved final round that keeps the tool
+  definitions with `tool_choice: none`. Every round is reserved against the
+  daily budget beforehand and settled afterwards. At most two concurrent turns
+  per person.
+- **Live trail.** One quiet status line per answer (`activity` frames), never
+  expanded by itself; the screened reasoning text is stored encrypted
+  (`coach_messages.trail_encrypted`) and served lazily by
+  `GET /api/insights/chat/{id}/messages/{messageId}/trail`.
+- **Comparisons.** `compare_series` (two periods or two metrics) and a
+  `compare` chart; tables arrive as interim results before the answer.
+- **Clarifications** as suggested replies in the thread, at most one in six
+  turns and three a day; a declined or limited question becomes a stated
+  assumption with a reply that changes it.
+- **Memory and plans.** Every turn carries an egress-checked memory block;
+  `remember_fact` saves preferences, goals and context with a visible note and
+  undo, health facts only after the person agrees; `propose_plan` suggests a
+  plan from a stated goal. Both are written only when the answer that shows
+  them is stored. Background extraction runs once a conversation is quiet for
+  30 minutes; plan progress reaches the daily briefing. The memory list in
+  settings shows each fact's source and accepts edits.
+- **Background reasoning** for the daily briefing (scheduled and on request)
+  and the weekly and monthly narratives; status cards never reason.
+
+### Fixed
+
+- **Dose-change screen.** The outbound screen blocks the dose-change class
+  across all seven languages, including the person's own medication names,
+  drug classes, spelled-out amounts and "extra / one more"; plan texts go
+  through the same screen.
+- **Glucose by time of day.** The usual-range line, the MCP baseline and the
+  signals of the day compare glucose with the same hours of earlier days
+  instead of setting a morning reading against whole-day means.
+- **Usual-range line** names the date of a latest reading that is not from
+  today, and a steady value as one figure.
+- **Memory refresh** asks the Coach capability before deferring, so a
+  switched-off Coach does not re-queue it.
+- **Dependencies.** The MCP SDK moves to 1.32 (GHSA-6qxp-vccf-f47h) and
+  `proxy-addr` to 2.0.8 (GHSA-jqcg-44mw-7w3h).
+
+### Changed
+
+- **Answer voice.** The first sentence answers; 40 to 120 words; at most one
+  next step.
+- **Keyboard focus** is drawn in a neutral tone everywhere.
+
+### Migrations
+
+- `0376_ai_reasoning_controls`, `0377_coach_message_trail`,
+  `0378_coach_fact_source`: additive columns with constant defaults or
+  nullable; no table rewrite.
+
+## [1.40.6] — 2026-10-05
+
+The Coach reads long series again; "today" only from today's readings; the
+dashboard card fits a phone; text fields lose the purple focus ring.
+
+### Fixed
+
+- **Coach series without numbers.** Since 1.21.0 every Coach tool read one
+  shared per-turn snapshot capped at 24,000 characters; on accounts with many
+  series whole blocks became a placeholder and the tool still answered
+  `present: true`. A trimmed block is now re-read for the tool's own source,
+  a Coach tool's read of one source is condensed instead of emptied (a
+  summary from the daily values with the latest week against the first,
+  the newest days, monthly means, each block in its own fields), a block
+  without numbers
+  answers `retrieval_failed` to the Coach, and the Coach calls the table tool
+  itself for long histories. MCP reads are unchanged. The step list shows
+  the reading count; no stray comma on copy.
+- **"Today" from yesterday's readings.** Signals of the day, the vitals fact,
+  the lead line, the health status and the morning push only speak about
+  today from readings taken today in the profile timezone; a stored briefing
+  from an earlier day is no longer served.
+- **MCP schemas for strict clients (#1170).** `tools/list` advertises every
+  input and output schema as JSON Schema 2020-12 without a `$schema` key, so
+  clients that only accept 2020-12 load the tools; tool results are unchanged.
+- **Briefing for the local day.** The first read of a local day and the first
+  reading of a signal metric that day warm the briefing once (within the
+  existing daily limit), so users outside Europe and readings taken in the
+  morning get a current briefing; every surface resolves it the same way.
+- **Deltas** use each metric's display precision ("+34 bpm").
+
+### Changed
+
+- **Dashboard card on a phone.** A compact score ring at the top right beside
+  the lead; Today facts as label over value, full width. Desktop unchanged.
+- **Text-field focus.** No purple ring on inputs, textareas, selects and date
+  fields; focus shows as a neutral border (`--input-focus`). Invalid fields
+  keep their red border.
+- **Coach panel** no longer has a search field (the full conversation list
+  keeps its search).
+
+## [1.40.5] — 2026-10-05
+
+The Coach's conversation panel runs the full height of the window.
+
+### Changed
+
+- **Coach panel.** Docked, the panel runs from the top of the window to the
+  bottom, beside the top bar instead of below it, and its header line
+  continues the top bar's. Shut, nothing of it remains on screen.
+- **Top bar on the Coach.** It names the page and the open conversation, and
+  the panel toggle sits at its right end, against the panel.
+- **New chat.** A round button with a plus at the panel's bottom right.
+
+## [1.40.4] — 2026-10-05
+
+The Coach's conversation panel docks to the right edge; model and tokens
+move behind an info icon; no view chip for a result that already toggles.
+
+### Changed
+
+- **Coach panel.** Flush against the right edge, full height below the top
+  bar, its own scroll area; the shell renders `/coach` without its container
+  gutter. The toggle uses mirrored panel icons and moves with the panel.
+  Its buttons and rows go compact only beside a mouse or trackpad; with
+  touch they keep the 44 px target at any width, a tablet included.
+- **Answer row.** Copy, read aloud, retry, an info icon and the time in one
+  left-aligned group; the info icon shows model and token count on hover,
+  focus or tap, and Enter or Space keeps it open.
+- **Follow-ups.** No "show as chart/table" chip when the answer's result
+  already offers that toggle; also for stored answers.
+
+## [1.40.3] — 2026-10-05
+
+Small fixes to the Today overview and the numbers behind it.
+
+### Added
+
+- **`signalLine` on the daily digest.** The muted line under the lead is now
+  decided on the server: when the lead already talks about the top signal's
+  metric, only the delta remains, and the line is null when nothing is left.
+  Every client shows the same line.
+- **`basis` on health-status deviations.** `day` for the usual whole-day
+  range, `sameHours` for the usual range at this time of day.
+
+### Fixed
+
+- The Today lead is shown as whole sentences. A long sentence is no longer
+  cut mid-word; the headline or the deterministic sentence takes its place,
+  and only as a last resort is text shortened, at a word boundary.
+- Chart trend lines, legends and tooltips name every metric in the reader's
+  language instead of showing its internal name (resting heart rate among
+  them).
+- A personal usual range never collapses to a single value ("61–61 bpm"):
+  it keeps at least the measurement's own day-to-day spread, so the next
+  ordinary reading is not counted as outside it.
+- Glucose today is compared with the same hours of earlier days, up to the
+  time of today's latest reading. A fasting morning no longer reads as below
+  the range of whole days, and the range named is the usual one for this
+  time of day.
+- Encrypting stored text in place or rotating the encryption key no longer
+  makes old Coach conversations look recently active, and the Coach memory
+  summary no longer moves a conversation either. Measurements, mood entries
+  and every other encrypted record keep their sync position through the
+  same kind of rewrite.
+- Conversations an earlier release made look recently active move back to
+  their last message (migration 0375).
+
+## [1.40.2] — 2026-10-05
+
+A calmer Coach with conversations in a side panel and settings in place; the
+top of the dashboard says what matters today; documents filter by procedure.
+
+### Added
+
+- **Coach panel.** Conversations in a collapsible right panel (a sheet on a
+  phone), grouped by day, with rename, delete with undo and a new-chat
+  button; a gear opens quick settings (provider, model and reasoning where
+  they are the user's, and the lookback). `/coach?settings=data` opens it.
+- **Coach lookback as a real limit.** 7, 30 or 90 days, 12 months
+  (`lastYear`, new) or all; it limits the snapshot and every Coach tool, a
+  read beyond it answers `outside_reach`. MCP keeps its own windows.
+- **Today overview.** The digest gains `lead`, `today[]`, `restMode` and
+  `score.steadyWeeks`/`steadyAtLeast`: a lead line with content (deterministic
+  without AI), up to five facts (medications, an appointment today or
+  tomorrow, last night, vitals, cycle, Rest Mode), the ring with how long the
+  score has been steady. The morning push line carries no vital values.
+- **Procedure filter in the document archive (#1154).** `linkedProcedures` on
+  the usage endpoint; the list already accepted `encounterId`.
+
+### Changed
+
+- **Coach answers.** One action row (copy, read aloud, retry, time; tokens and
+  model); web thumbs and the evidence block removed; remember is an icon;
+  follow-up chips in the answer column; a scroll-to-bottom button; the
+  composer's "+" menu removed.
+- **Settings → Coach** summarises what the Coach sees and links into the
+  overlay.
+- Coach preferences parse field by field, so one invalid value no longer
+  drops the others.
+
+### Fixed
+
+- The medications fact counts the whole day on a 25-hour DST day.
+- Providers without credentials are no longer offered in the Coach overlay;
+  an operator-managed provider shows as such.
+- Document filter controls match the search field's height on a phone.
+
+## [1.40.1] — 2026-10-04
+
+Restore opens older encrypted values again; faster pages on a long-used
+server; a day of pulse is the mean of its hours; Apple Health imports leave
+out HealthLog's own samples; more memory for the app by default.
+
+### Fixed
+
+- **Restore key probe.** A legacy unprefixed ciphertext was read as a base64
+  string and refused a restore the key opens; legacy values open as strings,
+  probes come only from sections that count, binary probes use their AAD.
+  The drill checks every account of the newest date.
+- **Daily pulse (#1107, migration 0372).** A day is the mean of its local
+  hours' means and a window the mean of its days, in every reader; stored
+  pulse rollups are recomputed. Count, min and max stay over every reading.
+- **Apple Health import (#1109).** Records carrying HealthLog's origin
+  marker or a HealthLog id are left out and counted; cycle samples too.
+- **Blood pressure series.** One source per day for both values.
+- **Backups.** Heartbeat on both backup jobs; per-account attempts recorded
+  (migration 0373), interrupted accounts go last; the preview is built from
+  the writer's counts.
+- **Document previews.** A permanent render failure is recorded (migration 0374) instead of re-queued at every start.
+- **Umami.** Events from a tracker built with a custom endpoint are proxied
+  to the configured Umami host.
+- **Display.** Rest Mode shows its start date; the favicon is transparent;
+  the sidebar no longer flashes scrollbars while it expands.
+
+### Changed
+
+- **Performance.** One Prisma client per process instead of one per bundle;
+  the rollup coverage probe uses a loose index scan and concurrent readers
+  share one probe; timezone offsets are memoised per hour; chart text is
+  measured outside `<body>`; Insights mounts lower sections near the
+  viewport; a nav prefetch is not re-sent on mount; MCP single-metric reads
+  build only the requested metric; the backup schema loads on first use.
+- **Lab list (#1057).** The range bar and name use a wide card.
+- **Compose.** `APP_MEMORY_LIMIT` defaults to `1536m` (792 MB heap).
+- Dependencies: next 16.3.8, eslint-config-next 16.3.8, zod-openapi 6.0.2,
+  testcontainers 12.2.0, p-limit 7.3.3.
+
+## [1.40.0] — 2026-10-04
+
+Back up the encryption key and refuse a key that cannot open the data;
+several courses and custom categories for medications; custom symptoms;
+document reads in the background; sick notes; lab unit refusal and charts
+that follow the source priority; blood pressure no longer loses its
+diastolic value; document previews work again.
+
+### Added
+
+- **Encryption key backup step (migration 0365).** Admin step with key id,
+  fingerprint and per-platform guidance (`HEALTHLOG_PLATFORM`), an optional
+  "check my copy" that compares and discards the pasted key, a reminder that
+  returns when the key changes.
+- **Boot key check.** A canary per key id, probed oldest values first across
+  string and Bytes columns; a proven mismatch answers 503
+  `encryption.key_mismatch` everywhere except `/api/health` and
+  `/api/version`, MCP included, and starts no worker; an unproven result
+  serves, warns and re-checks. `ENCRYPTION_KEY_CHECK=warn` as a last resort.
+- **Medication courses and custom categories (#1024, #1041, migration
+  0368).** Several courses per medication; compliance, streak, cadence and
+  dose history count every course and never the gaps; existing dated
+  medications become one course each. Own categories as `custom:<id>` with
+  `categoryLabel`; the runtime category table is now in the schema.
+- **Custom symptoms (#981, migration 0369).** Up to eight definitions, events
+  with a 0 to 10 intensity, a capture kind, one correlation channel per
+  symptom, a Coach block; gated on the Illness module.
+- **Document AI as background runs (#1090, migrations 0366 and 0370).**
+  Index, summary, suggestions and extraction accept `Prefer: respond-async`;
+  the lab scan always runs in the background; `GET /api/ai-runs/{id}`.
+- **`SICK_NOTE` document kind.**
+- **Natural durations (#1101)** in the sleep field.
+- **Reasoning effort per provider (#1126).** The Local and OpenAI-compatible
+  forms gain a Reasoning select (Default, Off, Low, Medium, High), stored on
+  the provider's chain entry; Default sends nothing, Off sends
+  `reasoning_effort: "none"`. A rejection of that field no longer switches
+  the endpoint's JSON mode off.
+
+### Fixed
+
+- **Blood pressure saved without its diastolic value (iOS #15, migration
+  0371).** The iPhone app sends the two halves of a manual reading as two
+  requests under one `Idempotency-Key`, and the server answered the second
+  with the first one's cached response. The replay cache now stores a SHA-256
+  fingerprint of method, path and body (JSON canonicalised, a multipart
+  boundary normalised) and replays only the same request; a different body
+  under the same key is saved. Readings saved before this stay incomplete;
+  `docs/ops/blood-pressure-missing-diastolic.md` lists them.
+- **Document previews and scanned PDFs (#1124).** The image hoisted an older
+  `@napi-rs/canvas` binary next to the pinned loader, so every thumbnail
+  failed; the build now hoists the pinned version and fails on a mismatch.
+  PDFs render with pdfjs font, cmap and wasm data and a registered fallback
+  font instead of absent system fonts, and an all-blank render reports
+  `raster-failed`. The thumbnail job logs why a preview is missing.
+- **Portable backups.** Cycle free text, custom mood labels, visit notes
+  and vaccination notes are carried readable and re-encrypted on restore
+  instead of as the source server's ciphertext; custom mood tags restore
+  without mood entries; a round-trip guard fails on any ciphertext in a
+  portable file. A medication update and its course share one transaction.
+- **Lab unit mismatch (#1094).** A reading in another unit than its marker is
+  refused (`labs.unit.mismatch`) on every write path; a marker's unit is
+  locked while it has readings (`biomarkers.unit.locked`).
+- **Source priority in series (#1108).** Pulse, HRV and SpO2 series read the
+  ladder's source per day; unranked types keep every source.
+- **Sign-in over plain http (#1097).** Refused with
+  `auth.session.insecure_transport` before a password, code or challenge is
+  used; the sign-in page says so first.
+- **Chart window (#1102).** Ends at the end of today in the profile time zone.
+- **Workouts.** The insight cap survives a delete (migration 0367); a changed
+  `manual:` resubmit updates the workout and its paragraph.
+- **Display.** Clinician decimals in the owner's locale, stated dates east of
+  UTC+12, archive month grouping, lab list columns without a range, icon
+  picker touch targets and labels, symptom entry load errors.
+
+### Changed
+
+- Quick-entry forms load on demand; the four eager route baselines are
+  lowered to the new measurements.
+
 ## [1.39.9] — 2026-10-03
 
 Workouts can be logged by hand, the body fat tile opens its own page, and

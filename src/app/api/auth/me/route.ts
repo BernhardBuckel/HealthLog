@@ -72,8 +72,18 @@ import {
 } from "@/lib/sharing/module-disclosure";
 import { recordSessionForPayload } from "@/lib/sharing/record-session-fence";
 import { loadAiCapabilities } from "@/lib/ai/capabilities/load";
+import { loadCoachReasoningState } from "@/lib/ai/reasoning/controls";
+import { parseCoachPrefs } from "@/lib/validations/coach-prefs";
+import { storedGlucoseUnit } from "@/lib/glucose";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Capability flags for clients that are not shipped with the server. Constant
+ * by design: a feature the server supports is supported for every account,
+ * and a per-account answer belongs in `modules` or `ai`, not here.
+ */
+const SERVER_FEATURES = { trackIntake: true } as const;
 
 export const GET = apiHandler(async () => {
   const auth = await requireActorAuth();
@@ -143,6 +153,7 @@ export const GET = apiHandler(async () => {
     moduleAvailability,
     onboardingRow,
     ai,
+    coachReasoning,
   ] = await Promise.all([
     // The actor's own row is already in hand; a switched session needs the
     // record's `gender`, which is the column the cycle gate derives from.
@@ -205,6 +216,16 @@ export const GET = apiHandler(async () => {
       authority: aiAuthority,
       sections,
       recordKind,
+    }),
+    // v1.41 — the Coach's thinking depth, resolved: the caller's own
+    // preference (Coach preferences belong to the person, like every other
+    // display preference here) against the operator's switch and cap and the
+    // record's provider. The provider read is the memoised presence probe the
+    // `ai` block above already ran.
+    loadCoachReasoningState({
+      prefs: parseCoachPrefs(user.coachPrefsJson),
+      recordId,
+      authority: aiAuthority,
     }),
   ]);
 
@@ -318,7 +339,8 @@ export const GET = apiHandler(async () => {
     avatarUrl: user.avatarUpdatedAt
       ? buildAvatarUrl(user.id, user.avatarUpdatedAt)
       : null,
-    glucoseUnit: user.glucoseUnit ?? null,
+    // The stored choice, published as the closed pair the contract names.
+    glucoseUnit: storedGlucoseUnit(user.glucoseUnit),
     // v1.7.0 — global metric/imperial display preference. Canonical
     // storage stays SI; this only drives the display-time transform
     // branch. Null defaults to "metric" on the client.
@@ -397,6 +419,14 @@ export const GET = apiHandler(async () => {
     // the RECORD and masked to the grant, like `modules`. Clients render from
     // it and never recompute it; data never depends on it.
     ai,
+    // v1.41 — the Coach's thinking depth, resolved on the server so the web
+    // settings and the native client show the same answer: `level` is what a
+    // turn runs at now, `preference` what the person picked, `maxLevel` the
+    // highest option the settings may offer (`off` when the operator switched
+    // reasoning off), `available` whether reasoning can run at all,
+    // `offIsReal` whether the lowest option is a real off or "Minimal", and
+    // `source` which layer decided. Clients never recompute it.
+    coachReasoning,
     // v1.36.0 — account sharing, resolved. `accounts` is the switcher's menu,
     // `active` is the record this session is inside (null when it is in its
     // own), `canSwitch` and per-entry `canWrite` are the booleans the UI binds
@@ -421,5 +451,11 @@ export const GET = apiHandler(async () => {
     // behind it have one reader by design, and a route that projected them
     // itself would be a second statement of what a record context is.
     recordSession: recordSessionForPayload(auth),
+    // v1.42 — what this server understands, for a client released on its own
+    // schedule (iOS #116, item 18). `trackIntake: true` says medications take
+    // the record-only switch, so an add form can offer it before the account
+    // has a medication to learn it from. A flag only ever appears here once
+    // the server supports it, and stays `true`; absence means an older server.
+    features: SERVER_FEATURES,
   });
 });

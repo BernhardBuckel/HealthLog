@@ -1,6 +1,4 @@
 import type { NextRequest } from "next/server";
-import { z } from "zod/v4";
-
 import { apiHandler, HttpError, requireAuth } from "@/lib/api-handler";
 import {
   apiSuccess,
@@ -9,16 +7,15 @@ import {
   sanitiseZodIssues,
 } from "@/lib/api-response";
 import { annotate } from "@/lib/logging/context";
-import { resolveProviderChain } from "@/lib/ai/provider";
+import { probeProviderChain, resolveProviderChain } from "@/lib/ai/provider";
 import {
   forgetLastWorkingProvider,
   getLastWorkingProvider,
 } from "@/lib/ai/provider-runner";
 import { prisma } from "@/lib/db";
-import {
-  parseProviderChain,
-  PROVIDER_CHAIN_TYPES,
-} from "@/lib/ai/provider-chain";
+import { parseProviderChain } from "@/lib/ai/provider-chain";
+import { isReasoningProviderType } from "@/lib/ai/reasoning-effort";
+import { providerChainPutSchema } from "@/lib/validations/ai-provider";
 
 /**
  * v1.4.16 phase B5b — read-only chain summary for the Settings → AI
@@ -29,11 +26,11 @@ import {
  *     in-process cache, when one is set. Surfaces "Active: codex
  *     (cached: openai)" so a user can see the runner has rerouted to
  *     a fallback without digging through logs.
- *   - `configuredChain`: ordered list of `{providerType, available}`
- *     entries. `available` is always true here since the chain
- *     resolver only returns instantiable entries; the field is wired
- *     for the v1.4.17 UX where unconfigured slots should still render
- *     in the list with a "needs setup" pill.
+ *   - `configuredChain`: ordered list of `{providerType, enabled,
+ *     available}` entries. `available` is the presence probe's own
+ *     answer for that entry's credential (`probeProviderChain`), enabled
+ *     or not: an entry without a key, address or sign-in is listed but
+ *     cannot answer, so a picker must not offer it.
  *
  * v1.4.16 phase B2 added the matching `PUT` for the new dropdown-driven
  * settings UX — the user reorders/toggles entries in the section and
@@ -61,7 +58,11 @@ export const GET = apiHandler(async () => {
   });
   const persisted = parseProviderChain(userRow?.aiProviderChain ?? null);
 
-  const resolved = await resolveProviderChain(user.id);
+  const [resolved, presence] = await Promise.all([
+    resolveProviderChain(user.id),
+    probeProviderChain(user.id),
+  ]);
+  const availableTypes = new Set(presence.availableTypes ?? []);
   const cached = getLastWorkingProvider(user.id);
 
   annotate({
@@ -80,33 +81,10 @@ export const GET = apiHandler(async () => {
     configuredChain: persisted.map((entry) => ({
       providerType: entry.providerType,
       enabled: entry.enabled,
-      available: true,
+      available: availableTypes.has(entry.providerType),
     })),
   });
 });
-
-const chainEntrySchema = z
-  .object({
-    providerType: z.enum(
-      PROVIDER_CHAIN_TYPES as unknown as [string, ...string[]],
-    ),
-    // Priority is recomputed server-side from insertion order so a stale
-    // client cannot persist a chain whose displayed order disagrees with
-    // its priority field. The number is accepted (and may be present) but
-    // ignored on the wire.
-    priority: z.number().int().optional(),
-    enabled: z.boolean(),
-  })
-  .strict();
-
-const chainBodySchema = z
-  .object({
-    chain: z
-      .array(chainEntrySchema)
-      .min(1, "Chain must contain at least one provider")
-      .max(PROVIDER_CHAIN_TYPES.length, "Too many providers"),
-  })
-  .strict();
 
 export const PUT = apiHandler(async (request: NextRequest) => {
   const { user } = await requireAuth();
@@ -117,7 +95,7 @@ export const PUT = apiHandler(async (request: NextRequest) => {
   });
   if (error) return error;
 
-  const parsed = chainBodySchema.safeParse(body);
+  const parsed = providerChainPutSchema.safeParse(body);
   if (!parsed.success) {
     return apiValidationError(
       "Invalid provider chain payload",
@@ -142,11 +120,35 @@ export const PUT = apiHandler(async (request: NextRequest) => {
   // Normalise priority to insertion order (1-based). UI hands us the
   // visual order it wants persisted; we make priority match so a later
   // GET reflects the same order without depending on the client's math.
-  const normalised = parsed.data.chain.map((entry, idx) => ({
-    providerType: entry.providerType,
-    priority: idx + 1,
-    enabled: entry.enabled,
-  }));
+  //
+  // #1126 — a reasoning setting the body leaves out is carried over from the
+  // stored entry of the same type, so the chain editor (which only reorders
+  // and toggles) and an older client cannot wipe it by saving the order.
+  // `null` clears it; the schema has already refused it on any type other
+  // than `local` / `openai-compatible`.
+  const stored = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { aiProviderChain: true },
+  });
+  const storedEffort = new Map(
+    parseProviderChain(stored?.aiProviderChain ?? null).map((e) => [
+      e.providerType,
+      e.reasoningEffort ?? null,
+    ]),
+  );
+  const normalised = parsed.data.chain.map((entry, idx) => {
+    const reasoningEffort = isReasoningProviderType(entry.providerType)
+      ? entry.reasoningEffort === undefined
+        ? (storedEffort.get(entry.providerType) ?? null)
+        : entry.reasoningEffort
+      : null;
+    return {
+      providerType: entry.providerType,
+      priority: idx + 1,
+      enabled: entry.enabled,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+    };
+  });
 
   await prisma.user.update({
     where: { id: user.id },

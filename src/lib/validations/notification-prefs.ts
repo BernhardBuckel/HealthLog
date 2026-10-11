@@ -11,7 +11,8 @@
  *   {
  *     "medication": { "clientManaged": boolean },
  *     "mood": { "reminderHour": 0..23 },
- *     "cycle": { "clientManaged": boolean }
+ *     "cycle": { "clientManaged": boolean },
+ *     "content": { "detail": "generic" | "detailed" }
  *   }
  *
  * The schema is intentionally additive — every new category grows the
@@ -126,14 +127,6 @@ const coachPrefsSchema = z
     /** v1.16.5 — frequency cap: one nudge per 7 or per 14 days. */
     nudgeFrequency: z.enum(["weekly", "biweekly"]),
     /**
-     * v1.25.0 — opt-out for the proactive ambient SUGGESTIONS surfaced in the
-     * UI (the daily seeded example opener on the Coach hero + the "try asking"
-     * prompt chips). Default ON. Separate from `nudgesEnabled` (the push-nudge
-     * master switch) so a user can keep the nudges but silence the example
-     * prompts, or vice versa.
-     */
-    ambientSuggestions: z.boolean(),
-    /**
      * v1.25.0 — opt-IN for AI-composed nudge copy. Default OFF: the proactive
      * nudge ships a deterministic warm localized template, and that template is
      * always the fail-closed fallback. When this is on AND a provider is
@@ -144,6 +137,23 @@ const coachPrefsSchema = z
      * baseline.
      */
     nudgeAiComposed: z.boolean(),
+  })
+  .partial();
+
+/**
+ * v1.42.2 — what a notification may show. `generic` (the default) says what
+ * the notification is about and carries no health figure, so a lock screen
+ * reads "Your morning briefing" rather than a score; `detailed` adds the
+ * figures (the morning score). Tap targets and quick answers are the same in
+ * both. Read by the producers that have a figure to show.
+ */
+export const NOTIFICATION_CONTENT_DETAILS = ["generic", "detailed"] as const;
+export type NotificationContentDetail =
+  (typeof NOTIFICATION_CONTENT_DETAILS)[number];
+
+const contentPrefsSchema = z
+  .object({
+    detail: z.enum(NOTIFICATION_CONTENT_DETAILS),
   })
   .partial();
 
@@ -167,6 +177,7 @@ export const notificationPrefsSchema = z
     cycle: cyclePrefsSchema,
     coach: coachPrefsSchema,
     measurementReminder: measurementReminderPrefsSchema,
+    content: contentPrefsSchema,
   })
   .partial();
 
@@ -220,11 +231,6 @@ export interface NotificationPrefs {
     /** v1.16.5 — cap interval: "weekly" (7 d) or "biweekly" (14 d). */
     nudgeFrequency: "weekly" | "biweekly";
     /**
-     * v1.25.0 — proactive ambient example suggestions in the UI (seeded
-     * opener + suggested-prompt chips). Default `true`.
-     */
-    ambientSuggestions: boolean;
-    /**
      * v1.25.0 — opt-in for AI-composed nudge copy. Default `false`; the
      * deterministic template stays the default + fail-closed fallback.
      */
@@ -237,6 +243,10 @@ export interface NotificationPrefs {
      * (the medication / cycle `clientManaged` precedent).
      */
     clientManaged: boolean;
+  };
+  content: {
+    /** v1.42.2 — whether notifications may carry health figures. */
+    detail: NotificationContentDetail;
   };
 }
 
@@ -285,11 +295,13 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
     nudgeVitals: true,
     nudgeRoutine: true,
     nudgeFrequency: "weekly",
-    ambientSuggestions: true,
     nudgeAiComposed: false,
   },
   measurementReminder: {
     clientManaged: false,
+  },
+  content: {
+    detail: "generic",
   },
 };
 
@@ -339,6 +351,10 @@ export function resolveNotificationPrefs(
       ...base.measurementReminder,
       ...(incoming.measurementReminder ?? {}),
     },
+    content: {
+      ...base.content,
+      ...(incoming.content ?? {}),
+    },
   });
 }
 
@@ -368,6 +384,7 @@ function applyDeliveryDefaultMapping(
     cycle: { ...prefs.cycle },
     coach: { ...prefs.coach },
     measurementReminder: { ...prefs.measurementReminder },
+    content: { ...prefs.content },
   };
 }
 
@@ -483,16 +500,6 @@ export interface CoachNudgePrefs {
   aiComposed: boolean;
 }
 
-/**
- * v1.25.0 — the single source every proactive ambient SUGGESTION surface
- * consults (the daily seeded example opener on the Coach hero + the
- * suggested-prompt chips). Default `true`; a null / drifted row resolves to
- * the documented default so the suggestions work out of the box.
- */
-export function resolveCoachAmbientSuggestionsEnabled(raw: unknown): boolean {
-  return parseNotificationPrefs(raw).coach.ambientSuggestions;
-}
-
 export function resolveCoachNudgePrefs(raw: unknown): CoachNudgePrefs {
   const coach = parseNotificationPrefs(raw).coach;
   return {
@@ -516,6 +523,7 @@ function cloneDefaults(): NotificationPrefs {
     measurementReminder: {
       ...DEFAULT_NOTIFICATION_PREFS.measurementReminder,
     },
+    content: { ...DEFAULT_NOTIFICATION_PREFS.content },
   };
 }
 
@@ -541,5 +549,17 @@ function mergeOverDefaults(input: NotificationPrefsInput): NotificationPrefs {
       ...DEFAULT_NOTIFICATION_PREFS.measurementReminder,
       ...(input.measurementReminder ?? {}),
     },
+    content: {
+      ...DEFAULT_NOTIFICATION_PREFS.content,
+      ...(input.content ?? {}),
+    },
   });
+}
+
+/**
+ * v1.42.2 — producer-side helper. Whether this user's notifications may carry
+ * health figures. A null / drifted row resolves to the default (`generic`).
+ */
+export function notificationsShowFigures(raw: unknown): boolean {
+  return parseNotificationPrefs(raw).content.detail === "detailed";
 }

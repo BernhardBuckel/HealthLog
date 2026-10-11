@@ -60,6 +60,14 @@ export const WORKOUT_ROUTE_GEOMETRY_AAD = "healthlog/workout-route-geometry/v1";
 export const DOCUMENT_AI_RUN_INPUT_AAD = "healthlog/document-ai-run-input/v1";
 export const DOCUMENT_AI_RUN_RESULT_AAD = "healthlog/document-ai-run-result/v1";
 
+/**
+ * The associated-data label the environment module's coarse locations are
+ * sealed with (v1.42, #615): the home, each dated location period, and each
+ * day's resolved location. One label for all three, because they hold the
+ * same kind of value; it keeps a location from opening as anything else.
+ */
+export const ENVIRONMENT_LOCATION_AAD = "healthlog/environment-location/v1";
+
 export interface EncryptedColumn {
   /** Prisma model name (PascalCase, as declared in schema.prisma). */
   readonly model: string;
@@ -232,6 +240,8 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
   { model: "CoachMessage", field: "encryptedContent", kind: "bytes" },
   // v1.39.4 — the tables of values a turn read, JSON under the same codec.
   { model: "CoachMessage", field: "resultsEncrypted", kind: "bytes" },
+  // v1.41 — the model text of the turn's trail, JSON under the same codec.
+  { model: "CoachMessage", field: "trailEncrypted", kind: "bytes" },
   { model: "CoachConversation", field: "summaryEncrypted", kind: "bytes" },
   // v1.39.3 — the title: the opening words of the first message, or a rename.
   { model: "CoachConversation", field: "titleEncrypted", kind: "bytes" },
@@ -314,6 +324,9 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
   // v1.40 — the person's own symptom names and the note on one occurrence.
   { model: "SymptomDefinition", field: "labelEncrypted", kind: "bytes" },
   { model: "SymptomEvent", field: "noteEncrypted", kind: "bytes" },
+  // v1.42 — a life event's title and note, in the person's own words.
+  { model: "LifeEvent", field: "titleEncrypted", kind: "bytes" },
+  { model: "LifeEvent", field: "noteEncrypted", kind: "bytes" },
 
   // ───── v1.19.0 ECG waveform (Bytes column) ─────
   { model: "EcgRecording", field: "waveformEncrypted", kind: "bytes" },
@@ -391,6 +404,32 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
     kind: "bytes",
     codec: "binary2",
     aad: WORKOUT_ROUTE_GEOMETRY_AAD,
+  },
+
+  // ───── v1.42 environment locations (Bytes, binary2) ─────
+  // The coarse home, each dated location period, and each day's resolved
+  // location, sealed as (lat, lon, label) under one label. The plaintext
+  // columns beside them empty as the encryption backfill runs.
+  {
+    model: "User",
+    field: "homeLocationEncrypted",
+    kind: "bytes",
+    codec: "binary2",
+    aad: ENVIRONMENT_LOCATION_AAD,
+  },
+  {
+    model: "EnvironmentTravelLocation",
+    field: "locationEncrypted",
+    kind: "bytes",
+    codec: "binary2",
+    aad: ENVIRONMENT_LOCATION_AAD,
+  },
+  {
+    model: "EnvironmentContext",
+    field: "locationEncrypted",
+    kind: "bytes",
+    codec: "binary2",
+    aad: ENVIRONMENT_LOCATION_AAD,
   },
 
   // ───── v1.38.0 dose free text (Bytes column) ─────
@@ -526,4 +565,72 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
 /** Stable `Model.field` key for a registry entry. */
 export function encryptedColumnKey(c: EncryptedColumn): string {
   return `${c.model}.${c.field}`;
+}
+
+/**
+ * The registry models that carry a Prisma `@updatedAt` column. Re-sealing a
+ * value under a new key is not an edit, so the rotation carries each row's
+ * own `updatedAt` through the write instead of letting Prisma stamp the run
+ * time: the Coach panel orders conversations by it and it is the sync cursor
+ * for measurements and mood entries. `encrypted-columns.test.ts` derives the
+ * set from `schema.prisma` and fails when it drifts.
+ */
+export const UPDATED_AT_MODELS: ReadonlySet<string> = new Set([
+  "Allergy",
+  "Biomarker",
+  "CoachConversation",
+  "CoachFact",
+  "CoachPlan",
+  "CoachReminder",
+  "CycleDayLog",
+  "DocumentContentIndex",
+  "DocumentSourceConnection",
+  "DocumentThumbnail",
+  "EcgRecording",
+  "Encounter",
+  "EnvironmentContext",
+  "EnvironmentTravelLocation",
+  "ExtractedFact",
+  "FamilyHistoryEntry",
+  "FitbitConnection",
+  "GoogleHealthConnection",
+  "IllnessDayLog",
+  "IllnessEpisode",
+  "InboundDocument",
+  "InsightNarrative",
+  "InsightStatusCache",
+  "IntegrationStatus",
+  "LabResult",
+  "LifeEvent",
+  "Measurement",
+  "MedicationCategoryLabel",
+  "MedicationCourse",
+  "MedicationInventoryItem",
+  "MentalHealthAssessment",
+  "MoodContext",
+  "MoodEntry",
+  "NotificationChannel",
+  "Practitioner",
+  "SymptomDefinition",
+  "SymptomEvent",
+  "User",
+  "UserHealthProfile",
+  "VaccinationRecord",
+  "WhoopConnection",
+  "WithingsConnection",
+]);
+
+/**
+ * The `where` filter and `data` fields that keep a row's `updatedAt` through
+ * a storage-only write: match on the value read (a row edited meanwhile is
+ * left for the next run, as Prisma's P2025) and write it back unchanged.
+ * Empty for a model without the column.
+ */
+export function preserveUpdatedAt(
+  model: string,
+  updatedAt: unknown,
+): { updatedAt?: Date } {
+  return UPDATED_AT_MODELS.has(model) && updatedAt instanceof Date
+    ? { updatedAt }
+    : {};
 }

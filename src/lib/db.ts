@@ -1,5 +1,19 @@
 import { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool, type PoolConfig } from "pg";
+import {
+  pinTimeZoneOnConnect,
+  sessionOptionsDisabled,
+  TIME_ZONE_OPTION,
+} from "@/lib/db-session";
+
+export {
+  pinTimeZoneOnConnect,
+  SESSION_TIME_ZONE,
+  SET_SESSION_TIME_ZONE,
+  sessionOptionsDisabled,
+  timeZoneSessionOptions,
+} from "@/lib/db-session";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -83,34 +97,91 @@ export function getStatementTimeoutMs(): number {
   return 60_000;
 }
 
+/** `work_mem` when `DATABASE_WORK_MEM` is unset. */
+export const DEFAULT_WORK_MEM = "16MB";
+
 /**
- * Build the libpq `options` startup string applying the session timeouts, or
- * `undefined` when disabled (timeout 0). Passed straight through `PrismaPg` to
- * the underlying `pg.Pool`, which forwards it as the connection's `options`
- * startup parameter so every session is timeout-bounded from the first query.
+ * A Postgres memory size: digits and an optional unit. The value is spliced
+ * into the libpq `options` string, where a space would start another `-c`
+ * flag, so anything else is refused and the default used.
  */
-export function buildSessionOptions(): string | undefined {
-  const timeoutMs = getStatementTimeoutMs();
-  if (timeoutMs <= 0) return undefined;
-  return `-c statement_timeout=${timeoutMs} -c idle_in_transaction_session_timeout=${timeoutMs}`;
+const WORK_MEM_SHAPE = /^[1-9][0-9]{0,6}(kB|MB|GB)?$/;
+
+/**
+ * Per-session `work_mem` (v1.42), from `DATABASE_WORK_MEM`.
+ *
+ * The server default of 4 MB made the larger sorts and hash aggregates of the
+ * analytics reads spill to disk. `work_mem` is a USERSET setting, so it rides
+ * the same startup `options` as the timeouts and applies to this app's
+ * connections only, without a database restart. Each sort or hash step of
+ * each connection may use this much, so raise it with the pool size in mind.
+ * An unparsable value falls back to the default rather than reaching libpq.
+ */
+export function getWorkMem(): string {
+  const raw = process.env.DATABASE_WORK_MEM?.trim();
+  return raw && WORK_MEM_SHAPE.test(raw) ? raw : DEFAULT_WORK_MEM;
 }
 
-function createPrismaClient() {
-  const sessionOptions = buildSessionOptions();
-  const adapter = new PrismaPg({
+/**
+ * Build the libpq `options` startup string applying the session settings.
+ * Passed straight through `PrismaPg` to the underlying `pg.Pool`, which
+ * forwards it as the connection's `options` startup parameter so every
+ * session carries them from the first query.
+ *
+ * The timeouts are left out when disabled (timeout 0); `work_mem` is always
+ * set. Up to v1.41 the whole string was `undefined` at timeout 0, which would
+ * have taken `work_mem` with it. `undefined` now means exactly one thing:
+ * the operator turned the startup options off for a connection pooler
+ * ({@link sessionOptionsDisabled}).
+ */
+export function buildSessionOptions(): string | undefined {
+  if (sessionOptionsDisabled()) return undefined;
+  const timeoutMs = getStatementTimeoutMs();
+  const timeouts =
+    timeoutMs > 0
+      ? `-c statement_timeout=${timeoutMs} -c idle_in_transaction_session_timeout=${timeoutMs} `
+      : "";
+  return `${timeouts}-c work_mem=${getWorkMem()} ${TIME_ZONE_OPTION}`;
+}
+
+export function prismaPoolConfig(): PoolConfig {
+  return {
     connectionString: process.env.DATABASE_URL!,
     max: getPrismaPoolMax(),
     connectionTimeoutMillis: getPoolConnectionTimeoutMs(),
-    ...(sessionOptions ? { options: sessionOptions } : {}),
-  });
-  return new PrismaClient({ adapter });
+    options: buildSessionOptions(),
+  };
 }
 
+/**
+ * The adapter for the process-wide client. The startup options carry the
+ * UTC pin by default, so the adapter builds its own pool from the config.
+ * With the options off (a pooler) the pool is built here instead, to pin the
+ * zone by statement on connect; the adapter then reuses that one pool for
+ * its whole life, a reconnect included.
+ */
+export function createPrismaAdapter(): PrismaPg {
+  const config = prismaPoolConfig();
+  if (!sessionOptionsDisabled()) return new PrismaPg(config);
+  const pool = new Pool(config);
+  pinTimeZoneOnConnect(pool);
+  return new PrismaPg(pool);
+}
+
+function createPrismaClient() {
+  return new PrismaClient({ adapter: createPrismaAdapter() });
+}
+
+// One client per process, in production too. A production build gives every
+// server bundle its own copy of this module (the route handlers, the RSC/SSR
+// renderer, and the instrumentation bundle that boots the workers), so a
+// module-scoped client alone meant three of them: three query-compiler states
+// of roughly 28 MB each on a heap that V8 caps near 520 MB in a 1 GiB
+// container, and three pg pools each sized to the whole per-process
+// connection budget above. Parking the client on `globalThis` makes every
+// copy of the module resolve the same one.
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+globalForPrisma.prisma = prisma;
 
 // Prisma's `InputJsonValue` requires an explicit index signature that
 // typed application shapes (Zod-validated, hand-written interfaces)

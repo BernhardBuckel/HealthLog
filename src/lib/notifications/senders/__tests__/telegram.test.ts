@@ -347,3 +347,117 @@ describe("sendViaTelegram — interactive mood + measurement (v1.19.0)", () => {
     expect(scheduleTelegramAutoDeleteMock).not.toHaveBeenCalled();
   });
 });
+
+describe("sendViaTelegram — tap target", () => {
+  beforeEach(() => {
+    sendTelegramMessageMock.mockResolvedValue({ ok: true, messageId: 5 });
+    findUniqueMock.mockResolvedValue(null);
+    upsertMock.mockResolvedValue(undefined);
+    userFindUniqueMock.mockResolvedValue({ locale: "en" });
+    scheduleTelegramAutoDeleteMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function sent(): {
+    text: string;
+    replyMarkup?: { inline_keyboard: Record<string, string>[][] };
+  } {
+    const call = sendTelegramMessageMock.mock.calls[0] as [
+      string,
+      string,
+      string,
+      { replyMarkup?: { inline_keyboard: Record<string, string>[][] } },
+    ];
+    return { text: call[2], replyMarkup: call[3].replyMarkup };
+  }
+
+  it("adds an https URL button as its own row under the action buttons", async () => {
+    await sendViaTelegram(config, {
+      ...reminderPayload(),
+      tap: {
+        path: "/medications",
+        url: "https://health.example/medications",
+        label: "Open in HealthLog",
+      },
+    });
+    const rows = sent().replyMarkup?.inline_keyboard ?? [];
+    // The medication keyboard keeps its two callback rows first.
+    expect(rows[0]?.[0]?.callback_data).toBe("taken:med-1");
+    expect(rows.at(-1)).toEqual([
+      {
+        text: "Open in HealthLog",
+        url: "https://health.example/medications",
+      },
+    ]);
+    expect(sent().text).toBe("m");
+  });
+
+  it("creates a keyboard with only the URL button for an event without actions", async () => {
+    await sendViaTelegram(config, {
+      eventType: "DAILY_BRIEFING",
+      userId: "user-1",
+      title: "t",
+      message: "line",
+      tap: { path: "/", url: "https://health.example/", label: "Open" },
+    });
+    expect(sent().replyMarkup).toEqual({
+      inline_keyboard: [[{ text: "Open", url: "https://health.example/" }]],
+    });
+  });
+
+  it("falls back to an escaped text link on a plain-HTTP origin Telegram refuses as a button", async () => {
+    await sendViaTelegram(config, {
+      eventType: "DAILY_BRIEFING",
+      userId: "user-1",
+      title: "t",
+      message: "line",
+      tap: {
+        path: "/?a=1&b=2",
+        url: "http://nas.lan/?a=1&b=2",
+        label: "Open <app>",
+      },
+    });
+    expect(sent().replyMarkup).toBeUndefined();
+    expect(sent().text).toBe(
+      'line\n\n<a href="http://nas.lan/?a=1&amp;b=2">Open &lt;app&gt;</a>',
+    );
+  });
+
+  it("carries no link at all for a loopback origin", async () => {
+    await sendViaTelegram(config, {
+      eventType: "DAILY_BRIEFING",
+      userId: "user-1",
+      title: "t",
+      message: "line",
+      tap: { path: "/", url: "https://localhost:3000/", label: "Open" },
+    });
+    expect(sent().replyMarkup).toBeUndefined();
+    expect(sent().text).toBe("line");
+  });
+
+  it("keeps the 1–5 mood keyboard and adds the link row to the mood reminder", async () => {
+    await sendViaTelegram(config, {
+      eventType: "MOOD_REMINDER",
+      userId: "user-1",
+      title: "t",
+      message: "How are you?",
+      tap: {
+        path: "/mood?add=1",
+        url: "https://health.example/mood?add=1",
+        label: "Open",
+      },
+    });
+    const rows = sent().replyMarkup?.inline_keyboard ?? [];
+    expect(rows[0]?.map((b) => b.callback_data)).toEqual([
+      "mood:1",
+      "mood:2",
+      "mood:3",
+      "mood:4",
+      "mood:5",
+    ]);
+    expect(rows.at(-1)?.[0]?.url).toBe("https://health.example/mood?add=1");
+  });
+});

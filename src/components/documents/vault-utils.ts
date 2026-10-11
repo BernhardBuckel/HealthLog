@@ -10,6 +10,7 @@
 import {
   DOCUMENT_LIST_DEFAULT_LIMIT,
   INBOUND_DOCUMENT_KINDS,
+  type DocumentLinkedProcedureDto,
   type InboundDocumentDto,
   type InboundDocumentKindValue,
 } from "@/lib/validations/inbound-documents";
@@ -184,7 +185,17 @@ export function hasProcessingDocument(
  */
 export type TimelineItem =
   | { type: "month"; key: string }
-  | { type: "row"; key: string; documents: InboundDocumentDto[] };
+  | {
+      type: "row";
+      key: string;
+      documents: InboundDocumentDto[];
+      /**
+       * Flowing arrangement only: the documents in this row that open a
+       * month, mapped to that month's YYYY-MM key. The month name rides
+       * inline above the document instead of taking a row of its own.
+       */
+      monthStarts?: Record<string, string>;
+    };
 
 /**
  * Bucket an already-sorted document list into consecutive YYYY-MM sections
@@ -220,6 +231,40 @@ export function buildTimelineItems(
     if (row.length === cols) flushRow();
   }
   flushRow();
+  return items;
+}
+
+/**
+ * The flowing arrangement: documents run left to right across every row and
+ * wrap, with no row reserved for a month. The first document of each month
+ * carries that month in `monthStarts`, so its name can sit inline above it.
+ * Order is preserved exactly as received, like `buildTimelineItems`.
+ */
+export function buildFlowTimelineItems(
+  documents: InboundDocumentDto[],
+  columns: number,
+  timezone: string,
+): TimelineItem[] {
+  const cols = Math.max(1, columns);
+  const items: TimelineItem[] = [];
+  let month: string | null = null;
+  for (let i = 0; i < documents.length; i += cols) {
+    const row = documents.slice(i, i + cols);
+    const monthStarts: Record<string, string> = {};
+    for (const doc of row) {
+      const key = documentMonthKey(doc, timezone);
+      if (key !== month) {
+        monthStarts[doc.id] = key;
+        month = key;
+      }
+    }
+    items.push({
+      type: "row",
+      key: `flow:${row[0].id}`,
+      documents: row,
+      monthStarts,
+    });
+  }
   return items;
 }
 
@@ -454,4 +499,54 @@ export function documentCardKeyAction(key: string): DocumentCardKeyAction {
   if (key === " ") return "select";
   if (key === "Delete") return "delete";
   return null;
+}
+
+/** One procedure choice in the filter bar, labelled for the reader. */
+export interface ProcedureFilterChoice {
+  encounterId: string;
+  /** The heading the visits page shows for it. */
+  name: string;
+  /** Body site and date, the line that tells two same-named ones apart. */
+  detail: string;
+}
+
+/**
+ * The procedure filter's choices: the usage read's linked procedures, plus the
+ * actively filtered visit when it is a procedure that list does not hold (its
+ * last link was just removed, or a deep link names it). A filtered visit that
+ * is not a procedure adds nothing — it is not a procedure choice.
+ *
+ * Each is labelled the way the visits page heads the row: the reason, else the
+ * practice, else the kind's name. The body site (with its side) and the date
+ * ride the second line. Order is the server's, newest first, with the
+ * appended active visit last.
+ */
+export function buildProcedureChoices(
+  linked: readonly DocumentLinkedProcedureDto[],
+  active: DocumentLinkedProcedureDto | null,
+  labels: {
+    kindName: string;
+    siteText: (
+      bodySite: string | null,
+      laterality: DocumentLinkedProcedureDto["laterality"],
+    ) => string | null;
+    formatDate: (iso: string) => string;
+  },
+): ProcedureFilterChoice[] {
+  const sources = [...linked];
+  if (active && !sources.some((p) => p.encounterId === active.encounterId)) {
+    sources.push(active);
+  }
+  return sources.map((procedure) => {
+    const site = labels.siteText(procedure.bodySite, procedure.laterality);
+    const date = labels.formatDate(procedure.occurredAt);
+    return {
+      encounterId: procedure.encounterId,
+      name:
+        procedure.reason?.trim() ||
+        procedure.practitionerName?.trim() ||
+        labels.kindName,
+      detail: site ? `${site}, ${date}` : date,
+    };
+  });
 }

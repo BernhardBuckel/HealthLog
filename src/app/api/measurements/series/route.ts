@@ -26,7 +26,15 @@ import type { MeasurementType, SleepStage } from "@/generated/prisma/client";
 import { reconstructSleepNights } from "@/lib/analytics/sleep-night";
 import { VALUE_RANGES } from "@/lib/validations/measurement";
 import { loadUserSourcePriority } from "@/lib/rollups/measurement-read";
+import { usesHourlyMeanDay } from "@/lib/measurements/day-statistic";
+import {
+  dayWeightedRows,
+  readingsMean,
+  windowMeanSql,
+  zoneDayFrame,
+} from "@/lib/measurements/day-mean";
 import { seriesRowsFrom } from "@/lib/measurements/series-canonical";
+import { buildSourceRankCase } from "@/lib/analytics/source-rank-sql";
 import { resolveUserTimezone, userDayKey } from "@/lib/tz/resolver";
 import { convertGlucose, resolveGlucoseUnit } from "@/lib/glucose";
 
@@ -329,55 +337,106 @@ export const GET = apiHandler(async (request: NextRequest) => {
     // enforced — a seed-era systolic-0, iOS #33 — must never surface as the
     // latest reading. Floors mirror VALUE_RANGES (the input validator's min);
     // this is a read-side selection guard, not a tightening of the write floor.
-    const [sys, dia] = await Promise.all([
-      prisma.measurement.findMany({
-        where: {
-          userId: user.id,
-          type: "BLOOD_PRESSURE_SYS",
-          measuredAt: { gte: since },
-          deletedAt: null,
-          value: { gte: VALUE_RANGES.BLOOD_PRESSURE_SYS.min },
-        },
-        orderBy: { measuredAt: "asc" },
-        select: { id: true, value: true, measuredAt: true },
-      }),
-      prisma.measurement.findMany({
-        where: {
-          userId: user.id,
-          type: "BLOOD_PRESSURE_DIA",
-          measuredAt: { gte: since },
-          deletedAt: null,
-          value: { gte: VALUE_RANGES.BLOOD_PRESSURE_DIA.min },
-        },
-        orderBy: { measuredAt: "asc" },
-        select: { id: true, value: true, measuredAt: true },
-      }),
-    ]);
+    //
+    // The ladder picks ONE source per day for the reading, not one per type:
+    // the source is chosen from the day's systolic rows that pass the floor,
+    // and both halves are read from it. Two per-type picks diverge whenever a
+    // source holds only half of a reading on a day (a deleted diastolic, a
+    // sub-floor systolic, an orphaned sample), and the pairing below then
+    // joined one source's systolic to another source's diastolic. Picking on
+    // floor-passing systolic rows also keeps a corrupt row from claiming a day
+    // it then contributes nothing to. The day is the UTC day, as in every
+    // other ladder read (`canonicalMeasurementsCte`), and the pick looks at
+    // the whole edge day, not only the slice after `since`.
+    //
+    // `rank` is the closed-enum whitelist splice from `buildSourceRankCase`;
+    // every request value is a positional parameter.
+    const rank = buildSourceRankCase(
+      await loadUserSourcePriority(user.id),
+      '"type"',
+      '"source"',
+    );
+    const bpRows = await prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        type: "BLOOD_PRESSURE_SYS" | "BLOOD_PRESSURE_DIA";
+        source: string;
+        value: number;
+        measured_at: Date;
+      }>
+    >(
+      `
+      SELECT m."id", m."type"::text AS type, m."source"::text AS source,
+             m."value", m."measured_at"
+      FROM measurements m
+      JOIN (
+        SELECT DISTINCT ON (date_trunc('day', "measured_at"))
+          date_trunc('day', "measured_at") AS d,
+          "source"                         AS canon
+        FROM measurements
+        WHERE "user_id" = $1
+          AND "type" = 'BLOOD_PRESSURE_SYS'::"measurement_type"
+          AND "deleted_at" IS NULL
+          AND "value" >= $3
+          AND "measured_at" >= date_trunc('day', $2::timestamptz AT TIME ZONE 'UTC')
+        ORDER BY date_trunc('day', "measured_at"), (${rank}), "source"::text
+      ) c
+        ON c.d = date_trunc('day', m."measured_at")
+        AND c.canon = m."source"
+      WHERE m."user_id" = $1
+        AND m."deleted_at" IS NULL
+        AND m."measured_at" >= $2
+        AND (
+          (m."type" = 'BLOOD_PRESSURE_SYS'::"measurement_type" AND m."value" >= $3)
+          OR (m."type" = 'BLOOD_PRESSURE_DIA'::"measurement_type" AND m."value" >= $4)
+        )
+      ORDER BY m."measured_at" ASC, m."id" ASC
+    `,
+      user.id,
+      since,
+      VALUE_RANGES.BLOOD_PRESSURE_SYS.min,
+      VALUE_RANGES.BLOOD_PRESSURE_DIA.min,
+    );
+    const sys = bpRows.filter((r) => r.type === "BLOOD_PRESSURE_SYS");
+    // Diastolic rows per source: a pair is only ever made inside one source,
+    // which also holds across midnight, where the two days may have picked
+    // different sources.
+    const diaBySource = new Map<string, typeof bpRows>();
+    for (const r of bpRows) {
+      if (r.type !== "BLOOD_PRESSURE_DIA") continue;
+      const list = diaBySource.get(r.source);
+      if (list) list.push(r);
+      else diaBySource.set(r.source, [r]);
+    }
 
     // Pair by closest timestamp within ±5 minutes. Both reads arrive
     // sorted ascending, so the nearest-diastolic index is non-decreasing
-    // across the systolic walk — a two-pointer merge finds each pair in
-    // O(sys + dia) instead of the previous full diastolic rescan per
-    // systolic row (O(sys × dia) — quadratic on dense imports). Ties keep
-    // the earlier diastolic row, matching the old scan's strict-`<` keep.
+    // across the systolic walk — a two-pointer merge (one pointer per
+    // source) finds each pair in O(sys + dia) instead of the previous full
+    // diastolic rescan per systolic row (O(sys × dia) — quadratic on dense
+    // imports). Ties keep the earlier diastolic row, matching the old
+    // scan's strict-`<` keep.
     const PAIR_WINDOW_MS = 5 * 60_000;
-    let diaIdx = 0;
+    const diaIdx = new Map<string, number>();
     points = sys.map((s) => {
-      const sysMs = s.measuredAt.getTime();
+      const sysMs = s.measured_at.getTime();
+      const dia = diaBySource.get(s.source) ?? [];
+      let idx = diaIdx.get(s.source) ?? 0;
       while (
-        diaIdx + 1 < dia.length &&
-        Math.abs(dia[diaIdx + 1].measuredAt.getTime() - sysMs) <
-          Math.abs(dia[diaIdx].measuredAt.getTime() - sysMs)
+        idx + 1 < dia.length &&
+        Math.abs(dia[idx + 1].measured_at.getTime() - sysMs) <
+          Math.abs(dia[idx].measured_at.getTime() - sysMs)
       ) {
-        diaIdx += 1;
+        idx += 1;
       }
-      const best = dia[diaIdx];
+      diaIdx.set(s.source, idx);
+      const best = dia[idx];
       const paired =
         best !== undefined &&
-        Math.abs(best.measuredAt.getTime() - sysMs) <= PAIR_WINDOW_MS;
+        Math.abs(best.measured_at.getTime() - sysMs) <= PAIR_WINDOW_MS;
       return {
         id: s.id,
-        at: s.measuredAt.toISOString(),
+        at: s.measured_at.toISOString(),
         value: s.value,
         secondary: paired ? best.value : null,
       };
@@ -410,6 +469,11 @@ export const GET = apiHandler(async (request: NextRequest) => {
     ]);
     const type = KIND_TO_TYPE[kind];
     const seriesRows = seriesRowsFrom(priorityJson, type, days);
+    // A day of a type with an activity-dependent sampling rate (pulse) is the
+    // mean of its local hours' means, each hour once, so a workout hour with
+    // hundreds of times the readings does not outweigh the rest of the day (see
+    // `day-statistic.ts`). The hour grain is already one mean per hour.
+    const hourWeighted = grain === "day" && usesHourlyMeanDay(type);
     const bucketRows = await prisma.$queryRawUnsafe<
       Array<{
         bucket_start: Date;
@@ -418,7 +482,39 @@ export const GET = apiHandler(async (request: NextRequest) => {
         max_value: number;
       }>
     >(
-      `
+      hourWeighted
+        ? `
+      WITH localized AS (
+        SELECT
+          m."value",
+          m."value_min",
+          m."value_max",
+          date_trunc(
+            'hour',
+            (m."measured_at" AT TIME ZONE 'UTC') AT TIME ZONE $3
+          ) AS local_hour
+        FROM ${seriesRows}
+        WHERE m."measured_at" >= $4
+      ),
+      hourly AS (
+        SELECT
+          date_trunc($2, local_hour)                              AS local_day,
+          AVG("value")                                            AS hour_mean,
+          MIN(COALESCE("value_min", "value"))                     AS min_value,
+          MAX(COALESCE("value_max", "value"))                     AS max_value
+        FROM localized
+        GROUP BY local_hour
+      )
+      SELECT
+        local_day AT TIME ZONE $3                                AS bucket_start,
+        AVG(hour_mean)::double precision                         AS mean,
+        MIN(min_value)::double precision                         AS min_value,
+        MAX(max_value)::double precision                         AS max_value
+      FROM hourly
+      GROUP BY local_day
+      ORDER BY bucket_start ASC
+    `
+        : `
       WITH localized AS (
         SELECT
           m."value",
@@ -449,17 +545,50 @@ export const GET = apiHandler(async (request: NextRequest) => {
     // strip's mean/min/max/stdDev/count are the same figures the raw path
     // computed: `AVG`/`MIN`/`MAX` over `value`, `STDDEV_POP` matching the
     // JS population-variance helper, exact row count. Aggregate-only —
-    // no row transfer.
-    const [rawAgg] = await prisma.$queryRawUnsafe<
-      Array<{
-        n: number;
-        mean: number | null;
-        min: number | null;
-        max: number | null;
-        sd: number | null;
-      }>
-    >(
-      `
+    // no row transfer. For an hourly-mean type (pulse) the mean is the mean
+    // of the local days' values, each day the mean of its local hours'
+    // means, so it is the mean of the day points the chart draws; count,
+    // min, max and the spread stay over every reading.
+    const [rawAgg] = usesHourlyMeanDay(type)
+      ? await prisma.$queryRawUnsafe<
+          Array<{
+            n: number;
+            mean: number | null;
+            min: number | null;
+            max: number | null;
+            sd: number | null;
+          }>
+        >(
+          `
+      WITH src AS (
+        SELECT m.*
+        FROM ${seriesRows}
+        WHERE m."measured_at" >= $2
+      )
+      SELECT
+        COUNT(*)::int                            AS n,
+        ${windowMeanSql({ typeColumn: 'm."type"', value: 'm."value"', weight: "m.day_weight" })}::double precision
+                                                 AS mean,
+        MIN(m."value")::double precision         AS min,
+        MAX(m."value")::double precision         AS max,
+        STDDEV_POP(m."value")::double precision  AS sd
+      FROM ${dayWeightedRows("src", zoneDayFrame("$3"))} m
+      GROUP BY m."type"
+    `,
+          user.id,
+          since,
+          userTz,
+        )
+      : await prisma.$queryRawUnsafe<
+          Array<{
+            n: number;
+            mean: number | null;
+            min: number | null;
+            max: number | null;
+            sd: number | null;
+          }>
+        >(
+          `
       SELECT
         COUNT(*)::int                            AS n,
         AVG(m."value")::double precision         AS mean,
@@ -469,9 +598,9 @@ export const GET = apiHandler(async (request: NextRequest) => {
       FROM ${seriesRows}
       WHERE m."measured_at" >= $2
     `,
-      user.id,
-      since,
-    );
+          user.id,
+          since,
+        );
     const round2 = (v: number) => Math.round(v * 100) / 100;
     const dayId = (d: Date) =>
       grain === "day"
@@ -649,6 +778,25 @@ export const GET = apiHandler(async (request: NextRequest) => {
           valueMax: row.valueMax ?? null,
         };
       });
+      // An hourly-mean type's strip mean is the mean of its local days'
+      // values, each day the mean of its local hours' means, so a dense
+      // workout hour does not outweigh the rest of the window. Count, min,
+      // max and the spread stay over every reading.
+      if (usesHourlyMeanDay(type) && rows.length > 0) {
+        const userTz = await resolveUserTimezone(user.id);
+        const values = rows.map((r) => r.value);
+        const rawSummary = summarize(
+          rows.map((r) => ({ date: r.measuredAt, value: r.value })),
+        );
+        const mean = readingsMean(type, rows, userTz);
+        statsOverride = {
+          mean: mean === null ? 0 : Math.round(mean * 100) / 100,
+          min: rawSummary.min ?? 0,
+          max: rawSummary.max ?? 0,
+          stdDev: stdDev(values),
+          count: rawSummary.count,
+        };
+      }
     } else {
       points = rows.map((r) => ({
         id: r.id,

@@ -312,7 +312,7 @@ export async function streamFencedReply(
   await appendMessage({ conversationId, role: "user", content: message });
 
   // ── Budget reservation (atomic, before the provider call) ──
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(userId);
   const reservation = await reserveBudget(
     userId,
     AI_BUDGETS.documentChat.maxTokens,

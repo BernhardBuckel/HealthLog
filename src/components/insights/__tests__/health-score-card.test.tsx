@@ -20,7 +20,11 @@ import {
   type Translate,
 } from "../health-score-pillar-detail";
 
-let mockAuthUser: { unitPreference: string; glucoseUnit: string } = {
+let mockAuthUser: {
+  unitPreference: string;
+  glucoseUnit: string;
+  timezone?: string;
+} = {
   unitPreference: "metric",
   glucoseUnit: "mg/dL",
 };
@@ -43,6 +47,22 @@ const coverage = {
   historyDays: 7,
   missing: ["ACTIVITY", "SLEEP"],
 };
+
+/**
+ * The text of rendered markup: every character outside a `<…>` tag. A walk
+ * rather than a tag-stripping regex, which can leave a tag behind when one
+ * is split across another.
+ */
+function textOf(html: string): string {
+  let out = "";
+  let inTag = false;
+  for (const ch of html) {
+    if (ch === "<") inTag = true;
+    else if (ch === ">") inTag = false;
+    else if (!inTag) out += ch;
+  }
+  return out;
+}
 
 function render(node: React.ReactNode, locale: Locale = "en"): string {
   return renderToStaticMarkup(
@@ -346,6 +366,19 @@ describe("<HealthScoreCard> disclosure", () => {
   });
 });
 
+describe("<HealthScoreCard> history", () => {
+  it("links the score to its course over time, at rest", () => {
+    const html = render(<HealthScoreCard report={scoredReport()} />);
+    const rest = atRest(html);
+    const link = rest.match(
+      /<a[^>]*data-slot="health-score-history-link"[^>]*>[\s\S]*?<\/a>/,
+    );
+    expect(link).not.toBeNull();
+    expect(link![0]).toContain('href="/insights/health-score"');
+    expect(link![0]).toContain("History");
+  });
+});
+
 describe("<HealthScoreCard> pillars", () => {
   it("gives a row to the scored pillars only, never to a gated one", () => {
     const html = render(<HealthScoreCard report={scoredReport()} />);
@@ -624,20 +657,54 @@ describe("<HealthScoreCard> composite states", () => {
     const html = render(
       <HealthScoreCard
         report={scoredReport({
-          restMode: { active: true, since: "2026-07-20", episodeCount: 1 },
+          restMode: {
+            active: true,
+            since: "2026-07-19T23:30:00.000Z",
+            episodeCount: 1,
+          },
         })}
         tension={{ band: "yellow", positive: ["sleep"], negative: ["rhr"] }}
         returnToBand={{ metricType: "RESTING_HEART_RATE", daysInside: 6 }}
       />,
     );
     const rest = atRest(html);
-    expect(rest).toContain("Rest Mode active since 2026-07-20");
+    // The onset is an instant; it reads as the day it falls on in the
+    // profile timezone, in the user's date format, never as raw ISO.
+    // v1.42 — the date is a link to its day; the sentence reads the same.
+    expect(textOf(rest)).toMatch(/Rest Mode active since \d{2}\/\d{2}\/2026\./);
+    expect(rest).not.toContain("T23:30:00");
     expect(rest).toContain('data-slot="health-score-tension"');
     expect(rest).toContain('data-slot="health-score-return-to-band"');
     // The contributor key and the metric type are localised, never raw.
     expect(rest).toContain("Resting heart rate");
     expect(rest).not.toContain("RESTING_HEART_RATE");
     expect(rest).not.toContain(">rhr<");
+  });
+
+  it("reads the Rest Mode onset as the day in the profile timezone", () => {
+    mockAuthUser = {
+      unitPreference: "metric",
+      glucoseUnit: "mg/dL",
+      timezone: "Europe/Berlin",
+    };
+    const html = render(
+      <HealthScoreCard
+        report={scoredReport({
+          restMode: {
+            active: true,
+            since: "2026-07-19T23:30:00.000Z",
+            episodeCount: 1,
+          },
+        })}
+      />,
+    );
+    const rest = atRest(html);
+    expect(textOf(rest)).toMatch(
+      /Rest Mode active since (07\/20\/2026|20\/07\/2026)/,
+    );
+    // The date opens the day it names, in the profile timezone.
+    expect(rest).toContain('data-day="2026-07-20"');
+    expect(rest).not.toContain("2026-07-19T");
   });
 
   it("shows the weekly gain as a chip beside the label", () => {

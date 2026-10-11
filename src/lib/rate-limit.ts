@@ -31,14 +31,14 @@ export async function checkRateLimit(
 
   const rows = await prisma.$queryRaw<{ count: number; reset_at: Date }[]>`
     INSERT INTO rate_limits (key, count, reset_at)
-    VALUES (${key}, 1, NOW() + ${windowInterval}::interval)
+    VALUES (${key}, 1, (NOW() AT TIME ZONE 'UTC') + ${windowInterval}::interval)
     ON CONFLICT (key) DO UPDATE SET
       count = CASE
-        WHEN rate_limits.reset_at < NOW() THEN 1
+        WHEN rate_limits.reset_at < (NOW() AT TIME ZONE 'UTC') THEN 1
         ELSE rate_limits.count + 1
       END,
       reset_at = CASE
-        WHEN rate_limits.reset_at < NOW() THEN NOW() + ${windowInterval}::interval
+        WHEN rate_limits.reset_at < (NOW() AT TIME ZONE 'UTC') THEN (NOW() AT TIME ZONE 'UTC') + ${windowInterval}::interval
         ELSE rate_limits.reset_at
       END
     RETURNING count, reset_at
@@ -80,7 +80,7 @@ export async function refundRateLimit(key: string): Promise<void> {
   await prisma.$executeRaw`
     UPDATE rate_limits
     SET count = GREATEST(count - 1, 0)
-    WHERE key = ${key} AND reset_at >= NOW()
+    WHERE key = ${key} AND reset_at >= (NOW() AT TIME ZONE 'UTC')
   `;
 }
 
@@ -114,6 +114,24 @@ export async function checkAnalyticsReadRateLimit(
     `analytics-read:${userId}`,
     ANALYTICS_READ_LIMIT,
     ANALYTICS_READ_WINDOW_MS,
+  );
+}
+
+/**
+ * Environment backfill: three a rolling hour per account. Each one can ask
+ * the shared Open-Meteo budget for a two-year range, so the general
+ * analytics ceiling (120 a minute) is far too loose for it.
+ */
+export const ENVIRONMENT_BACKFILL_LIMIT = 3;
+const ENVIRONMENT_BACKFILL_WINDOW_MS = 60 * 60 * 1000;
+
+export async function checkEnvironmentBackfillRateLimit(
+  userId: string,
+): Promise<RateLimitResult> {
+  return checkRateLimit(
+    `environment-backfill:${userId}`,
+    ENVIRONMENT_BACKFILL_LIMIT,
+    ENVIRONMENT_BACKFILL_WINDOW_MS,
   );
 }
 

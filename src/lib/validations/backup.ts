@@ -21,6 +21,8 @@
  */
 import { z } from "zod/v4";
 import { RESULTS_MAX_BYTES } from "@/lib/ai/coach/results/refs";
+import { TRAIL_MAX_BYTES } from "@/lib/ai/coach/activity/contract";
+import { REASONING_MAX_EFFORTS } from "@/lib/ai/reasoning/levels";
 import {
   AllergyCategory,
   AllergySeverity,
@@ -70,6 +72,8 @@ import {
   SecondarySymptom,
   SleepStage,
   VaccinationSite,
+  LifeEventCategory,
+  LifeEventPrecision,
 } from "@/generated/prisma/enums";
 import {
   DEFAULT_HEALTH_PROFILE_AI_SECTIONS,
@@ -89,12 +93,13 @@ import {
 } from "@/lib/validations/inbound-documents";
 import { REMINDER_EVENT_SOURCES } from "@/lib/measurement-reminders/satisfy";
 import {
+  BACKUP_SCHEMA_VERSION,
+  LEGACY_BACKUP_SCHEMA_VERSION,
+} from "@/lib/validations/backup-summary";
+import {
   UNITS_PER_DOSE_MESSAGE,
   isSupportedUnitsPerDose,
 } from "@/lib/medications/units-per-dose";
-
-export const BACKUP_SCHEMA_VERSION = "2" as const;
-const LEGACY_BACKUP_SCHEMA_VERSION = "1" as const;
 
 const isoDateTime = z
   .string()
@@ -388,6 +393,10 @@ const medicationSchema = z
     // v1.39.1 (#1033) — absent in a backup written before the field existed;
     // the restore defaults it to tracking on, the behaviour those had.
     trackIntake: z.boolean().optional(),
+    // v1.42.2 — absent in a backup written before the option existed; the
+    // restore defaults it off, the behaviour those had.
+    autoMarkTaken: z.boolean().optional(),
+    autoMarkTakenSince: isoDateTime.nullable().optional(),
     // v1.39.4 — the clinical category. Absent in older files. A string, not
     // the enum: a file from a newer server may name a category this one does
     // not know, and the restore reads that as OTHER rather than refusing the
@@ -443,6 +452,8 @@ const intakeEventSchema = z
     takenAt: isoDateTime.nullable().optional(),
     skipped: z.boolean().optional(),
     autoMissed: z.boolean().optional(),
+    // v1.42.2 — absent in older files: every dose there was confirmed.
+    autoRecorded: z.boolean().optional(),
     attributionSource: z.enum(IntakeAttributionSource).optional(),
     source: z.enum(IntakeSource).optional(),
     idempotencyKey: z.string().nullable().optional(),
@@ -625,6 +636,15 @@ const cycleSymptomSeveritySchema = z
   })
   .passthrough();
 
+/** The sensitive-category envelope's five fields, as a portable file carries them. */
+const cycleSensitiveFieldsSchema = z.object({
+  sexualActivity: z.boolean().optional(),
+  protectedSex: z.boolean().nullable().optional(),
+  pregnancyTest: z.enum(HomeTestResult).nullable().optional(),
+  progesteroneTest: z.enum(HomeTestResult).nullable().optional(),
+  contraceptive: z.enum(ContraceptiveKind).nullable().optional(),
+});
+
 const cycleDayLogSchema = z
   .object({
     id: z.string().min(1).optional(),
@@ -644,8 +664,20 @@ const cycleDayLogSchema = z
     pregnancyTest: z.enum(HomeTestResult).nullable().optional(),
     progesteroneTest: z.enum(HomeTestResult).nullable().optional(),
     contraceptive: z.enum(ContraceptiveKind).nullable().optional(),
+    // Free text travels like every other note: a disaster-recovery file
+    // carries the ciphertext (`*Encrypted`), a portable file the readable
+    // value (`note`, `sensitive`), which the restore seals under the
+    // receiving host's key. A portable file written before v1.40 carries the
+    // ciphertext too; the restore keeps only what this host can open.
     sensitiveEncrypted: z.string().nullable().optional(),
     notesEncrypted: z.string().nullable().optional(),
+    note: z.string().nullable().optional(),
+    // The five intent fields the sensitive-category envelope holds, or the
+    // unreadable marker when the writing host could not open the envelope.
+    sensitive: z
+      .union([cycleSensitiveFieldsSchema, z.string()])
+      .nullable()
+      .optional(),
     source: z.enum(MeasurementSource).optional(),
     externalId: z.string().nullable().optional(),
     tz: z.string().nullable().optional(),
@@ -696,10 +728,12 @@ const customMoodTagSchema = z
     isActive: z.boolean().default(true),
     icon: z.string().nullable().optional(),
     sortOrder: z.number().int().default(0),
-    // The user's own words for the tag, encrypted at rest and carried
-    // verbatim. Without it the tag comes back as a bare key and the person
-    // who named it "Migräne" gets `custom:cm3x9…` instead.
+    // The user's own words for the tag. Without it the tag comes back as a
+    // bare key and the person who named it "Migräne" gets `custom:cm3x9…`
+    // instead. Ciphertext on a disaster-recovery file, readable `label` on a
+    // portable one; the restore seals the readable value under its own key.
     labelEncrypted: z.string().nullable().optional(),
+    label: z.string().nullable().optional(),
     // The scale a RATED factor was recorded on. `inverse` marks a factor
     // where a HIGH value is bad (stress, conflict). Dropping it does not lose
     // a label, it silently reverses the meaning of every rating already
@@ -752,7 +786,10 @@ const customCycleSymptomSchema = z
     sortOrder: z.number().int().default(0),
     isActive: z.boolean().default(true),
     // Same reasoning as the mood tag's: the user's own words live here.
+    // Ciphertext on a disaster-recovery file, readable `label` on a portable
+    // one (the day-log note's split).
     labelEncrypted: z.string().nullable().optional(),
+    label: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -1029,6 +1066,9 @@ const appSettingsBackupSchema = z
     // was retired still carries that key; `passthrough` keeps it harmless and
     // the restore writes nothing for it.
     assistantDocumentAiEnabled: z.boolean().optional(),
+    // v1.41 — optional for the same reason.
+    aiReasoningEnabled: z.boolean().optional(),
+    aiReasoningMaxEffort: z.enum(REASONING_MAX_EFFORTS).optional(),
     moduleAvailabilityJson: z.unknown().nullable(),
     documentMaxFileBytes: z.number().int(),
     documentQuotaBytes: z.string().regex(/^\d+$/),
@@ -1059,6 +1099,10 @@ const labResultBackupSchema = z
     sourceReferenceLow: z.number().nullable().optional(),
     sourceReferenceHigh: z.number().nullable().optional(),
     sourceReferenceText: z.string().nullable().optional(),
+    // v1.42 (#1095) — the value and unit as printed, kept beside a converted
+    // reading. Optional: absent on every file written before the columns.
+    sourceValue: z.number().nullable().optional(),
+    sourceUnit: z.string().nullable().optional(),
     takenAt: isoDateTime,
     source: z.string().min(1),
     biomarkerName: z.string().nullable().optional(),
@@ -1080,6 +1124,8 @@ const biomarkerBackupSchema = z
     upperBound: z.number().nullable().optional(),
     panel: z.string().nullable().optional(),
     hidden: z.boolean().optional(),
+    // v1.42 (#1095) — the catalogue analyte the marker resolves to.
+    analyteKey: z.string().nullable().optional(),
     context: z.string().nullable().optional(),
     createdAt: isoDateTime.optional(),
     updatedAt: isoDateTime.optional(),
@@ -1176,13 +1222,44 @@ const symptomDefinitionBackupSchema = z
   });
 
 /**
+ * A life event (v1.42, #613). `title` / `titleEncrypted` and `note` /
+ * `noteEncrypted` are the two ends of the free-text contract: a portable file
+ * carries the plaintext, a disaster-recovery file the ciphertext and the
+ * tombstone. Dates are calendar strings.
+ */
+const lifeEventBackupSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    category: z.enum(LifeEventCategory),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+    precision: z.enum(LifeEventPrecision),
+    title: z.string().min(1).optional(),
+    titleEncrypted: base64BytesSchema.optional(),
+    note: z.string().nullable().optional(),
+    noteEncrypted: base64BytesSchema.nullable().optional(),
+    createdAt: isoDateTime,
+    updatedAt: isoDateTime,
+    deletedAt: isoDateTime.nullable().optional(),
+  })
+  .passthrough()
+  .refine((e) => e.title !== undefined || e.titleEncrypted !== undefined, {
+    message: "A life event needs a title or its ciphertext",
+  });
+
+/**
  * A practitioner, an encounter, and the edges between an encounter and the
  * things it produced.
  *
  * `id` is required on both records, unlike the lab result above: a link
  * addresses an encounter and its far side by id and nothing else on either row
- * is unique enough to rebuild the reference from. The ciphertext columns ride
- * verbatim as base64 — a visit note is never decrypted into the file.
+ * is unique enough to rebuild the reference from. Free text follows the note
+ * contract: ciphertext as base64 on a disaster-recovery file, the readable
+ * value on a portable one (sealed under the receiving host's key on restore).
  */
 const practitionerBackupSchema = z
   .object({
@@ -1196,6 +1273,7 @@ const practitionerBackupSchema = z
     locationEncrypted: base64BytesSchema.nullable().optional(),
     phoneEncrypted: base64BytesSchema.nullable().optional(),
     noteEncrypted: base64BytesSchema.nullable().optional(),
+    note: z.string().nullable().optional(),
     createdAt: isoDateTime,
     updatedAt: isoDateTime,
     deletedAt: isoDateTime.nullable().optional(),
@@ -1214,6 +1292,10 @@ const encounterBackupSchema = z
     // v1.39.1 — the procedure's body site and side. Optional so a file written
     // before they existed still parses; the visit restores with neither.
     bodySiteEncrypted: base64BytesSchema.nullable().optional(),
+    // The readable reason, outcome and body site of a portable file.
+    reason: z.string().nullable().optional(),
+    outcome: z.string().nullable().optional(),
+    bodySite: z.string().nullable().optional(),
     laterality: z.enum(Laterality).nullable().optional(),
     // Remapped against the restored reminders (they travel since v1.37.20);
     // dropped to NULL, with the drop named, only when the file lacks the row.
@@ -1255,7 +1337,30 @@ const vaccinationBackupSchema = z
     // Remapped against the restored reminders (they travel since v1.37.20);
     // dropped to NULL, with the drop named, only when the file lacks the row.
     reminderId: z.string().nullable().optional(),
+    // v1.42 (#1005) — the person's own vaccine definition the dose names;
+    // remapped against the restored definitions like `reminderId`.
+    customVaccineId: z.string().nullable().optional(),
+    // Ciphertext on a disaster-recovery file, readable on a portable one.
     noteEncrypted: base64BytesSchema.nullable().optional(),
+    note: z.string().nullable().optional(),
+    createdAt: isoDateTime,
+    updatedAt: isoDateTime,
+    deletedAt: isoDateTime.nullable().optional(),
+  })
+  .passthrough();
+
+/**
+ * One of the person's own vaccine definitions (v1.42, #1005). `components`
+ * is a list of free strings rather than the antigen enum, for the reason
+ * `antigenSlug` is: a file the app wrote must restore.
+ */
+const customVaccineBackupSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    components: z.array(z.string()).optional(),
+    typicalSeriesDoses: z.number().int().nullable().optional(),
+    boosterIntervalMonths: z.number().int().nullable().optional(),
     createdAt: isoDateTime,
     updatedAt: isoDateTime,
     deletedAt: isoDateTime.nullable().optional(),
@@ -1381,9 +1486,12 @@ const environmentDayKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, {
 const environmentContextBackupSchema = z
   .object({
     date: environmentDayKey,
-    lat: z.number(),
-    lon: z.number(),
-    locationLabel: z.string(),
+    // Nullable since v1.42 (migration 0382): once the encryption backfill has
+    // run, the location travels sealed in `locationEncrypted` instead.
+    lat: z.number().nullable(),
+    lon: z.number().nullable(),
+    locationLabel: z.string().nullable(),
+    locationEncrypted: base64BytesSchema.nullable().optional(),
     source: z.enum(EnvironmentLocationSource),
     tempMin: z.number().nullable().optional(),
     tempMax: z.number().nullable().optional(),
@@ -1397,6 +1505,29 @@ const environmentContextBackupSchema = z
     humidityMean: z.number().nullable().optional(),
     cloudMean: z.number().nullable().optional(),
     weatherCode: z.number().int().nullable().optional(),
+    // v1.42 (#615) — air quality, pollen and UV. Optional throughout.
+    apparentMax: z.number().nullable().optional(),
+    pm25Mean: z.number().nullable().optional(),
+    pm25Max: z.number().nullable().optional(),
+    pm10Mean: z.number().nullable().optional(),
+    no2Mean: z.number().nullable().optional(),
+    so2Mean: z.number().nullable().optional(),
+    coMean: z.number().nullable().optional(),
+    o3Max8h: z.number().nullable().optional(),
+    eaqiMax: z.number().nullable().optional(),
+    usaqiMax: z.number().nullable().optional(),
+    uvIndexMax: z.number().nullable().optional(),
+    dustMax: z.number().nullable().optional(),
+    aodMax: z.number().nullable().optional(),
+    pollenAlderMax: z.number().nullable().optional(),
+    pollenBirchMax: z.number().nullable().optional(),
+    pollenGrassMax: z.number().nullable().optional(),
+    pollenMugwortMax: z.number().nullable().optional(),
+    pollenOliveMax: z.number().nullable().optional(),
+    pollenRagweedMax: z.number().nullable().optional(),
+    aqDomain: z.string().nullable().optional(),
+    aqHours: z.number().int().nullable().optional(),
+    aqFetchedAt: isoDateTime.nullable().optional(),
     fetchedAt: isoDateTime.optional(),
     createdAt: isoDateTime.optional(),
     updatedAt: isoDateTime.optional(),
@@ -1412,9 +1543,11 @@ const environmentTravelLocationBackupSchema = z
   .object({
     startDate: environmentDayKey,
     endDate: environmentDayKey,
-    lat: z.number(),
-    lon: z.number(),
-    label: z.string(),
+    // Nullable since v1.42 (migration 0382), as above.
+    lat: z.number().nullable(),
+    lon: z.number().nullable(),
+    label: z.string().nullable(),
+    locationEncrypted: base64BytesSchema.nullable().optional(),
     createdAt: isoDateTime.optional(),
     updatedAt: isoDateTime.optional(),
   })
@@ -1443,6 +1576,21 @@ const coachResultsSealedSchema = base64BytesSchema.refine(
   { message: "Coach result tables exceed the stored size" },
 );
 
+/** The trail's model text, bounded at restore like the tables above. */
+const COACH_TRAIL_SEALED_MAX_CHARS = 2 * TRAIL_MAX_BYTES;
+
+const coachTrailJsonSchema = z
+  .string()
+  .refine(
+    (value) => new TextEncoder().encode(value).byteLength <= TRAIL_MAX_BYTES,
+    { message: `Coach trail exceeds ${TRAIL_MAX_BYTES} bytes` },
+  );
+
+const coachTrailSealedSchema = base64BytesSchema.refine(
+  (value) => value.length <= COACH_TRAIL_SEALED_MAX_CHARS,
+  { message: "Coach trail exceeds the stored size" },
+);
+
 /**
  * One Coach turn.
  *
@@ -1467,6 +1615,9 @@ const coachMessageBackupSchema = z
     // readable JSON on a portable one, absent on every file written before.
     resultsEncrypted: coachResultsSealedSchema.nullable().optional(),
     resultsJson: coachResultsJsonSchema.nullable().optional(),
+    // v1.41 — the trail's model text, the same two ends as the tables.
+    trailEncrypted: coachTrailSealedSchema.nullable().optional(),
+    trailJson: coachTrailJsonSchema.nullable().optional(),
     createdAt: isoDateTime,
   })
   .passthrough();
@@ -1514,6 +1665,11 @@ const coachFactBackupSchema = z
     category: z.string().min(1),
     confidence: z.number().int().min(0).max(100).optional(),
     sourceConversationId: z.string().nullable().optional(),
+    // v1.41 — absent on every file written before; restored at the column
+    // defaults then.
+    source: z.string().min(1).max(32).optional(),
+    lastUsedAt: isoDateTime.nullable().optional(),
+    sourceMessageId: z.string().nullable().optional(),
     createdAt: isoDateTime,
     updatedAt: isoDateTime,
     deletedAt: isoDateTime.nullable().optional(),
@@ -1618,7 +1774,9 @@ const customMoodTagCategorySchema = z
     icon: z.string().nullable().optional(),
     sortOrder: z.number().int().optional(),
     isActive: z.boolean().optional(),
+    // Same split as the custom tag's label.
     labelEncrypted: z.string().nullable().optional(),
+    label: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -1838,6 +1996,10 @@ const accountSettingsBackupSchema = z
     homeLabel: z.string().nullable().optional(),
     homeTimezone: z.string().nullable().optional(),
     homeSince: isoDateTime.nullable().optional(),
+    // v1.42 (#615) — the sealed home location rides a disaster-recovery file
+    // as ciphertext; a portable file carries the readable home above.
+    homeLocationEncrypted: base64BytesSchema.nullable().optional(),
+    environmentAirQualityEnabled: z.boolean().optional(),
     timezone: z.string().optional(),
     locale: z.string().nullable().optional(),
     unitPreference: z.string().nullable().optional(),
@@ -1852,6 +2014,7 @@ const accountSettingsBackupSchema = z
     insightsLayoutJson: z.unknown().optional(),
     medicationListLayoutJson: z.unknown().optional(),
     moodTagLayoutJson: z.unknown().optional(),
+    documentsLayoutJson: z.unknown().optional(),
     reportSelectionJson: z.unknown().optional(),
     globalExcludedInjectionSites: z.array(z.string()).optional(),
     healthKitConfigJson: z.unknown().optional(),
@@ -1932,6 +2095,8 @@ export const backupPayloadSchema = z
     illnessEpisodes: z.array(illnessEpisodeBackupSchema).default([]),
     // Defaulted: a file written before v1.40 carries no key.
     symptomDefinitions: z.array(symptomDefinitionBackupSchema).default([]),
+    // Defaulted: a file written before v1.42 carries no key.
+    lifeEvents: z.array(lifeEventBackupSchema).default([]),
     allergies: z.array(allergyBackupSchema).default([]),
     familyHistory: z.array(familyHistoryBackupSchema).default([]),
     workouts: z.array(workoutBackupSchema).default([]),
@@ -1975,6 +2140,9 @@ export const backupPayloadSchema = z
     // for the same reason as the sections above: a file written before the
     // tables existed carries no key, and an account with an empty Impfpass
     // writes [].
+    // v1.42 (#1005) — defaulted: a file written before definitions
+    // travelled carries no key, and its doses name none.
+    customVaccines: z.array(customVaccineBackupSchema).default([]),
     vaccinations: z.array(vaccinationBackupSchema).default([]),
     vaccinationDocumentLinks: z.array(vaccinationLinkBackupSchema).default([]),
     // The Vorsorge reminders and their completion ledger (v1.37.20, #223 /
@@ -2043,193 +2211,6 @@ export const backupMeasurementSchema = measurementSchema;
 export type BackupMeasurement = z.infer<typeof measurementSchema>;
 
 /**
- * Numeric counts of each backed-up record kind. Returned in the
- * upload + restore API responses so the admin sees what they
- * uploaded/restored without having to download the file again.
- */
-export interface BackupSummary {
-  schemaVersion: string;
-  userId: string;
-  exportedAt: string;
-  measurements: number;
-  medications: number;
-  intakeEvents: number;
-  /** Side effects recorded against a drug, across every medication. */
-  medicationSideEffects: number;
-  /** Pinned efficacy targets, across every medication. */
-  medicationEfficacyTargets: number;
-  /** Archived schedule eras, across every medication. */
-  medicationScheduleRevisions: number;
-  moodEntries: number;
-  /** v1.15.0 — observed cycle spans in the backup. */
-  cycles: number;
-  /** v1.15.0 — cycle day-logs in the backup. */
-  cycleDayLogs: number;
-  /** Lab results in the backup. */
-  labResults: number;
-  nutrientDays: number;
-  /** User-scoped biomarker catalog entries in the backup. */
-  biomarkers: number;
-  /** Illness episodes, including flares/exacerbations. */
-  illnessEpisodes: number;
-  /** Illness day-logs across every episode. */
-  illnessDayLogs: number;
-  /** Allergy/intolerance records in the backup. */
-  allergies: number;
-  /** Family-history entries in the backup. */
-  familyHistory: number;
-  /** Workout summary records in the backup. */
-  workouts: number;
-  /** Document records (ciphertext included in canonical DR payloads). */
-  documents: number;
-  /** Which documents were filed against which condition. */
-  documentConditionLinks: number;
-  /** Facts staged out of a document, with their review decision. */
-  extractedFacts: number;
-  /** 1 when the account's durable self-context rides the file, 0 otherwise. */
-  healthProfile: number;
-  /** Effective-dated structured health-profile revisions. */
-  healthProfileFactRevisions: number;
-  /** Metrics the account defined itself. */
-  customMetrics: number;
-  /** Readings across every user-defined metric. */
-  customMetricEntries: number;
-  /** Persisted accepted correlation identities and dismissal decisions. */
-  correlationPatterns: number;
-  /** Stored day curves for the cumulative metrics, across every metric. */
-  intradayProfiles: number;
-  /** Local days whose health score was written down as it was shown. */
-  healthScoreRecords: number;
-  /** 1 when the record's setup answers ride the file, 0 otherwise. */
-  onboardingRecords: number;
-  /** v1.37.19 (A6-8) — the visit address book. */
-  practitioners: number;
-  /** v1.37.19 (A6-8) — doctor visits, planned and past. */
-  encounters: number;
-  /** v1.37.19 (A6-8) — the three encounter link tables, summed. */
-  encounterLinks: number;
-  /** v1.37.19 (A6-8) — immunization log entries. */
-  vaccinations: number;
-  /** v1.37.19 (A6-8) — vaccination↔document links. */
-  vaccinationLinks: number;
-  /** v1.37.20 (#223 / iOS #68) — Vorsorge reminder cadences. */
-  measurementReminders: number;
-  /** v1.37.20 (#223 / iOS #68) — completion-ledger rows across every reminder. */
-  measurementReminderEvents: number;
-  /** Coach conversation threads. */
-  coachConversations: number;
-  /** Coach turns across every thread. */
-  coachMessages: number;
-  /** Durable facts, agreed plans and things to bring back up. */
-  coachFacts: number;
-  coachPlans: number;
-  coachReminders: number;
-  /** Completed screener administrations. Disaster-recovery payloads only. */
-  mentalHealthAssessments: number;
-  /** Consent records. Disaster-recovery payloads only. */
-  consentReceipts: number;
-  /** Personal bests across every metric and sport slot. */
-  personalRecords: number;
-  /** Badges the account has unlocked, each with the day it was earned. */
-  userAchievements: number;
-  /** Local days with an environmental reading. */
-  environmentContexts: number;
-  /** Declared stretches spent away from home. */
-  environmentTravelLocations: number;
-  /** ECG strips, with their rhythm verdict and their trace. */
-  ecgRecordings: number;
-}
-
-export function summarizeBackup(payload: BackupPayload): BackupSummary {
-  return {
-    schemaVersion: payload.schemaVersion,
-    userId: payload.userId,
-    exportedAt: payload.exportedAt,
-    measurements: payload.measurements.length,
-    medications: payload.medications.length,
-    intakeEvents: payload.intakeEvents.length,
-    medicationSideEffects: payload.medications.reduce(
-      (sum, medication) => sum + medication.sideEffects.length,
-      0,
-    ),
-    medicationEfficacyTargets: payload.medications.reduce(
-      (sum, medication) => sum + medication.efficacyTargets.length,
-      0,
-    ),
-    medicationScheduleRevisions: payload.medications.reduce(
-      (sum, medication) => sum + medication.scheduleRevisions.length,
-      0,
-    ),
-    moodEntries: payload.moodEntries.length,
-    cycles: payload.cycles.length,
-    cycleDayLogs: payload.cycleDayLogs.length,
-    nutrientDays: payload.nutrientDays.length,
-    labResults: payload.labResults.length,
-    biomarkers: payload.biomarkers.length,
-    illnessEpisodes: payload.illnessEpisodes.length,
-    illnessDayLogs: payload.illnessEpisodes.reduce(
-      (sum, e) => sum + e.dayLogs.length,
-      0,
-    ),
-    allergies: payload.allergies.length,
-    familyHistory: payload.familyHistory.length,
-    workouts: payload.workouts.length,
-    documents: payload.documents.length,
-    // Counted from the release that carries them, so the admin's "what did I
-    // just restore" answer never under-counts a filed vault the way it once
-    // did for visits.
-    documentConditionLinks: payload.documentConditionLinks.length,
-    extractedFacts: payload.extractedFacts.length,
-    healthProfile: payload.healthProfile ? 1 : 0,
-    healthProfileFactRevisions: payload.healthProfileFacts.length,
-    customMetrics: payload.customMetrics.length,
-    customMetricEntries: payload.customMetrics.reduce(
-      (sum, metric) => sum + metric.entries.length,
-      0,
-    ),
-    correlationPatterns: payload.correlationPatterns.length,
-    intradayProfiles: payload.intradayProfiles.length,
-    healthScoreRecords: payload.healthScoreRecords.length,
-    onboardingRecords: payload.onboardingRecord ? 1 : 0,
-    // v1.37.19 (A6-8) — the sections restored since 08-01 were written and
-    // restored but absent from this report, so the admin's "what did I just
-    // restore" answer silently under-counted a file that carried visits or
-    // an Impfpass.
-    practitioners: payload.practitioners.length,
-    encounters: payload.encounters.length,
-    encounterLinks:
-      payload.encounterDocumentLinks.length +
-      payload.encounterLabLinks.length +
-      payload.encounterConditionLinks.length,
-    vaccinations: payload.vaccinations.length,
-    vaccinationLinks: payload.vaccinationDocumentLinks.length,
-    // v1.37.20 (#223 / iOS #68) — counted from the release that carries them,
-    // so the admin's "what did I just restore" answer never under-counts a
-    // file with reminders the way it once did for visits.
-    measurementReminders: payload.measurementReminders.length,
-    measurementReminderEvents: payload.measurementReminderEvents.length,
-    coachConversations: payload.coachConversations.length,
-    coachMessages: payload.coachConversations.reduce(
-      (total, conversation) => total + conversation.messages.length,
-      0,
-    ),
-    coachFacts: payload.coachFacts.length,
-    coachPlans: payload.coachPlans.length,
-    coachReminders: payload.coachReminders.length,
-    mentalHealthAssessments: payload.mentalHealthAssessments.length,
-    consentReceipts: payload.consentReceipts.length,
-    // Counted from the release that carries them, so the admin's "what did I
-    // just restore" answer never under-counts a file with bests, badges or an
-    // environmental history the way it once did for visits.
-    personalRecords: payload.personalRecords.length,
-    userAchievements: payload.userAchievements.length,
-    environmentContexts: payload.environmentContexts.length,
-    environmentTravelLocations: payload.environmentTravelLocations.length,
-    ecgRecordings: payload.ecgRecordings.length,
-  };
-}
-
-/**
  * Parse a JSON blob (string or already-parsed object) against
  * `backupPayloadSchema`, returning a typed payload. Throws ZodError on
  * mismatch — the admin route catches it and turns it into a 422 with a
@@ -2243,17 +2224,4 @@ export function summarizeBackup(payload: BackupPayload): BackupSummary {
 export function parseBackupPayload(input: string | unknown): BackupPayload {
   const raw = typeof input === "string" ? JSON.parse(input) : input;
   return backupPayloadSchema.parse(raw);
-}
-
-/**
- * The schemaVersion the system understands today. Used by the upload
- * route to reject inbound files written by a *future* HealthLog instance
- * — restoring them under the current code might silently drop data the
- * new shape carried.
- */
-export function isCompatibleSchemaVersion(version: string): boolean {
-  return (
-    version === LEGACY_BACKUP_SCHEMA_VERSION ||
-    version === BACKUP_SCHEMA_VERSION
-  );
 }

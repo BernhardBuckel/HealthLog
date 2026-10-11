@@ -53,6 +53,7 @@ process.env.ENCRYPTION_KEY ??=
 import type { PrismaClient } from "@/generated/prisma/client";
 import { decrypt, decryptBytes, encrypt, encryptBytes } from "@/lib/crypto";
 import { decryptFromBytes, encryptToBytes } from "@/lib/ai/coach/bytes-codec";
+import { openLocation, sealLocation } from "@/lib/environment/location-cipher";
 import { readNote } from "@/lib/crypto/note-cipher";
 import {
   decryptFactData,
@@ -77,6 +78,10 @@ import {
 } from "@/lib/labs/biomarker-store";
 import { legacyStreamedBlobFrom } from "@/__tests__/helpers/legacy-backup-blob";
 import { streamFullBackupJson } from "@/lib/export/full-backup-stream";
+import { BackupKeyIdCollector } from "@/lib/export/backup-key-ids";
+import { createBackupPreviewCollector } from "@/lib/export/backup-preview";
+import { parseBackupPayload } from "@/lib/validations/backup";
+import { summarizeBackup } from "@/lib/validations/backup-summary";
 import {
   TWO_ENDED_MODELS,
   USER_COLUMN_BACKUP_CLASS,
@@ -139,6 +144,10 @@ const PHQ9_RESPONSES = JSON.stringify({
 const CONSENT_ARTEFACT = "JVBERi0xLjQKJWZpeHR1cmU=";
 const INVENTORY_NOTE = "second pack, kept in the kitchen drawer";
 const COACH_FACT = "does not tolerate ACE inhibitors";
+// v1.41 — the model text of a turn's trail, stored encrypted beside the turn.
+const COACH_TRAIL_JSON = JSON.stringify({
+  entries: [{ id: "a1", title: "Checking the trend", text: "Read 30 days." }],
+});
 const COACH_PLAN_CUE = "if the evening reading is over 140";
 const COACH_PLAN_ACTION = "then walk twenty minutes before dinner tomorrow";
 const COACH_REMINDER_NOTE = "ask how the evening walks are going";
@@ -243,6 +252,7 @@ const COUNT_BACK: Record<
   SymptomDefinition: (p, userId) =>
     p.symptomDefinition.count({ where: { userId } }),
   SymptomEvent: (p, userId) => p.symptomEvent.count({ where: { userId } }),
+  LifeEvent: (p, userId) => p.lifeEvent.count({ where: { userId } }),
   IllnessSymptomLink: (p, userId) =>
     p.illnessSymptomLink.count({ where: { dayLog: { userId } } }),
   UserHealthProfile: (p, userId) =>
@@ -279,6 +289,7 @@ const COUNT_BACK: Record<
     p.vaccinationRecord.count({ where: { userId } }),
   VaccinationDocumentLink: (p, userId) =>
     p.vaccinationDocumentLink.count({ where: { userId } }),
+  CustomVaccine: (p, userId) => p.customVaccine.count({ where: { userId } }),
   MeasurementReminder: (p, userId) =>
     p.measurementReminder.count({ where: { userId } }),
   MeasurementReminderEvent: (p, userId) =>
@@ -840,6 +851,29 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
     },
   });
 
+  // v1.42 — two life events: a move known to the month, with a note, and a
+  // period known to the day.
+  await prisma.lifeEvent.create({
+    data: {
+      userId: OWNER_ID,
+      category: "HOME",
+      startDate: "2023-09-01",
+      precision: "MONTH",
+      titleEncrypted: encryptToBytes("Moved to the coast"),
+      noteEncrypted: encryptToBytes("the flat with the long hallway"),
+    },
+  });
+  await prisma.lifeEvent.create({
+    data: {
+      userId: OWNER_ID,
+      category: "WORK",
+      startDate: "2026-03-02",
+      endDate: "2026-05-29",
+      precision: "DAY",
+      titleEncrypted: encryptToBytes("Parental leave"),
+    },
+  });
+
   await prisma.userHealthProfile.create({
     data: {
       userId: OWNER_ID,
@@ -1088,6 +1122,7 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
             role: "assistant",
             encryptedContent: encryptToBytes(COACH_ASSISTANT_TURN),
             resultsEncrypted: encryptToBytes(COACH_RESULTS_JSON),
+            trailEncrypted: encryptToBytes(COACH_TRAIL_JSON),
             providerType: "anthropic",
             model: "claude-opus-5",
             tokensUsed: 812,
@@ -1127,6 +1162,9 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
   const healthThread = await prisma.coachConversation.findFirstOrThrow({
     where: { userId: OWNER_ID, documentScoped: false },
   });
+  const healthAnswer = await prisma.coachMessage.findFirstOrThrow({
+    where: { conversationId: healthThread.id, role: "assistant" },
+  });
   await prisma.coachFact.create({
     data: {
       userId: OWNER_ID,
@@ -1134,6 +1172,9 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
       category: "constraint",
       confidence: 80,
       sourceConversationId: healthThread.id,
+      source: "user",
+      lastUsedAt: AT("2026-07-20T10:00:00.000Z"),
+      sourceMessageId: healthAnswer.id,
     },
   });
   const plan = await prisma.coachPlan.create({
@@ -1268,10 +1309,23 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
   // the skip test below). `reminderId` used to be deliberately absent here —
   // it was the one reference that could never resolve — and is deliberately
   // present since v1.37.20, because resolving is now the behaviour under test.
+  // v1.42 (#1005) — the person's own vaccine definition the dose also names.
+  // The catalogue slug still wins on read; the reference is what has to
+  // survive the trip, and it can only if the definition comes back first.
+  const customVaccine = await prisma.customVaccine.create({
+    data: {
+      userId: OWNER_ID,
+      name: "Round-trip travel combo",
+      components: ["typhoid", "hepatitis-a"],
+      typicalSeriesDoses: 2,
+      boosterIntervalMonths: 36,
+    },
+  });
   const vaccination = await prisma.vaccinationRecord.create({
     data: {
       userId: OWNER_ID,
       occurredAt: AT("2026-05-14T00:00:00.000Z"),
+      customVaccineId: customVaccine.id,
       antigenSlug: "tdap",
       vaccineName: "Tetanus, diphtheria and pertussis",
       doseNumber: 3,
@@ -1371,14 +1425,18 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
   // it. The assertion after the restore reads the two back TOGETHER. The
   // coordinates are at 1 decimal, the precision the app stores since v1.39.4;
   // a restore rounds anything finer, so finer values would not round-trip.
+  // Since v1.42 the location is stored sealed (`locationEncrypted`), the way
+  // the writers store it; the readable columns stay empty.
   await prisma.environmentTravelLocation.create({
     data: {
       userId: OWNER_ID,
       startDate: "2026-06-10",
       endDate: "2026-06-20",
-      lat: 41.4,
-      lon: 2.2,
-      label: "Barcelona",
+      locationEncrypted: sealLocation({
+        lat: 41.4,
+        lon: 2.2,
+        label: "Barcelona",
+      }),
     },
   });
   await prisma.environmentContext.createMany({
@@ -1386,9 +1444,11 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
       {
         userId: OWNER_ID,
         date: "2026-06-15",
-        lat: 41.4,
-        lon: 2.2,
-        locationLabel: "Barcelona",
+        locationEncrypted: sealLocation({
+          lat: 41.4,
+          lon: 2.2,
+          label: "Barcelona",
+        }),
         source: "TRAVEL",
         tempMin: 19.4,
         tempMax: 28.1,
@@ -1407,9 +1467,11 @@ async function seedEveryTwoEndedModel(prisma: PrismaClient): Promise<void> {
       {
         userId: OWNER_ID,
         date: "2026-07-01",
-        lat: 52.5,
-        lon: 13.4,
-        locationLabel: "Berlin",
+        locationEncrypted: sealLocation({
+          lat: 52.5,
+          lon: 13.4,
+          label: "Berlin",
+        }),
         source: "HOME",
         tempMin: 13.1,
         tempMax: 22.7,
@@ -1491,19 +1553,38 @@ describe("every model the plan claims two-ended survives a real restore", () => 
     // below then covers BOTH, since the row that gets restored comes from the
     // streamed bytes.
     let streamedJson = "";
-    await streamFullBackupJson(
+    const previewCollector = await createBackupPreviewCollector();
+    const streamedCounts = await streamFullBackupJson(
       prisma,
       OWNER_ID,
       (chunk) => {
         streamedJson += chunk;
       },
-      { purpose: "disaster-recovery", exportedAt },
+      {
+        purpose: "disaster-recovery",
+        exportedAt,
+        observe: previewCollector.observe,
+      },
     );
     expect(
       streamedJson,
       "the streaming writer and the materialising builder disagree; the " +
         "weekly backup no longer contains what this test proves restorable",
     ).toBe(JSON.stringify(payload));
+
+    // The weekly copy's restore preview is taken from the writer's counts and
+    // the sections it was shown, never by reading the copy. On an account
+    // with a row in every model, it has to say what a full read of the copy
+    // says, count for count and key use for key use.
+    const fromWriter = previewCollector.finish(streamedCounts);
+    expect(fromWriter).not.toBeNull();
+    expect(
+      fromWriter!.summary,
+      "the preview taken from the writer's counts disagrees with a full read",
+    ).toEqual(summarizeBackup(parseBackupPayload(streamedJson)));
+    const readBack = new BackupKeyIdCollector();
+    readBack.visit(JSON.parse(streamedJson));
+    expect(fromWriter!.keys.toStored()).toEqual(readBack.toStored());
 
     // The tombstone has to be IN the file. A disaster-recovery payload that
     // carries only live rows is smaller and cheaper and wrong: the restore
@@ -1745,6 +1826,9 @@ describe("every model the plan claims two-ended survives a real restore", () => 
           results: message.resultsEncrypted
             ? decryptFromBytes(message.resultsEncrypted)
             : null,
+          trail: message.trailEncrypted
+            ? decryptFromBytes(message.trailEncrypted)
+            : null,
         })),
         attachments: thread.attachments.map((a) => a.documentId),
       })),
@@ -1763,6 +1847,7 @@ describe("every model the plan claims two-ended survives a real restore", () => 
             model: null,
             tokensUsed: null,
             results: null,
+            trail: null,
           },
           {
             role: "assistant",
@@ -1770,6 +1855,7 @@ describe("every model the plan claims two-ended survives a real restore", () => 
             model: "claude-opus-5",
             tokensUsed: 812,
             results: COACH_RESULTS_JSON,
+            trail: COACH_TRAIL_JSON,
           },
         ],
         attachments: [],
@@ -1787,6 +1873,7 @@ describe("every model the plan claims two-ended survives a real restore", () => 
             model: null,
             tokensUsed: null,
             results: null,
+            trail: null,
           },
         ],
         attachments: [vaultDocument.id],
@@ -1807,17 +1894,26 @@ describe("every model the plan claims two-ended survives a real restore", () => 
     const fact = await prisma.coachFact.findFirstOrThrow({
       where: { userId: OWNER_ID },
     });
+    const restoredAnswer = await prisma.coachMessage.findFirstOrThrow({
+      where: { conversationId: restoredThread.id, role: "assistant" },
+    });
     expect({
       fact: decryptFromBytes(fact.factEncrypted),
       category: fact.category,
       confidence: fact.confidence,
       source: fact.sourceConversationId,
+      origin: fact.source,
+      lastUsedAt: fact.lastUsedAt?.toISOString(),
+      sourceMessageId: fact.sourceMessageId,
       deletedAt: fact.deletedAt,
     }).toEqual({
       fact: COACH_FACT,
       category: "constraint",
       confidence: 80,
       source: restoredThread.id,
+      origin: "user",
+      lastUsedAt: "2026-07-20T10:00:00.000Z",
+      sourceMessageId: restoredAnswer.id,
       deletedAt: null,
     });
     expect({
@@ -2039,6 +2135,7 @@ describe("every model the plan claims two-ended survives a real restore", () => 
         practitioner: { select: { name: true } },
         encounter: { select: { occurredAt: true } },
         reminder: { select: { label: true } },
+        customVaccine: true,
         documentLinks: { select: { documentId: true } },
       },
     });
@@ -2056,6 +2153,14 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       // the id survived the round trip instead of dropping to NULL the way it
       // had to before the reminders travelled.
       reminder: dose.reminder?.label ?? null,
+      customVaccine: dose.customVaccine
+        ? {
+            name: dose.customVaccine.name,
+            components: dose.customVaccine.components,
+            typicalSeriesDoses: dose.customVaccine.typicalSeriesDoses,
+            boosterIntervalMonths: dose.customVaccine.boosterIntervalMonths,
+          }
+        : null,
       links: dose.documentLinks.length,
       note: dose.noteEncrypted ? decryptFromBytes(dose.noteEncrypted) : null,
     }).toEqual({
@@ -2069,6 +2174,12 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       practitioner: "Round-trip practice",
       encounterAt: "2026-06-30T08:00:00.000Z",
       reminder: "Blutdruck messen",
+      customVaccine: {
+        name: "Round-trip travel combo",
+        components: ["typhoid", "hepatitis-a"],
+        typicalSeriesDoses: 2,
+        boosterIntervalMonths: 36,
+      },
       links: 1,
       note: "sore arm for a day, nothing else",
     });
@@ -2258,6 +2369,43 @@ describe("every model the plan claims two-ended survives a real restore", () => 
             episode: null,
           },
         ],
+      },
+    ]);
+
+    // v1.42 — the life events: the titles and the note decrypt to what was
+    // typed, and the dates keep their precision.
+    const restoredLifeEvents = await prisma.lifeEvent.findMany({
+      where: { userId: OWNER_ID },
+      orderBy: { startDate: "asc" },
+    });
+    expect(
+      restoredLifeEvents.map((event) => ({
+        category: event.category,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        precision: event.precision,
+        title: decryptFromBytes(event.titleEncrypted),
+        note: event.noteEncrypted
+          ? decryptFromBytes(event.noteEncrypted)
+          : null,
+      })),
+      "life events must survive the round trip",
+    ).toEqual([
+      {
+        category: "HOME",
+        startDate: "2023-09-01",
+        endDate: null,
+        precision: "MONTH",
+        title: "Moved to the coast",
+        note: "the flat with the long hallway",
+      },
+      {
+        category: "WORK",
+        startDate: "2026-03-02",
+        endDate: "2026-05-29",
+        precision: "DAY",
+        title: "Parental leave",
+        note: null,
       },
     ]);
 
@@ -2610,9 +2758,10 @@ describe("every model the plan claims two-ended survives a real restore", () => 
     expect(
       readings.map((reading) => ({
         date: reading.date,
-        lat: reading.lat,
-        lon: reading.lon,
-        locationLabel: reading.locationLabel,
+        // The sealed location, opened (v1.42).
+        ...(({ lat, lon, label }) => ({ lat, lon, locationLabel: label }))(
+          openLocation(reading.locationEncrypted!),
+        ),
         source: reading.source,
         tempMean: reading.tempMean,
         pressureDelta: reading.pressureDelta,
@@ -2661,15 +2810,17 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       where: { userId: OWNER_ID },
     });
     const travelDay = readings.find((reading) => reading.source === "TRAVEL")!;
+    const tripPlace = openLocation(trip.locationEncrypted!);
+    const dayPlace = openLocation(travelDay.locationEncrypted!);
     expect(
       {
         startDate: trip.startDate,
         endDate: trip.endDate,
-        label: trip.label,
+        label: tripPlace.label,
         covers:
           travelDay.date >= trip.startDate && travelDay.date <= trip.endDate,
-        sameLat: trip.lat === travelDay.lat,
-        sameLon: trip.lon === travelDay.lon,
+        sameLat: tripPlace.lat === dayPlace.lat,
+        sameLon: tripPlace.lon === dayPlace.lon,
       },
       "the period must still explain the reading it was exported beside",
     ).toEqual({
@@ -3054,6 +3205,7 @@ describe("every model the plan claims two-ended survives a real restore", () => 
               role: "assistant",
               encryptedContent: encryptToBytes(COACH_ASSISTANT_TURN),
               resultsEncrypted: encryptToBytes(COACH_RESULTS_JSON),
+              trailEncrypted: encryptToBytes(COACH_TRAIL_JSON),
               createdAt: AT("2026-07-20T09:59:00.000Z"),
             },
           ],
@@ -3068,8 +3220,12 @@ describe("every model the plan claims two-ended survives a real restore", () => 
       coachConversations: Array<{ messages: Array<Record<string, unknown>> }>;
     };
     const [turn] = coachConversations[0].messages;
-    expect(turn).toMatchObject({ resultsJson: COACH_RESULTS_JSON });
+    expect(turn).toMatchObject({
+      resultsJson: COACH_RESULTS_JSON,
+      trailJson: COACH_TRAIL_JSON,
+    });
     expect(turn).not.toHaveProperty("resultsEncrypted");
+    expect(turn).not.toHaveProperty("trailEncrypted");
 
     await prisma.user.delete({ where: { id: OWNER_ID } });
     await createOwner(prisma);
@@ -3097,6 +3253,8 @@ describe("every model the plan claims two-ended survives a real restore", () => 
     expect(decryptFromBytes(restored.resultsEncrypted!)).toBe(
       COACH_RESULTS_JSON,
     );
+    expect(restored.trailEncrypted).not.toBeNull();
+    expect(decryptFromBytes(restored.trailEncrypted!)).toBe(COACH_TRAIL_JSON);
   });
 
   it("drops and names a filing and a commitment a truncated file cannot resolve", async () => {
@@ -3444,7 +3602,43 @@ const COLUMN_EXCLUSIONS: Readonly<Record<string, string>> = {
     "insert stamp of a symptom link; no reader, the day log's own timestamps travel",
   "IllnessSymptomLink.createdAt":
     "insert stamp of a symptom link; no reader, the illness day log's own timestamps travel",
+  // v1.42 (#615) — the readable copies of the sealed environment locations.
+  // The restore seals whatever location a file carries into
+  // `locationEncrypted` and writes these empty; the location itself is
+  // compared through the sealed column. They drop in v1.43.
+  "EnvironmentContext.lat":
+    "readable copy of the sealed day location; the restore seals it and writes this empty",
+  "EnvironmentContext.lon":
+    "readable copy of the sealed day location; the restore seals it and writes this empty",
+  "EnvironmentContext.locationLabel":
+    "readable copy of the sealed day location; the restore seals it and writes this empty",
+  "EnvironmentTravelLocation.lat":
+    "readable copy of the sealed period location; the restore seals it and writes this empty",
+  "EnvironmentTravelLocation.lon":
+    "readable copy of the sealed period location; the restore seals it and writes this empty",
+  "EnvironmentTravelLocation.label":
+    "readable copy of the sealed period location; the restore seals it and writes this empty",
 };
+
+/**
+ * Columns the restore carries on purpose as "set where it was set" rather
+ * than the same value, each with the reason. A presence check still fails a
+ * column that stops coming back at all.
+ */
+const COLUMN_PRESENCE_ONLY: Readonly<Record<string, string>> = {
+  "Medication.autoMarkTakenSince":
+    "the auto-take floor restarts at the restore, so doses a portable file cannot carry as removed are not filled again; pinned in the restore test for it",
+};
+
+/**
+ * Columns a release adds ahead of the backup ends that carry them, so the
+ * packages built in parallel on its branch each own their own section of the
+ * export and the restore. NOT an exclusion: each entry names the package that
+ * carries it, and the companion assertion fails as soon as an entry's column
+ * starts coming back, so the entry has to go in the change that carries it.
+ * The list is empty again before the release is tagged.
+ */
+const RELEASE_PENDING_COLUMNS: Readonly<Record<string, string>> = {};
 
 /**
  * Columns every reader parses through one function before using, compared
@@ -3576,6 +3770,7 @@ function comparison(
   // A declared foreign key may be re-pointed at a row the restore minted, so
   // it is held to being set where it was set, not to the same id.
   if (column.isForeignKey) return "presence";
+  if (key in COLUMN_PRESENCE_ONLY) return "presence";
   return "value";
 }
 
@@ -3606,6 +3801,8 @@ const BYTE_OPENERS: ReadonlyArray<(value: Uint8Array) => string> = [
   decryptFromBytes,
   decryptNoteFromBytes,
   decryptContextFromBytes,
+  // v1.42 — the sealed environment locations, under their own label.
+  (value) => JSON.stringify(openLocation(value)),
   (value) => decryptBytes(Buffer.from(value)).toString("base64"),
 ];
 
@@ -3694,6 +3891,12 @@ function lostColumns(
   return { lost: lost.sort(), compared };
 }
 
+/**
+ * Sections a portable file may carry stored ciphertext in, each with the
+ * reason. Empty: every sealed column travels readable in a portable file.
+ */
+const PORTABLE_CIPHERTEXT_ALLOWED: ReadonlyMap<string, string> = new Map();
+
 describe("every column of every two-ended model survives a real restore", () => {
   it("brings each column back with the value it left with", async () => {
     const prisma = getPrismaClient();
@@ -3723,7 +3926,12 @@ describe("every column of every two-ended model survives a real restore", () => 
       const rows = seededRows.get(model.name)!;
       expect(rows.length, `${model.name} seeded no row`).toBeGreaterThan(0);
       for (const column of model.columns) {
-        if (comparison(column) !== "value") continue;
+        if (
+          comparison(column) !== "value" &&
+          !(`${model.name}.${column.name}` in COLUMN_PRESENCE_ONLY)
+        ) {
+          continue;
+        }
         // Filling it would turn the fixture's row into a tombstone, and which
         // models carry tombstones is a row decision, not a column one.
         if (column.name === "deletedAt") continue;
@@ -3750,14 +3958,79 @@ describe("every column of every two-ended model survives a real restore", () => 
 
     const exportedAt = new Date("2026-08-01T00:00:00.000Z");
     let json = "";
-    await streamFullBackupJson(
+    const previewCollector = await createBackupPreviewCollector();
+    const counts = await streamFullBackupJson(
       prisma,
       OWNER_ID,
       (chunk) => {
         json += chunk;
       },
-      { purpose: "disaster-recovery", exportedAt },
+      {
+        purpose: "disaster-recovery",
+        exportedAt,
+        observe: previewCollector.observe,
+      },
     );
+    // Every sealed column is filled here: the key uses the preview takes from
+    // the sections as they are written are the ones a read of the file finds.
+    const keysReadBack = new BackupKeyIdCollector();
+    keysReadBack.visit(JSON.parse(json));
+    expect(keysReadBack.keyIds().length).toBeGreaterThan(0);
+    expect(previewCollector.finish(counts)!.keys.toStored()).toEqual(
+      keysReadBack.toStored(),
+    );
+
+    // ── No ciphertext in a portable file ──────────────────────────────────
+    //
+    // Every sealed column is filled at this point, so the portable file of
+    // this account is the one place a column still exported as stored
+    // ciphertext shows up. A portable file is read and restored on hosts
+    // with other keys; ciphertext in it is noise there, and a restore either
+    // refuses the file or writes values nobody can open. That class was
+    // fixed one section at a time (cycle, mood labels, visits, vaccinations)
+    // and kept coming back, because each builder decides its own encoding.
+    // This reads what the builders actually wrote, rather than how their
+    // source is spelt. Limit: it sees members named `…Encrypted` only, the
+    // naming the key preflight relies on too.
+    const sealedIn = (text: string) => {
+      const collector = new BackupKeyIdCollector();
+      collector.visit(JSON.parse(text));
+      const sections = new Map<string, number>();
+      for (const [, use] of collector.entries()) {
+        for (const section of use.sections) {
+          sections.set(section, (sections.get(section) ?? 0) + use.count);
+        }
+      }
+      return sections;
+    };
+    // The floor: the same matcher over the disaster-recovery file of the same
+    // account, which carries every sealed column as ciphertext. A matcher
+    // that finds nothing there would make the portable check pass vacuously.
+    const drSealed = sealedIn(json);
+    expect(
+      [...drSealed.values()].reduce((a, b) => a + b, 0),
+    ).toBeGreaterThanOrEqual(40);
+    expect(drSealed.size).toBeGreaterThanOrEqual(15);
+    let portableJson = "";
+    await streamFullBackupJson(
+      prisma,
+      OWNER_ID,
+      (chunk) => {
+        portableJson += chunk;
+      },
+      { purpose: "portable-export", exportedAt },
+    );
+    const portableSealed = [...sealedIn(portableJson).keys()].filter(
+      (section) => !PORTABLE_CIPHERTEXT_ALLOWED.has(section),
+    );
+    expect(
+      portableSealed,
+      "a portable file carries these sections' sealed columns as stored " +
+        "ciphertext. Carry them readable (`src/lib/export/sealed-text.ts`) " +
+        "and seal them again on restore, or name the section in " +
+        "PORTABLE_CIPHERTEXT_ALLOWED with the reason",
+    ).toEqual([]);
+
     await prisma.user.delete({ where: { id: OWNER_ID } });
     await createOwner(prisma);
     const backup = await prisma.dataBackup.create({
@@ -3788,10 +4061,14 @@ describe("every column of every two-ended model survives a real restore", () => 
     // data model that stopped being read.
     expect(compared).toBeGreaterThanOrEqual(620);
     expect(
-      lost,
+      lost.filter((key) => !(key in RELEASE_PENDING_COLUMNS)),
       "these columns left with a value and came back without it. Carry each " +
         "through the export and the restore, or name it in COLUMN_EXCLUSIONS " +
         "with the reason the restore is right to drop it",
+    ).toEqual([]);
+    expect(
+      Object.keys(RELEASE_PENDING_COLUMNS).filter((key) => !lost.includes(key)),
+      "these RELEASE_PENDING_COLUMNS entries come back now — drop them",
     ).toEqual([]);
   });
 
@@ -3831,6 +4108,8 @@ describe("every column of every two-ended model survives a real restore", () => 
     );
     const stale = [
       ...Object.keys(COLUMN_EXCLUSIONS),
+      ...Object.keys(COLUMN_PRESENCE_ONLY),
+      ...Object.keys(RELEASE_PENDING_COLUMNS),
       ...Object.keys(READ_THROUGH),
       ...Object.keys(FILL_OVERRIDES),
     ].filter((key) => !known.has(key));
@@ -3871,6 +4150,20 @@ const USER_FILL_OVERRIDES: Readonly<Record<string, unknown>> = {
     return bytes;
   },
   "User.avatarContentType": "image/png",
+  // v1.42 — a sealed home the way the writers seal it, so it opens.
+  "User.homeLocationEncrypted": () =>
+    sealLocation({ lat: 2.5, lon: 2.5, label: "round-trip home" }),
+};
+
+/**
+ * v1.42 (#615) — readable setting columns the restore seals into another
+ * column and writes empty. The value they held is compared through the sealed
+ * column (`homeLocationEncrypted`).
+ */
+const SEALED_ON_RESTORE: Readonly<Record<string, string>> = {
+  homeLat: "sealed into homeLocationEncrypted",
+  homeLon: "sealed into homeLocationEncrypted",
+  homeLabel: "sealed into homeLocationEncrypted",
 };
 
 /**
@@ -4009,8 +4302,15 @@ describe("the account's own settings survive a real restore", () => {
     })) as unknown as Record<string, unknown>;
 
     const lost = [...settings].filter(
-      (name) => opened(after[name]) !== opened(source[name]),
+      (name) =>
+        !Object.hasOwn(SEALED_ON_RESTORE, name) &&
+        opened(after[name]) !== opened(source[name]),
     );
+    // The readable home columns come back empty by design; the home itself
+    // came back sealed, compared above through `homeLocationEncrypted`.
+    for (const name of Object.keys(SEALED_ON_RESTORE)) {
+      expect(after[name], name).toBeNull();
+    }
     expect(
       lost,
       "these settings left with a value and came back without it",
@@ -4029,6 +4329,110 @@ describe("the account's own settings survive a real restore", () => {
       "the restore changed these identity, credential or bookkeeping columns " +
         "on the account it restored into",
     ).toEqual([]);
+  });
+});
+
+describe("automatic dose recording after a restore", () => {
+  it("starts its floor at the restore, so a dose removed before the export stays removed", async () => {
+    const prisma = getPrismaClient();
+    await seedAdminSession(prisma);
+    await createOwner(prisma);
+    await prisma.user.update({
+      where: { id: OWNER_ID },
+      data: { timezone: "UTC" },
+    });
+    const now = Date.now();
+    const dayAt12 = (offset: number) => {
+      const d = new Date(now + offset * 86_400_000);
+      return new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12),
+      );
+    };
+    const since = dayAt12(-10);
+    const medication = await prisma.medication.create({
+      data: {
+        userId: OWNER_ID,
+        name: "Evening supplement",
+        dose: "1",
+        createdAt: dayAt12(-20),
+        autoMarkTaken: true,
+        autoMarkTakenSince: since,
+        schedules: {
+          create: {
+            windowStart: "12:00",
+            windowEnd: "12:00",
+            timesOfDay: ["12:00"],
+            rrule: "FREQ=DAILY",
+            scheduleType: "SCHEDULED",
+          },
+        },
+      },
+      select: { id: true },
+    });
+    // The pass filled the last days; the person removed the dose two days
+    // ago (they did not take it). A portable file carries no removal.
+    const removed = dayAt12(-2);
+    for (let offset = -6; offset <= -1; offset++) {
+      const at = dayAt12(offset);
+      await prisma.medicationIntakeEvent.create({
+        data: {
+          userId: OWNER_ID,
+          medicationId: medication.id,
+          scheduledFor: at,
+          takenAt: at,
+          source: "REMINDER",
+          autoRecorded: true,
+          deletedAt:
+            at.getTime() === removed.getTime()
+              ? new Date(at.getTime() + 3_600_000)
+              : null,
+        },
+      });
+    }
+
+    const { payload } = await buildFullBackupPayload(prisma, OWNER_ID, {
+      purpose: "portable-export",
+    });
+    await prisma.user.delete({ where: { id: OWNER_ID } });
+    await createOwner(prisma);
+    const backup = await prisma.dataBackup.create({
+      data: {
+        userId: OWNER_ID,
+        type: "TWO_ENDED_ROUND_TRIP",
+        data: encrypt(JSON.stringify(payload)),
+      },
+    });
+    const restoredFrom = Date.now();
+    const response = await POST(
+      new Request(`http://localhost/api/admin/backups/${backup.id}/restore`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: "RESTORE" }),
+      }) as never,
+      { params: Promise.resolve({ id: backup.id }) },
+    );
+    expect(response.status).toBe(200);
+
+    const restored = await prisma.medication.findFirstOrThrow({
+      where: { userId: OWNER_ID },
+      select: { id: true, autoMarkTaken: true, autoMarkTakenSince: true },
+    });
+    expect(restored.autoMarkTaken).toBe(true);
+    expect(restored.autoMarkTakenSince!.getTime()).toBeGreaterThanOrEqual(
+      restoredFrom,
+    );
+
+    const { runIntakeAutoTakePass } =
+      await import("@/lib/jobs/intake-auto-take");
+    await runIntakeAutoTakePass(prisma, { nowMs: Date.now() });
+    const onRemovedSlot = await prisma.medicationIntakeEvent.count({
+      where: {
+        medicationId: restored.id,
+        deletedAt: null,
+        scheduledFor: removed,
+      },
+    });
+    expect(onRemovedSlot).toBe(0);
   });
 });
 

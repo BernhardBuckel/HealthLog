@@ -6,6 +6,7 @@ import {
   type ProviderSkipHint,
 } from "./provider-health-ledger";
 import { annotate } from "@/lib/logging/context";
+import { emitSignal } from "@/lib/logging/signal";
 import {
   isOperatorFundedProvider,
   readDailySpend,
@@ -396,6 +397,67 @@ export function classifyErrorBody(body: unknown): string | null {
 }
 
 /**
+ * A short, stable cause for one failed hop, for the `ai.chain.link_failed`
+ * line. Our own vocabulary only: the provider's words never leave.
+ */
+function hopCause(
+  error: unknown,
+  status: number | null,
+  bodyClass: string | null,
+): string {
+  const err = error as {
+    credentialExpired?: unknown;
+    modelNotServed?: unknown;
+  } | null;
+  if (err?.modelNotServed === true) return "model_not_served";
+  if (err?.credentialExpired === true) return "credential_expired";
+  if (bodyClass?.startsWith("classified:")) {
+    return bodyClass.slice("classified:".length);
+  }
+  if (status === null || status <= 0) return "network";
+  if (status === 401 || status === 403) return "auth_rejected";
+  if (status === 429) return "rate_limited";
+  if (status >= 500) return "upstream_5xx";
+  return "upstream_4xx";
+}
+
+interface HopSignal {
+  provider: ProviderChainType;
+  attempt: number;
+  status: number | null;
+  cause: string;
+}
+
+/**
+ * v1.42 — one `ai.chain.link_failed` line per failed hop, written once the
+ * chain has settled: `warn` when a later provider answered (the fallback
+ * covered it), `error` when nothing did. The hop details used to live only as
+ * `ai_chain_hop_*` meta keys on the caller's line at level `info`, where a
+ * query for failures could not see them and the last caller of a batch
+ * overwrote the others.
+ */
+function signalFailedHops(
+  hops: readonly HopSignal[],
+  recovered: boolean,
+  surface: BudgetSurface,
+): void {
+  for (const hop of hops) {
+    emitSignal({
+      action: "ai.chain.link_failed",
+      level: recovered ? "warn" : "error",
+      meta: {
+        provider: hop.provider,
+        attempt: hop.attempt,
+        status: hop.status,
+        cause: hop.cause,
+        recovered,
+        surface,
+      },
+    });
+  }
+}
+
+/**
  * Shared chain walker for the two RAW runners (streaming + buffered). Owns the
  * one set of chain / fallback / health-ledger semantics — empty-chain guard,
  * health-ledger + last-working reorder, hard-failure cascade with per-hop
@@ -413,6 +475,10 @@ async function runRawChain(
     surface: BudgetSurface;
     ledger?: ProviderHealthLedger;
   },
+  // v1.41 — `params` reaches every candidate unchanged, `reasoning` and
+  // `onReasoning` included. A fallback hop may see `providerState` another
+  // provider made on an earlier round; each client re-inserts only its own
+  // and drops the rest, so nothing is filtered here.
   invoke: (candidate: ProviderChainResolved) => Promise<CompletionResult>,
   successMeta?: (
     candidate: ProviderChainResolved,
@@ -427,6 +493,7 @@ async function runRawChain(
 
   const ordered = await resolveChainOrder(userId, providers, ledger);
   const hops: FallbackHop[] = [];
+  const failedHops: HopSignal[] = [];
 
   for (let i = 0; i < ordered.length; i += 1) {
     const candidate = ordered[i];
@@ -494,8 +561,19 @@ async function runRawChain(
           ai_chain_working_provider: candidate.providerType,
           ai_chain_fallback_count: hops.length,
           ...(successMeta ? successMeta(candidate) : {}),
+          // v1.41 — counts only. The summaries are model text and the
+          // provider state is opaque; neither ever reaches a wide event. The
+          // reasoning-token count is `spend`: a key naming tokens is blanked
+          // by the central redactor.
+          ...(result.reasoning
+            ? {
+                ai_reasoning_spend: result.reasoning.tokens,
+                ai_reasoning_summary_count: result.reasoning.summary.length,
+              }
+            : {}),
         },
       });
+      signalFailedHops(failedHops, true, surface);
       return {
         result,
         workingProvider: candidate,
@@ -506,6 +584,12 @@ async function runRawChain(
         throw error;
       }
       const summary = summariseError(error);
+      failedHops.push({
+        provider: candidate.providerType,
+        attempt: i + 1,
+        status: summary.status,
+        cause: hopCause(error, summary.status, summary.bodyExcerpt),
+      });
       void ledger.recordFailure(userId, candidate.providerType, summary.status);
       const hop: FallbackHop = {
         providerType: candidate.providerType,
@@ -531,6 +615,7 @@ async function runRawChain(
       ai_chain_fallback_count: hops.length,
     },
   });
+  signalFailedHops(failedHops, false, surface);
   throw new AllProvidersFailedError(hops);
 }
 

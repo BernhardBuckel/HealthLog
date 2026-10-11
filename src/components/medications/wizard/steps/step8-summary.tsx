@@ -121,7 +121,7 @@ export function Step8Summary({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="text-muted-foreground hover:text-destructive h-8 gap-1 px-2 text-xs"
+                  className="text-muted-foreground hover:text-foreground h-8 gap-1 px-2 text-xs"
                   onClick={() => onRemoveSchedule(index)}
                   disabled={!canRemove}
                   data-slot="wizard-schedule-remove"
@@ -193,6 +193,33 @@ export function Step8Summary({
             }
             data-slot="wizard-track-intake-toggle"
             aria-label={t("medications.trackIntake.label")}
+          />
+        </div>
+      )}
+
+      {/* v1.42.2 — auto-mark-taken. Only meaningful while doses are due:
+          hidden for as-needed and record-only medications. */}
+      {payload.mode !== "asNeeded" && payload.trackIntake && (
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <Label
+              htmlFor="wizard-auto-mark-taken"
+              className="text-sm font-medium"
+            >
+              {t("medications.autoMarkTaken.label")}
+            </Label>
+            <p className="text-muted-foreground text-xs">
+              {t("medications.autoMarkTaken.helper")}
+            </p>
+          </div>
+          <Switch
+            id="wizard-auto-mark-taken"
+            checked={payload.autoMarkTaken}
+            onCheckedChange={(checked) =>
+              applyPartial({ autoMarkTaken: checked })
+            }
+            data-slot="wizard-auto-mark-taken-toggle"
+            aria-label={t("medications.autoMarkTaken.label")}
           />
         </div>
       )}

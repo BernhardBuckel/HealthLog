@@ -240,6 +240,10 @@ describe("serving-posture header matrix (Class A inline vs Class B attachment)",
     ["image/heic", "photo.heic"],
     ["application/xml", "export.xml"],
     ["application/json", "export.json"],
+    // Upload refuses markup outright; a row that somehow carries one must
+    // still never render in-origin, where its script would run.
+    ["image/svg+xml", "drawing.svg"],
+    ["text/html", "page.html"],
   ])(
     "Class B %s → attachment + octet-stream, never inline",
     async (mime, name) => {

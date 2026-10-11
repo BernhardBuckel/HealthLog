@@ -15,6 +15,7 @@ import {
   resolveLowStockRunwayDays,
   resolveMoodReminderHour,
   resolveNotificationPrefs,
+  notificationsShowFigures,
   resolveReorderLeadDays,
 } from "../notification-prefs";
 
@@ -109,12 +110,12 @@ describe("parseNotificationPrefs", () => {
         nudgeVitals: true,
         nudgeRoutine: true,
         nudgeFrequency: "weekly",
-        ambientSuggestions: true,
         nudgeAiComposed: false,
       },
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -134,12 +135,12 @@ describe("parseNotificationPrefs", () => {
         nudgeVitals: true,
         nudgeRoutine: true,
         nudgeFrequency: "weekly",
-        ambientSuggestions: true,
         nudgeAiComposed: false,
       },
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -161,12 +162,12 @@ describe("parseNotificationPrefs", () => {
         nudgeVitals: true,
         nudgeRoutine: true,
         nudgeFrequency: "weekly",
-        ambientSuggestions: true,
         nudgeAiComposed: false,
       },
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -204,12 +205,12 @@ describe("resolveNotificationPrefs (deep-merge)", () => {
         nudgeVitals: true,
         nudgeRoutine: true,
         nudgeFrequency: "weekly",
-        ambientSuggestions: true,
         nudgeAiComposed: false,
       },
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -235,12 +236,12 @@ describe("resolveNotificationPrefs (deep-merge)", () => {
         nudgeVitals: true,
         nudgeRoutine: true,
         nudgeFrequency: "weekly",
-        ambientSuggestions: true,
         nudgeAiComposed: false,
       },
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -263,12 +264,12 @@ describe("resolveNotificationPrefs (deep-merge)", () => {
         nudgeVitals: true,
         nudgeRoutine: true,
         nudgeFrequency: "weekly",
-        ambientSuggestions: true,
         nudgeAiComposed: false,
       },
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -291,12 +292,12 @@ describe("resolveNotificationPrefs (deep-merge)", () => {
         nudgeVitals: true,
         nudgeRoutine: true,
         nudgeFrequency: "weekly",
-        ambientSuggestions: true,
         nudgeAiComposed: false,
       },
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -320,12 +321,12 @@ describe("resolveNotificationPrefs (deep-merge)", () => {
         nudgeVitals: true,
         nudgeRoutine: true,
         nudgeFrequency: "weekly",
-        ambientSuggestions: true,
         nudgeAiComposed: false,
       },
       measurementReminder: {
         clientManaged: false,
       },
+      content: { detail: "generic" },
     });
   });
 
@@ -651,5 +652,32 @@ describe("lowStockRunwayDays — v1.16.11 low-stock threshold", () => {
       lowStockRunwayDays: null,
       reorderLeadDays: 10,
     });
+  });
+});
+
+describe("notificationsShowFigures (content.detail)", () => {
+  it("defaults to generic: no figures for a null, empty or drifted row", () => {
+    expect(notificationsShowFigures(null)).toBe(false);
+    expect(notificationsShowFigures({})).toBe(false);
+    expect(notificationsShowFigures({ content: { detail: "all" } })).toBe(
+      false,
+    );
+  });
+
+  it("shows figures only when the user chose detailed", () => {
+    expect(notificationsShowFigures({ content: { detail: "detailed" } })).toBe(
+      true,
+    );
+    expect(notificationsShowFigures({ content: { detail: "generic" } })).toBe(
+      false,
+    );
+  });
+
+  it("survives a merge that touches another category", () => {
+    const merged = resolveNotificationPrefs(
+      { content: { detail: "detailed" } },
+      { mood: { reminderHour: 8 } },
+    );
+    expect(merged.content).toEqual({ detail: "detailed" });
   });
 });

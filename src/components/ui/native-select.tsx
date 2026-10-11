@@ -47,6 +47,8 @@ import { cn } from "@/lib/utils";
 // single element, so every call site's width / margin className still composes
 // straight onto it. `pe-9` reserves room so a long value never runs under the
 // chevron. The chevron glyph is the same path Lucide's `ChevronDownIcon` draws.
+// Disabled: dimmed and not-allowed, the same as `<Input>` and the shadcn
+// `<SelectTrigger>`, so a locked field never reads as one that takes a choice.
 // Colour: `currentColor` inside a background-image data URI resolves to black
 // (no CSS cascade reaches it), which read as a near-black arrow on the light
 // theme. The stroke is therefore baked per theme into the
@@ -54,8 +56,11 @@ import { cn } from "@/lib/utils";
 // theme's `--muted-foreground` — same colour the shadcn `<SelectTrigger>`
 // chevron uses.
 
+// Type size: 16 px on a touch screen, 14 px only under a mouse or trackpad
+// (`pointer-fine`, globals.css). iOS Safari zooms the page into a focused
+// `<select>` whose text is smaller than 16 px, the same as into an input.
 const NATIVE_SELECT_CLASS =
-  "border-input bg-background text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex h-11 sm:h-10 w-full appearance-none rounded-md border ps-3 pe-9 py-1 text-sm shadow-xs transition-[color,box-shadow] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none bg-[image:var(--native-select-chevron)] bg-[length:1rem] bg-[position:right_0.75rem_center] bg-no-repeat";
+  "border-input bg-background text-foreground placeholder:text-muted-foreground focus-visible:border-input-focus flex h-11 sm:h-10 w-full appearance-none rounded-md border ps-3 pe-9 py-1 text-base pointer-fine:text-sm shadow-xs transition-[color,box-shadow] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 bg-[image:var(--native-select-chevron)] bg-[length:1rem] bg-[position:right_0.75rem_center] bg-no-repeat";
 
 export type NativeSelectProps = React.SelectHTMLAttributes<HTMLSelectElement>;
 

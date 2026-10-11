@@ -6,8 +6,10 @@
  *
  * A chip is offered only when what it asks for is grounded in this turn:
  *
- *   - `as_chart` / `as_table`: a table this turn produced (or copied) that
- *     has a chart; the chip names the view it is not shown in yet.
+ *   - `as_chart`: a table this turn produced that has a chart and that the
+ *     answer only used, so it sits folded under "Data used" as a table. A
+ *     table the answer displays with a chart carries its own chart/table
+ *     toggle, so it gets no view chip (`isRedundantViewChip`).
  *   - `previous_period`: a time series table of the current period, for a
  *     metric the table tool reads and the record holds.
  *   - `year_ago`: the same, over a window of at most 90 days, when the
@@ -32,7 +34,10 @@ import type { Locale } from "@/lib/i18n/config";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
 import { userDayKey, shiftDateKey } from "@/lib/tz/format";
 import { annotate } from "@/lib/logging/context";
+import { getServerTranslator } from "@/lib/i18n/server-translator";
+import { COACH_FOLLOW_UP_KEYS } from "@/lib/ai/coach/dialog-keys";
 import type {
+  CoachAssumption,
   CoachFollowUp,
   CoachResultMeta,
   CoachScopeSource,
@@ -56,8 +61,16 @@ import {
   buildFollowUp,
   isTableMetricDomain,
   numberFollowUps,
+  widerWindow,
 } from "./catalog";
 import type { FollowUpProposal } from "./parse-sentinel";
+import { isRedundantViewChip } from "./view-chip";
+import {
+  exceedsReach,
+  fitsReach,
+  reachFromPrefs,
+  type CoachHistoryReach,
+} from "@/lib/ai/coach/history-reach";
 
 /** A discovered pair `get_correlations` returned this turn, as scope sources. */
 export interface CorrelationPair {
@@ -85,6 +98,30 @@ const WINDOW_DAYS: Partial<Record<CoachScopeWindow, number>> = {
   ...SHORT_WINDOW_DAYS,
   lastYear: 365,
 };
+
+/**
+ * True when answering `chip` stays inside the lookback limit: the period
+ * before needs twice the window, a year ago a year more than it, a wider
+ * window must itself fit.
+ */
+function chipWithinReach(chip: Candidate, reach: CoachHistoryReach): boolean {
+  const window = chip.anchor?.window;
+  if (!window) return true;
+  if (exceedsReach(window, reach)) return false;
+  const days = WINDOW_DAYS[window];
+  switch (chip.kind) {
+    case "previous_period":
+      return days !== undefined && fitsReach(2 * days, reach);
+    case "year_ago":
+      return days !== undefined && fitsReach(days + 365, reach);
+    case "widen_window": {
+      const wider = widerWindow(window);
+      return wider !== null && !exceedsReach(wider, reach);
+    }
+    default:
+      return true;
+  }
+}
 
 /** Whether the pref lets chips be offered. Absent means on. */
 export function followUpChipsEnabled(prefs: CoachPrefs): boolean {
@@ -164,18 +201,14 @@ export function deriveFollowUps(args: {
       ...(source.granularity ? { granularity: source.granularity } : {}),
       period: source.period,
     };
-    if (meta.chartKind !== null) {
-      // The other view of what the answer shows: a table shown as a table
-      // offers its chart, a shown chart offers its table.
-      const showsChart = meta.displayed && meta.view !== "table";
-      candidates.push(
-        buildFollowUp({
-          kind: showsChart ? "as_table" : "as_chart",
-          anchor,
-          origin: "server",
-          locale,
-        }),
-      );
+    const viewChip = buildFollowUp({
+      kind: "as_chart",
+      anchor,
+      origin: "server",
+      locale,
+    });
+    if (meta.chartKind !== null && !isRedundantViewChip(viewChip, [meta])) {
+      candidates.push(viewChip);
     }
   }
 
@@ -254,10 +287,14 @@ export function deriveFollowUps(args: {
     }
   }
 
-  // Deduplicate by kind and domain, first wins.
+  // Deduplicate by kind and domain, first wins. A chip that would read past
+  // the lookback limit is not offered: it could only be answered with
+  // "that lies beyond your limit".
+  const reach = reachFromPrefs(args.prefs);
   const key = (chip: Candidate) => `${chip.kind}:${chip.anchor?.domain ?? ""}`;
   const unique = new Map<string, Candidate>();
   for (const chip of candidates) {
+    if (!chipWithinReach(chip, reach)) continue;
     if (!unique.has(key(chip))) unique.set(key(chip), chip);
   }
 
@@ -366,4 +403,34 @@ export async function readFollowUpHistory(args: {
     });
     return undefined;
   }
+}
+
+// ── Changing an assumption (v1.41) ──────────────────────────────────────
+
+/**
+ * The chips that change an assumption the answer made instead of asking:
+ * one per alternative, "Instead: last 90 days". They lead the chips, since
+ * they answer the same question differently, and the reply's chip cap still
+ * applies. The label is catalog text with the alternative's own catalog
+ * label; the value is read back from the stored chip when it is tapped.
+ */
+export function assumptionFollowUps(args: {
+  assumptions: readonly CoachAssumption[];
+  prefs: CoachPrefs;
+  locale: Locale;
+}): CoachFollowUp[] {
+  if (!followUpChipsEnabled(args.prefs)) return [];
+  const { t } = getServerTranslator(args.locale);
+  const labelKey = COACH_FOLLOW_UP_KEYS.change_assumption;
+  return args.assumptions.flatMap((assumption) =>
+    assumption.alternatives.map((alternative) => ({
+      id: "f0",
+      kind: "change_assumption" as const,
+      labelKey,
+      label: t(labelKey, { value: alternative.label }),
+      reuse: false,
+      origin: "server" as const,
+      assumption: { kind: assumption.kind, value: alternative.value },
+    })),
+  );
 }

@@ -34,6 +34,8 @@ import {
 export const RANKED_TYPES: readonly MeasurementType[] = [
   "RESTING_HEART_RATE",
   "HEART_RATE_VARIABILITY",
+  // v1.42 (#1110) — the `hrvRmssd` ladder.
+  "HRV_RMSSD",
   "RESPIRATORY_RATE",
   "OXYGEN_SATURATION",
   "BODY_TEMPERATURE",
@@ -132,10 +134,10 @@ export function canonicalMeasurementsCte(
   onlyType?: MeasurementType,
 ): string {
   const sinceInner = sinceInterval
-    ? `AND "measured_at" >= NOW() - INTERVAL '${assertInterval(sinceInterval)}'`
+    ? `AND "measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '${assertInterval(sinceInterval)}'`
     : "";
   const sinceOuter = sinceInterval
-    ? `AND mm."measured_at" >= NOW() - INTERVAL '${assertInterval(sinceInterval)}'`
+    ? `AND mm."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '${assertInterval(sinceInterval)}'`
     : "";
   // A single-type reader (a series for one metric) scopes both halves to that
   // type, so the pick scans one metric's rows instead of every row the user

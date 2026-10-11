@@ -19,6 +19,20 @@ import type {
   SourceDayAggregateRow,
 } from "@/lib/measurements/day-aggregates";
 import { userDayKey } from "@/lib/tz/format";
+import { wallClockInTz } from "@/lib/tz/wall-clock";
+import { dayValue } from "@/lib/measurements/day-mean";
+import { usesHourlyMeanDay } from "@/lib/measurements/day-statistic";
+
+/** `HH:MM:SS` of an instant on the wall clock of `timeZone`. */
+function localClock(at: Date, timeZone: string): string {
+  const c = wallClockInTz(at, timeZone);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(c.hour)}:${pad(c.minute)}:${pad(c.second)}`;
+}
+
+function normaliseClock(clock: string): string {
+  return clock.length === 5 ? `${clock}:00` : clock;
+}
 
 export function foldDayAggregates(
   rows: ReadonlyArray<{ measuredAt: Date; value: number }>,
@@ -30,6 +44,13 @@ export function foldDayAggregates(
     const t = r.measuredAt.getTime();
     if (t < opts.since.getTime()) continue;
     if (opts.until && t > opts.until.getTime()) continue;
+    if (
+      opts.upToLocalTime &&
+      localClock(r.measuredAt, opts.timeZone) >
+        normaliseClock(opts.upToLocalTime)
+    ) {
+      continue;
+    }
     if (
       opts.valueRange &&
       (r.value < opts.valueRange.min || r.value > opts.valueRange.max)
@@ -74,7 +95,39 @@ export async function fakeReadDayAggregates(
     orderBy: { measuredAt: "asc" },
     select: { measuredAt: true, value: true },
   })) ?? []) as Array<{ measuredAt: Date; value: number }>;
-  return foldDayAggregates(rows, opts);
+  const days = foldDayAggregates(rows, opts);
+  if (!usesHourlyMeanDay(opts.type)) return days;
+  // Mirror the SQL's hourly-mean day: the mean of the (day, segment)'s local
+  // hours' means.
+  const starts = opts.segmentStarts ?? [];
+  // Group once by (day, segment) with the fold's own filters, so a long
+  // series stays linear instead of re-filtering every row per day.
+  const membersByKey = new Map<
+    string,
+    Array<{ measuredAt: Date; value: number }>
+  >();
+  for (const r of rows) {
+    const t = r.measuredAt.getTime();
+    if (t < opts.since.getTime()) continue;
+    if (opts.until && t > opts.until.getTime()) continue;
+    if (
+      opts.valueRange &&
+      (r.value < opts.valueRange.min || r.value > opts.valueRange.max)
+    ) {
+      continue;
+    }
+    const key = `${userDayKey(r.measuredAt, opts.timeZone)}|${
+      starts.filter((st) => t < st.getTime()).length
+    }`;
+    const list = membersByKey.get(key);
+    if (list) list.push(r);
+    else membersByKey.set(key, [r]);
+  }
+  return days.map((d) => {
+    const members = membersByKey.get(`${d.day}|${d.segment}`) ?? [];
+    const dayMean = dayValue(opts.type, members, opts.timeZone);
+    return dayMean === null ? d : { ...d, dayMean };
+  });
 }
 
 /**

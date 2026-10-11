@@ -32,12 +32,26 @@
  * - Two lab panels of biomarkers across two dates (quantitative with
  *   reference ranges + qualitative "negativ" rows)
  * - Two illness episodes — a resolved acute cold with a day-by-day symptom
- *   curve, and an active chronic condition carrying a recent flare
+ *   curve, and a recurring condition with a resolved spring flare; nothing
+ *   is left open, so the account is not in Rest Mode
  * - Cycle tracking opted in: ~5 observed cycles with biphasic basal body
  *   temperature, period flow, fertile-window mucus/OPK, per-day symptoms,
  *   and a cached forward prediction
- * - An AI-configured Coach with one short sample conversation
- * - App settings (registration disabled, English locale)
+ * - Two practitioners, a knee arthroscopy with its operative report and
+ *   discharge letter linked (small generated PDFs), its follow-up visit, and
+ *   a check-up booked for tomorrow morning
+ * - An AI-configured Coach with five sample conversations spread from
+ *   today back over a few weeks
+ * - App settings (registration disabled, English locale, the key-backup
+ *   step confirmed for the key the demo runs with)
+ * - A multi-year history before the 90-day window (about four and a half
+ *   years) for the timeline and the day view: blood pressure in bursts with
+ *   real gaps, weekly weight, phone steps, watch resting heart rate / HRV /
+ *   sleep from the third year, yearly blood panels, a resolved chronic
+ *   condition and infections, ramipril with a dose change and a sick-day
+ *   pause, flu shots, visits, life events at day / month / year precision,
+ *   a sealed home location with a holiday period, and stored weather, air
+ *   quality and pollen for every day. The timeline module is switched on.
  *
  * Every date is relative to "now" so the demo stays fresh on every re-seed.
  * What ages is the SEEDED DATA, not the script: the pillar windows keep
@@ -54,15 +68,22 @@
  * score can show.
  *
  * Usage: npx tsx scripts/seed-demo.ts
- * Requires DATABASE_URL env var. The Coach sample conversation additionally
+ * Requires DATABASE_URL env var. The Coach sample conversations additionally
  * needs ENCRYPTION_KEYS / ENCRYPTION_KEY (the same key the app runs with).
  */
 
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 
 import pg from "pg";
 import { encryptToBytes } from "../src/lib/ai/coach/bytes-codec";
-import { encrypt } from "../src/lib/crypto";
+import {
+  encrypt,
+  encryptBytes,
+  getActiveKeyId,
+  getKeyFingerprint,
+} from "../src/lib/crypto";
+import { ENVIRONMENT_LOCATION_AAD } from "../src/lib/crypto/encrypted-columns";
 import {
   DEFAULT_DASHBOARD_LAYOUT,
   serializeDashboardLayout,
@@ -79,6 +100,15 @@ if (!DATABASE_URL) {
   console.error("DATABASE_URL is required");
   process.exit(1);
 }
+
+// Every timestamp column here is `timestamp without time zone` holding UTC,
+// which is how Prisma reads it. node-postgres serialises a Date in the host's
+// local zone by default and Postgres drops the offset on the cast, so a seed
+// run from a machine on Berlin time stored every instant two hours in the
+// future (today's Coach thread stamped after "now", the CGM stream running
+// into the evening). Sending Dates as UTC makes the result independent of
+// the seed host's clock zone.
+pg.defaults.parseInputDatesAsUTC = true;
 
 const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
@@ -198,6 +228,186 @@ function randomWalk(
   return values;
 }
 
+// A one-page PDF carrying a few lines of Helvetica text, built by hand so the
+// seed needs no PDF library. The byte offsets in the cross-reference table are
+// computed, so viewers and the thumbnail renderer open it as a normal file.
+function simplePdf(lines: string[]): Buffer {
+  const esc = (t: string) => t.replace(/[\\()]/g, (c) => `\\${c}`);
+  const text = lines
+    .map((line, i) =>
+      i === 0
+        ? `BT /F1 16 Tf 56 780 Td (${esc(line)}) Tj ET`
+        : `BT /F1 11 Tf 56 ${760 - i * 18} Td (${esc(line)}) Tj ET`,
+    )
+    .join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(text, "latin1")} >>\nstream\n${text}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objects.forEach((obj, i) => {
+    offsets.push(Buffer.byteLength(body, "latin1"));
+    body += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+  });
+  const xrefAt = Buffer.byteLength(body, "latin1");
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets)
+    body += `${String(off).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`;
+  return Buffer.from(body, "latin1");
+}
+
+// Pin a series' last point (today) to the median of the four weeks before it.
+// A free walk can end on a tail value, and the vitals check holds today's
+// reading against exactly that personal band: a demo whose oxygen saturation
+// happened to land low read "below your range" on the start page. The median
+// sits inside the band by construction, so today reads as an ordinary day.
+function settleLatest(values: number[], lookback = 28): void {
+  if (values.length < 2) return;
+  const prior = values
+    .slice(Math.max(0, values.length - 1 - lookback), values.length - 1)
+    .sort((a, b) => a - b);
+  const mid = Math.floor(prior.length / 2);
+  const median =
+    prior.length % 2 === 1 ? prior[mid] : (prior[mid - 1] + prior[mid]) / 2;
+  values[values.length - 1] = Math.round(median * 10) / 10;
+}
+
+// ── Multi-year history ───────────────────────
+// The timeline and the day view read years, not weeks. Everything before the
+// 90-day window is written by `seedHistory` below; these anchors place its
+// story (all in days before "now") so the sections that share a date agree.
+
+/** How far back the record reaches: about four and a half years. */
+const HISTORY_DAYS = 1650;
+/** Ramipril 2.5 mg starts after a blood-pressure work-up. */
+const RAMIPRIL_START_DAYS_AGO = 1130;
+/** Ramipril raised to 5 mg when the readings stay above target. */
+const RAMIPRIL_DOSE_UP_DAYS_AGO = 760;
+/** A sick-day pause of ramipril during a stomach bug. */
+const RAMIPRIL_PAUSE = { from: 425, to: 416 };
+/** Vitamin D3 from the winter before last. */
+const VITAMIN_D_START_DAYS_AGO = 400;
+/** A daughter is born; sleep and the blood-pressure habit both suffer. */
+const DAUGHTER_BORN_DAYS_AGO = 650;
+/** A watch arrives at the start of the record's third year. */
+const WATCH_FROM_DAYS_AGO = 912;
+/** One summer holiday away from home. */
+const HOLIDAY = { from: 470, to: 457 };
+
+/** The demo's home: a neutral German city, coarse (one decimal). */
+const DEMO_HOME = { lat: 48.0, lon: 7.8, label: "Freiburg" };
+/** The holiday location, coarse; its label is never shown on a surface. */
+const DEMO_HOLIDAY_PLACE = { lat: 54.1, lon: 12.1, label: "Holiday" };
+
+/**
+ * Piecewise-linear target through `[daysAgo, value]` knots, oldest first.
+ * Outside the knots the nearest end holds.
+ */
+function knotValue(knots: Array<[number, number]>, n: number): number {
+  if (n >= knots[0][0]) return knots[0][1];
+  for (let i = 1; i < knots.length; i++) {
+    const [d0, v0] = knots[i - 1];
+    const [d1, v1] = knots[i];
+    if (n <= d0 && n >= d1) {
+      const f = d0 === d1 ? 0 : (d0 - n) / (d0 - d1);
+      return v0 + (v1 - v0) * f;
+    }
+  }
+  return knots[knots.length - 1][1];
+}
+
+/** Uniform noise in `[-amp, amp]`. */
+function jitter(amp: number): number {
+  return (Math.random() * 2 - 1) * amp;
+}
+
+/** The calendar quarter of a Berlin day key, e.g. `2025-Q3`. */
+function quarterOf(dayKey: string): string {
+  const month = Number(dayKey.slice(5, 7));
+  return `${dayKey.slice(0, 4)}-Q${Math.floor((month - 1) / 3) + 1}`;
+}
+
+/** Day of the year (1–366) of a `YYYY-MM-DD` key. */
+function dayOfYear(dayKey: string): number {
+  const d = Date.UTC(
+    Number(dayKey.slice(0, 4)),
+    Number(dayKey.slice(5, 7)) - 1,
+    Number(dayKey.slice(8, 10)),
+  );
+  return (
+    Math.floor((d - Date.UTC(Number(dayKey.slice(0, 4)), 0, 1)) / 864e5) + 1
+  );
+}
+
+/** Seal a coarse location the way `sealLocation` does in the app. */
+function sealDemoLocation(loc: {
+  lat: number;
+  lon: number;
+  label: string;
+}): Buffer {
+  return encryptBytes(
+    Buffer.from(
+      JSON.stringify({ lat: loc.lat, lon: loc.lon, label: loc.label }),
+      "utf8",
+    ),
+    ENVIRONMENT_LOCATION_AAD,
+  );
+}
+
+/**
+ * Multi-row INSERT in chunks, so a few thousand history rows do not cost a
+ * round trip each. `rows` are positional, in `columns` order.
+ */
+async function bulkInsert(
+  client: pg.PoolClient,
+  table: string,
+  columns: string[],
+  rows: unknown[][],
+  chunk = 500,
+): Promise<void> {
+  for (let start = 0; start < rows.length; start += chunk) {
+    const slice = rows.slice(start, start + chunk);
+    const params: unknown[] = [];
+    const tuples = slice.map((row) => {
+      const marks = row.map((value) => {
+        params.push(value);
+        return `$${params.length}`;
+      });
+      return `(${marks.join(", ")})`;
+    });
+    await client.query(
+      `INSERT INTO ${table} (${columns.join(", ")}) VALUES ${tuples.join(", ")}`,
+      params,
+    );
+  }
+}
+
+/** Pollen season bump: 0 outside `[from, to]`, peaking at `peak` mid-season. */
+function pollenSeason(
+  doy: number,
+  from: number,
+  to: number,
+  peak: number,
+): number {
+  if (doy < from || doy > to) return 0;
+  const phase = (doy - from) / (to - from);
+  return peak * Math.sin(Math.PI * phase) ** 2;
+}
+
+/** Hours of daylight at latitude `lat` on day-of-year `doy`. */
+function daylightHours(lat: number, doy: number): number {
+  const rad = Math.PI / 180;
+  const decl = 23.44 * Math.sin(rad * (360 / 365) * (284 + doy));
+  const x = -Math.tan(lat * rad) * Math.tan(decl * rad);
+  const ha = Math.acos(Math.min(1, Math.max(-1, x))) / rad;
+  return (2 * ha) / 15;
+}
+
 // ── Main ─────────────────────────────────────────
 
 async function seed() {
@@ -294,7 +504,6 @@ async function seed() {
     ]);
     const demoDashboardLayout = serializeDashboardLayout({
       ...DEFAULT_DASHBOARD_LAYOUT,
-      heroVisible: true,
       widgets: DEFAULT_DASHBOARD_LAYOUT.widgets.map((w) =>
         SHOWCASE_TILE_IDS.has(w.id) ? { ...w, tileVisible: true } : w,
       ),
@@ -342,16 +551,22 @@ async function seed() {
     );
     // Body fat: 24% → trending to a healthy ~19%
     const bodyFat = randomWalk(24.0, 19.0, span, 0.4, VALUE_RANGES.BODY_FAT);
-    // Sleep duration in MINUTES (the SLEEP_DURATION unit): ~7h → ~7h45m
+    // Sleep duration in MINUTES (the SLEEP_DURATION unit): ~7h → ~7h40m.
+    // Kept close to the ~7.5 h per-stage nights below, which the start page
+    // holds against this trailing average: a looser walk drifted to almost
+    // nine hours and last night read as "1h 4m less than usual".
     const sleepMin = randomWalk(
       420,
-      465,
+      460,
       span,
-      25,
+      12,
       VALUE_RANGES.SLEEP_DURATION,
     );
     // Steps: 6500 → a solid ~9000
     const steps = randomWalk(6500, 9000, span, 1500);
+    for (const series of [weights, sysBP, diaBP, pulse, restingHr]) {
+      settleLatest(series);
+    }
 
     for (let i = 0; i < span; i++) {
       const date = daysAgo(days - i);
@@ -603,7 +818,12 @@ async function seed() {
       { context: "POSTPRANDIAL", hour: 19, base: 118, jitter: 12 },
       { context: "BEDTIME", hour: 22, base: 99, jitter: 6 },
     ];
-    for (let i = 0; i < span; i++) {
+    // Glucose stops at yesterday. The vitals check compares a day's mean
+    // against the band of full days, so a part day seeded up to the current
+    // hour (fasting and breakfast only) read "below your range", and seeding
+    // the whole day put the afternoon in the future. Yesterday's full day is
+    // what the start page then reads.
+    for (let i = 0; i < span - 1; i++) {
       for (const r of glucoseReadings) {
         const at = daysAgoAt(days - i, r.hour, Math.floor(Math.random() * 30));
         const value = Math.round(r.base + (Math.random() - 0.5) * r.jitter);
@@ -632,7 +852,9 @@ async function seed() {
     console.log("Creating continuous glucose (CGM) stream...");
     const cgmDays = 14;
     const cgmStepMin = 15;
-    for (let d = cgmDays - 1; d >= 0; d--) {
+    // The stream ends with yesterday, for the reason given above the spot
+    // readings.
+    for (let d = cgmDays; d >= 1; d--) {
       for (let minute = 0; minute < 24 * 60; minute += cgmStepMin) {
         const hour = minute / 60;
         // Baseline overnight ~90; dawn phenomenon lifts it slightly toward
@@ -704,6 +926,9 @@ async function seed() {
     );
     // Flights climbed: ~8–14/day.
     const flights = randomWalk(9, 13, span, 4, VALUE_RANGES.FLIGHTS_CLIMBED);
+    for (const series of [hrvSdnn, hrvRmssd, spo2, respRate]) {
+      settleLatest(series);
+    }
 
     for (let i = 0; i < span; i++) {
       const date = daysAgo(days - i);
@@ -820,6 +1045,112 @@ async function seed() {
       }
     }
 
+    // ── Readiness and health-score history ────
+    // The day view reads readiness from the COMPUTED `RECOVERY_SCORE` row the
+    // nightly job files for the night that ended (noon UTC of the day before
+    // the wake morning, `recovery:<day>`), and the health score from the
+    // `health_score_records` row of each local day. Neither job reaches back,
+    // so a fresh seed carried both for today at most; mint the history the
+    // jobs would have written over the window.
+    console.log("Creating readiness and health-score history...");
+    const shiftKey = (key: string, by: number) =>
+      new Date(Date.parse(`${key}T12:00:00Z`) + by * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+    const readinessRows: unknown[][] = [];
+    for (let i = 1; i < span; i++) {
+      const wakeKey = berlinDayKey(daysAgoAt(days - i, 7, 0));
+      const endedKey = shiftKey(wakeKey, -1);
+      const at = new Date(`${endedKey}T12:00:00.000Z`);
+      const value = Math.round(
+        Math.min(100, Math.max(0, recovery[i] * 0.7 + 20 + jitter(4))),
+      );
+      readinessRows.push([
+        cuid(),
+        userId,
+        "RECOVERY_SCORE",
+        value,
+        "score",
+        "COMPUTED",
+        `recovery:${endedKey}`,
+        at,
+        at,
+        at,
+      ]);
+    }
+    await bulkInsert(
+      client,
+      "measurements",
+      [
+        "id",
+        "user_id",
+        "type",
+        "value",
+        "unit",
+        "source",
+        "external_id",
+        "measured_at",
+        "created_at",
+        "updated_at",
+      ],
+      readinessRows,
+    );
+    const PILLAR_BASE: Record<string, number> = {
+      BLOOD_PRESSURE: 86,
+      GLYCAEMIA: 98,
+      ACTIVITY: 95,
+      SLEEP: 76,
+      ADIPOSITY: 97,
+      WELLBEING: 76,
+      LIPIDS: 100,
+    };
+    const composites = randomWalk(87, 90, 60, 3, { min: 80, max: 96 });
+    const scoreRows: unknown[][] = [];
+    for (let n = 60; n >= 1; n--) {
+      const pillars = Object.fromEntries(
+        Object.entries(PILLAR_BASE).map(([k, v]) => [
+          k,
+          Math.round(Math.min(100, Math.max(40, v + jitter(5)))),
+        ]),
+      );
+      const at = daysAgoAt(n, 4, 50);
+      scoreRows.push([
+        cuid(),
+        userId,
+        berlinDayKey(at),
+        "Europe/Berlin",
+        Math.round(composites[60 - n]),
+        "green",
+        4,
+        Object.keys(PILLAR_BASE),
+        JSON.stringify(pillars),
+        createHash("sha256").update(`demo-health-score:${n}`).digest("hex"),
+        0,
+        at,
+        at,
+      ]);
+    }
+    await bulkInsert(
+      client,
+      "health_score_records",
+      [
+        "id",
+        "user_id",
+        "day_key",
+        "timezone",
+        "composite",
+        "band",
+        "score_version",
+        "composition",
+        "pillar_scores",
+        "input_fingerprint",
+        "config_version",
+        "computed_at",
+        "created_at",
+      ],
+      scoreRows,
+    );
+
     // ── Workouts ──────────────────────────────
     // ~3–4 sessions/week across the window: a mix of running, strength, and
     // cycling, with the fields the workout tiles render — duration, energy,
@@ -925,12 +1256,21 @@ async function seed() {
     // ── Medications ───────────────────────────
     console.log("Creating medications...");
 
-    // Medication 1: Ramipril (blood pressure)
+    // Medication 1: Ramipril (blood pressure). Started about three years
+    // back at 2.5 mg and raised to 5 mg a year later; the multi-year history
+    // section below writes the dose changes, a short sick-day pause and the
+    // intakes before the 90-day window. `starts_on` is the stated start the
+    // timeline lane draws from.
     const med1Id = cuid();
     await client.query(
-      `INSERT INTO medications (id, user_id, name, dose, active, notifications_enabled, created_at, updated_at)
-       VALUES ($1, $2, 'Ramipril', '5mg', true, true, $3, $3)`,
-      [med1Id, userId, daysAgo(120)],
+      `INSERT INTO medications (id, user_id, name, dose, active, notifications_enabled, starts_on, created_at, updated_at)
+       VALUES ($1, $2, 'Ramipril', '5mg', true, true, $3, $4, $4)`,
+      [
+        med1Id,
+        userId,
+        formatDate(daysAgo(RAMIPRIL_START_DAYS_AGO)),
+        daysAgo(RAMIPRIL_START_DAYS_AGO),
+      ],
     );
     const sched1Id = cuid();
     await client.query(
@@ -942,9 +1282,14 @@ async function seed() {
     // Medication 2: Vitamin D3
     const med2Id = cuid();
     await client.query(
-      `INSERT INTO medications (id, user_id, name, dose, active, notifications_enabled, created_at, updated_at)
-       VALUES ($1, $2, 'Vitamin D3', '2000 IU', true, true, $3, $3)`,
-      [med2Id, userId, daysAgo(90)],
+      `INSERT INTO medications (id, user_id, name, dose, active, notifications_enabled, starts_on, created_at, updated_at)
+       VALUES ($1, $2, 'Vitamin D3', '2000 IU', true, true, $3, $4, $4)`,
+      [
+        med2Id,
+        userId,
+        formatDate(daysAgo(VITAMIN_D_START_DAYS_AGO)),
+        daysAgo(VITAMIN_D_START_DAYS_AGO),
+      ],
     );
     const sched2Id = cuid();
     await client.query(
@@ -956,9 +1301,9 @@ async function seed() {
     // Medication 3: Magnesium (evening)
     const med3Id = cuid();
     await client.query(
-      `INSERT INTO medications (id, user_id, name, dose, active, notifications_enabled, created_at, updated_at)
-       VALUES ($1, $2, 'Magnesium', '400mg', true, true, $3, $3)`,
-      [med3Id, userId, daysAgo(60)],
+      `INSERT INTO medications (id, user_id, name, dose, active, notifications_enabled, starts_on, created_at, updated_at)
+       VALUES ($1, $2, 'Magnesium', '400mg', true, true, $3, $4, $4)`,
+      [med3Id, userId, formatDate(daysAgo(60)), daysAgo(60)],
     );
     const sched3Id = cuid();
     await client.query(
@@ -1135,6 +1480,11 @@ async function seed() {
       const tags = tagOptions[5 - rawScore];
       const loggedAt = new Date(date);
       loggedAt.setHours(21, Math.floor(Math.random() * 59), 0);
+      // Today's evening entry has not happened yet when the seed runs
+      // earlier in the day; it is logged a few minutes ago instead.
+      if (loggedAt.getTime() > Date.now()) {
+        loggedAt.setTime(Date.now() - 5 * 60_000);
+      }
 
       await client.query(
         `INSERT INTO mood_entries (id, user_id, date, mood, score, tags, source, mood_logged_at, synced_at, created_at, updated_at)
@@ -1289,14 +1639,17 @@ async function seed() {
     // ── Illness / condition journal ───────────
     // Two episodes so the journal + per-condition timeline both render with
     // signal: (1) a short, fully-resolved cold ~7 weeks ago with a day-by-day
-    // symptom curve, and (2) an active chronic condition (seasonal allergic
-    // rhinitis) carrying a recent FLARE that hangs off it. Each episode gets
+    // symptom curve, and (2) a recurring condition (seasonal allergic
+    // rhinitis) with a spring FLARE that hangs off it. Each episode gets
     // IllnessDayLog rows (functional impact + optional fever + an encrypted
     // note) and per-day symptom links from the seeded catalogue, so the
     // retrospective curve + symptom chips have content. Day-log + episode
     // notes are AES-256-GCM Bytes (the `*Encrypted` convention), written with
     // the same codec the app uses — never plaintext.
     console.log("Creating illness / condition journal...");
+    // The pollen flare starts about 24 weeks back, in the spring of the
+    // year the seed runs in, and every day of it is placed from this anchor.
+    const FLARE_ONSET_DAYS_AGO = 170;
 
     // Resolve a catalogue symptom id by its stable machine key.
     const illnessSymptomId = async (key: string): Promise<string> => {
@@ -1430,27 +1783,35 @@ async function seed() {
       });
     }
 
-    // (2) Active chronic condition + a recent flare hanging off it.
+    // (2) A recurring condition with a flare hanging off it, both closed.
+    // Any episode left open puts the account in Rest Mode (an ongoing chronic
+    // condition deliberately included), and an open one dated 400 days back
+    // greeted every demo visitor with "Rest mode, day 401" and a score marked
+    // as not penalised. The season and its flare therefore sit in the spring
+    // and are resolved; the illness pages still show the whole history.
     const allergyId = cuid();
     await client.query(
       `INSERT INTO illness_episodes (id, user_id, label, type, lifecycle, onset_at, resolved_at, note_encrypted, created_at, updated_at)
-       VALUES ($1, $2, 'Seasonal allergic rhinitis', 'ALLERGY', 'CHRONIC_ONGOING', $3, NULL, $4, NOW(), NOW())`,
+       VALUES ($1, $2, 'Seasonal allergic rhinitis', 'ALLERGY', 'RECURRING', $3, $4, $5, NOW(), NOW())`,
       [
         allergyId,
         userId,
         daysAgo(400),
+        daysAgo(FLARE_ONSET_DAYS_AGO - 14),
         encBytes("Tree pollen each spring. Antihistamine helps."),
       ],
     );
-    // The flare: a still-open bout this past week referencing the parent.
+    // The flare: a bout at the height of the pollen season, referencing the
+    // parent, resolved a week after it started.
     const flareId = cuid();
     await client.query(
       `INSERT INTO illness_episodes (id, user_id, label, type, lifecycle, onset_at, resolved_at, parent_condition_id, note_encrypted, created_at, updated_at)
-       VALUES ($1, $2, 'Pollen flare', 'ALLERGY', 'FLARE', $3, NULL, $4, $5, NOW(), NOW())`,
+       VALUES ($1, $2, 'Pollen flare', 'ALLERGY', 'FLARE', $3, $4, $5, $6, NOW(), NOW())`,
       [
         flareId,
         userId,
-        daysAgo(5),
+        daysAgo(FLARE_ONSET_DAYS_AGO),
+        daysAgo(FLARE_ONSET_DAYS_AGO - 7),
         allergyId,
         encBytes("High pollen count this week — symptoms back."),
       ],
@@ -1462,7 +1823,7 @@ async function seed() {
       symptoms: Array<{ key: string; severity: number }>;
     }> = [
       {
-        offset: 5,
+        offset: FLARE_ONSET_DAYS_AGO,
         impact: 1,
         note: "Itchy eyes and sneezing started today.",
         symptoms: [
@@ -1471,7 +1832,7 @@ async function seed() {
         ],
       },
       {
-        offset: 4,
+        offset: FLARE_ONSET_DAYS_AGO - 1,
         impact: 1,
         note: "Pollen high again — runny nose all morning.",
         symptoms: [
@@ -1480,7 +1841,7 @@ async function seed() {
         ],
       },
       {
-        offset: 2,
+        offset: FLARE_ONSET_DAYS_AGO - 3,
         impact: 1,
         note: "Antihistamine taking the edge off.",
         symptoms: [
@@ -1489,7 +1850,7 @@ async function seed() {
         ],
       },
       {
-        offset: 0,
+        offset: FLARE_ONSET_DAYS_AGO - 6,
         impact: 1,
         note: "Still sniffly but manageable.",
         symptoms: [{ key: "runny_nose", severity: 1 }],
@@ -1705,7 +2066,922 @@ async function seed() {
       ],
     );
 
+    // ── Visits, a procedure and its documents ──
+    // Two practitioners, a past knee arthroscopy with its two letters linked,
+    // the follow-up visit that came after it, and a check-up booked for
+    // tomorrow morning. The booked visit is what the start page's Today
+    // overview and worth-a-look rail read; the procedure with linked files is
+    // what gives the documents page its procedure filter. Documents are real
+    // (tiny) PDFs, encrypted with the binary codec the upload path writes.
+    console.log("Creating visits, a procedure and its documents...");
+    const familyPracticeId = cuid();
+    const orthopaedicsId = cuid();
+    for (const [id, name, specialty] of [
+      [familyPracticeId, "Family practice", "General practice"],
+      [orthopaedicsId, "Orthopaedic clinic", "Orthopaedics"],
+    ]) {
+      await client.query(
+        `INSERT INTO practitioners (id, user_id, name, specialty, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+        [id, userId, name, specialty],
+      );
+    }
+    const insertEncounter = async (params: {
+      occurredAt: Date;
+      status: "DONE" | "PLANNED";
+      kind: "ROUTINE" | "PROCEDURE" | "PREVENTIVE" | "SPECIALIST" | "ACUTE";
+      practitionerId: string;
+      reason: string;
+      outcome?: string;
+      bodySite?: string;
+      laterality?: "LEFT" | "RIGHT";
+    }): Promise<string> => {
+      const id = cuid();
+      await client.query(
+        `INSERT INTO encounters (id, user_id, occurred_at, status, kind, practitioner_id, reason_encrypted, outcome_encrypted, body_site_encrypted, laterality, created_at, updated_at)
+         VALUES ($1, $2, $3, $4::encounter_status, $5::encounter_kind, $6, $7, $8, $9, $10::laterality, NOW(), NOW())`,
+        [
+          id,
+          userId,
+          params.occurredAt,
+          params.status,
+          params.kind,
+          params.practitionerId,
+          encBytes(params.reason),
+          params.outcome ? encBytes(params.outcome) : null,
+          params.bodySite ? encBytes(params.bodySite) : null,
+          params.laterality ?? null,
+        ],
+      );
+      return id;
+    };
+    const procedureAt = daysAgoAt(150, 8, 30);
+    const procedureId = await insertEncounter({
+      occurredAt: procedureAt,
+      status: "DONE",
+      kind: "PROCEDURE",
+      practitionerId: orthopaedicsId,
+      reason: "Arthroscopy for a torn meniscus after a running injury.",
+      outcome:
+        "Partial meniscectomy, day surgery. Physiotherapy for six weeks, " +
+        "back to easy running after that.",
+      bodySite: "knee",
+      laterality: "LEFT",
+    });
+    await insertEncounter({
+      occurredAt: daysAgoAt(136, 10, 15),
+      status: "DONE",
+      kind: "ROUTINE",
+      practitionerId: orthopaedicsId,
+      reason: "Follow-up two weeks after the arthroscopy.",
+      outcome: "Healing well, full range of motion. Physiotherapy continues.",
+    });
+    await insertEncounter({
+      occurredAt: daysAgoAt(-1, 9, 30),
+      status: "PLANNED",
+      kind: "ROUTINE",
+      practitionerId: familyPracticeId,
+      reason: "Annual check-up with a blood panel.",
+    });
+    const procedureDocs: Array<{
+      kind: "DOCTOR_REPORT" | "DISCHARGE_LETTER";
+      title: string;
+      filename: string;
+      date: Date;
+      lines: string[];
+    }> = [
+      {
+        kind: "DOCTOR_REPORT",
+        title: "Operative report, knee arthroscopy",
+        filename: "operative-report-knee-arthroscopy.pdf",
+        date: procedureAt,
+        lines: [
+          "Operative report",
+          "Procedure: arthroscopic partial meniscectomy, left knee",
+          "Anaesthesia: general, day surgery",
+          "Findings: radial tear of the medial meniscus, cartilage intact",
+          "Course: uneventful",
+        ],
+      },
+      {
+        kind: "DISCHARGE_LETTER",
+        title: "Discharge letter, day surgery",
+        filename: "discharge-letter-day-surgery.pdf",
+        date: procedureAt,
+        lines: [
+          "Discharge letter",
+          "Discharged the same afternoon in good condition",
+          "Weight-bearing as tolerated, crutches for three days",
+          "Physiotherapy: twice a week for six weeks",
+          "Follow-up in the clinic after two weeks",
+        ],
+      },
+    ];
+    for (const doc of procedureDocs) {
+      const pdf = simplePdf(doc.lines);
+      const docId = cuid();
+      await client.query(
+        `INSERT INTO inbound_documents (id, user_id, kind, title, filename, mime_type, byte_size, content_encrypted, content_sha256, content_codec, status, document_date, created_at, updated_at)
+         VALUES ($1, $2, $3::inbound_document_kind, $4, $5, 'application/pdf', $6, $7, $8, 'binary2', 'STORED', $9, $9, $9)`,
+        [
+          docId,
+          userId,
+          doc.kind,
+          doc.title,
+          doc.filename,
+          pdf.byteLength,
+          Buffer.from(encryptBytes(pdf)),
+          createHash("sha256").update(pdf).digest("hex"),
+          doc.date,
+        ],
+      );
+      await client.query(
+        `INSERT INTO encounter_document_links (id, encounter_id, document_id, user_id, created_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [cuid(), procedureId, docId, userId],
+      );
+    }
+
     // ── Achievements ─────────────────────────
+    // ── Multi-year history ────────────────────
+    // The 90-day window above is what the dashboard reads; the timeline and
+    // the day view read years. This section writes the record before that
+    // window, about four and a half years back, with the density a real one
+    // has: blood pressure in bursts with a quarter of silence after the
+    // daughter's birth, weight weekly, a phone's step count all along, and a
+    // watch's resting heart rate, HRV and sleep from the third year on. Around
+    // it: the blood-pressure work-up that started ramipril, its dose change
+    // and sick-day pause, illnesses with start and end, flu shots, check-ups
+    // with their blood panels, life events at day, month and year precision,
+    // the home location with a summer holiday, and the stored weather, air
+    // quality and pollen for every day of the record. Every value is invented.
+    console.log("Creating multi-year history...");
+    const today = berlinDayKey();
+    const dayKeyAgo = (n: number) => berlinDayKey(daysAgoAt(n, 12));
+
+    // Measurements before the 90-day window.
+    const historyRows: unknown[][] = [];
+    const addMeasurement = (
+      type: string,
+      value: number,
+      unit: string,
+      source: string,
+      at: Date,
+    ) => {
+      historyRows.push([cuid(), userId, type, value, unit, source, at, at, at]);
+    };
+    // Blood pressure: a quarter without a reading after the birth (the line
+    // breaks into a dashed bridge there) and one early quarter with only two
+    // readings (drawn hollow).
+    const silentBpQuarter = quarterOf(dayKeyAgo(DAUGHTER_BORN_DAYS_AGO - 45));
+    const thinBpQuarter = quarterOf(dayKeyAgo(1380));
+    const thinWeightQuarter = silentBpQuarter;
+    const quarterCounts = new Map<string, number>();
+    const sysKnots: Array<[number, number]> = [
+      [HISTORY_DAYS, 134],
+      [1160, 143],
+      [RAMIPRIL_START_DAYS_AGO, 142],
+      [1000, 136],
+      [RAMIPRIL_DOSE_UP_DAYS_AGO, 135],
+      [600, 130],
+      [91, 128],
+    ];
+    const diaKnots: Array<[number, number]> = [
+      [HISTORY_DAYS, 86],
+      [1160, 92],
+      [RAMIPRIL_START_DAYS_AGO, 91],
+      [1000, 87],
+      [RAMIPRIL_DOSE_UP_DAYS_AGO, 86],
+      [600, 83],
+      [91, 82],
+    ];
+    const weightKnots: Array<[number, number]> = [
+      [HISTORY_DAYS, 83.4],
+      [1180, 85.2],
+      [DAUGHTER_BORN_DAYS_AGO, 88.6],
+      [420, 87.9],
+      [91, 86.5],
+    ];
+    const restingKnots: Array<[number, number]> = [
+      [WATCH_FROM_DAYS_AGO, 63],
+      [DAUGHTER_BORN_DAYS_AGO, 65],
+      [500, 63],
+      [91, 64],
+    ];
+    const hrvKnots: Array<[number, number]> = [
+      [WATCH_FROM_DAYS_AGO, 46],
+      [DAUGHTER_BORN_DAYS_AGO, 39],
+      [480, 45],
+      [91, 48],
+    ];
+    const sleepKnots: Array<[number, number]> = [
+      [WATCH_FROM_DAYS_AGO, 445],
+      [DAUGHTER_BORN_DAYS_AGO + 5, 440],
+      [DAUGHTER_BORN_DAYS_AGO - 10, 365],
+      [480, 410],
+      [91, 420],
+    ];
+    const stepKnots: Array<[number, number]> = [
+      [HISTORY_DAYS, 6300],
+      [DAUGHTER_BORN_DAYS_AGO, 5600],
+      [560, 7400],
+      [91, 6500],
+    ];
+    // The watch is off the wrist for a fortnight one summer (a broken strap).
+    const watchOff = { from: 300, to: 287 };
+
+    for (let n = HISTORY_DAYS; n > days; n--) {
+      const at = daysAgo(n);
+      const key = dayKeyAgo(n);
+      const quarter = quarterOf(key);
+      const paused = n <= RAMIPRIL_PAUSE.from && n >= RAMIPRIL_PAUSE.to;
+
+      // Blood pressure, in bursts: daily during the work-up, a few times a
+      // week once treatment settled, now and then before it all started.
+      const bpChance =
+        n > 1165
+          ? 0.12
+          : n > 1090
+            ? 0.9
+            : n > RAMIPRIL_DOSE_UP_DAYS_AGO - 30 &&
+                n < RAMIPRIL_DOSE_UP_DAYS_AGO + 20
+              ? 0.7
+              : paused || (n < RAMIPRIL_PAUSE.to && n > RAMIPRIL_PAUSE.to - 14)
+                ? 0.9
+                : 0.3;
+      const bpTaken = quarterCounts.get(`bp:${quarter}`) ?? 0;
+      const bpAllowed =
+        quarter === silentBpQuarter
+          ? false
+          : quarter === thinBpQuarter
+            ? bpTaken < 2
+            : true;
+      if (bpAllowed && Math.random() < bpChance) {
+        quarterCounts.set(`bp:${quarter}`, bpTaken + 1);
+        const bump = paused ? 7 : 0;
+        const sys = Math.round(knotValue(sysKnots, n) + bump + jitter(6));
+        const dia = Math.round(knotValue(diaKnots, n) + bump / 2 + jitter(4));
+        addMeasurement("BLOOD_PRESSURE_SYS", sys, "mmHg", "MANUAL", at);
+        addMeasurement("BLOOD_PRESSURE_DIA", dia, "mmHg", "MANUAL", at);
+        addMeasurement(
+          "PULSE",
+          Math.round(72 + jitter(6)),
+          "bpm",
+          "MANUAL",
+          at,
+        );
+      }
+
+      // Weight, once a week on the bathroom scale (thin after the birth).
+      if (n % 7 === 3) {
+        const wTaken = quarterCounts.get(`w:${quarter}`) ?? 0;
+        if (quarter !== thinWeightQuarter || wTaken < 2) {
+          quarterCounts.set(`w:${quarter}`, wTaken + 1);
+          addMeasurement(
+            "WEIGHT",
+            Math.round((knotValue(weightKnots, n) + jitter(0.6)) * 10) / 10,
+            "kg",
+            "WITHINGS",
+            at,
+          );
+        }
+      }
+
+      // Steps from the phone, every day of the record.
+      addMeasurement(
+        "ACTIVITY_STEPS",
+        Math.max(1200, Math.round(knotValue(stepKnots, n) + jitter(2200))),
+        "steps",
+        "APPLE_HEALTH",
+        at,
+      );
+
+      // The watch: resting heart rate, HRV and sleep, daily from year three.
+      const wearing =
+        n <= WATCH_FROM_DAYS_AGO &&
+        !(n <= watchOff.from && n >= watchOff.to) &&
+        Math.random() > 0.04;
+      if (wearing) {
+        addMeasurement(
+          "RESTING_HEART_RATE",
+          Math.round(knotValue(restingKnots, n) + jitter(3)),
+          "bpm",
+          "APPLE_HEALTH",
+          at,
+        );
+        addMeasurement(
+          "HEART_RATE_VARIABILITY",
+          Math.round(knotValue(hrvKnots, n) + jitter(7)),
+          "ms",
+          "APPLE_HEALTH",
+          at,
+        );
+        addMeasurement(
+          "SLEEP_DURATION",
+          Math.round(knotValue(sleepKnots, n) + jitter(40)),
+          "minutes",
+          "APPLE_HEALTH",
+          at,
+        );
+      }
+    }
+    await bulkInsert(
+      client,
+      "measurements",
+      [
+        "id",
+        "user_id",
+        "type",
+        "value",
+        "unit",
+        "source",
+        "measured_at",
+        "created_at",
+        "updated_at",
+      ],
+      historyRows,
+    );
+
+    // Ramipril and Vitamin D3 intakes before the 90-day window, at the same
+    // slot anchoring as the window itself, and none while ramipril is paused.
+    const intakeRows: unknown[][] = [];
+    const addIntake = (medicationId: string, n: number, compliance: number) => {
+      const slot = berlinHmAsUtc(8, 0, daysAgo(n));
+      if (Math.random() < compliance) {
+        const taken = new Date(
+          slot.getTime() + (5 + Math.floor(Math.random() * 50)) * 60_000,
+        );
+        intakeRows.push([
+          cuid(),
+          userId,
+          medicationId,
+          slot,
+          taken,
+          false,
+          "WEB",
+          taken,
+          taken,
+        ]);
+      } else {
+        intakeRows.push([
+          cuid(),
+          userId,
+          medicationId,
+          slot,
+          null,
+          true,
+          "WEB",
+          slot,
+          slot,
+        ]);
+      }
+    };
+    for (let n = RAMIPRIL_START_DAYS_AGO; n > days; n--) {
+      if (n <= RAMIPRIL_PAUSE.from && n >= RAMIPRIL_PAUSE.to) continue;
+      addIntake(med1Id, n, 0.97);
+      if (n <= VITAMIN_D_START_DAYS_AGO) addIntake(med2Id, n, 0.94);
+    }
+    await bulkInsert(
+      client,
+      "medication_intake_events",
+      [
+        "id",
+        "user_id",
+        "medication_id",
+        "scheduled_for",
+        "taken_at",
+        "skipped",
+        "source",
+        "created_at",
+        "updated_at",
+      ],
+      intakeRows,
+    );
+
+    // The ramipril dose history and its sick-day pause.
+    for (const [n, value] of [
+      [RAMIPRIL_START_DAYS_AGO, 2.5],
+      [RAMIPRIL_DOSE_UP_DAYS_AGO, 5],
+    ] as const) {
+      await client.query(
+        `INSERT INTO medication_dose_changes (id, medication_id, effective_from, dose_value, dose_unit, created_at)
+         VALUES ($1, $2, $3, $4, 'mg', $3)`,
+        [cuid(), med1Id, daysAgoAt(n, 8), value],
+      );
+    }
+    await client.query(
+      `INSERT INTO medication_pause_eras (id, medication_id, user_id, paused_at, resumed_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        cuid(),
+        med1Id,
+        userId,
+        daysAgoAt(RAMIPRIL_PAUSE.from, 9),
+        daysAgoAt(RAMIPRIL_PAUSE.to - 1, 8),
+        daysAgoAt(RAMIPRIL_PAUSE.from, 9),
+      ],
+    );
+    // A finished antibiotic course for the bronchitis.
+    await client.query(
+      `INSERT INTO medications (id, user_id, name, dose, active, notifications_enabled, starts_on, ends_on, created_at, updated_at)
+       VALUES ($1, $2, 'Amoxicillin', '1000mg', false, false, $3, $4, $5, $5)`,
+      [
+        cuid(),
+        userId,
+        formatDate(daysAgo(797)),
+        formatDate(daysAgo(791)),
+        daysAgo(797),
+      ],
+    );
+
+    // Illnesses before the window, each with a start and an end. The back
+    // pain is the chronic one; it settled after a course of physiotherapy,
+    // so nothing here is left open (an open episode puts the account in
+    // Rest Mode).
+    for (const ep of [
+      {
+        label: "Chronic lower back pain",
+        type: "CHRONIC",
+        lifecycle: "CHRONIC_ONGOING",
+        from: 1560,
+        to: 1240,
+        note: "Desk job and too little movement. Physiotherapy twice a week.",
+      },
+      {
+        label: "Influenza",
+        type: "INFECTION",
+        lifecycle: "ACUTE",
+        from: 1370,
+        to: 1361,
+        note: "High fever for three days, a week in bed.",
+      },
+      {
+        label: "Acute bronchitis",
+        type: "INFECTION",
+        lifecycle: "ACUTE",
+        from: 800,
+        to: 788,
+        note: "Cough that would not settle. Antibiotics from the practice.",
+      },
+      {
+        label: "Gastroenteritis",
+        type: "INFECTION",
+        lifecycle: "ACUTE",
+        from: 427,
+        to: 422,
+        note: "Stomach bug from daycare. Ramipril paused until eating again.",
+      },
+    ]) {
+      await client.query(
+        `INSERT INTO illness_episodes (id, user_id, label, type, lifecycle, onset_at, resolved_at, note_encrypted, created_at, updated_at)
+         VALUES ($1, $2, $3, $4::illness_type, $5::illness_lifecycle, $6, $7, $8, $6, $7)`,
+        [
+          cuid(),
+          userId,
+          ep.label,
+          ep.type,
+          ep.lifecycle,
+          daysAgo(ep.from),
+          daysAgo(ep.to),
+          encBytes(ep.note),
+        ],
+      );
+    }
+
+    // A cardiology practice for the work-up, then the visits over the years.
+    const cardiologyId = cuid();
+    await client.query(
+      `INSERT INTO practitioners (id, user_id, name, specialty, created_at, updated_at)
+       VALUES ($1, $2, 'Cardiology practice', 'Cardiology', $3, $3)`,
+      [cardiologyId, userId, daysAgo(1140)],
+    );
+    const historyVisits: Array<{
+      n: number;
+      kind: "ROUTINE" | "PREVENTIVE" | "SPECIALIST" | "ACUTE";
+      practitionerId: string;
+      reason: string;
+      outcome: string;
+    }> = [
+      {
+        n: 1560,
+        kind: "PREVENTIVE",
+        practitionerId: familyPracticeId,
+        reason: "Health check-up with a blood panel.",
+        outcome: "All fine. Back pain: referral to physiotherapy.",
+      },
+      {
+        n: 1190,
+        kind: "PREVENTIVE",
+        practitionerId: familyPracticeId,
+        reason: "Health check-up with a blood panel.",
+        outcome:
+          "Blood pressure high at the practice. Home readings for two weeks.",
+      },
+      {
+        n: 1140,
+        kind: "SPECIALIST",
+        practitionerId: cardiologyId,
+        reason: "Blood pressure work-up with a 24-hour measurement.",
+        outcome: "Mild hypertension, heart otherwise healthy. Ramipril 2.5 mg.",
+      },
+      {
+        n: 830,
+        kind: "PREVENTIVE",
+        practitionerId: familyPracticeId,
+        reason: "Health check-up with a blood panel.",
+        outcome: "Lipids slightly up. More exercise, recheck next year.",
+      },
+      {
+        n: 797,
+        kind: "ACUTE",
+        practitionerId: familyPracticeId,
+        reason: "Cough and fever for five days.",
+        outcome: "Acute bronchitis. Amoxicillin for seven days.",
+      },
+      {
+        n: RAMIPRIL_DOSE_UP_DAYS_AGO,
+        kind: "ROUTINE",
+        practitionerId: familyPracticeId,
+        reason: "Blood pressure follow-up.",
+        outcome: "Still above target, ramipril raised to 5 mg.",
+      },
+      {
+        n: 470,
+        kind: "PREVENTIVE",
+        practitionerId: familyPracticeId,
+        reason: "Health check-up with a blood panel.",
+        outcome: "Blood pressure on target. Lipids better.",
+      },
+      {
+        n: 426,
+        kind: "ACUTE",
+        practitionerId: familyPracticeId,
+        reason: "Vomiting and diarrhoea since yesterday.",
+        outcome:
+          "Gastroenteritis. Pause ramipril until eating and drinking normally.",
+      },
+    ];
+    for (const v of historyVisits) {
+      await insertEncounter({
+        occurredAt: daysAgoAt(v.n, 9, 15),
+        status: "DONE",
+        kind: v.kind,
+        practitionerId: v.practitionerId,
+        reason: v.reason,
+        outcome: v.outcome,
+      });
+    }
+
+    // The blood panels of those check-ups: HbA1c, lipids and haemoglobin.
+    const historyPanels: Array<{ n: number; values: Record<string, number> }> =
+      [
+        {
+          n: 1560,
+          values: { hba1c: 5.3, tc: 205, ldl: 128, hdl: 49, hb: 15.1 },
+        },
+        {
+          n: 1190,
+          values: { hba1c: 5.4, tc: 214, ldl: 137, hdl: 47, hb: 14.8 },
+        },
+        { n: 1140, values: { tc: 216, ldl: 140, hdl: 47 } },
+        {
+          n: 830,
+          values: { hba1c: 5.6, tc: 209, ldl: 132, hdl: 48, hb: 15.0 },
+        },
+        {
+          n: 470,
+          values: { hba1c: 5.5, tc: 199, ldl: 121, hdl: 51, hb: 14.6 },
+        },
+      ];
+    const panelLabs: Record<string, Omit<QuantLab, "value">> = {
+      hba1c: { analyte: "HbA1c", unit: "%", low: 4.0, high: 5.6 },
+      tc: { analyte: "Total Cholesterol", unit: "mg/dL", low: 0, high: 200 },
+      ldl: { analyte: "LDL", unit: "mg/dL", low: 0, high: 130 },
+      hdl: { analyte: "HDL", unit: "mg/dL", low: 40, high: 100 },
+      hb: { analyte: "Hemoglobin", unit: "g/dL", low: 13.5, high: 17.5 },
+    };
+    for (const panel of historyPanels) {
+      for (const [key, value] of Object.entries(panel.values)) {
+        await insertQuant(
+          "Blood panel",
+          { ...panelLabs[key], value },
+          daysAgoAt(panel.n, 9, 0),
+        );
+      }
+    }
+
+    // Vaccinations: a flu shot every autumn and a tetanus-diphtheria-
+    // pertussis booster. The newest flu shot is recent, so nothing is due.
+    for (const v of [
+      { n: 1440, slug: "influenza", name: "Influenza" },
+      { n: 1075, slug: "influenza", name: "Influenza" },
+      { n: 985, slug: "tdap", name: "Tdap" },
+      { n: 710, slug: "influenza", name: "Influenza" },
+      { n: 345, slug: "influenza", name: "Influenza" },
+      { n: 12, slug: "influenza", name: "Influenza" },
+    ]) {
+      const at = daysAgoAt(v.n, 10, 30);
+      await client.query(
+        `INSERT INTO vaccination_records (id, user_id, occurred_at, antigen_slug, vaccine_name, site, practitioner_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'LEFT_ARM'::vaccination_site, $6, $3, $3)`,
+        [cuid(), userId, at, v.slug, v.name, familyPracticeId],
+      );
+    }
+
+    // Life events, at the precision a person actually remembers them.
+    const monthStart = (n: number) => `${dayKeyAgo(n).slice(0, 7)}-01`;
+    const lastYear = Number(today.slice(0, 4)) - 1;
+    const lifeEvents: Array<{
+      category: "FAMILY" | "HOME" | "WORK" | "OTHER";
+      start: string;
+      end: string | null;
+      precision: "DAY" | "MONTH" | "YEAR";
+      title: string;
+      note?: string;
+    }> = [
+      {
+        category: "HOME",
+        start: monthStart(HISTORY_DAYS),
+        end: null,
+        precision: "MONTH",
+        title: "Moved to Freiburg",
+      },
+      {
+        category: "WORK",
+        start: dayKeyAgo(1185),
+        end: null,
+        precision: "DAY",
+        title: "Started a new job",
+        note: "Longer commute, more sitting.",
+      },
+      {
+        category: "FAMILY",
+        start: dayKeyAgo(DAUGHTER_BORN_DAYS_AGO),
+        end: null,
+        precision: "DAY",
+        title: "Our daughter was born",
+      },
+      {
+        category: "FAMILY",
+        start: monthStart(DAUGHTER_BORN_DAYS_AGO - 20),
+        end: monthStart(DAUGHTER_BORN_DAYS_AGO - 80),
+        precision: "MONTH",
+        title: "Parental leave",
+      },
+      {
+        category: "OTHER",
+        start: `${lastYear}-01-01`,
+        end: null,
+        precision: "YEAR",
+        title: "Started running regularly",
+      },
+      {
+        category: "HOME",
+        start: dayKeyAgo(380),
+        end: null,
+        precision: "DAY",
+        title: "Moved into a bigger flat",
+      },
+      {
+        category: "FAMILY",
+        start: dayKeyAgo(46),
+        end: null,
+        precision: "DAY",
+        title: "First day at daycare",
+        note: "Settling-in week, short days.",
+      },
+    ];
+    for (const e of lifeEvents) {
+      await client.query(
+        `INSERT INTO life_events (id, user_id, category, start_date, end_date, precision, title_encrypted, note_encrypted, created_at, updated_at)
+         VALUES ($1, $2, $3::life_event_category, $4, $5, $6::life_event_precision, $7, $8, NOW(), NOW())`,
+        [
+          cuid(),
+          userId,
+          e.category,
+          e.start,
+          e.end,
+          e.precision,
+          encBytes(e.title),
+          e.note ? encBytes(e.note) : null,
+        ],
+      );
+    }
+
+    // The timeline module is opt-in; the demo shows it. The home location
+    // is sealed the way the settings route writes it (readable columns null).
+    const homeSince = daysAgoAt(HISTORY_DAYS, 12);
+    await client.query(
+      `UPDATE users
+          SET module_preferences_json = $2,
+              home_lat = NULL, home_lon = NULL, home_label = NULL,
+              home_location_encrypted = $3,
+              home_timezone = 'Europe/Berlin',
+              home_since = $4,
+              environment_air_quality_enabled = true
+        WHERE id = $1`,
+      [
+        userId,
+        JSON.stringify({ timeline: true }),
+        sealDemoLocation(DEMO_HOME),
+        homeSince,
+      ],
+    );
+    await client.query(
+      `INSERT INTO environment_travel_locations (id, user_id, start_date, end_date, location_encrypted, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+      [
+        cuid(),
+        userId,
+        dayKeyAgo(HOLIDAY.from),
+        dayKeyAgo(HOLIDAY.to),
+        sealDemoLocation(DEMO_HOLIDAY_PLACE),
+      ],
+    );
+
+    // Stored weather, air quality and pollen for every day of the record,
+    // written as the nightly fetch would leave them (no feed is called).
+    // Seasonal shapes for a city in the south-west: mild winters, warm
+    // summers, alder and birch in spring, grass into July, mugwort and
+    // ragweed from late summer well into October.
+    const sealedHome = sealDemoLocation(DEMO_HOME);
+    const sealedHoliday = sealDemoLocation(DEMO_HOLIDAY_PLACE);
+    const envRows: unknown[][] = [];
+    let cloud = 55;
+    const fetchedAt = new Date();
+    for (let n = HISTORY_DAYS; n >= 0; n--) {
+      const key = dayKeyAgo(n);
+      const away = n <= HOLIDAY.from && n >= HOLIDAY.to;
+      const doy = dayOfYear(key);
+      const season = Math.sin((2 * Math.PI * (doy - 110)) / 365);
+      cloud = Math.min(
+        100,
+        Math.max(0, cloud + (60 - cloud) * 0.3 + jitter(35)),
+      );
+      const rainy = cloud > 72 && Math.random() < 0.7;
+      const tempMean =
+        Math.round(
+          ((away ? 9.5 : 11) +
+            (away ? 8 : 9.5) * season +
+            jitter(3) -
+            (rainy ? 1.5 : 0)) *
+            10,
+        ) / 10;
+      const tempMin = Math.round((tempMean - 4 - Math.random() * 2) * 10) / 10;
+      const tempMax =
+        Math.round(
+          (tempMean + 4.5 + Math.random() * 2.5 - (rainy ? 2 : 0)) * 10,
+        ) / 10;
+      const daylight = daylightHours(
+        away ? DEMO_HOLIDAY_PLACE.lat : DEMO_HOME.lat,
+        doy,
+      );
+      const sunshine = Math.max(0, daylight * (1 - cloud / 100) * 0.85);
+      const precip = rainy ? Math.round((1 + Math.random() * 14) * 10) / 10 : 0;
+      const weatherCode = rainy
+        ? tempMean < 1
+          ? 71
+          : precip > 8
+            ? 63
+            : 61
+        : cloud > 80
+          ? 3
+          : cloud > 35
+            ? 2
+            : cloud > 15
+              ? 1
+              : 0;
+      // Air: more particles in winter (heating, inversions), more ozone in
+      // summer, a little cleaner on rainy days and by the sea.
+      const winter = (1 - season) / 2;
+      const clean = (rainy ? 0.7 : 1) * (away ? 0.6 : 1);
+      const pm25Mean =
+        Math.round((5 + 9 * winter + jitter(2.5)) * clean * 10) / 10;
+      const pm25Max =
+        Math.round(pm25Mean * (1.5 + Math.random() * 0.6) * 10) / 10;
+      const pm10Mean = Math.round((pm25Mean * 1.6 + jitter(2)) * 10) / 10;
+      const no2Mean =
+        Math.round((12 + 10 * winter + jitter(4)) * clean * 10) / 10;
+      const o3Max8h = Math.round(
+        (55 + 45 * (1 - winter) + jitter(12)) * (rainy ? 0.8 : 1),
+      );
+      const eaqiMax = Math.round(
+        Math.max(pm25Max * 1.7, pm10Mean * 0.9, o3Max8h * 0.42, no2Mean * 0.8),
+      );
+      const usaqiMax = Math.round(Math.max(pm25Max * 3.1, o3Max8h * 0.45));
+      const uvIndexMax =
+        Math.round(
+          Math.max(
+            0.3,
+            (1 + 6.5 * (1 - winter)) * (1 - cloud / 160) + jitter(0.4),
+          ) * 10,
+        ) / 10;
+      // Pollen, damped on rainy days, none by the sea in late summer.
+      const damp = (rainy ? 0.35 : 1) * (0.7 + Math.random() * 0.6);
+      const pollen = (from: number, to: number, peak: number) =>
+        Math.round(pollenSeason(doy, from, to, peak) * damp);
+      envRows.push([
+        cuid(),
+        userId,
+        key,
+        null,
+        null,
+        null,
+        away ? sealedHoliday : sealedHome,
+        away ? "TRAVEL" : "HOME",
+        tempMin,
+        tempMax,
+        tempMean,
+        Math.round((tempMean - (rainy ? 2 : 0.5)) * 10) / 10,
+        Math.round(sunshine * 3600),
+        Math.round(daylight * 3600),
+        precip,
+        Math.round((1016 - (rainy ? 9 : 0) + jitter(5)) * 10) / 10,
+        Math.round((2 + Math.random() * (rainy ? 8 : 4)) * 10) / 10,
+        Math.round(60 + cloud * 0.25 + jitter(8)),
+        Math.round(cloud),
+        weatherCode,
+        Math.round((tempMax + (rainy ? -1 : 1.5)) * 10) / 10,
+        pm25Mean,
+        pm25Max,
+        pm10Mean,
+        no2Mean,
+        Math.round(1.2 + Math.random() * 1.5),
+        Math.round(180 + 120 * winter + jitter(30)),
+        o3Max8h,
+        eaqiMax,
+        usaqiMax,
+        uvIndexMax,
+        Math.round(Math.random() * (doy > 90 && doy < 250 ? 18 : 4)),
+        Math.round((0.08 + Math.random() * 0.2) * 100) / 100,
+        pollen(35, 85, 70),
+        pollen(92, 135, away ? 20 : 190),
+        pollen(128, 215, 85),
+        away ? 0 : pollen(195, 255, 28),
+        0,
+        away ? 0 : pollen(220, 305, 45),
+        "cams_europe",
+        24,
+        fetchedAt,
+        fetchedAt,
+        fetchedAt,
+        fetchedAt,
+      ]);
+    }
+    await bulkInsert(
+      client,
+      "environment_contexts",
+      [
+        "id",
+        "user_id",
+        "date",
+        "lat",
+        "lon",
+        "location_label",
+        "location_encrypted",
+        "source",
+        "temp_min",
+        "temp_max",
+        "temp_mean",
+        "apparent_mean",
+        "sunshine_sec",
+        "daylight_sec",
+        "precip_sum",
+        "pressure_mean",
+        "pressure_delta",
+        "humidity_mean",
+        "cloud_mean",
+        "weather_code",
+        "apparent_max",
+        "pm25_mean",
+        "pm25_max",
+        "pm10_mean",
+        "no2_mean",
+        "so2_mean",
+        "co_mean",
+        "o3_max_8h",
+        "eaqi_max",
+        "usaqi_max",
+        "uv_index_max",
+        "dust_max",
+        "aod_max",
+        "pollen_alder_max",
+        "pollen_birch_max",
+        "pollen_grass_max",
+        "pollen_mugwort_max",
+        "pollen_olive_max",
+        "pollen_ragweed_max",
+        "aq_domain",
+        "aq_hours",
+        "aq_fetched_at",
+        "fetched_at",
+        "created_at",
+        "updated_at",
+      ],
+      envRows,
+      200,
+    );
+
     console.log("Creating achievements...");
 
     // Every id below is a real key from the achievement registry
@@ -1752,62 +3028,280 @@ async function seed() {
       );
     }
 
-    // ── Coach sample conversation ─────────────
-    // A short, encrypted two-turn exchange so the Coach surface shows real
-    // content. Messages use the same AES-256-GCM Bytes codec the app writes
-    // with (encryptToBytes → encrypt() under ENCRYPTION_KEYS), so they decrypt
-    // exactly like a live conversation — no faked / plaintext rows.
-    console.log("Creating Coach sample conversation...");
-    const convoId = cuid();
-    const convoStart = daysAgo(3);
-    await client.query(
-      `INSERT INTO coach_conversations (id, user_id, title, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $4)`,
-      [convoId, userId, "Blood pressure trend", convoStart],
-    );
+    // ── Coach sample conversations ────────────
+    // Five short, encrypted exchanges spread from today back over a few
+    // weeks, so the history rail groups them by day the way a used account
+    // reads, and the thread that opens first (today's) carries a full answer
+    // with the steps the Coach took. Messages use the same AES-256-GCM Bytes
+    // codec the app writes with (encryptToBytes → encrypt() under
+    // ENCRYPTION_KEYS), so they decrypt exactly like a live conversation — no
+    // faked / plaintext rows.
+    console.log("Creating Coach sample conversations...");
 
-    const coachTurns: Array<{
-      role: string;
-      content: string;
-      metricSourceJson?: string;
+    // The provenance uses the contract tokens (`bp`, `resting_hr`, `sleep`):
+    // the client names an area only through a known token, so a token it
+    // cannot name never reaches the page. The steps give the answer its
+    // "Looked at N sources" header the way a live turn would; they carry no
+    // counts, since a count is the server's tally and the seed does not
+    // run a tool.
+    const WINDOW_LABEL = {
+      last7days: "last 7 days",
+      last30days: "last 30 days",
+      last90days: "last 90 days",
+    } as const;
+    const seedStep = (
+      id: string,
+      tool: string,
+      domain: string,
+      domainLabel: string,
+      window: keyof typeof WINDOW_LABEL = "last30days",
+    ) => ({
+      id,
+      tool,
+      labelKey: "coach.step.readWindow",
+      label: `Checking: ${domainLabel}, ${WINDOW_LABEL[window]}`,
+      domain,
+      window,
+      status: "done",
+    });
+    type SeedStep = ReturnType<typeof seedStep>;
+    const answer = (
+      content: string,
+      window: SeedStep["window"],
+      steps: SeedStep[],
+      tokensUsed: number,
+    ) => ({
+      role: "assistant",
+      content,
+      metricSourceJson: JSON.stringify({
+        windows: [window],
+        metrics: [...new Set(steps.map((step) => step.domain))],
+        steps,
+      }),
+      tokensUsed,
+      model: aiModel,
+    });
+    const coachConversations: Array<{
+      title: string;
+      startedAt: Date;
+      turns: Array<{
+        role: string;
+        content: string;
+        metricSourceJson?: string;
+        tokensUsed?: number;
+        model?: string;
+      }>;
     }> = [
       {
-        role: "user",
-        content: "How has my blood pressure been trending lately?",
+        title: "Recovery this week",
+        // Today, shortly before the seed ran, so it is the newest thread.
+        startedAt: new Date(Date.now() - 50 * 60_000),
+        turns: [
+          {
+            role: "user",
+            content:
+              "How well have I been recovering this week, and is there anything I should change?",
+          },
+          answer(
+            "This has been a well-recovered week. You slept close to seven " +
+              "and a half hours on most nights, with a steady share of deep " +
+              "sleep, and your resting heart rate stayed in the high fifties, " +
+              "which is where it has sat for the past month.\n\n" +
+              "Heart-rate variability tells the same story: it held inside " +
+              "your usual range on every day this week, and the two harder " +
+              "runs did not push it down the next morning. Your step count " +
+              "averaged around nine thousand a day, so the load is there " +
+              "without tipping into strain.\n\n" +
+              "Nothing here asks for a change. If you want one thing to keep " +
+              "an eye on, it is the later bedtimes on the weekend: the two " +
+              "shortest nights of the week both fell on a Saturday or Sunday.",
+            "last7days",
+            [
+              seedStep("s1", "get_sleep", "sleep", "Sleep", "last7days"),
+              seedStep(
+                "s2",
+                "get_metric_series",
+                "resting_hr",
+                "Resting HR",
+                "last7days",
+              ),
+              seedStep("s3", "get_metric_series", "hrv", "HRV", "last7days"),
+              seedStep(
+                "s4",
+                "get_metric_series",
+                "steps",
+                "Steps",
+                "last7days",
+              ),
+              seedStep(
+                "s5",
+                "get_workouts",
+                "workouts",
+                "Workouts",
+                "last7days",
+              ),
+            ],
+            2630,
+          ),
+        ],
       },
       {
-        role: "assistant",
-        content:
-          "Your blood pressure has been settling nicely. Over the last few " +
-          "weeks the morning readings have drifted into the optimal band, and " +
-          "your resting heart rate is sitting in a comfortable range too. " +
-          "Keeping up the steady sleep and daily movement looks like it is " +
-          "paying off — worth staying consistent with the morning measurements " +
-          "so the trend stays easy to read.",
-        metricSourceJson: JSON.stringify({
-          window: "last30days",
-          metrics: ["bloodPressure", "restingHeartRate", "sleep"],
-        }),
+        title: "Resting heart rate",
+        startedAt: daysAgoAt(1, 19, 40),
+        turns: [
+          { role: "user", content: "Is my resting heart rate improving?" },
+          answer(
+            "Yes, gradually. Three months ago it sat in the low sixties; over " +
+              "the last few weeks it has settled in the high fifties and " +
+              "stayed there. That kind of slow, steady drift usually follows " +
+              "regular aerobic training, which matches the running in your log.",
+            "last90days",
+            [
+              seedStep(
+                "s1",
+                "get_metric_series",
+                "resting_hr",
+                "Resting HR",
+                "last90days",
+              ),
+              seedStep(
+                "s2",
+                "get_workouts",
+                "workouts",
+                "Workouts",
+                "last90days",
+              ),
+            ],
+            1520,
+          ),
+        ],
+      },
+      {
+        title: "Blood pressure trend",
+        startedAt: daysAgo(3),
+        turns: [
+          {
+            role: "user",
+            content: "How has my blood pressure been trending lately?",
+          },
+          answer(
+            "Your blood pressure has been settling nicely. Over the last few " +
+              "weeks the morning readings have drifted into the optimal band, and " +
+              "your resting heart rate is sitting in a comfortable range too. " +
+              "Keeping up the steady sleep and daily movement looks like it is " +
+              "paying off — worth staying consistent with the morning measurements " +
+              "so the trend stays easy to read.",
+            "last30days",
+            [
+              seedStep("s1", "get_metric_series", "bp", "Blood pressure"),
+              seedStep("s2", "get_metric_series", "resting_hr", "Resting HR"),
+              seedStep("s3", "get_sleep", "sleep", "Sleep"),
+            ],
+            1840,
+          ),
+        ],
+      },
+      {
+        title: "Back to running after the knee",
+        startedAt: daysAgoAt(9, 7, 55),
+        turns: [
+          {
+            role: "user",
+            content:
+              "Am I back to my old activity level since the knee surgery?",
+          },
+          answer(
+            "Yes. Across the last three months you have run, cycled and done " +
+              "strength sessions three to four times a week, and your daily " +
+              "steps have climbed from around six and a half thousand to about " +
+              "nine thousand. Your resting heart rate came down while the load " +
+              "went up, which suggests the build-up after the arthroscopy was " +
+              "well paced.",
+            "last90days",
+            [
+              seedStep(
+                "s1",
+                "get_metric_series",
+                "steps",
+                "Steps",
+                "last90days",
+              ),
+              seedStep(
+                "s2",
+                "get_workouts",
+                "workouts",
+                "Workouts",
+                "last90days",
+              ),
+            ],
+            1710,
+          ),
+        ],
+      },
+      {
+        title: "Sleep and mood",
+        startedAt: daysAgoAt(24, 21, 10),
+        turns: [
+          {
+            role: "user",
+            content: "Do my sleep and my mood move together?",
+          },
+          answer(
+            "Somewhat. On the mornings after nights shorter than about six " +
+              "and a half hours, your mood entries were a little lower on " +
+              "average. It is a loose pattern across a month of data, worth " +
+              "watching rather than a cause and effect.",
+            "last30days",
+            [
+              seedStep("s1", "get_sleep", "sleep", "Sleep"),
+              seedStep("s2", "get_metric_series", "mood", "Mood"),
+            ],
+            1390,
+          ),
+        ],
       },
     ];
-    for (let t = 0; t < coachTurns.length; t++) {
-      const turn = coachTurns[t];
-      const ts = new Date(convoStart.getTime() + t * 60_000);
-      const encrypted = Buffer.from(encryptToBytes(turn.content));
+    for (const convo of coachConversations) {
+      const convoId = cuid();
+      const lastAt = new Date(
+        convo.startedAt.getTime() + (convo.turns.length - 1) * 60_000,
+      );
+      // The title is sealed the way the app writes it since v1.39.3. A
+      // readable `title` is picked up by the boot backfill, whose update
+      // also moves `updated_at` to the moment it ran, and every thread then
+      // sorted under "Today".
       await client.query(
-        `INSERT INTO coach_messages (id, conversation_id, role, encrypted_content, metric_source_json, provider_type, prompt_version, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `INSERT INTO coach_conversations (id, user_id, title_encrypted, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5)`,
         [
-          cuid(),
           convoId,
-          turn.role,
-          encrypted,
-          turn.metricSourceJson ?? null,
-          turn.role === "assistant" ? aiProvider : null,
-          turn.role === "assistant" ? "demo" : null,
-          ts,
+          userId,
+          Buffer.from(encryptToBytes(convo.title)),
+          convo.startedAt,
+          lastAt,
         ],
       );
+      for (let t = 0; t < convo.turns.length; t++) {
+        const turn = convo.turns[t];
+        const ts = new Date(convo.startedAt.getTime() + t * 60_000);
+        const encrypted = Buffer.from(encryptToBytes(turn.content));
+        await client.query(
+          `INSERT INTO coach_messages (id, conversation_id, role, encrypted_content, metric_source_json, provider_type, prompt_version, tokens_used, model, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            cuid(),
+            convoId,
+            turn.role,
+            encrypted,
+            turn.metricSourceJson ?? null,
+            turn.role === "assistant" ? aiProvider : null,
+            turn.role === "assistant" ? "demo" : null,
+            turn.tokensUsed ?? null,
+            turn.model ?? null,
+            ts,
+          ],
+        );
+      }
     }
 
     // ── Baked AI insight texts ────────────────
@@ -2209,10 +3703,24 @@ async function seed() {
 
     // ── App Settings ─────────────────────────
     console.log("Creating app settings...");
+    // The key-backup step is confirmed for the key the demo runs with, the
+    // same fields `POST /api/admin/encryption/key-backup/confirm` writes (key
+    // id + its public fingerprint, never the key). The demo account is an
+    // admin, so an unconfirmed step put a "Back up your encryption key"
+    // banner above the dashboard for every visitor, about a key no visitor
+    // can reach.
+    const activeKeyId = getActiveKeyId();
     await client.query(
-      `INSERT INTO app_settings (id, registration_enabled, default_locale)
-       VALUES ('singleton', false, 'en')
-       ON CONFLICT (id) DO UPDATE SET registration_enabled = false, default_locale = 'en'`,
+      `INSERT INTO app_settings (id, registration_enabled, default_locale,
+         encryption_key_backup_confirmed_at, encryption_key_backup_confirmed_key_id,
+         encryption_key_backup_confirmed_fingerprint, encryption_key_backup_confirmed_by_user_id)
+       VALUES ('singleton', false, 'en', NOW(), $1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET registration_enabled = false, default_locale = 'en',
+         encryption_key_backup_confirmed_at = EXCLUDED.encryption_key_backup_confirmed_at,
+         encryption_key_backup_confirmed_key_id = EXCLUDED.encryption_key_backup_confirmed_key_id,
+         encryption_key_backup_confirmed_fingerprint = EXCLUDED.encryption_key_backup_confirmed_fingerprint,
+         encryption_key_backup_confirmed_by_user_id = EXCLUDED.encryption_key_backup_confirmed_by_user_id`,
+      [activeKeyId, getKeyFingerprint(activeKeyId), userId],
     );
 
     // ── Audit Log (some login entries) ──────
@@ -2261,16 +3769,22 @@ async function seed() {
       `  Lab panels: ${labResults.length} rows across 2 panels (incl. ${recentQual.length} qualitative)`,
     );
     console.log(
-      `  Illness: resolved cold (day-logs) + active chronic condition with a flare`,
+      `  Illness: resolved cold (day-logs) + recurring condition with a resolved flare`,
     );
     console.log(
       `  Cycle: ${cycleLengths.length} cycles with BBT, flow, mucus/OPK, symptoms + a forecast`,
     );
-    console.log(`  Coach: 1 conversation (${coachTurns.length} messages)`);
+    console.log(
+      `  Visits: knee arthroscopy (2 linked PDFs) + follow-up, check-up booked for tomorrow`,
+    );
+    console.log(`  Coach: ${coachConversations.length} conversations`);
     console.log(
       `  Baked AI texts: comprehensive + daily briefing, ${statusCards.length} status cards, ${periodNarratives.length} period narratives (en)`,
     );
     console.log(`  Achievements: ${achievements.length}`);
+    console.log(
+      `  History: ${historyRows.length} readings over ${HISTORY_DAYS} days, ${lifeEvents.length} life events, ${envRows.length} environment days`,
+    );
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("Seed failed:", err);

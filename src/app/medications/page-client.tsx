@@ -55,6 +55,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { apiGet } from "@/lib/api/api-fetch";
+import { refetchMedicationsOnMount } from "@/lib/queries/prefetch-medications";
 import { useMedicationComplianceSummaryAll } from "@/lib/queries/use-medication-compliance-summary";
 import { useMedicationListLayout } from "@/lib/queries/use-medication-list-layout";
 import { applyMedicationOrder } from "@/lib/medications/medication-order";
@@ -124,6 +125,8 @@ interface Medication {
    * and left out of the take-all and log-dose flows.
    */
   trackIntake?: boolean;
+  /** v1.42.2 — doses recorded automatically. */
+  autoMarkTaken?: boolean;
   /** v1.39.4 (#1040) — server-resolved: taken / skip are offered today. */
   intakeActionable?: boolean;
   /** v1.39.4 (#1040) — where today sits in the course. */
@@ -345,7 +348,9 @@ export default function MedicationsPageClient() {
     // client cache can't know to invalidate a cross-device write. "always"
     // makes a return-visit fetch fresh; the per-user server cache keeps it
     // cheap. Mutation-driven invalidation still covers same-tab writes.
-    refetchOnMount: "always",
+    // A prefetch this same navigation fired (nav-link intent, route commit)
+    // already is that fresh fetch, so it is not sent twice.
+    refetchOnMount: refetchMedicationsOnMount("list"),
   });
 
   // v1.30.1 M12 — pull-to-refresh parity with labs/checkups/mood/measurements.
@@ -518,6 +523,8 @@ export default function MedicationsPageClient() {
     ),
   });
 
+  const listEmpty = !isLoading && !isError && !medications?.length;
+
   return (
     <div className="space-y-6">
       <PullToRefreshIndicator {...pull} />
@@ -572,7 +579,9 @@ export default function MedicationsPageClient() {
               button's responsive tap-target floor (`min-h-11 sm:min-h-9`) so
               both primary "add" entry points clear the WCAG 2.5.5 44px mobile
               minimum identically. */}
-            {canAddMedication && (
+            {/* While the list is empty its empty state carries the one
+              add action; a second one in the header said it twice. */}
+            {canAddMedication && !listEmpty && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button className="min-h-11 sm:min-h-9">

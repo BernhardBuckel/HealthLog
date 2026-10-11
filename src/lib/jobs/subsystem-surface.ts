@@ -94,6 +94,7 @@ const subsystemSurface = {
 
   // register-maintenance.ts
   "environment-fetch": { audience: "account" },
+  "environment-aq-history": { audience: "system" },
   "data-backup": { audience: "system" },
   "rate-limit-cleanup": { audience: "system" },
   "idempotency-cleanup": { audience: "system" },
@@ -111,9 +112,14 @@ const subsystemSurface = {
   "pr-detection": { audience: "system" },
   "medication-inventory-expire": { audience: "system" },
   "intake-auto-skip": { audience: "system" },
+  "intake-auto-take": { audience: "system" },
   "apple-health-import-v2": { audience: "account" },
   "apple-health-import": { audience: "account" },
   "apple-health-import-reconcile": { audience: "account" },
+  "health-connect-import": { audience: "account" },
+  "compaction-tombstone-purge": { audience: "system" },
+  "measurement-fold-repair": { audience: "system" },
+  "measurement-maintenance": { audience: "system" },
   "medication-intake-import": { audience: "system" },
   "intake-slot-dedup": { audience: "system" },
   "mood-reminder-cleanup": { audience: "system" },

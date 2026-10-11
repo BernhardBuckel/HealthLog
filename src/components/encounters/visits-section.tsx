@@ -14,9 +14,11 @@
  */
 import { CalendarClock, ContactRound, History, Plus } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
+import { SinceLastVisit } from "@/components/day/since-last-visit";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
@@ -25,9 +27,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDeepLinkedRecord } from "@/hooks/use-deep-linked-record";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { useEncounters, type Encounter } from "@/hooks/use-encounters";
+import { apiGet } from "@/lib/api/api-fetch";
 import { useTranslations } from "@/lib/i18n/context";
 import { EncounterSheet } from "./encounter-sheet";
 import { VisitCard } from "./visit-card";
+
+/** One visit by id, for a link to a visit older than the list reads. */
+function fetchVisit(id: string): Promise<Encounter | null> {
+  return apiGet<Encounter>(`/api/encounters/${encodeURIComponent(id)}`).catch(
+    () => null,
+  );
+}
 
 export function VisitsSection({ enabled = true }: { enabled?: boolean }) {
   const { t } = useTranslations();
@@ -58,8 +68,13 @@ export function VisitsSection({ enabled = true }: { enabled?: boolean }) {
     records: list.data ? [...upcoming, ...past] : undefined,
     anchorAttribute: "data-encounter-id",
     open: canManageVisits ? openSheet : undefined,
+    // The list reads the newest hundred of each arm; a search hit can name an
+    // older visit, which is read on its own.
+    resolve: fetchVisit,
   });
   const empty = upcoming.length === 0 && past.length === 0;
+  // The last visit that took place: the start of the visit preparation.
+  const lastDone = past.find((encounter) => encounter.status === "DONE");
 
   const addButton = canAddVisit ? (
     <Button
@@ -87,7 +102,9 @@ export function VisitsSection({ enabled = true }: { enabled?: boolean }) {
                 {t("practitioners.linkLabel")}
               </Link>
             </Button>
-            {addButton}
+            {/* The empty state carries the add action while there is no
+                visit. */}
+            {!list.isPending && !list.isError && empty ? null : addButton}
           </>
         }
       />
@@ -109,7 +126,6 @@ export function VisitsSection({ enabled = true }: { enabled?: boolean }) {
           title={t("encounters.emptyTitle")}
           description={t("encounters.emptyDescription")}
           action={addButton ?? undefined}
-          ctaSize="lg"
         />
       ) : (
         <div className="space-y-6">
@@ -119,12 +135,22 @@ export function VisitsSection({ enabled = true }: { enabled?: boolean }) {
                 icon={CalendarClock}
                 title={t("encounters.upcomingHeading")}
               />
-              {upcoming.map((encounter) => (
-                <VisitCard
-                  key={encounter.id}
-                  encounter={encounter}
-                  onOpen={canManageVisits ? openSheet : undefined}
-                />
+              {upcoming.map((encounter, i) => (
+                <Fragment key={encounter.id}>
+                  <VisitCard
+                    encounter={encounter}
+                    onOpen={canManageVisits ? openSheet : undefined}
+                  />
+                  {/* v1.42 — the next appointment carries what happened
+                      since the last one, each date opening its day. */}
+                  {i === 0 && lastDone ? (
+                    <Card className="gap-3 py-3 md:gap-3 md:py-4">
+                      <CardContent>
+                        <SinceLastVisit next={encounter} last={lastDone} />
+                      </CardContent>
+                    </Card>
+                  ) : null}
+                </Fragment>
               ))}
             </div>
           ) : null}

@@ -16,6 +16,7 @@
 import type { SupportedLocale } from "@/lib/insights/status-shared";
 import { getGlobalBoss } from "@/lib/jobs/boss-instance";
 import { annotate } from "@/lib/logging/context";
+import { logCaught } from "@/lib/logging/signal";
 
 export const INSIGHT_PREGENERATE_QUEUE = "insight-pregenerate";
 
@@ -45,6 +46,15 @@ export interface InsightPregeneratePayload {
    * unrecognised value to English.
    */
   locale?: SupportedLocale;
+  /**
+   * A briefing-for-today warm (`enqueueTodayBriefingWarm`): the day started
+   * with no briefing written today, or a signal metric got its first
+   * reading of the day after the briefing was written. Runs the
+   * comprehensive briefing only, past the one-hour freshness gate (a
+   * reading at 07:05 after a warm at 07:00 is exactly what it is for), and
+   * under the same failure backoff and daily forced-warm cap.
+   */
+  today?: boolean;
 }
 
 /**
@@ -102,9 +112,68 @@ export async function enqueueForceWarm(payload: {
       action: { name: "insights.pregenerate.force.enqueued" },
       meta: { locale: payload.locale },
     });
-  } catch {
+  } catch (err) {
+    logCaught("insights.pregenerate.enqueue_failed", err, { kind: "force" });
     // Enqueue is best-effort; a failure here just means the caches stay
     // cold until the next poll / nightly cron warms them.
+  }
+}
+
+/**
+ * How long a today warm waits before it runs, and the window that folds
+ * every request inside it into one job. A morning weigh-in, the blood
+ * pressure five minutes later and the sync that brings both arrive as one
+ * burst; one warm after the burst reads all of it.
+ */
+export const TODAY_WARM_DELAY_SECONDS = 5 * 60;
+
+/**
+ * Enqueue the briefing-for-today warm. `immediate` is for the day's first
+ * read with no briefing written today, where nobody is waiting on a burst
+ * of readings; otherwise the job starts after the burst window. The
+ * singleton per user folds requests in the window into one job; what runs
+ * is still bounded by the warm's own gates (failure backoff, the daily
+ * forced-warm cap) and the generation's content-hash gate.
+ */
+export async function enqueueTodayBriefingWarm(payload: {
+  userId: string;
+  locale: SupportedLocale;
+  immediate: boolean;
+}): Promise<void> {
+  const boss = getGlobalBoss();
+  if (!boss) {
+    annotate({
+      action: { name: "insights.pregenerate.today.no_boss" },
+      meta: { locale: payload.locale },
+    });
+    return;
+  }
+  try {
+    await boss.send(
+      INSIGHT_PREGENERATE_QUEUE,
+      {
+        userId: payload.userId,
+        force: true,
+        today: true,
+        locale: payload.locale,
+      } satisfies InsightPregeneratePayload,
+      {
+        singletonKey: `today:${payload.userId}`,
+        singletonSeconds: TODAY_WARM_DELAY_SECONDS,
+        startAfter: payload.immediate ? 0 : TODAY_WARM_DELAY_SECONDS,
+        expireInSeconds: INSIGHT_PREGENERATE_EXPIRE_SECONDS,
+        retryLimit: 2,
+        retryDelay: 60,
+        retryBackoff: true,
+      },
+    );
+    annotate({
+      action: { name: "insights.pregenerate.today.enqueued" },
+      meta: { locale: payload.locale, immediate: payload.immediate },
+    });
+  } catch (err) {
+    logCaught("insights.pregenerate.enqueue_failed", err, { kind: "today" });
+    // Best-effort, like every warm enqueue: the next read asks again.
   }
 }
 
@@ -174,7 +243,8 @@ export async function enqueuePregenerateFailureRetry(payload: {
         delay_seconds: PREGENERATE_RETRY_DELAY_SECONDS,
       },
     });
-  } catch {
+  } catch (err) {
+    logCaught("insights.pregenerate.enqueue_failed", err, { kind: "retry" });
     // Best-effort: a failed enqueue leaves the nightly tick as the
     // catch-net, exactly the pre-retry behaviour.
   }

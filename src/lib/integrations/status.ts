@@ -1277,7 +1277,15 @@ async function maybeAlertAdmins(input: AlertInput): Promise<DispatchOutcome> {
       userId: admin.id,
       title: payload.title,
       message: payload.message,
-      metadata: payload.metadata,
+      metadata: {
+        ...payload.metadata,
+        // Tap target: an admin whose own sync fails fixes it in their own
+        // integration settings; anyone else's shows on the admin page.
+        url:
+          admin.id === input.userId
+            ? "/settings/integrations"
+            : "/admin/integrations",
+      },
     });
     outcome.dispatched ||= adminOutcome.dispatched;
     outcome.channelsAttempted += adminOutcome.channelsAttempted;

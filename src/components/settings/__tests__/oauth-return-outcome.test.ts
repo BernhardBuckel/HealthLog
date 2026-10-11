@@ -61,9 +61,42 @@ describe("oauthReasonKey", () => {
     );
   });
 
+  it("names Oura's issuer refusal with its own copy, and only for Oura", () => {
+    expect(oauthReasonKey("oura", "issuer")).toBe(
+      "settings.ouraOauthError.issuer",
+    );
+    // No other callback emits it, and no other subtree carries the copy.
+    expect(oauthReasonKey("polar", "issuer")).toBe(
+      "settings.polarOauthError.generic",
+    );
+  });
+
   it("falls back to generic for an unknown tag", () => {
     expect(oauthReasonKey("whoop", "totally_unknown")).toBe(
       "settings.whoopOauthError.generic",
     );
+  });
+});
+
+describe("the Oura callback's reasons", () => {
+  it("each has its own copy, none falls back to generic", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const route = readFileSync(
+      join(process.cwd(), "src/app/api/oura/callback/route.ts"),
+      "utf8",
+    );
+    const reasons = [...route.matchAll(/ERR\("([a-z_0-9]+)"\)/g)].map(
+      (m) => m[1],
+    );
+    expect(reasons).toContain("issuer");
+    const en = JSON.parse(
+      readFileSync(join(process.cwd(), "messages/en.json"), "utf8"),
+    ) as { settings: { ouraOauthError: Record<string, string> } };
+    for (const reason of reasons) {
+      const key = oauthReasonKey("oura", reason);
+      expect(key, reason).toBe(`settings.ouraOauthError.${reason}`);
+      expect(en.settings.ouraOauthError[reason], reason).toBeTruthy();
+    }
   });
 });

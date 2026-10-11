@@ -1,16 +1,26 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { scrollBehaviorForUser } from "@/lib/motion";
 import { useTranslations } from "@/lib/i18n/context";
 
-import { PlanProposalCards } from "./plan-proposal-card";
-import { ChatBubble } from "./chat-bubble";
-import { CoachFollowUpChips } from "./follow-up-chips";
+import { ChatBubble, type FollowUpOffer, type ReplyOffer } from "./chat-bubble";
+import type { SuggestedReply } from "./suggested-replies";
 import { CoachMessageDatesProvider } from "./coach-results";
+import { ScrollToBottomButton } from "./scroll-to-bottom-button";
+import { openAtEnd } from "./open-at-end";
+import { focusCoachComposer } from "./composer-focus";
 import {
   EMPTY_LIVE_TURN_KEYS,
   messageRenderKey,
@@ -24,9 +34,14 @@ import type {
 } from "./use-coach";
 import type {
   CoachClarification,
+  CoachClarificationChoice,
   CoachFollowUp,
   CoachMessageDTO,
 } from "@/lib/ai/coach/types";
+import {
+  COACH_MEMORY_KEYS,
+  COACH_PLAN_KEYS,
+} from "@/lib/ai/coach/memory/shared";
 
 // v1.28.26 file-size split (pure code motion): the bubble renderer +
 // per-message actions live in `chat-bubble.tsx`, the read-aloud stack in
@@ -50,6 +65,9 @@ export {
  * list grows OR the streaming-content length changes. The user can
  * scroll up to read history; we suppress auto-scroll until the next
  * "new message" tick if they're not already pinned to the bottom.
+ * Away from the end, a round button fades in over the thread's foot and
+ * brings the reader back (`ScrollToBottomButton`); a reply streaming in
+ * meanwhile never pulls the view down by itself.
  *
  * Visual identity: user bubbles right-aligned, Dracula purple accent;
  * assistant bubbles left-aligned with the gradient sparkle avatar
@@ -88,6 +106,159 @@ export interface MessageThreadProps {
    * v1.39.4 — a follow-up chip was tapped. Omitted → no chips are shown.
    */
   onFollowUp?: (followUp: CoachFollowUp, messageId: string) => void;
+  /**
+   * v1.41 — a reply pill was tapped: a clarifying question's choice, or an
+   * answer to a fact or plan proposal. Omitted → those pills are not shown.
+   */
+  onReply?: (intent: CoachReplyIntent) => void;
+}
+
+/** v1.41 — what a tapped reply pill answers, and how. */
+export type CoachReplyIntent =
+  | {
+      kind: "clarification";
+      messageId: string;
+      choice: CoachClarificationChoice;
+      label: string;
+    }
+  | {
+      kind: "memory";
+      messageId: string;
+      proposalId: string;
+      accept: boolean;
+      label: string;
+    }
+  | {
+      kind: "plan";
+      messageId: string;
+      planId: string;
+      accept: boolean;
+      label: string;
+    };
+
+/**
+ * v1.41 — the decision the latest answer waits for, if any: a clarifying
+ * question's choices, a fact proposal or a plan proposal. Like the chips, only
+ * the latest assistant turn offers one, and none while a turn is in flight.
+ */
+export interface LatestDecision {
+  messageId: string;
+  clarification: CoachClarification | null;
+  memoryProposalId: string | null;
+  planId: string | null;
+}
+
+export function latestDecision(
+  messages: CoachMessageDTO[],
+  streaming: CoachStreamingMessage | undefined,
+): LatestDecision | null {
+  if (streaming?.inProgress) return null;
+  let found: LatestDecision | null = null;
+  if (streaming?.messageId) {
+    const persisted = messages.find((m) => m.id === streaming.messageId);
+    const note = streaming.memoryNote ?? persisted?.metricSource?.memoryNote;
+    const plan =
+      streaming.planProposal ?? persisted?.metricSource?.planProposal;
+    found = {
+      messageId: streaming.messageId,
+      clarification:
+        streaming.clarification ??
+        persisted?.metricSource?.clarification ??
+        null,
+      memoryProposalId:
+        note?.proposal && note.proposalId ? note.proposalId : null,
+      planId: plan?.planId ?? null,
+    };
+    const last = messages[messages.length - 1];
+    // The streamed turn is the latest only until something follows it.
+    if (persisted && last && last.id !== streaming.messageId) found = null;
+  } else {
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant") {
+      const note = last.metricSource?.memoryNote;
+      found = {
+        messageId: last.id,
+        clarification: last.metricSource?.clarification ?? null,
+        memoryProposalId:
+          note?.proposal && note.proposalId ? note.proposalId : null,
+        planId: last.metricSource?.planProposal?.planId ?? null,
+      };
+    }
+  }
+  if (
+    !found ||
+    (!found.clarification && !found.memoryProposalId && !found.planId)
+  ) {
+    return null;
+  }
+  return found;
+}
+
+/**
+ * The pills of a decision, in the order they are offered: a question's
+ * choices with the assumed one first, then a fact proposal's two answers,
+ * then a plan proposal's. Labels in the reader's language.
+ */
+export function decisionReplies(
+  decision: LatestDecision,
+  t: (key: string) => string,
+  onReply: (intent: CoachReplyIntent) => void,
+): SuggestedReply[] {
+  const { messageId } = decision;
+  const out: SuggestedReply[] = [];
+  const choices = decision.clarification?.choices ?? [];
+  const assumed = decision.clarification?.assumption;
+  const ordered = assumed
+    ? [
+        ...choices.filter((c) => c.id === assumed),
+        ...choices.filter((c) => c.id !== assumed),
+      ]
+    : choices;
+  for (const choice of ordered.slice(0, 4)) {
+    const local = t(choice.labelKey);
+    const label = local === choice.labelKey ? choice.label : local;
+    out.push({
+      id: `clarify-${choice.id}`,
+      label,
+      kind: "clarification",
+      data: { "data-choice-id": choice.id },
+      onSelect: () =>
+        onReply({ kind: "clarification", messageId, choice, label }),
+    });
+  }
+  const proposalId = decision.memoryProposalId;
+  if (proposalId) {
+    for (const accept of [true, false]) {
+      const label = t(
+        accept ? COACH_MEMORY_KEYS.accept : COACH_MEMORY_KEYS.decline,
+      );
+      out.push({
+        id: `memory-${accept ? "accept" : "decline"}`,
+        label,
+        kind: "memory",
+        data: { "data-decision": accept ? "accept" : "decline" },
+        onSelect: () =>
+          onReply({ kind: "memory", messageId, proposalId, accept, label }),
+      });
+    }
+  }
+  const planId = decision.planId;
+  if (planId) {
+    for (const accept of [true, false]) {
+      const label = t(
+        accept ? COACH_PLAN_KEYS.accept : COACH_PLAN_KEYS.decline,
+      );
+      out.push({
+        id: `plan-${accept ? "accept" : "decline"}`,
+        label,
+        kind: "plan",
+        data: { "data-decision": accept ? "accept" : "decline" },
+        onSelect: () =>
+          onReply({ kind: "plan", messageId, planId, accept, label }),
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -195,28 +366,6 @@ export function placeInterleaved(
 }
 
 /**
- * v1.18.7 — shared thin/rounded/subtle scrollbar styling for the Coach
- * scroll regions (the message thread + the history list). Kept as a
- * Tailwind-arbitrary class string so the styling is component-scoped —
- * the parallel agent owns `globals.css` and we must not touch it.
- *
- * Firefox: `scrollbar-width: thin` + a tinted thumb on a transparent
- * track. WebKit: an 8 px overlay-style thumb with a fully rounded
- * radius and no arrow buttons, brightening on hover. The Dracula purple
- * is mixed down so the bar reads as a hairline accent, not a hard edge.
- */
-export const COACH_SCROLLBAR = cn(
-  "[scrollbar-color:color-mix(in_srgb,var(--primary)_30%,transparent)_transparent] [scrollbar-width:thin]",
-  "[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2",
-  "[&::-webkit-scrollbar-track]:bg-transparent",
-  "[&::-webkit-scrollbar-button]:hidden [&::-webkit-scrollbar-button]:size-0",
-  "[&::-webkit-scrollbar-thumb]:rounded-full",
-  "[&::-webkit-scrollbar-thumb]:border-[3px] [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-clip-content",
-  "[&::-webkit-scrollbar-thumb]:bg-[color-mix(in_srgb,var(--primary)_30%,transparent)]",
-  "hover:[&::-webkit-scrollbar-thumb]:bg-[color-mix(in_srgb,var(--primary)_45%,transparent)]",
-);
-
-/**
  * The wrapper every assistant turn renders in, streaming or persisted, so a
  * turn keeps one element through the swap. While it streams it is the live
  * region: role=log + aria-live=polite so screen-reader users hear the prose
@@ -264,18 +413,15 @@ export function MessageThread({
   interleaved,
   onRegenerate,
   onFollowUp,
+  onReply,
 }: MessageThreadProps) {
   const { t } = useTranslations();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const wasPinnedRef = useRef(true);
-
-  // v1.4.27 F14 — the evidence disclosure used to honour an opt-in
-  // `coachPrefs.showEvidenceByDefault` flag that surfaced the raw
-  // measurement values unconditionally. The flag created an UX trap
-  // (the maintainer 2026-05-15: "literal metric values exposed under every
-  // bubble") so the disclosure is now collapsed by default for every
-  // reply. The user expands by click; the pref is retired in the
-  // settings sheet so nothing flips it back on.
+  // The same pinned state as a render value, for the jump-to-latest button.
+  // The ref stays the source for the auto-scroll (it must not wait for a
+  // render); the state follows it at most once per frame.
+  const [pinned, setPinned] = useState(true);
 
   const messages: CoachMessageDTO[] = useMemo(
     () => conversation?.messages ?? [],
@@ -334,19 +480,99 @@ export function MessageThread({
     optimisticActive && optimisticUser ? optimisticUser.content : null,
   );
 
-  const chips = latestFollowUps(messages, streaming);
+  // The chips go to the bubble of the message that offered them, so they
+  // sit in that answer's column. One object per offer, so the memoised
+  // bubble sees the same value until the offer itself changes.
+  const latest = latestFollowUps(messages, streaming);
+  const chipsMessageId = latest?.messageId ?? null;
+  const chipsArray = latest?.followUps ?? null;
+  const chips: FollowUpOffer | null = useMemo(
+    () =>
+      chipsMessageId && chipsArray
+        ? { messageId: chipsMessageId, followUps: chipsArray }
+        : null,
+    [chipsMessageId, chipsArray],
+  );
+  // v1.41 — a decision the latest answer waits for replaces its chips with
+  // the decision's own pills. There is none while a turn streams, so the
+  // fresh array per render never re-renders a bubble per token.
+  const decision = onReply ? latestDecision(messages, streaming) : null;
+  const replyOffer: ReplyOffer | null =
+    decision && onReply
+      ? {
+          messageId: decision.messageId,
+          replies: decisionReplies(decision, t, onReply),
+        }
+      : null;
+  const chipsFor = (messageId: string | null | undefined) => ({
+    ...(onFollowUp && chips && messageId === chips.messageId
+      ? {
+          followUps: chips,
+          followUpsDisabled: !!streaming?.inProgress,
+          onFollowUp,
+        }
+      : {}),
+    ...(replyOffer && messageId === replyOffer.messageId
+      ? {
+          replies: replyOffer,
+          followUpsDisabled: !!streaming?.inProgress,
+        }
+      : {}),
+  });
+
+  const hasThread =
+    messages.length > 0 ||
+    streamingActive ||
+    optimisticActive ||
+    interleavedItems.length > 0;
 
   // Track scroll position so we don't yank the viewport when the user
-  // is browsing earlier turns.
+  // is browsing earlier turns. Re-attached when the thread mounts (the
+  // empty state renders no scroller).
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
+    let frame = 0;
     const onScroll = () => {
       wasPinnedRef.current = isPinnedToBottom(el);
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        setPinned(isPinnedToBottom(el));
+      });
     };
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [hasThread]);
+
+  const scrollToLatest = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    // Focus first: pinning hides this button (aria-hidden), and focus must
+    // not sit on a control that has left the accessibility tree.
+    focusCoachComposer();
+    wasPinnedRef.current = true;
+    setPinned(true);
+    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehaviorForUser() });
   }, []);
+
+  // Opening a saved conversation lands on its last answer, and stays there
+  // while the answers' charts and tables finish loading (see `open-at-end`).
+  // Keyed on the conversation, so switching to another one re-opens at its
+  // end even when both have the same number of messages; a layout effect, so
+  // the first painted frame is already the end rather than the top.
+  const conversationId = conversation?.id ?? null;
+  const hasMessages = messages.length > 0;
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || !conversationId || !hasMessages) return;
+    wasPinnedRef.current = true;
+    setPinned(true);
+    return openAtEnd(el);
+  }, [conversationId, hasMessages]);
 
   // Auto-scroll on new messages OR streaming-content growth, but only
   // when the user was already at the bottom. v1.4.25 W5 — the
@@ -389,12 +615,7 @@ export function MessageThread({
     return () => vv.removeEventListener("resize", handleResize);
   }, []);
 
-  if (
-    messages.length === 0 &&
-    !streamingActive &&
-    !optimisticActive &&
-    interleavedItems.length === 0
-  ) {
+  if (!hasThread) {
     return (
       <div
         data-slot="coach-message-thread"
@@ -417,150 +638,159 @@ export function MessageThread({
 
   return (
     <CoachMessageDatesProvider dates={messageDates}>
+      {/* The positioning frame for the jump-to-latest button. It takes the
+          thread's place in the flex column; the scroller inside stays the
+          one scroll container. */}
       <div
-        ref={scrollerRef}
-        data-slot="coach-message-thread"
-        className={cn(
-          // v1.18.6.1 — `min-h-0 flex-1` (not `h-full`) so the scroll region
-          // resolves its height from the flex parent rather than a 100%-of-auto
-          // chain that let the thread grow instead of scroll.
-          // v1.18.7 — calmer vertical rhythm (gap-6) and more generous top/
-          // bottom breathing room so the conversation reads like a document,
-          // not a chat log packed against the chrome.
-          "flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-6 sm:px-6",
-          // v1.18.6 (CCH-01) / v1.18.7 — on the wide page surface an edge-to-
-          // edge thread sprawled the prose past a readable measure. Centre the
-          // content on a narrower, calmer Claude/ChatGPT-like column
-          // (`max-w-2xl`) via an `mx-auto` inner gutter; the scrollbar still
-          // rides the surface edge. The drawer surface is already narrow, so
-          // the cap only bites on the wide page surface.
-          "[&>*]:mx-auto [&>*]:w-full [&>*]:max-w-2xl",
-          "scroll-smooth",
-          // v1.18.7 — thin, rounded, subtle scrollbar (WebKit + Firefox),
-          // component-scoped via Tailwind arbitrary variants so globals.css
-          // stays untouched. Replaces the default boxy/angular track.
-          COACH_SCROLLBAR,
-        )}
+        data-slot="coach-message-thread-frame"
+        className="relative flex min-h-0 flex-1 flex-col"
       >
-        {[
-          ...messages.map((m, idx) => {
-            // v1.16.5 — a guided question renders directly above the user
-            // message that answered it.
-            const guidedBefore = placement.before.get(m.id);
-            // v1.22 — "Try again": resolve the user message that produced this
-            // assistant reply (the nearest preceding user turn) so the surface
-            // can resubmit it. Null when there is none → no regenerate action.
-            let precedingUserContent: string | null = null;
-            if (m.role === "assistant" && onRegenerate) {
-              for (let j = idx - 1; j >= 0; j--) {
-                if (messages[j].role === "user") {
-                  precedingUserContent = messages[j].content;
-                  break;
+        <div
+          ref={scrollerRef}
+          data-slot="coach-message-thread"
+          className={cn(
+            // v1.18.6.1 — `min-h-0 flex-1` (not `h-full`) so the scroll region
+            // resolves its height from the flex parent rather than a 100%-of-auto
+            // chain that let the thread grow instead of scroll.
+            // v1.18.7 — calmer vertical rhythm (gap-6) and more generous top/
+            // bottom breathing room so the conversation reads like a document,
+            // not a chat log packed against the chrome.
+            "flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-6 sm:px-6",
+            // v1.18.6 (CCH-01) / v1.18.7 — on the wide page surface an edge-to-
+            // edge thread sprawled the prose past a readable measure. Centre the
+            // content on a narrower, calmer Claude/ChatGPT-like column
+            // (`max-w-2xl`) via an `mx-auto` inner gutter; the scrollbar still
+            // rides the surface edge. The drawer surface is already narrow, so
+            // the cap only bites on the wide page surface.
+            "[&>*]:mx-auto [&>*]:w-full [&>*]:max-w-2xl",
+            "scroll-smooth",
+          )}
+        >
+          {[
+            ...messages.map((m, idx) => {
+              // v1.16.5 — a guided question renders directly above the user
+              // message that answered it.
+              const guidedBefore = placement.before.get(m.id);
+              // v1.22 — "Try again": resolve the user message that produced this
+              // assistant reply (the nearest preceding user turn) so the surface
+              // can resubmit it. Null when there is none → no regenerate action.
+              let precedingUserContent: string | null = null;
+              // v1.41 — a reply to a memory or plan tap is answered without a
+              // model (`decision`); there is nothing to try again.
+              if (
+                m.role === "assistant" &&
+                onRegenerate &&
+                m.providerType !== "decision"
+              ) {
+                for (let j = idx - 1; j >= 0; j--) {
+                  if (messages[j].role === "user") {
+                    precedingUserContent = messages[j].content;
+                    break;
+                  }
                 }
               }
-            }
-            const bubble = (
-              <ChatBubble
-                role={m.role}
-                content={m.content}
-                metricSource={m.metricSource}
-                conversationId={conversation?.id ?? null}
-                providerType={m.providerType}
-                messageId={m.id}
-                tokensUsed={m.tokensUsed}
-                model={m.model}
-                createdAt={m.createdAt}
-                // The turn that just streamed keeps its live tables, so the
-                // swap to the persisted copy does not refetch and remount them.
-                {...(m.id === streaming?.messageId &&
-                streaming.results.length > 0
-                  ? { results: streaming.results }
-                  : {})}
-                onRegenerate={
-                  precedingUserContent !== null && onRegenerate
-                    ? () => onRegenerate(precedingUserContent as string)
-                    : undefined
-                }
-              />
-            );
-            const key = messageRenderKey(liveKeys, m.id);
-            return (
-              <Fragment key={key}>
-                {guidedBefore?.node}
-                {m.role === "assistant" ? (
-                  <AssistantTurn turnKey={key} live={false}>
-                    {bubble}
-                  </AssistantTurn>
-                ) : (
-                  bubble
-                )}
-              </Fragment>
-            );
-          }),
-          // v1.16.5 — guided question whose answer is still optimistic-only.
-          ...placement.beforeOptimistic.map((i) => (
-            <Fragment key={i.key}>{i.node}</Fragment>
-          )),
-          // v1.4.25 W5 — the optimistic user bubble sits between the
-          // persisted history and the streaming assistant placeholder, so
-          // the visible order matches the person's mental model. The send
-          // hook drops it once the persisted twin lands.
-          optimisticActive && optimisticUser ? (
-            <ChatBubble
-              key={optimisticUser.localId}
-              role="user"
-              content={optimisticUser.content}
-            />
-          ) : null,
-          streamingActive && streaming ? (
-            // Same key, fragment and wrapper as its persisted copy above.
-            <Fragment key={liveKeys.current ?? "coach-turn-live"}>
-              {null}
-              <AssistantTurn
-                turnKey={liveKeys.current ?? "coach-turn-live"}
-                live
-              >
+              const bubble = (
                 <ChatBubble
-                  role="assistant"
-                  content={streaming.content}
-                  metricSource={streaming.metricSource}
-                  suggestion={streaming.suggestion}
-                  suggestedAction={streaming.suggestedAction}
-                  steps={streaming.steps}
-                  results={streaming.results}
-                  providerType={streaming.inProgress ? "streaming" : null}
-                  inProgress={streaming.inProgress}
-                  errorCode={streaming.errorCode}
-                  // v1.18.9 — live word-fade + the just-landed token footer.
-                  streaming
-                  usage={streaming.usage}
+                  role={m.role}
+                  content={m.content}
+                  metricSource={m.metricSource}
+                  conversationId={conversation?.id ?? null}
+                  providerType={m.providerType}
+                  messageId={m.id}
+                  tokensUsed={m.tokensUsed}
+                  model={m.model}
+                  createdAt={m.createdAt}
+                  // The turn that just streamed keeps its live tables, so the
+                  // swap to the persisted copy does not refetch and remount them.
+                  {...(m.id === streaming?.messageId &&
+                  streaming.results.length > 0
+                    ? { results: streaming.results }
+                    : {})}
+                  // v1.41 — and its live trail (with the titles and texts
+                  // the persisted copy only has behind `…/trail`) and the
+                  // words of the fact it kept.
+                  {...(m.id === streaming?.messageId
+                    ? {
+                        ...(streaming.activity.length > 0
+                          ? { activity: streaming.activity }
+                          : {}),
+                        memoryNote: streaming.memoryNote,
+                      }
+                    : {})}
+                  {...(m.role === "assistant" ? chipsFor(m.id) : {})}
+                  onRegenerate={
+                    precedingUserContent !== null && onRegenerate
+                      ? () => onRegenerate(precedingUserContent as string)
+                      : undefined
+                  }
                 />
-              </AssistantTurn>
-            </Fragment>
-          ) : null,
-        ]}
-        {/* v1.39.4 — follow-up chips under the latest assistant turn only. */}
-        {onFollowUp && chips ? (
-          <CoachFollowUpChips
-            followUps={chips.followUps}
-            messageId={chips.messageId}
-            disabled={!!streaming?.inProgress}
-            onSelect={onFollowUp}
-          />
-        ) : null}
-        {/* v1.16.5 — thread tail: the current guided question and/or the
+              );
+              const key = messageRenderKey(liveKeys, m.id);
+              return (
+                <Fragment key={key}>
+                  {guidedBefore?.node}
+                  {m.role === "assistant" ? (
+                    <AssistantTurn turnKey={key} live={false}>
+                      {bubble}
+                    </AssistantTurn>
+                  ) : (
+                    bubble
+                  )}
+                </Fragment>
+              );
+            }),
+            // v1.16.5 — guided question whose answer is still optimistic-only.
+            ...placement.beforeOptimistic.map((i) => (
+              <Fragment key={i.key}>{i.node}</Fragment>
+            )),
+            // v1.4.25 W5 — the optimistic user bubble sits between the
+            // persisted history and the streaming assistant placeholder, so
+            // the visible order matches the person's mental model. The send
+            // hook drops it once the persisted twin lands.
+            optimisticActive && optimisticUser ? (
+              <ChatBubble
+                key={optimisticUser.localId}
+                role="user"
+                content={optimisticUser.content}
+              />
+            ) : null,
+            streamingActive && streaming ? (
+              // Same key, fragment and wrapper as its persisted copy above.
+              <Fragment key={liveKeys.current ?? "coach-turn-live"}>
+                {null}
+                <AssistantTurn
+                  turnKey={liveKeys.current ?? "coach-turn-live"}
+                  live
+                >
+                  <ChatBubble
+                    role="assistant"
+                    content={streaming.content}
+                    metricSource={streaming.metricSource}
+                    suggestion={streaming.suggestion}
+                    suggestedAction={streaming.suggestedAction}
+                    steps={streaming.steps}
+                    results={streaming.results}
+                    activity={streaming.activity}
+                    memoryNote={streaming.memoryNote}
+                    providerType={streaming.inProgress ? "streaming" : null}
+                    inProgress={streaming.inProgress}
+                    errorCode={streaming.errorCode}
+                    // v1.18.9 — live word-fade + the just-landed token footer.
+                    streaming
+                    usage={streaming.usage}
+                    {...chipsFor(streaming.messageId)}
+                  />
+                </AssistantTurn>
+              </Fragment>
+            ) : null,
+          ]}
+          {/* v1.16.5 — thread tail: the current guided question and/or the
           closing summary follow the last completed turn. */}
-        {placement.tail.map((i) => (
-          <Fragment key={i.key}>{i.node}</Fragment>
-        ))}
-        {/* Plan-proposal confirm cards for THIS conversation. The extractor
-          runs after the turn (memory-refresh worker), so the block appears at
-          the thread tail once the proposal lands rather than under a specific
-          bubble; the component itself slow-polls and renders nothing while
-          the conversation has no open proposal. */}
-        {conversation ? (
-          <PlanProposalCards conversationId={conversation.id} />
-        ) : null}
+          {placement.tail.map((i) => (
+            <Fragment key={i.key}>{i.node}</Fragment>
+          ))}
+        </div>
+        <ScrollToBottomButton visible={!pinned} onClick={scrollToLatest} />
       </div>
     </CoachMessageDatesProvider>
   );

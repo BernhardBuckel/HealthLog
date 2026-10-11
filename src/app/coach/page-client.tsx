@@ -81,6 +81,13 @@ import { coachScopeSourceSchema } from "@/lib/ai/coach/types";
  *     this is a prefill, not an auto-send.
  * Both are ignored once `?c=` or `?doc=` pin an existing/scoped thread — scope
  * only ever applies to a fresh conversation's first turn.
+ *
+ * The conversations panel on the right of the thread carries the history,
+ * New chat and the settings gear (the composer's `+` menu is gone). Picking a
+ * conversation or starting a new one rewrites `?c=` in place, so a reload
+ * stays on the open thread. `?settings=data` (the link from Settings → Coach)
+ * opens the gear on "What I can see"; the param is consumed on mount and
+ * dropped from the URL so a reload does not reopen the overlay.
  */
 function CoachPageBody() {
   const searchParams = useSearchParams();
@@ -117,6 +124,21 @@ function CoachPageBody() {
     ? { metric: scopeResult.data }
     : null;
   const seedPrefill = freshChat ? searchParams.get("ask") : null;
+
+  // Read once: the panel consumes it on mount, then the URL loses it.
+  const [openSettingsOnData] = useState(
+    () => searchParams.get("settings") === "data",
+  );
+  useEffect(() => {
+    if (!openSettingsOnData) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("settings");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      url.pathname + url.search,
+    );
+  }, [openSettingsOnData]);
 
   // #781 — a navigation away mid-reply recorded the interrupted conversation
   // (see `COACH_INTERRUPTED_STORAGE_KEY` in `use-coach.ts`). Returning to the
@@ -200,6 +222,7 @@ function CoachPageBody() {
       // unread coach-initiated exception and the interrupted first-turn
       // resume (#781, whose conversation id never reached the client).
       autoOpenMostRecent={hasUnreadCoachMessage || resumeInterruptedLatest}
+      openSettingsOnData={openSettingsOnData}
     />
   );
 }
@@ -240,22 +263,12 @@ export default function CoachPageClient() {
     <div
       data-slot="coach-page"
       data-tour-id="coach-hero"
-      // v1.18.10 (W4) — full-bleed conversation surface. Cancel the
-      // AuthShell container's padding (`-mt-6` top, `-mb-20` bottom,
-      // `-mx-4 md:-mx-6` sides) so the chat is edge-to-edge and claims the
-      // full viewport height minus the top bar (`4rem`). No inner card:
-      // `<CoachConversation>` paints directly onto the page so it reads as
-      // one continuous conversation, not a window inside a window. The
-      // separate bottom-right FAB/overlay drawer stays the compact surface.
-      //
-      // v1.18.10 (W10) — height is mobile-aware. The fixed `<BottomNav>`
-      // (64px + iOS home-indicator inset) is mobile-only; the desktop
-      // full-bleed layout has no bottom nav. On mobile the page must subtract
-      // the TopBar (`4rem`) AND the BottomNav band (`4rem` +
-      // `env(safe-area-inset-bottom)`) so the docked composer / Stop control
-      // always clears the nav instead of sitting under it. On `md+` the nav
-      // is hidden, so the page reclaims the full height below the TopBar.
-      className="bg-background -mx-4 -mt-6 -mb-20 flex h-[calc(100dvh-8rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] min-h-[32rem] flex-col overflow-hidden md:-mx-6 md:h-[calc(100dvh-4rem)]"
+      // Full-bleed conversation surface. The shell renders `/coach` without
+      // its centred container, padding or reserved scrollbar gutter, and its
+      // `<main>` already clears the top bar and, on phones, the bottom nav,
+      // so the page simply fills what is left. No inner card: the
+      // conversation paints directly onto the page.
+      className="bg-background flex min-h-[32rem] flex-1 flex-col overflow-hidden"
     >
       {/* `useSearchParams` requires a Suspense boundary so the client-search
           bailout never opts the whole route out of static optimisation. */}

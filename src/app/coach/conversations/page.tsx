@@ -17,15 +17,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
-import { COACH_SCROLLBAR } from "@/components/insights/coach-panel/message-thread";
 import { ConversationRename } from "@/components/insights/coach-panel/conversation-rename";
 import { ConversationTranscript } from "@/components/insights/coach-panel/conversation-transcript";
 import {
   useCoachConversationHistory,
   useDeleteCoachConversationWithUndo,
 } from "@/components/insights/coach-panel/use-coach";
-import type { CoachConversationDTO } from "@/lib/ai/coach/types";
 import { useCoachLaunch } from "@/lib/insights/coach-launch-context";
+import { groupConversationsByRecency } from "@/lib/insights/coach-conversation-groups";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAiCapabilityAnswer } from "@/hooks/use-ai-capability";
 import { useLoadMoreSentinel } from "@/hooks/use-load-more-sentinel";
@@ -58,58 +57,6 @@ import { cn } from "@/lib/utils";
  * wrapper matches the Coach page so the two surfaces share one chrome.
  */
 
-type RecencyGroupId = "today" | "yesterday" | "thisWeek" | "earlier";
-
-interface RecencyGroup {
-  id: RecencyGroupId;
-  labelKey: string;
-  conversations: CoachConversationDTO[];
-}
-
-/**
- * Bucket conversations by LOCAL calendar recency. `updatedAt` is an ISO
- * string; comparisons run against local day boundaries so "Today" tracks
- * the user's own midnight, not UTC.
- */
-function groupByRecency(conversations: CoachConversationDTO[]): RecencyGroup[] {
-  const now = new Date();
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).getTime();
-  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
-  // "This week" = the six days before yesterday (a rolling 7-day window
-  // that already excludes today + yesterday, which have their own groups).
-  const startOfWeek = startOfToday - 6 * 24 * 60 * 60 * 1000;
-
-  const groups: Record<RecencyGroupId, CoachConversationDTO[]> = {
-    today: [],
-    yesterday: [],
-    thisWeek: [],
-    earlier: [],
-  };
-
-  for (const conversation of conversations) {
-    const updated = new Date(conversation.updatedAt).getTime();
-    if (updated >= startOfToday) groups.today.push(conversation);
-    else if (updated >= startOfYesterday) groups.yesterday.push(conversation);
-    else if (updated >= startOfWeek) groups.thisWeek.push(conversation);
-    else groups.earlier.push(conversation);
-  }
-
-  return (
-    [
-      { id: "today", labelKey: "insights.coach.history.groupToday" },
-      { id: "yesterday", labelKey: "insights.coach.history.groupYesterday" },
-      { id: "thisWeek", labelKey: "insights.coach.history.groupThisWeek" },
-      { id: "earlier", labelKey: "insights.coach.history.groupEarlier" },
-    ] as const
-  )
-    .map((g) => ({ ...g, conversations: groups[g.id] }))
-    .filter((g) => g.conversations.length > 0);
-}
-
 function CoachConversationsBody({ readOnly }: { readOnly: boolean }) {
   const { t, locale } = useTranslations();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -139,7 +86,7 @@ function CoachConversationsBody({ readOnly }: { readOnly: boolean }) {
   );
   const isSearching = debouncedFilter.trim().length > 0;
 
-  const groups = useMemo(() => groupByRecency(visible), [visible]);
+  const groups = useMemo(() => groupConversationsByRecency(visible), [visible]);
 
   // Same callback-ref pattern as the rail: a `useState` setter (not a plain
   // `useRef`) so the sentinel hook's `root` re-fires its effect once the
@@ -222,7 +169,6 @@ function CoachConversationsBody({ readOnly }: { readOnly: boolean }) {
         data-slot="coach-conversations-list"
         className={cn(
           "-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1",
-          COACH_SCROLLBAR,
         )}
       >
         {isLoading && visible.length === 0 ? (
@@ -271,7 +217,9 @@ function CoachConversationsBody({ readOnly }: { readOnly: boolean }) {
                       className={cn(
                         "group relative flex flex-wrap items-center gap-1.5 rounded-xl px-3 py-2.5",
                         "text-sm transition-colors",
-                        "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                        // The title is the reader's own content: foreground,
+                        // with the timestamp below as the muted meta line.
+                        "text-foreground hover:bg-muted/40",
                       )}
                     >
                       <button
@@ -378,8 +326,10 @@ export default function CoachConversationsPage() {
       // mobile-only BottomNav band). L4 fix
       // (`.planning/audits/2026-07-18-qa-ui.md`) — this had dropped the
       // `safe-area-inset-top` term `/coach` subtracts, overshooting by
-      // ~50px on notched devices; restored to match exactly.
-      className="bg-background -mx-4 -mt-6 -mb-20 flex h-[calc(100dvh-8rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] min-h-[32rem] flex-col overflow-hidden md:-mx-6 md:h-[calc(100dvh-4rem)]"
+      // ~50px on notched devices; restored to match exactly. v1.42 — the
+      // shell now takes that inset above the top bar at every width, so
+      // the desktop height subtracts it too, and `/coach/plans` matches.
+      className="bg-background shell-desktop:h-[calc(100dvh-4rem-env(safe-area-inset-top,0px))] -mx-4 -mt-6 -mb-20 flex h-[calc(100dvh-8rem-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] min-h-[32rem] flex-col overflow-hidden md:-mx-6"
     >
       <CoachConversationsBody readOnly={!coach.available} />
     </div>

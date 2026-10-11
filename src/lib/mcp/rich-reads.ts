@@ -31,12 +31,14 @@
 import type { MeasurementType } from "@/generated/prisma/client";
 
 import { prisma } from "@/lib/db";
+import { windowWeighting } from "@/lib/measurements/day-statistic";
 import { annotate } from "@/lib/logging/context";
 import { isModuleEnabled } from "@/lib/modules/gate";
 import { moduleForMeasurementType } from "@/lib/modules/measurement-scope";
 import { readCoachCorrelations } from "@/lib/ai/coach/tools/correlations-read";
 import { buildCoachReadStrip } from "@/lib/insights/derived/coach-read";
 import { resolveLocaleForUser } from "@/lib/i18n/user-locale";
+import { resolveUserTimezone } from "@/lib/tz/resolver";
 import {
   buildLocalisedLabelIndex,
   foldLabel,
@@ -479,11 +481,16 @@ export async function metricStatusDiscoveryRows(userId: string): Promise<
     metric: string;
   }>
 > {
+  // v1.41.2 — live rows only. Without `deletedAt: null` a type whose rows
+  // were all deleted still counted as present, and the grouped count could
+  // not use the live-rows partial index (`measurements_live_covering_idx`),
+  // so it walked every tombstone on the way.
   const rows = await prisma.measurement.groupBy({
     by: ["type"],
     where: {
       userId,
       type: { in: MCP_METRIC_STATUS_DISCOVERY.map((s) => s.measurementType) },
+      deletedAt: null,
     },
     _count: { _all: true },
   });
@@ -854,7 +861,10 @@ async function snapshotMetricWindow(
     windowDays,
   );
   if (!read || read.rows.length === 0) return null;
-  const agg = aggregateWmyBuckets(read.rows);
+  const agg = aggregateWmyBuckets(
+    read.rows,
+    windowWeighting(metric.measurementType),
+  );
   if (agg.count === 0) return null;
   return {
     label: metric.label,
@@ -895,7 +905,10 @@ async function snapshotMetricRange(
     return t >= fromMs && t <= toMs;
   });
   if (rows.length === 0) return null;
-  const agg = aggregateWmyBuckets(rows);
+  const agg = aggregateWmyBuckets(
+    rows,
+    windowWeighting(metric.measurementType),
+  );
   if (agg.count === 0) return null;
   return {
     label: metric.label,
@@ -1031,10 +1044,20 @@ export interface MetricBaselineResult {
   unit?: string;
   /** The user's personal usual range (median ± k·MAD) + sample transparency. */
   baseline?: { low: number; high: number; sampleDays: number };
-  /** Today's latest reading. */
+  /** The latest reading; today's only when `latestIsToday`. */
   latest?: number;
+  /** Calendar day of `latest` in the user's zone, `YYYY-MM-DD`. */
+  latestDate?: string;
+  /** True when `latest` is from the user's today. */
+  latestIsToday?: boolean;
   /** Where the latest reading sits relative to the personal band. */
   placement?: "within" | "above" | "below";
+  /**
+   * `"sameHours"` when today is still in progress for a metric whose day
+   * mean moves with the hour (glucose): `latest` is today's mean so far and
+   * the band is the usual range for the same hours of earlier days.
+   */
+  basis?: "sameHours";
   /** Population reference band, or `null` when none exists for the metric. */
   referenceBand?: { low: number; high: number } | null;
   /** The single strongest lagged driver of this metric, or `null`. */
@@ -1042,7 +1065,7 @@ export interface MetricBaselineResult {
 }
 
 /**
- * Return where today's value sits against the user's own usual range. Pure
+ * Return where the latest value (dated, with whether it is today's) sits against the user's own usual range. Pure
  * re-export of `buildCoachReadStrip` — the SAME median ± k·MAD baseline engine
  * (`computeVitalsBaseline`) + lagged-driver pick the metric page renders. Below
  * the engine's 7-day history floor the band is not asserted (`{ present: false,
@@ -1063,6 +1086,7 @@ export async function getMetricBaseline(
     userId,
     metric.measurementType,
     await resolveLocaleForUser(userId),
+    { tz: await resolveUserTimezone(userId) },
   );
 
   if (!strip.baseline) {
@@ -1093,7 +1117,10 @@ export async function getMetricBaseline(
       sampleDays: strip.baseline.sampleDays,
     },
     latest: strip.baseline.latest,
+    latestDate: strip.baseline.latestDate,
+    latestIsToday: strip.baseline.latestIsToday,
     placement: strip.baseline.placement,
+    ...(strip.baseline.basis ? { basis: strip.baseline.basis } : {}),
     referenceBand: metric.band,
     driver: strip.driver,
   };

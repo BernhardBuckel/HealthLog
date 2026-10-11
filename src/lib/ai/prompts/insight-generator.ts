@@ -293,6 +293,14 @@ gib die obige Verweigerung zurück.`,
        briefing is stronger with one or two sharp signals than three
        weak ones. When "signalsOfDay" is absent or flat, omit the field
        (or set null) — do NOT manufacture a signal from a quiet metric.
+       Every "signalsOfDay" entry comes from a reading taken TODAY in the
+       reader's own timezone. A metric missing from the block was not
+       measured today: never call its last reading "today's", and never
+       build a signal or a "today" sentence from it.
+       An entry with basis "sameHours" (blood glucose) compares today
+       so far with the same hours of the earlier days: "latest" is
+       today's mean so far and avg7 / avg30 are the usual level by this
+       time of day. Say "by this time of day", never "your average".
      - keyFindings: 0-5 short rows — the longer-horizon trend list
        below the signals. Each row has tone ("good" | "watch" |
        "info"), a headline (≤ 60 chars), a one-sentence detail, an
@@ -504,6 +512,15 @@ gib die obige Verweigerung zurück.`,
        zwei scharfe Signale sind stärker als drei schwache. Fehlt
        "signalsOfDay" oder ist flach, lass das Feld weg (oder setze null)
        — erfinde KEIN Signal aus einer ruhigen Metrik.
+       Jeder "signalsOfDay"-Eintrag stammt aus einer Messung von HEUTE in
+       der Zeitzone der Person. Eine Metrik, die im Block fehlt, wurde
+       heute nicht gemessen: nenne ihren letzten Wert nie "heute" und baue
+       daraus weder ein Signal noch einen Satz über heute.
+       Ein Eintrag mit basis "sameHours" (Blutzucker) vergleicht den
+       bisherigen Tag mit denselben Stunden der Vortage: "latest" ist der
+       Mittelwert von heute bis jetzt, avg7 / avg30 sind das übliche
+       Niveau bis zu dieser Tageszeit. Sag "bis zu dieser Tageszeit",
+       nie "dein Durchschnitt".
      - keyFindings: 0-5 kurze Zeilen — die Trend-Liste mit längerem
        Horizont unter den Signalen. Jede Zeile hat tone ("good" | "watch"
        | "info"), eine headline (≤ 60 Zeichen), ein detail im Einzelsatz,

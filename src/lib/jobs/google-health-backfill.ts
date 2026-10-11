@@ -11,14 +11,26 @@
  * provisions it and the boot enqueue silently never drains (the v1.4.37
  * dead-queue class).
  */
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { annotate } from "@/lib/logging/context";
 import { getGlobalBoss } from "@/lib/jobs/boss-instance";
-import { integrationBackfillSourceOptions } from "@/lib/jobs/integration-backfill-admission";
-import { isReauthRequired } from "@/lib/integrations/status";
-import { GOOGLE_HEALTH_INTEGRATION_KEY } from "@/lib/google-health/sync-core";
-import { syncUserGoogleHealth } from "@/lib/google-health/sync";
+import {
+  enqueueIntegrationBackfillAdmission,
+  INTEGRATION_BACKFILL_CONTINUATION_DELAY_SECONDS,
+  integrationBackfillSourceOptions,
+} from "@/lib/jobs/integration-backfill-admission";
+import {
+  readGoogleHealthBackfillDone,
+  runWithGoogleHealthBackfillResume,
+} from "@/lib/google-health/sync-core";
+import {
+  isGoogleHealthParked,
+  syncUserGoogleHealth,
+} from "@/lib/google-health/sync";
+import { GOOGLE_HEALTH_SYNC_LOCK_WAIT_MS } from "@/lib/google-health/sync-lock";
 import { runWithGoogleHealthStop } from "@/lib/google-health/client";
+import { GOOGLE_HEALTH_COLLECTION_KEYS } from "@/lib/google-health/collection-keys";
 
 export const GOOGLE_HEALTH_BACKFILL_QUEUE = "google-health-backfill";
 
@@ -28,6 +40,17 @@ export const GOOGLE_HEALTH_BACKFILL_QUEUE = "google-health-backfill";
  * the request pool, matching `FITBIT_BACKFILL_CONCURRENCY`.
  */
 export const GOOGLE_HEALTH_BACKFILL_CONCURRENCY = 1;
+
+/**
+ * The highest slice a backfill chain may reach. Every continued slice has
+ * finished at least one more collection than the one before it, so a healthy
+ * chain is at most one slice per collection long; the two extra slices are
+ * slack for the first one and the one that stamps the marker. A slice past
+ * this is a chain that counts progress it does not make, and it fails rather
+ * than queueing another.
+ */
+export const GOOGLE_HEALTH_BACKFILL_MAX_SLICE =
+  GOOGLE_HEALTH_COLLECTION_KEYS.length + 2;
 
 export interface GoogleHealthBackfillPayload {
   userId: string;
@@ -53,14 +76,47 @@ export interface GoogleHealthBackfillPayload {
  * heart-rate history runs to thousands of pages, and the walk asks it before
  * every page: once it says stop, the walk ends where it is, the cycle reports
  * itself truncated, and this throws like any other incomplete run, without
- * the stamp. The rows already written stay; the retry or the next boot walks
- * again and the key-stable upserts overwrite them.
+ * the stamp. The rows already written stay.
+ *
+ * Resumable: every collection the walk finishes cleanly is noted in
+ * `backfillProgress`, and the next attempt (the pg-boss retry, or the next
+ * boot's discovery) skips those and walks only what is left
+ * (`runWithGoogleHealthBackfillResume`). The note is cleared once the stamp
+ * lands, and on every reconnect.
+ *
+ * Runs in slices: an attempt that ends before the whole history is in but
+ * finished at least one more collection than it started with made progress.
+ * It is not a failure: it sends the next slice (`slice + 1`) and returns
+ * `continued`, without the error line or the queue's failure count. Only an
+ * attempt that finished nothing new throws, because that one is stuck: the
+ * pg-boss retry and, after it, the next boot take it from there. Progress is
+ * counted only once it is persisted (`runGoogleHealthCollection` adds a
+ * collection to `done` after its note is written), and the chain is capped at
+ * `GOOGLE_HEALTH_BACKFILL_MAX_SLICE`: a slice past it throws instead of
+ * running or sending another.
+ *
+ * Never beside another run of the same account: the sync takes the account's
+ * lock, waiting a bounded time for an hourly or manual run to finish. If the
+ * lock does not come free the attempt throws without doing anything, and the
+ * retry tries again.
  */
 export async function runGoogleHealthBackfillForUser(
   userId: string,
   shouldStop: () => boolean = () => false,
-): Promise<{ imported: number }> {
-  if (await isReauthRequired(userId, GOOGLE_HEALTH_INTEGRATION_KEY)) {
+  slice: number = 0,
+): Promise<{ imported: number; continued?: boolean }> {
+  if (slice > GOOGLE_HEALTH_BACKFILL_MAX_SLICE) {
+    annotate({
+      action: {
+        name: "google_health.backfill.slice_ceiling",
+        details: { slice, maxSlice: GOOGLE_HEALTH_BACKFILL_MAX_SLICE },
+      },
+    });
+    throw new Error(
+      `google-health backfill for user ${userId} reached slice ${slice}, past the ceiling of ${GOOGLE_HEALTH_BACKFILL_MAX_SLICE}`,
+    );
+  }
+  if (await isGoogleHealthParked(userId)) {
     annotate({
       action: {
         name: "google_health.backfill.skipped_reauth",
@@ -70,14 +126,86 @@ export async function runGoogleHealthBackfillForUser(
     return { imported: 0 };
   }
 
-  const { imported, failed } = await runWithGoogleHealthStop(shouldStop, () =>
-    syncUserGoogleHealth(userId, { fullSync: true }),
+  const connection = await prisma.googleHealthConnection.findUnique({
+    where: { userId },
+    select: { backfillProgress: true, backfillCompletedAt: true },
+  });
+  if (connection?.backfillCompletedAt) {
+    // A slice queued behind the one that finished the import, or a boot
+    // delivery that raced it: the history is in, nothing to walk again.
+    annotate({
+      action: {
+        name: "google_health.backfill.already_complete",
+        details: { slice },
+      },
+    });
+    return { imported: 0 };
+  }
+  const done = readGoogleHealthBackfillDone(connection?.backfillProgress);
+  const doneBefore = done.size;
+
+  const {
+    result: { imported, failed, busy },
+    skipped,
+  } = await runWithGoogleHealthBackfillResume(userId, done, () =>
+    runWithGoogleHealthStop(shouldStop, () =>
+      syncUserGoogleHealth(userId, {
+        fullSync: true,
+        waitForLockMs: GOOGLE_HEALTH_SYNC_LOCK_WAIT_MS,
+      }),
+    ),
   );
+  if (skipped.length > 0) {
+    annotate({ meta: { "googleHealth.backfill.resumedPast": skipped } });
+  }
+
+  if (busy) {
+    throw new Error(
+      `google-health backfill for user ${userId} deferred: another sync of the account is running`,
+    );
+  }
 
   if (failed) {
-    // Surface through the pg-boss retry path (retryLimit 3, backoff). If the
-    // failure parked the connection at error_reauth meanwhile, the next
-    // attempt takes the reauth return above instead of failing again.
+    // `done` is the resume set this attempt added to as it finished
+    // collections; a larger set than it started with is progress.
+    const finished = done.size - doneBefore;
+    if (finished > 0 && slice + 1 <= GOOGLE_HEALTH_BACKFILL_MAX_SLICE) {
+      const boss = getGlobalBoss();
+      const sent = boss
+        ? await enqueueIntegrationBackfillAdmission(
+            boss,
+            {
+              kind: "google-health-backfill",
+              data: {
+                userId,
+                enqueuedAt: new Date().toISOString(),
+                slice: slice + 1,
+              },
+            },
+            INTEGRATION_BACKFILL_CONTINUATION_DELAY_SECONDS,
+          )
+        : null;
+      if (sent) {
+        annotate({
+          action: {
+            name: "google_health.backfill.continued",
+            details: {
+              imported,
+              slice,
+              collectionsFinished: finished,
+              collectionsDone: done.size,
+            },
+          },
+        });
+        return { imported, continued: true };
+      }
+      // No follow-up could be queued; fall through to the retry path so the
+      // work is not dropped.
+    }
+    // No collection finished in this attempt: the backfill is stuck, not
+    // slow. Surface through the pg-boss retry path (retryLimit 3, backoff).
+    // If the failure parked the connection at error_reauth meanwhile, the
+    // next attempt takes the reauth return above instead of failing again.
     throw new Error(
       `google-health backfill incomplete for user ${userId} — marker not stamped`,
     );
@@ -85,7 +213,7 @@ export async function runGoogleHealthBackfillForUser(
 
   await prisma.googleHealthConnection.update({
     where: { userId },
-    data: { backfillCompletedAt: new Date() },
+    data: { backfillCompletedAt: new Date(), backfillProgress: Prisma.DbNull },
   });
 
   annotate({

@@ -54,6 +54,8 @@ import { usePriorityItemDismiss } from "@/hooks/use-priority-item-dismiss";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { useTranslations } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
+import { pluralKey } from "@/lib/i18n/plural";
+import { MAX_TODAY_FACTS_NARROW as TODAY_FACTS_NARROW } from "@/lib/daily/today-overview";
 import type { DailyDigest } from "@/lib/daily/digest";
 import type { HeroPrimaryContent } from "@/lib/dashboard-layout";
 import {
@@ -72,28 +74,6 @@ function formatDelta(
   return t("daily.today.deltaVsBaseline", { delta: signed });
 }
 
-/**
- * The ring already owns the headline number. AI briefing copy can still carry
- * an older lead sentence that repeats that exact score, so remove only the
- * sentence containing the displayed number and retain every other useful
- * sentence verbatim. If the score sentence was the whole lead, render no lead
- * rather than inventing replacement prose.
- */
-function withoutRepeatedScore(
-  text: string | null,
-  score: number | null,
-): string | null {
-  if (!text || score === null) return text;
-  const shownScore = String(Math.round(score));
-  const scorePattern = new RegExp(
-    `(^|[^0-9])${shownScore.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}([^0-9]|$)`,
-  );
-  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) ?? [text];
-  const retained = sentences.filter((sentence) => !scorePattern.test(sentence));
-  const result = retained.join(" ").replace(/\s+/g, " ").trim();
-  return result.length > 0 ? result : null;
-}
-
 export function TodayHero({
   digest,
   renderFilteredAllClear = false,
@@ -104,7 +84,7 @@ export function TodayHero({
   /** Server-persisted hero choice from the dashboard layout blob. */
   primaryContent?: HeroPrimaryContent;
 }) {
-  const { t } = useTranslations();
+  const { t, locale } = useTranslations();
   // The hero is deliberately NOT mount-gated (v1.30.9: it is the LCP element
   // and paints from the server-dehydrated digest on both the SSR and the
   // hydration render), so nothing in it may differ between those two passes.
@@ -138,35 +118,55 @@ export function TodayHero({
 
   const hasScore = digest.score !== null;
   const hasItems = digest.worthALook.length > 0;
-  // Lead precedence, warmest first: the day's reaction line REPLACES the
-  // briefing lead once something landed — it never appends as a second
-  // paragraph, so the hero stays exactly one lead line tall and nothing below
-  // it shifts. The briefing lead is the standing read; the deterministic
-  // `line` is the floor a keyless self-hoster still gets.
-  const rawLead =
-    digest.reactionLine ??
-    digest.briefingLead ??
-    // The deterministic line is a useful floor only once the ring has a real
-    // score. A provisional/null ring must not pair with a fabricated score
-    // sentence from that fallback.
-    (hasScore ? digest.line : null);
-  const lead = withoutRepeatedScore(rawLead, digest.score?.value ?? null);
-  const topSignal = digest.topSignal;
-  // A score-only briefing can legitimately lose its lead when the only
-  // sentence repeated the number already printed inside the ring. Keep the
-  // day's signal as the visible headline in that case instead of leaving the
-  // hero with a muted, orphaned subtitle below an empty bold slot.
-  const signalFallbackLead =
-    hasScore && !lead ? topSignal?.headline?.trim() || null : null;
-  const displayLead = lead ?? signalFallbackLead;
-  // A score-only all-clear digest has no narrative content for the leading
-  // column. Keeping the full md ring in that two-column shell left a blank
-  // column beside a 168 px dial and pushed the actual all-clear read below it.
-  // Treat that honest fallback as its own compact composition: the all-clear
-  // copy occupies the leading column and a smaller version of the SAME score
-  // ring remains the one numeric face. This branch depends only on the
-  // server-delivered digest, so SSR and hydration choose it identically.
-  const compactAllClear = !lead && !topSignal && !hasItems;
+  // `?? []` / `?? null` below: the service worker's offline data cache can
+  // still hand back a digest written before the overview fields existed, and
+  // a missing list must read as "no facts", not as a crash.
+  const facts = digest.today ?? [];
+  const hasFacts = facts.length > 0;
+  // The lead is resolved on the server (`digest.lead`): the reaction line or
+  // a briefing sentence with content while AI text is available, otherwise a
+  // deterministic sentence about the day's strongest signal. Greetings and a
+  // sentence that only repeats the ring's number never reach it, so the hero
+  // renders it verbatim and decides nothing about it. A digest the service
+  // worker cached before the field existed has no `lead` at all; it falls
+  // back to the lines that version led with.
+  const lead =
+    digest.lead === undefined
+      ? (digest.reactionLine ?? digest.briefingLead ?? null)
+      : (digest.lead?.text ?? null);
+  // The line under the lead is decided on the server (`digest.signalLine`):
+  // the briefing's top signal minus whatever the lead already says, so the
+  // headline goes when the lead talks about its metric and the delta stands
+  // alone. A digest the service worker cached before the field existed simply
+  // shows no line.
+  const signalLine = lead ? (digest.signalLine ?? null) : null;
+  // A score-only digest with nothing else to say has no narrative content for
+  // the leading column. Keeping the full md ring in that two-column shell left
+  // a blank column beside a 168 px dial and pushed the all-clear read below
+  // it, so that case keeps its compact composition: the all-clear copy leads
+  // and a smaller version of the SAME score ring stays the one numeric face.
+  // This branch depends only on the server-delivered digest, so SSR and
+  // hydration choose it identically.
+  const compactAllClear = !lead && !signalLine && !hasItems && !hasFacts;
+
+  // How long the number has held, read off the stored daily scores on the
+  // server. Said only when no delta is: a moved score is described by its
+  // delta, a still one by its duration, never both under one ring.
+  const deltaShown =
+    digest.score !== null &&
+    digest.score.delta !== null &&
+    digest.score.deltaReason === null;
+  const steadyWeeks = digest.score?.steadyWeeks ?? null;
+  const steadyLine =
+    !deltaShown && steadyWeeks !== null
+      ? t(
+          // A run that reaches past what was read has no known start.
+          digest.score?.steadyAtLeast
+            ? pluralKey("daily.today.steadyAtLeastWeeks", steadyWeeks, locale)
+            : pluralKey("daily.today.steadyWeeks", steadyWeeks, locale),
+          { count: steadyWeeks },
+        )
+      : null;
 
   // v1.38 — what the ring's number rests on, when that is less than the
   // breadth the score recommends. The hero renders the number and nothing
@@ -203,13 +203,7 @@ export function TodayHero({
   //
   // A filtered layout is the one explicit exception: its empty digest means
   // "the hidden canonical candidates are quiet here", so retain all-clear.
-  if (
-    !renderFilteredAllClear &&
-    !hasScore &&
-    !hasItems &&
-    !digest.briefingLead &&
-    !digest.reactionLine
-  ) {
+  if (!renderFilteredAllClear && !hasScore && !hasItems && !hasFacts && !lead) {
     return null;
   }
 
@@ -252,6 +246,154 @@ export function TodayHero({
     </div>
   ) : null;
 
+  /* The Today overview — up to five statements about the day, resolved on the
+     server in priority order. A phone shows the first four: the fifth is
+     hidden below `md` rather than dropped, so the list a wide screen reads is
+     the same list, one line longer. Each line opens the page it belongs to.
+     The block never asks for anything; the rail below is the one place on the
+     hero that may. */
+  const todayBlock = hasFacts ? (
+    <div className="space-y-2" data-slot="today-hero-today">
+      <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+        {t("daily.today.heading")}
+      </h2>
+      <ul className="flex flex-col md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-3 xl:grid-cols-3">
+        {facts.map((fact, i) => (
+          <li
+            key={fact.kind}
+            data-slot="today-hero-fact"
+            data-kind={fact.kind}
+            className={cn(
+              "min-w-0",
+              i >= TODAY_FACTS_NARROW && "hidden md:block",
+            )}
+          >
+            {/* Label above value at every width, both on the reading edge.
+                A label-left / value-right row pushed a long value ("5 h 45
+                min, 42 min less than usual") into a ragged right-aligned
+                block on a phone; stacked, every value reads as one left-
+                aligned sentence. The row keeps the 44 px tap floor below md. */}
+            <Link
+              href={fact.href}
+              className="focus-visible:ring-ring/50 hover:bg-muted/50 -mx-1.5 flex min-h-11 flex-col justify-center gap-0.5 rounded-md px-1.5 py-1 focus-visible:ring-2 focus-visible:outline-none md:min-h-0 md:justify-start"
+            >
+              <span className="text-muted-foreground text-xs">
+                {fact.label}
+              </span>
+              <span className="text-foreground min-w-0 text-sm font-medium">
+                {fact.value}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  ) : null;
+
+  /* The lead — the read leads large in the foreground token, calm and
+     legible — and, one muted step down, the top signal's present-tense
+     headline + delta, supporting it without competing. */
+  const leadBlock =
+    lead || signalLine ? (
+      <div className="space-y-2">
+        {lead ? (
+          <div
+            data-slot="today-hero-lead"
+            data-source={digest.lead?.source}
+            className="text-foreground text-lg leading-snug font-semibold tracking-tight sm:text-xl"
+          >
+            <ProseBlocks text={lead} strip linkify={false} />
+          </div>
+        ) : null}
+        {signalLine ? (
+          <p
+            data-slot="today-hero-signal"
+            className="text-muted-foreground text-sm"
+          >
+            {signalLine.headline}
+            {signalLine.headline && signalLine.delta ? " · " : null}
+            {signalLine.delta}
+          </p>
+        ) : null}
+      </div>
+    ) : null;
+
+  /* Health score ring — `flat` (no sweep/bloom), server-computed band. A
+     null score paints the ring's honest provisional face at the same
+     footprint, so the column never collapses. The meta lines under it are
+     capped to the dial's width on a phone so the column stays compact. */
+  const hasScoreMeta =
+    (deltaShown && digest.score?.delta != null) || !!steadyLine || !!basisLine;
+
+  const scoreRing = (size: "sm" | "responsive", className?: string) => (
+    <div data-slot="today-hero-score" className={className}>
+      {/* The ring opens the Insights overview — the destination the
+          health-score card owns — so every hero ring is a door, not a
+          poster. */}
+      <Link
+        href="/insights"
+        aria-label={t("daily.today.ringLink", {
+          metric: t("daily.today.scoreLabel"),
+        })}
+        className="focus-visible:ring-ring/50 block rounded-full focus-visible:ring-2 focus-visible:outline-none"
+      >
+        <ScoreRing
+          score={digest.score?.value ?? null}
+          band={digest.score ? (digest.score.band as ScoreBand) : undefined}
+          size={size}
+          flat
+          label={t("daily.today.scoreLabel")}
+        />
+      </Link>
+    </div>
+  );
+
+  /* The score's meta lines: its delta, how long it has held, and what it
+     rests on. On the phone's full-width row the basis sentence keeps one
+     line; beside a dial it wraps at the dial column's width. */
+  const scoreMetaLines = (size: "sm" | "responsive") => (
+    <>
+      {deltaShown && digest.score?.delta != null ? (
+        <span
+          data-slot="today-hero-score-delta"
+          className="text-muted-foreground text-xs tabular-nums"
+        >
+          {formatDelta(digest.score.delta, t)}
+        </span>
+      ) : null}
+      {steadyLine ? (
+        <span
+          data-slot="today-hero-score-steady"
+          className="text-muted-foreground text-xs text-balance"
+        >
+          {steadyLine}
+        </span>
+      ) : null}
+      {basisLine ? (
+        <span
+          data-slot="today-hero-score-basis"
+          className={cn(
+            "text-muted-foreground text-xs text-balance md:max-w-[11rem] md:text-right",
+            size === "sm" && "max-w-[11rem]",
+          )}
+        >
+          {basisLine}
+        </span>
+      ) : null}
+    </>
+  );
+
+  /* Health score ring — `flat` (no sweep/bloom), server-computed band. A
+     null score paints the ring's honest provisional face at the same
+     footprint, so the column never collapses. The compact all-clear keeps
+     the ring and its meta lines in one centred column. */
+  const compactScoreColumn = (
+    <div className="flex shrink-0 flex-col items-center gap-1 text-center md:items-end">
+      {scoreRing("sm")}
+      {scoreMetaLines("sm")}
+    </div>
+  );
+
   const heroShellClassName = cn(
     // The tile strip's surface plus the ONE sanctioned Today atmosphere:
     // `.today-hero-wash` leans a faint `--primary` mix over the theme
@@ -275,14 +417,16 @@ export function TodayHero({
         className={heroShellClassName}
       >
         <div className="flex flex-col gap-3 md:gap-4">
-          {rail ?? (
-            <p
-              data-slot="today-hero-all-clear"
-              className="text-muted-foreground text-sm"
-            >
-              {t("daily.today.allClear")}
-            </p>
-          )}
+          {todayBlock}
+          {rail ??
+            (hasFacts ? null : (
+              <p
+                data-slot="today-hero-all-clear"
+                className="text-muted-foreground text-sm"
+              >
+                {t("daily.today.allClear")}
+              </p>
+            ))}
           {sleepPendingNote}
         </div>
       </section>
@@ -301,105 +445,98 @@ export function TodayHero({
           gaps let the worth-a-look rail sit close under the lead so the card
           reads filled, not padded out. */}
       <div className="flex flex-col gap-3 md:gap-4">
-        {/* The day's read — the numeric face on the trailing edge, the
-            narrative lead leading. On md+ the lead sits flush-top with the
-            score ring (items-start) rather than floating centred beside it. */}
-        <div
-          className={cn(
-            "flex gap-4",
-            compactAllClear
-              ? "flex-row items-center justify-between"
-              : "flex-col md:flex-row md:items-start md:justify-between md:gap-6",
-          )}
-        >
-          <div className="min-w-0 flex-1 space-y-2">
-            {/* Hero numeric face: the read leads large in the foreground
-                token, calm and legible — the day's read, not a slogan. */}
-            {displayLead ? (
-              <div
-                data-slot="today-hero-lead"
-                className="text-foreground text-lg leading-snug font-semibold tracking-tight sm:text-xl"
-              >
-                <ProseBlocks text={displayLead} strip linkify={false} />
-              </div>
-            ) : null}
-            {/* Top signal — present-tense headline + optional delta, one
-                muted step down so it supports the lead without competing. */}
-            {topSignal && lead ? (
-              <p
-                data-slot="today-hero-signal"
-                className="text-muted-foreground text-sm"
-              >
-                {topSignal.headline}
-                {topSignal.delta ? (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · {topSignal.delta}
-                  </span>
-                ) : null}
-              </p>
-            ) : null}
-            {compactAllClear ? (
+        {compactAllClear ? (
+          /* Score-only digest: the all-clear copy leads and a smaller
+             version of the same ring stays the one numeric face. */
+          <div className="flex flex-row items-center justify-between gap-4">
+            <div className="min-w-0 flex-1 space-y-3">
               <p
                 data-slot="today-hero-all-clear"
                 className="text-muted-foreground text-sm"
               >
                 {t("daily.today.allClear")}
               </p>
-            ) : null}
-
-            {/* In the compact fallback the quiet freshness tier belongs next
-                to the smaller ring. That uses the otherwise-empty leading
-                space and avoids adding a second row below the dial. */}
-            {compactAllClear ? sleepPendingNote : null}
-          </div>
-
-          {/* Health score ring — `flat` (no sweep/bloom), server-computed
-              band. A null score paints the ring's honest provisional face
-              at the same footprint, so the column never collapses. */}
-          <div className="flex shrink-0 flex-col items-center gap-1 md:items-end">
-            <div data-slot="today-hero-score">
-              {/* The ring opens the Insights overview — the destination the
-                  health-score card owns — matching the cluster rings' tap
-                  behaviour, so every hero ring is a door, not a poster. */}
-              <Link
-                href="/insights"
-                aria-label={t("daily.today.ringLink", {
-                  metric: t("daily.today.scoreLabel"),
-                })}
-                className="focus-visible:ring-ring/50 block rounded-full focus-visible:ring-2 focus-visible:outline-none"
-              >
-                <ScoreRing
-                  score={digest.score?.value ?? null}
-                  band={
-                    digest.score ? (digest.score.band as ScoreBand) : undefined
-                  }
-                  size={compactAllClear ? "sm" : "md"}
-                  flat
-                  label={t("daily.today.scoreLabel")}
-                />
-              </Link>
+              {/* The quiet freshness tier belongs next to the smaller ring:
+                  it uses the otherwise-empty leading space and adds no
+                  second row below the dial. */}
+              {sleepPendingNote}
             </div>
-            {digest.score &&
-            digest.score.delta !== null &&
-            digest.score.deltaReason === null ? (
-              <span
-                data-slot="today-hero-score-delta"
-                className="text-muted-foreground text-xs tabular-nums"
-              >
-                {formatDelta(digest.score.delta, t)}
-              </span>
-            ) : null}
-            {basisLine ? (
-              <span
-                data-slot="today-hero-score-basis"
-                className="text-muted-foreground max-w-[11rem] text-center text-xs text-balance md:text-right"
-              >
-                {basisLine}
-              </span>
-            ) : null}
+            {compactScoreColumn}
           </div>
-        </div>
+        ) : (
+          /* The day's read: the narrative lead on the reading edge, the
+             numeric face on the trailing one, the Today overview under the
+             lead.
+
+             One grid, two arrangements. Below md the ring is a compact dial
+             at the top right beside the lead, and the overview runs the full
+             card width underneath both; a phone has no room for a 168 px
+             dial under the facts, where it used to sit centred and fall
+             behind the bottom navigation. From md up the ring spans both
+             rows of the trailing column and the overview stays in the
+             leading column, flush-top with the ring, exactly as before.
+
+             Without a lead the overview takes the leading cell itself, so
+             the ring never floats beside an empty row. */
+          <div
+            data-slot="today-hero-read"
+            className={cn(
+              "grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-4 md:gap-x-6 md:gap-y-6",
+              // A ring taller than the lead pushes its extra height into the
+              // second row only, so the overview stays right under the lead.
+              leadBlock && todayBlock && "md:grid-rows-[auto_1fr]",
+            )}
+          >
+            {leadBlock ? (
+              <div className="col-start-1 row-start-1 min-w-0 self-start">
+                {leadBlock}
+              </div>
+            ) : null}
+            {todayBlock ? (
+              <div
+                className={cn(
+                  "min-w-0",
+                  leadBlock
+                    ? cn(
+                        "col-span-2 md:col-span-1 md:col-start-1 md:row-start-2",
+                        hasScoreMeta ? "row-start-3" : "row-start-2",
+                      )
+                    : "col-start-1 row-start-1",
+                )}
+              >
+                {todayBlock}
+              </div>
+            ) : null}
+            {/* One column from md up (the ring, its meta lines under it,
+                trailing edge), as before. Below md the column dissolves
+                (`contents`) into two grid items: the dial in the top-right
+                cell beside the lead, and the meta lines on a full-width row
+                right after the read row, flush with the dial's edge: under
+                the dial beside a short lead, under a long lead's last line.
+                In the dial's 80 px column the German lines broke into three
+                to five rows each and pushed the facts down. */}
+            <div
+              data-slot="today-hero-score-column"
+              className={cn(
+                "contents md:col-start-2 md:row-start-1 md:flex md:shrink-0 md:flex-col md:items-end md:gap-1 md:self-start md:text-right",
+                leadBlock && todayBlock && "md:row-span-2",
+              )}
+            >
+              {scoreRing(
+                "responsive",
+                "col-start-2 row-start-1 self-start md:self-auto",
+              )}
+              {hasScoreMeta ? (
+                <div
+                  data-slot="today-hero-score-meta"
+                  className="col-span-2 row-start-2 -mt-3 flex flex-col items-end gap-1 text-right md:contents"
+                >
+                  {scoreMetaLines("responsive")}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
 
         {/* Meta row — the hero's quiet tier (UI-STANDARDS §text: `text-xs
             text-muted-foreground` is the meta floor; never an accent, never an
@@ -411,8 +548,11 @@ export function TodayHero({
         {/* Worth-a-look rail — S1's `PriorityCard`s, bounded 0–3. When the
             digest is all-clear, a first-class muted line stands in for the
             rail (calm inversion of an alarm), never an empty card. */}
+        {/* The all-clear sentence only ever stands in for an empty card
+            (the compact composition above). Once a lead or facts carry the
+            day, an empty rail simply is not drawn. */}
         {rail ??
-          (!compactAllClear ? (
+          (!compactAllClear && !hasFacts && !lead ? (
             <p
               data-slot="today-hero-all-clear"
               className="text-muted-foreground text-sm"

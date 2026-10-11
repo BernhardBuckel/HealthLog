@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
+  Keyboard,
   LogOut,
   Monitor,
   Moon,
@@ -17,6 +18,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { AccountSwitcherMenuItems } from "@/components/layout/account-switcher-menu";
+import { openShortcutsHelp } from "@/components/layout/global-shortcuts";
 import { medicationsPrefetchIntentProps } from "@/lib/queries/prefetch-medications";
 import {
   isNavDestinationActive,
@@ -46,6 +48,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -53,6 +56,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "healthlog-sidebar-collapsed";
+
+/**
+ * The expanded sidebar's content width: `w-64` minus the rail's 1 px
+ * `border-r`, so the column fills the expanded rail exactly. Applied as a
+ * floor while expanded, it keeps the content at its final layout during the
+ * width transition (see the `sidebar-column` comment in the render).
+ */
+export const SIDEBAR_EXPANDED_CONTENT_WIDTH = "min-w-[calc(16rem-1px)]";
 
 /**
  * The stored collapse choice: `true` / `false`, or `null` when this browser
@@ -192,6 +203,19 @@ function SidebarUserSection({ collapsed }: { collapsed: boolean }) {
           </Link>
         </DropdownMenuItem>
       )}
+      {/* v1.42 — the keyboard shortcuts, findable without knowing that `?`
+          lists them. Desktop only, like this menu: the phone's account menu
+          has no keyboard to describe. */}
+      <DropdownMenuItem
+        data-slot="open-keyboard-shortcuts"
+        aria-keyshortcuts="?"
+        onSelect={() => openShortcutsHelp()}
+        className="cursor-pointer"
+      >
+        <Keyboard className="mr-2 h-4 w-4" />
+        {t("shortcuts.menuEntry")}
+        <DropdownMenuShortcut aria-hidden="true">?</DropdownMenuShortcut>
+      </DropdownMenuItem>
       {/* The about section lives at the end of the settings shell nav;
           the avatar menu stays focused on account-level actions. */}
       <DropdownMenuSub>
@@ -240,7 +264,12 @@ function SidebarUserSection({ collapsed }: { collapsed: boolean }) {
 
   if (collapsed) {
     return (
-      <div className="border-sidebar-border border-t p-3">
+      <div
+        className={cn(
+          "border-sidebar-border border-t p-3",
+          "[@media(max-height:940px)]:p-2",
+        )}
+      >
         <div className="flex items-center justify-center">
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -303,6 +332,108 @@ function SidebarUserSection({ collapsed }: { collapsed: boolean }) {
 }
 
 /**
+ * Height-based density for the rail. A 13-inch laptop at 100 % zoom leaves
+ * the browser roughly 700–860 px, and the full destination list plus the
+ * footer rows did not fit: the list scrolled, and on a classic-scrollbar
+ * platform (Windows) the rail grew a native scrollbar with arrow buttons.
+ * On short windows the rows close their gaps first, then step their height
+ * down; tall windows keep the roomy default. Desktop-only by construction —
+ * the rail is hidden below `md`, so the phone layout never sees these steps.
+ *
+ * Steps (rows are full-width, so the click target is the whole row):
+ * - default: 40 px rows, 4 px apart
+ * - max-height 940 px: gaps close (40 px pitch), list and user padding tighten
+ * - max-height 820 px: 36 px rows
+ * - max-height 740 px: 32 px rows — the one step under 40 px, taken only
+ *   where the alternative is rows hidden behind a scroll edge
+ */
+// Disjoint height ranges, not nested max-heights: two arbitrary media
+// variants on one property cascade in stylesheet order, not by how narrow
+// the query is, so a nested pair let the 36 px step win on a 720 px window.
+// The height steps apply to a mouse only. Under a finger (a touch tablet)
+// the rows keep the 44 px touch floor and the list scrolls behind its fades
+// instead. A phone held sideways never sees the rail: it keeps the phone
+// shell (`shell-mobile`).
+const RAIL_ROW_HEIGHT =
+  "min-h-10 pointer-coarse:min-h-11 [@media(hover:hover)_and_(pointer:fine)_and_(740px<height<=820px)]:min-h-9 [@media(hover:hover)_and_(pointer:fine)_and_(height<=740px)]:min-h-8";
+const RAIL_LIST_GAP = "space-y-1 [@media(max-height:940px)]:space-y-0";
+const RAIL_SHORT_PY = "[@media(max-height:940px)]:py-1.5";
+
+/** Rail row, collapsed (icon only) or expanded (icon + label). */
+function railRowClass(collapsed: boolean): string {
+  return cn(
+    "flex items-center rounded-lg transition-colors",
+    RAIL_ROW_HEIGHT,
+    collapsed
+      ? "justify-center px-2.5"
+      : "gap-3 px-3 py-1.5 text-sm font-medium",
+  );
+}
+
+/** Height of the fade at a scroll edge that has more content beyond it. */
+const RAIL_FADE = "1.5rem";
+
+/**
+ * The fade mask for the list's scroll edges: a top fade while there is
+ * content above, a bottom fade while there is content below. A mask paints
+ * alpha only, so it reads the same in light and dark and never moves layout.
+ */
+function railFadeMask(
+  top: boolean,
+  bottom: boolean,
+): React.CSSProperties | undefined {
+  if (!top && !bottom) return undefined;
+  const image = `linear-gradient(to bottom, ${top ? "transparent" : "#000"} 0, #000 ${top ? RAIL_FADE : "0px"}, #000 calc(100% - ${bottom ? RAIL_FADE : "0px"}), ${bottom ? "transparent" : "#000"} 100%)`;
+  return { maskImage: image, WebkitMaskImage: image };
+}
+
+/**
+ * Whether the nav list is taller than the room the rail leaves it, i.e.
+ * whether it scrolls, and which of its edges have more content beyond them.
+ * Re-measured when the nav (viewport height) or the list (entries arriving
+ * as modules resolve) changes size, and on scroll.
+ */
+function useNavOverflows(navRef: React.RefObject<HTMLElement | null>): {
+  overflows: boolean;
+  moreAbove: boolean;
+  moreBelow: boolean;
+} {
+  const [edges, setEdges] = useState({
+    overflows: false,
+    moreAbove: false,
+    moreBelow: false,
+  });
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav || typeof ResizeObserver === "undefined") return;
+    // Strict: any overflow, the same test that makes the list scroll.
+    const update = () => {
+      const overflows = nav.scrollHeight > nav.clientHeight;
+      const moreAbove = overflows && nav.scrollTop > 0.5;
+      const moreBelow =
+        overflows && nav.scrollTop + nav.clientHeight < nav.scrollHeight - 0.5;
+      setEdges((prev) =>
+        prev.overflows === overflows &&
+        prev.moreAbove === moreAbove &&
+        prev.moreBelow === moreBelow
+          ? prev
+          : { overflows, moreAbove, moreBelow },
+      );
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(nav);
+    if (nav.firstElementChild) observer.observe(nav.firstElementChild);
+    nav.addEventListener("scroll", update, { passive: true });
+    update();
+    return () => {
+      observer.disconnect();
+      nav.removeEventListener("scroll", update);
+    };
+  }, [navRef]);
+  return edges;
+}
+
+/**
  * The sidebar's collapse / expand control, drawn as a footer nav row.
  *
  * It sits at the bottom of the sidebar, directly above the footer entries
@@ -332,8 +463,8 @@ export function SidebarCollapseToggle({
       aria-expanded={!collapsed}
       data-slot="sidebar-collapse-toggle"
       className={cn(
-        "text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:ring-ring/50 flex w-full items-center rounded-lg text-sm font-medium transition-colors outline-none focus-visible:ring-[3px]",
-        collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5",
+        railRowClass(collapsed),
+        "text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:ring-ring/50 w-full text-sm font-medium outline-none focus-visible:ring-[3px]",
       )}
     >
       <Icon aria-hidden="true" className="size-4 shrink-0" />
@@ -418,6 +549,13 @@ export function SidebarNav() {
   );
   const collapsed = mounted ? (collapsedPref ?? tabletOrBelow) : false;
 
+  const navRef = useRef<HTMLElement | null>(null);
+  const {
+    overflows: navOverflows,
+    moreAbove: navMoreAbove,
+    moreBelow: navMoreBelow,
+  } = useNavOverflows(navRef);
+
   function toggleCollapsed() {
     const next = !collapsed;
     setCollapsedPref(next);
@@ -472,7 +610,7 @@ export function SidebarNav() {
               data-tour-id={tourId}
               data-slot={isSettings ? "nav-settings-link" : undefined}
               className={cn(
-                "flex items-center justify-center rounded-lg p-2.5 transition-colors",
+                railRowClass(true),
                 isActive
                   ? "bg-primary/10 text-primary"
                   : "text-foreground hover:bg-accent",
@@ -495,7 +633,7 @@ export function SidebarNav() {
         data-tour-id={tourId}
         data-slot={isSettings ? "nav-settings-link" : undefined}
         className={cn(
-          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+          railRowClass(false),
           isActive
             ? "bg-primary/10 text-primary"
             : "text-foreground hover:bg-accent",
@@ -517,7 +655,7 @@ export function SidebarNav() {
               href="/admin"
               aria-current={onAdminPage ? "page" : undefined}
               className={cn(
-                "flex items-center justify-center rounded-lg p-2.5 transition-colors",
+                railRowClass(true),
                 onAdminPage
                   ? "bg-primary/10 text-primary"
                   : "text-foreground hover:bg-accent",
@@ -537,7 +675,7 @@ export function SidebarNav() {
         href="/admin"
         aria-current={onAdminPage ? "page" : undefined}
         className={cn(
-          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+          railRowClass(false),
           onAdminPage
             ? "bg-primary/10 text-primary"
             : "text-foreground hover:bg-accent",
@@ -554,119 +692,166 @@ export function SidebarNav() {
       <aside
         aria-label={t("nav.sidebar")}
         className={cn(
-          "bg-sidebar border-sidebar-border relative hidden h-full flex-shrink-0 border-r transition-[width] duration-200 motion-reduce:transition-none md:flex md:flex-col",
+          "bg-sidebar border-sidebar-border shell-desktop:flex shell-desktop:flex-col relative hidden h-full flex-shrink-0 overflow-hidden border-r transition-[width] duration-200 motion-reduce:transition-none",
           collapsed ? "w-16" : "w-64",
         )}
       >
-        {/* Logo band. Height + bottom border come from `SHELL_HEADER_BAND`,
+        {/* The rail animates its width; the content does not. Expanded, this
+            column lays out at the final width from the first frame
+            (`SIDEBAR_EXPANDED_CONTENT_WIDTH`) and the rail's
+            `overflow-hidden` reveals it as the width grows. Laying the
+            labels out against the growing width instead wrapped every
+            multi-word label, pushed the list past the nav's height and its
+            rows past its width, and the nav's `overflow-y-auto` painted both
+            scrollbars for the length of the transition. Collapsing needs no
+            floor: the icon rows already fit the narrowing rail. */}
+        <div
+          data-slot="sidebar-column"
+          className={cn(
+            "flex h-full w-full flex-col",
+            !collapsed && SIDEBAR_EXPANDED_CONTENT_WIDTH,
+          )}
+        >
+          {/* Logo band. Height + bottom border come from `SHELL_HEADER_BAND`,
             which the top bar reads too, so the two borders draw one
             continuous line. The band owns the 4rem; the link inside
             stretches with `h-full` and never restates a height. */}
-        <div
-          data-slot="sidebar-header"
-          className={cn(
-            "border-sidebar-border",
-            SHELL_HEADER_BAND,
-            collapsed ? "px-3" : "px-6",
-          )}
-        >
-          <Link
-            href="/"
+          <div
+            data-slot="sidebar-header"
             className={cn(
-              "flex h-full items-center",
-              collapsed ? "justify-center px-0" : "gap-2",
+              "border-sidebar-border",
+              SHELL_HEADER_BAND,
+              collapsed ? "px-3" : "px-6",
             )}
           >
-            <Logo className="text-primary shrink-0" size={24} />
-            {!collapsed && (
-              <span className="text-lg font-bold tracking-tight">
-                HealthLog
-              </span>
-            )}
-          </Link>
-        </div>
-
-        <nav
-          aria-label={t("nav.mainNavigation")}
-          className={cn("flex-1 overflow-y-auto", collapsed ? "p-1.5" : "p-3")}
-        >
-          <div className="space-y-1">
-            {visibleNavItems.map((item) => {
-              const isActive = isNavDestinationActive(
-                item.href,
-                pathname,
-                visibleNavItems,
-              );
-              const label = t(item.tKey);
-
-              if (collapsed) {
-                return (
-                  <Tooltip key={item.href}>
-                    <TooltipTrigger asChild>
-                      <Link
-                        href={item.href}
-                        aria-current={isActive ? "page" : undefined}
-                        data-tour-id={item.tourId}
-                        {...(item.href === "/medications" ? medsIntent : {})}
-                        className={cn(
-                          "flex items-center justify-center rounded-lg p-2.5 transition-colors",
-                          isActive
-                            ? "bg-primary/10 text-primary"
-                            : "text-foreground hover:bg-accent",
-                        )}
-                      >
-                        <item.icon className="h-4 w-4" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" sideOffset={8}>
-                      {label}
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              }
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={isActive ? "page" : undefined}
-                  data-tour-id={item.tourId}
-                  {...(item.href === "/medications" ? medsIntent : {})}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-foreground hover:bg-accent",
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {label}
-                </Link>
-              );
-            })}
+            <Link
+              href="/"
+              className={cn(
+                "flex h-full items-center",
+                collapsed ? "justify-center px-0" : "gap-2",
+              )}
+            >
+              <Logo className="text-primary shrink-0" size={24} />
+              {!collapsed && (
+                <span className="text-lg font-bold tracking-tight">
+                  HealthLog
+                </span>
+              )}
+            </Link>
           </div>
-        </nav>
 
-        {/* Bottom utility links — the shared utility tail (minus
+          <nav
+            ref={navRef}
+            aria-label={t("nav.mainNavigation")}
+            // The list scrolls without a native scrollbar (a classic
+            // scrollbar with arrow buttons read as a foreign body in the
+            // rail); fades at the edges say there is more, and focus keeps
+            // the focused row clear of them.
+            className={cn(
+              "flex-1 scroll-py-6 [scrollbar-width:none] overflow-y-auto [&::-webkit-scrollbar]:hidden",
+              collapsed ? "p-1.5" : "p-3",
+              RAIL_SHORT_PY,
+            )}
+            style={railFadeMask(navMoreAbove, navMoreBelow)}
+            data-fade-top={navMoreAbove ? "true" : undefined}
+            data-fade-bottom={navMoreBelow ? "true" : undefined}
+            onFocus={(event) => {
+              event.target.scrollIntoView?.({ block: "nearest" });
+            }}
+          >
+            <div className={RAIL_LIST_GAP}>
+              {visibleNavItems.map((item) => {
+                const isActive = isNavDestinationActive(
+                  item.href,
+                  pathname,
+                  visibleNavItems,
+                );
+                const label = t(item.tKey);
+
+                if (collapsed) {
+                  return (
+                    <Tooltip key={item.href}>
+                      <TooltipTrigger asChild>
+                        <Link
+                          href={item.href}
+                          aria-current={isActive ? "page" : undefined}
+                          data-tour-id={item.tourId}
+                          {...(item.href === "/medications" ? medsIntent : {})}
+                          className={cn(
+                            railRowClass(true),
+                            isActive
+                              ? "bg-primary/10 text-primary"
+                              : "text-foreground hover:bg-accent",
+                          )}
+                        >
+                          <item.icon className="h-4 w-4" />
+                        </Link>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" sideOffset={8}>
+                        {label}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={isActive ? "page" : undefined}
+                    data-tour-id={item.tourId}
+                    {...(item.href === "/medications" ? medsIntent : {})}
+                    className={cn(
+                      railRowClass(false),
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-foreground hover:bg-accent",
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+
+          {/* Bottom utility links — the shared utility tail (minus
             Notifications, which lives in the avatar menu) with the
             role-gated Admin entry inserted before Settings. The collapse
             control heads the group, so it sits directly above Admin for an
             administrator and directly above Settings for everyone else. */}
-        <div className={cn("space-y-1 pb-1", collapsed ? "px-1.5" : "px-3")}>
-          <SidebarCollapseToggle
-            collapsed={collapsed}
-            onToggle={toggleCollapsed}
-          />
-          {footerUtilityItems
-            .filter((item) => !isSettingsUtilityDestination(item))
-            .map((item) => renderUtilityLink(item))}
-          {renderAdminLink()}
-          {footerUtilityItems
-            .filter((item) => isSettingsUtilityDestination(item))
-            .map((item) => renderUtilityLink(item))}
-        </div>
+          {/* On a short window the list scrolls under this group. Without an
+              edge the last visible row ran straight into the Collapse row,
+              cut off mid-entry, and read as the footer covering it (macOS
+              hides the scrollbar that would have said otherwise). While the
+              list overflows, the group draws the same hairline the user
+              section does, so the boundary reads as a scroll edge. */}
+          <div
+            data-slot="sidebar-footer"
+            data-nav-overflows={navOverflows ? "true" : undefined}
+            className={cn(
+              RAIL_LIST_GAP,
+              "pb-1",
+              collapsed ? "px-1.5" : "px-3",
+              navOverflows && "border-sidebar-border border-t pt-1",
+            )}
+          >
+            <SidebarCollapseToggle
+              collapsed={collapsed}
+              onToggle={toggleCollapsed}
+            />
+            {footerUtilityItems
+              .filter((item) => !isSettingsUtilityDestination(item))
+              .map((item) => renderUtilityLink(item))}
+            {renderAdminLink()}
+            {footerUtilityItems
+              .filter((item) => isSettingsUtilityDestination(item))
+              .map((item) => renderUtilityLink(item))}
+          </div>
 
-        <SidebarUserSection collapsed={collapsed} />
+          <SidebarUserSection collapsed={collapsed} />
+        </div>
       </aside>
     </TooltipProvider>
   );

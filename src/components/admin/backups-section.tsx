@@ -35,6 +35,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { BackupPassActivityNotice } from "@/components/admin/backup-pass-activity";
 import { Badge } from "@/components/ui/badge";
 import { QueryErrorRow } from "@/components/ui/query-error-row";
 import { SettingsCardActions } from "@/components/settings/_card-actions";
@@ -150,7 +151,7 @@ const RESTORE_PREVIEW_SECTIONS: ReadonlyArray<{
   },
   {
     labelKey: "previewVaccinations",
-    keys: ["vaccinations", "vaccinationLinks"],
+    keys: ["vaccinations", "vaccinationLinks", "customVaccines"],
   },
   {
     labelKey: "previewReminders",
@@ -463,6 +464,23 @@ function catalogueLabel(
   }
   if (catalogue === "symptomEpisodeReference") {
     return t("admin.section.backups.restoreSkippedSymptomEpisodeReference");
+  }
+  if (catalogue === "visitCiphertext") {
+    return t("admin.section.backups.restoreSkippedVisitCiphertext");
+  }
+  if (catalogue === "vaccinationCiphertext") {
+    return t("admin.section.backups.restoreSkippedVaccinationCiphertext");
+  }
+  if (catalogue === "environmentLocationCiphertext") {
+    return t(
+      "admin.section.backups.restoreSkippedEnvironmentLocationCiphertext",
+    );
+  }
+  if (catalogue === "moodLabelCiphertext") {
+    return t("admin.section.backups.restoreSkippedMoodLabelCiphertext");
+  }
+  if (catalogue === "cycleCiphertext") {
+    return t("admin.section.backups.restoreSkippedCycleCiphertext");
   }
   if (catalogue === "medicationTarget") {
     return t("admin.section.backups.restoreSkippedMedicationTarget");
@@ -1136,6 +1154,9 @@ export function BackupsSection() {
 
       {data?.schedule ? (
         <ScheduleHealthNotice schedule={data.schedule} />
+      ) : null}
+      {data?.scheduleActivity ? (
+        <BackupPassActivityNotice activity={data.scheduleActivity} />
       ) : null}
 
       {/* Upload card — separate from the table so admins can ingest a

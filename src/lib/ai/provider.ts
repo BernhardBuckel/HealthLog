@@ -1,5 +1,6 @@
 import type { AIProvider, CompletionResult } from "./types";
 import { bindResponseTimeout } from "./effective-timeout";
+import { bindReasoningEffort } from "./reasoning-effort";
 import { prisma } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { CodexClient, resolveCodexVisionSlug } from "./codex-client";
@@ -8,6 +9,7 @@ import { AnthropicClient } from "./anthropic-client";
 import { LocalOpenAICompatibleClient } from "./local-client";
 import {
   refreshDeviceTokens,
+  codexReconnectRequired,
   encryptCodexCreds,
   decryptCodexCreds,
   encryptAdminCodexCreds,
@@ -15,7 +17,11 @@ import {
 } from "./codex-oauth";
 import { isPublicUrl } from "@/lib/validations/notifications";
 import { isLocalAiHostAllowed } from "./local-host-allowlist";
-import { parseProviderChain, type ProviderChainType } from "./provider-chain";
+import {
+  parseProviderChain,
+  PROVIDER_CHAIN_TYPES,
+  type ProviderChainType,
+} from "./provider-chain";
 import type { ProviderChainResolved } from "./provider-runner";
 import {
   providerCredentialPolicy,
@@ -178,7 +184,7 @@ function buildUserProvider(row: UserAIRow): AIProvider | null {
  * An unparseable value answers false and keeps the OpenAI path, which is the
  * behaviour that value had before this function existed.
  */
-function isAnthropicBaseUrl(baseUrl: string): boolean {
+export function isAnthropicBaseUrl(baseUrl: string): boolean {
   let host: string;
   try {
     host = new URL(baseUrl).hostname.toLowerCase();
@@ -323,14 +329,14 @@ async function resolveCodexProvider(
         !freshUser?.codexAccessTokenEncrypted ||
         !freshUser.codexRefreshTokenEncrypted
       ) {
-        throw new Error("No refresh token available");
+        throw codexReconnectRequired("no refresh token");
       }
       const decoded = decryptCodexCreds({
         accessEncrypted: freshUser.codexAccessTokenEncrypted,
         refreshEncrypted: freshUser.codexRefreshTokenEncrypted,
       });
       if (!decoded) {
-        throw new Error("Codex token storage corrupt; user must re-link");
+        throw codexReconnectRequired("token storage corrupt");
       }
       const fresh = await refreshDeviceTokens(decoded.refreshToken);
       const enc = encryptCodexCreds(fresh);
@@ -439,7 +445,7 @@ async function resolveAdminCodexProvider(): Promise<AIProvider | null> {
         !fresh.adminCodexRefreshTokenEncrypted ||
         !fresh.adminCodexAccountIdEncrypted
       ) {
-        throw new Error("No central-codex refresh token available");
+        throw codexReconnectRequired("no central refresh token");
       }
       const decoded = decryptAdminCodexCreds({
         accessEncrypted: fresh.adminCodexAccessTokenEncrypted,
@@ -448,9 +454,7 @@ async function resolveAdminCodexProvider(): Promise<AIProvider | null> {
         expiresAt: fresh.adminCodexTokenExpiresAt,
       });
       if (!decoded) {
-        throw new Error(
-          "Central-codex token storage corrupt; re-link required",
-        );
+        throw codexReconnectRequired("central token storage corrupt");
       }
       const refreshed = await refreshDeviceTokens(decoded.refreshToken);
       const enc = encryptAdminCodexCreds(refreshed);
@@ -501,13 +505,19 @@ export async function resolveProvider(userId: string): Promise<AIProvider> {
       role: true,
       managedProfileAt: true,
       aiResponseTimeoutSeconds: true,
+      aiProviderChain: true,
     },
   });
   // The record's response-timeout setting rides on whatever this returns, on
   // every branch, the operator-key fallback for a managed profile included:
-  // the person waiting on the record is who the call serves.
+  // the person waiting on the record is who the call serves. The reasoning
+  // effort (#1126) rides the same way; it only lands on a Local or gateway
+  // instance, so the operator fallback never picks one up.
   const bind = (provider: AIProvider): AIProvider =>
-    bindResponseTimeout(provider, userRow?.aiResponseTimeoutSeconds);
+    bindReasoningEffort(
+      bindResponseTimeout(provider, userRow?.aiResponseTimeoutSeconds),
+      userRow?.aiProviderChain,
+    );
   const policy = providerCredentialPolicy(
     authority,
     userRow?.managedProfileAt ?? null,
@@ -533,18 +543,23 @@ export async function resolveProvider(userId: string): Promise<AIProvider> {
 }
 
 /**
- * The record owner's `aiResponseTimeoutSeconds`, for `resolveProviderForTest`,
- * whose many branches (saved config, unsaved override, the chain) are bound in
- * one place on the way out. The other two resolvers read it with their row.
+ * The record owner's `aiResponseTimeoutSeconds` and `aiProviderChain`, for
+ * `resolveProviderForTest`, whose many branches (saved config, unsaved
+ * override, the chain) are bound in one place on the way out. The other two
+ * resolvers read them with their row.
  */
-async function readResponseTimeoutSeconds(
-  userId: string,
-): Promise<number | null> {
+async function readBoundSettings(userId: string): Promise<{
+  aiResponseTimeoutSeconds: number | null;
+  aiProviderChain: unknown;
+}> {
   const row = await prisma.user.findUnique({
     where: { id: userId },
-    select: { aiResponseTimeoutSeconds: true },
+    select: { aiResponseTimeoutSeconds: true, aiProviderChain: true },
   });
-  return row?.aiResponseTimeoutSeconds ?? null;
+  return {
+    aiResponseTimeoutSeconds: row?.aiResponseTimeoutSeconds ?? null,
+    aiProviderChain: row?.aiProviderChain ?? null,
+  };
 }
 
 /**
@@ -595,9 +610,12 @@ export async function resolveProviderChain(
       aiResponseTimeoutSeconds: true,
     },
   });
-  // See `resolveProvider`: every instance carries the record's setting.
+  // See `resolveProvider`: every instance carries the record's settings.
   const bind = (provider: AIProvider): AIProvider =>
-    bindResponseTimeout(provider, userRow?.aiResponseTimeoutSeconds);
+    bindReasoningEffort(
+      bindResponseTimeout(provider, userRow?.aiResponseTimeoutSeconds),
+      userRow?.aiProviderChain,
+    );
   const policy = providerCredentialPolicy(
     authority,
     userRow?.managedProfileAt ?? null,
@@ -902,6 +920,7 @@ const NO_PRESENCE: ProviderPresence = Object.freeze({
   entries: [],
   localOcrEnabled: false,
   managedBy: null,
+  availableTypes: [],
 });
 
 /**
@@ -980,6 +999,7 @@ export function probeProviderChain(
           // A guardian's in-browser OCR is not the record's opt-in to use.
           localOcrEnabled: false,
           managedBy: adminKey ? "server" : null,
+          availableTypes: adminKey ? ["admin-openai"] : [],
           responseTimeoutSeconds: row.aiResponseTimeoutSeconds,
         };
       }
@@ -988,36 +1008,43 @@ export function probeProviderChain(
         row.codexConnectionStatus === "connected" &&
         !!row.codexAccessTokenEncrypted &&
         !!row.codexRefreshTokenEncrypted;
+      const credentialPresent = (providerType: ProviderChainType): boolean => {
+        switch (providerType) {
+          case "codex":
+            return codexConnected;
+          case "openai":
+            return !!row.aiOpenaiKeyEncrypted;
+          case "anthropic":
+            return !!row.aiAnthropicKeyEncrypted;
+          case "local":
+            return !!row.aiBaseUrl;
+          case "openai-compatible":
+            return !!(
+              row.aiCompatBaseUrl &&
+              (row.aiCompatModel || row.aiModel)
+            );
+          case "admin-openai":
+            return adminKey;
+          default:
+            // `admin-codex` is never resolved from a stored chain entry.
+            return false;
+        }
+      };
+      const centralCodex =
+        row.useCentralCodex && appSettingsCentralCodexConnected(settings);
       const entries: ProviderEntryPresence[] = [];
       for (const entry of parseProviderChain(row.aiProviderChain ?? null)) {
         if (!entry.enabled) continue;
-        const present = (() => {
-          switch (entry.providerType) {
-            case "codex":
-              return codexConnected;
-            case "openai":
-              return !!row.aiOpenaiKeyEncrypted;
-            case "anthropic":
-              return !!row.aiAnthropicKeyEncrypted;
-            case "local":
-              return !!row.aiBaseUrl;
-            case "openai-compatible":
-              return !!(
-                row.aiCompatBaseUrl &&
-                (row.aiCompatModel || row.aiModel)
-              );
-            case "admin-openai":
-              return adminKey;
-            default:
-              // `admin-codex` is never resolved from a stored chain entry.
-              return false;
-          }
-        })();
-        if (present) entries.push(vision(entry.providerType));
+        if (credentialPresent(entry.providerType)) {
+          entries.push(vision(entry.providerType));
+        }
       }
-      if (row.useCentralCodex && appSettingsCentralCodexConnected(settings)) {
+      if (centralCodex) {
         entries.push(vision("admin-codex"));
       }
+      const availableTypes: string[] = PROVIDER_CHAIN_TYPES.filter((type) =>
+        type === "admin-codex" ? centralCodex : credentialPresent(type),
+      );
       if (entries.length === 0 && userRowHasProviderCredential(row, adminKey)) {
         // The legacy single-provider fallback, tagged as the operator's slot
         // the way every consumer of it tags it (the consent gate included).
@@ -1036,6 +1063,7 @@ export function probeProviderChain(
         entries,
         localOcrEnabled: row.labsLocalOcrEnabled,
         managedBy: entries.length > 0 ? managedBy : null,
+        availableTypes,
         responseTimeoutSeconds: row.aiResponseTimeoutSeconds,
       };
     },
@@ -1184,10 +1212,13 @@ export async function resolveProviderForTest(
 ): Promise<AIProvider> {
   // The test runs under the same timeout generation would, so a slow local
   // model that needs a raised setting is not reported as dead by the test.
+  // The same holds for the entry's reasoning effort (#1126): a thinking model
+  // that only answers with reasoning switched off must test green with it off.
   const provider = await resolveProviderForTestUnbound(userId, override);
-  return bindResponseTimeout(
-    provider,
-    await readResponseTimeoutSeconds(userId),
+  const settings = await readBoundSettings(userId);
+  return bindReasoningEffort(
+    bindResponseTimeout(provider, settings.aiResponseTimeoutSeconds),
+    settings.aiProviderChain,
   );
 }
 

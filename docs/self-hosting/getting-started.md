@@ -13,7 +13,12 @@ already installed, longer if a TLS-fronted public hostname is in scope
     unchanged.
 - **2 GB RAM, 10 GB free disk.** The Postgres data volume grows with
   measurement history; the Apple Health import worker can briefly
-  hold a 1.5 GB upload in `/tmp` while it parses.
+  hold a 1.5 GB upload in `/tmp` while it parses. The app container is
+  capped at `APP_MEMORY_LIMIT`, `1536m` by default (Node then sizes its
+  heap at about 792 MB). On a 2 GB host that leaves too little for
+  Postgres and the system, so set `APP_MEMORY_LIMIT=1g` in `.env`
+  (a heap of about 524 MB); a long-used account then runs closer to
+  that heap, and the weekly backup with it.
 - **Outbound HTTPS** to `ghcr.io` (image pulls) plus whichever
   integration endpoints you plan to enable (Withings, OpenAI, etc.).
   The opt-in environmental-context module additionally reaches
@@ -71,6 +76,26 @@ password step. `DATABASE_URL` only matters if you run a **bare Node**
 process (`pnpm dev` against a host Postgres) or a **custom compose** that
 does not derive it — in that case uncomment and set `DATABASE_URL`
 explicitly in `.env` (see the commented example there).
+
+### Using an existing or shared Postgres
+
+HealthLog can live in a database on a Postgres instance you already run.
+It stores every time as UTC and pins each connection it opens to UTC
+(`TimeZone=UTC`, sent with the libpq `options` startup parameter), so the
+server's or the database's own `timezone` setting does not matter: an
+instance set to `Europe/Berlin` works the same as one set to UTC. The app
+checks the setting at startup and logs a warning naming the zone if a
+connection still reports something else.
+
+Behind PgBouncer with `DATABASE_SESSION_OPTIONS_DISABLED=1` (see
+[Scaling](./scaling.md#postgres-connection-pool-sizing)) the app pins the
+zone with `SET TIME ZONE 'UTC'` on each new connection instead; PgBouncer
+keeps that setting per client in transaction pooling too. If the startup
+warning still appears, set the database default as well:
+
+```sql
+ALTER DATABASE healthlog SET timezone TO 'UTC';
+```
 
 ## 3. Bring the stack up
 

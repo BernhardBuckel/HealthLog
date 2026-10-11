@@ -63,6 +63,7 @@ export interface ProviderCall {
   system: string;
   messages: Array<{ role: string; content: string }>;
   toolChoice: string | undefined;
+  cacheKey: string | undefined;
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
 }
 export const providerCalls: ProviderCall[] = [];
@@ -278,6 +279,7 @@ async function runRawCompletionWithFallback(args: {
     system: string;
     messages: Array<{ role: string; content: string }>;
     toolChoice?: string;
+    cacheKey?: string;
   };
 }) {
   const round = world.script.shift() ?? { text: "" };
@@ -289,6 +291,7 @@ async function runRawCompletionWithFallback(args: {
       content: msg.content,
     })),
     toolChoice: args.params.toolChoice,
+    cacheKey: args.params.cacheKey,
     toolCalls: calls,
   });
   const offered = args.params.toolChoice !== "none";
@@ -458,7 +461,11 @@ export const modules = {
       coachConversation: {
         findFirst: async () => ({ id: CONVERSATION_ID }),
       },
-      coachMessage: { findMany: async () => latestRows() },
+      coachMessage: {
+        findMany: async () => latestRows(),
+        // v1.41 — the clarification brake's count of today's questions.
+        count: async () => 0,
+      },
       measurement: {
         groupBy: async (args: { where: { type: { in: string[] } } }) =>
           measurementBounds(args),
@@ -473,7 +480,10 @@ export const modules = {
       labResult: { aggregate: async () => EMPTY_AGGREGATE },
     },
   }),
-  rateLimit: () => ({ checkRateLimit: m.checkRateLimit }),
+  rateLimit: () => ({
+    checkRateLimit: m.checkRateLimit,
+    refundRateLimit: async () => {},
+  }),
   serverLocale: () => ({
     resolveServerLocale: async (args: { override?: string }) =>
       args.override ?? "en",

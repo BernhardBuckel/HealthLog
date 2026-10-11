@@ -10,6 +10,7 @@
  * intensity as a neutral `TagChip` ("6/10"), and the same kebab + confirm
  * vocabulary as the episode menu.
  */
+import { DayLink } from "@/components/day/day-link";
 import { useState } from "react";
 import {
   Activity,
@@ -45,6 +46,7 @@ import { QueryErrorCard } from "@/components/ui/query-error-card";
 import { TagChip } from "@/components/ui/tag-chip";
 import { QuickEntrySheets } from "@/components/dashboard/quick-entry-sheets";
 import { useAuth } from "@/hooks/use-auth";
+import { useDeepLinkedRecord } from "@/hooks/use-deep-linked-record";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { useFormatters, useTranslations } from "@/lib/i18n/context";
 import { DEFAULT_TIMEZONE, userDayKey } from "@/lib/tz/format";
@@ -222,7 +224,6 @@ function DefinitionMenu({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            variant="destructive"
             onSelect={(e) => {
               e.preventDefault();
               setConfirmOpen(true);
@@ -300,7 +301,6 @@ export function SymptomEventMenu({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            variant="destructive"
             onSelect={(e) => {
               e.preventDefault();
               setConfirmOpen(true);
@@ -370,6 +370,15 @@ export function SymptomsSection() {
   const hidden = all.filter((d) => !d.isActive);
   const days = groupEventsByDay(events.data?.events ?? [], timezone);
 
+  // `?symptom=<id>` — a search hit names the symptom. Scroll to it, and open
+  // it for someone who may edit it.
+  useDeepLinkedRecord({
+    param: "symptom",
+    records: definitions.data ? all : undefined,
+    anchorAttribute: "data-symptom-id",
+    open: canManage ? setEditingDefinition : undefined,
+  });
+
   if (definitions.isLoading) return null;
   if (definitions.isError || events.isError) {
     return (
@@ -414,6 +423,7 @@ export function SymptomsSection() {
             return (
               <li
                 key={definition.id}
+                data-symptom-id={definition.id}
                 className="flex items-center justify-between gap-3 py-2.5"
               >
                 <div className="flex min-w-0 items-center gap-2">
@@ -450,6 +460,7 @@ export function SymptomsSection() {
               {hidden.map((definition) => (
                 <li
                   key={definition.id}
+                  data-symptom-id={definition.id}
                   className="flex items-center justify-between gap-3 py-1.5"
                 >
                   <span className="text-muted-foreground truncate text-sm">
@@ -478,7 +489,10 @@ export function SymptomsSection() {
               {days.map((group) => (
                 <section key={group.day} className="space-y-0.5">
                   <h3 className="text-sm font-medium">
-                    {fmt.dateWithWeekdaySmart(group.at)}
+                    {/* v1.42 — the day heading opens the whole day. */}
+                    <DayLink date={group.day}>
+                      {fmt.dateWithWeekdaySmart(group.at)}
+                    </DayLink>
                   </h3>
                   <ul className="divide-border divide-y">
                     {group.events.map((event) => {

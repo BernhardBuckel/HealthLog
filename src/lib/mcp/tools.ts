@@ -21,6 +21,20 @@ import { z } from "zod/v4";
 
 import { prisma } from "@/lib/db";
 import { annotate } from "@/lib/logging/context";
+import { getDayArgsSchema } from "@/lib/ai/coach/tools/definitions";
+import { readDayForTool } from "@/lib/ai/coach/tools/day-read";
+import { UNBOUNDED_REACH } from "@/lib/ai/coach/history-reach";
+import {
+  DAY_EVENT_KINDS,
+  DAY_NOTABLE_KINDS,
+  DAY_QUERY_PARAM,
+  DAY_RUNNING_KINDS,
+  DAY_SCORE_KEYS,
+  DAY_SECTION_KEYS,
+  DAY_TOOL_NAME,
+  MODEL_EXCLUDED_DAY_SECTIONS,
+  type DaySectionKey,
+} from "@/lib/day/contract";
 import { executeCoachTool } from "@/lib/ai/coach/tools/executor";
 import { buildCoachDataInventory } from "@/lib/ai/coach/tools/inventory";
 import {
@@ -51,6 +65,7 @@ import { NUTRIENT_CODES } from "@/lib/nutrients/catalog";
 import { loadIntradayPulse } from "@/lib/analytics/intraday-pulse-io";
 import { DEFAULT_TIMEZONE, userDayKey } from "@/lib/tz/format";
 import { encodeOffsetCursor, decodeOffsetCursor } from "@/lib/mcp/pagination";
+import { loadAutoTakeRollingAnchors } from "@/lib/medications/auto-take";
 import {
   computeDisplayDue,
   OVERDUE_LOOKBACK_MS,
@@ -76,10 +91,12 @@ import {
   fetchRecord,
   isRecordKind,
   loadRecordCandidates,
+} from "@/lib/mcp/record-search";
+import {
   rankCandidates,
   WEIGHT as SEARCH_WEIGHT,
   type SearchCandidate,
-} from "@/lib/mcp/record-search";
+} from "@/lib/search/match";
 import type { McpAuthContext } from "./auth";
 import { dueSchedules } from "@/lib/medications/intake-tracking";
 import { liveEraStartsByMedication } from "@/lib/medications/scheduling/live-era";
@@ -131,6 +148,11 @@ export interface McpToolDefinition {
  * server-authoritative snapshot builder scoped to the requested domain, and
  * returns the grounded `{ present, reason?, data?, grounding? }` result. It
  * never throws and never widens scope.
+ *
+ * No `reach` is passed, here or at the other MCP call sites: the person's
+ * Coach lookback limit (`coachPrefs.defaultWindow`) governs what the Coach
+ * reads, while an MCP client reads with its own window arguments under its
+ * own token grant, as it did before the limit existed.
  */
 async function runCoachTool(
   ctx: McpAuthContext,
@@ -139,6 +161,9 @@ async function runCoachTool(
 ): Promise<unknown> {
   const result = await executeCoachTool({
     userId: ctx.userId,
+    // The single-metric read keeps one section, so it is built from that
+    // source's rows (see `source-snapshot.ts`).
+    ...(name === "get_metric_series" ? { sourceSnapshot: true } : {}),
     name,
     rawArguments: JSON.stringify(args ?? {}),
   });
@@ -207,7 +232,7 @@ const MODULE_DISABLED = { present: false, reason: "module_disabled" } as const;
  */
 async function whenModuleOn(
   ctx: McpAuthContext,
-  key: "labs" | "medications",
+  key: "labs" | "medications" | "environment",
   tool: string,
   read: () => Promise<unknown>,
 ): Promise<unknown> {
@@ -529,11 +554,15 @@ function searchAndFetchTools(): McpToolDefinition[] {
           ...MCP_CLINICAL_SIGNALS,
           ...MCP_METRIC_STATUS_DISCOVERY,
         ];
+        // v1.41.2 — live rows only: a deleted reading is not a signal the
+        // record holds, and the filter lets the probe use the live-rows
+        // partial index instead of walking the tombstones.
         const discoverablePresent = await prisma.measurement.groupBy({
           by: ["type"],
           where: {
             userId: ctx.userId,
             type: { in: discoverableSignals.map((s) => s.measurementType) },
+            deletedAt: null,
           },
         });
         const presentTypes = new Set(discoverablePresent.map((r) => r.type));
@@ -654,6 +683,7 @@ function searchAndFetchTools(): McpToolDefinition[] {
           }
           const result = await executeCoachTool({
             userId: ctx.userId,
+            sourceSnapshot: true,
             name: "get_metric_series",
             rawArguments: JSON.stringify({ metric: rid }),
           });
@@ -806,6 +836,31 @@ const coachReadOutput: z.ZodRawShape = {
   reason: z.string().optional(),
   data: z.unknown().optional(),
   grounding: z.string().optional(),
+  // v1.41.2 — a miss describes its own scope and, when the record holds rows
+  // the window could not reach, what it holds (`CoachToolResult`). The
+  // executor has returned both since v1.37; undeclared, they made a strict
+  // client refuse every out-of-window read (the #1170 class).
+  searchedWindow: z.string().optional(),
+  available: z
+    .object({
+      count: z.number(),
+      firstDate: z.string(),
+      lastDate: z.string(),
+      series: z
+        .array(
+          z.object({
+            series: z.string(),
+            unit: z.string().nullable(),
+            count: z.number(),
+            mean: z.number(),
+            min: z.number(),
+            max: z.number(),
+          }),
+        )
+        .optional(),
+      reachableWithWindow: z.string().nullable(),
+    })
+    .optional(),
 };
 
 /**
@@ -837,6 +892,170 @@ const SEARCH_PAGE_SIZE = 50;
  * analytes than this ceiling is well outside any realistic personal record.
  */
 const SEARCH_RESULT_SCAN_CAP = 2000;
+
+/**
+ * v1.42 (#615) — `get_environment`. Declared field by field rather than as
+ * the opaque Coach `data`, so the advertised schema itself says what the read
+ * can carry: no coordinate and no place name appear anywhere in it, and a
+ * strict client refuses a result that grew one. Every value is nullable
+ * (null = the feed did not cover it); the air-quality fields are absent
+ * while that part is switched off.
+ */
+const envValue = z.number().nullable();
+const envPollen = z.object({
+  alder: envValue,
+  birch: envValue,
+  grass: envValue,
+  mugwort: envValue,
+  olive: envValue,
+  ragweed: envValue,
+});
+const envAirQuality = z.object({
+  pm25Mean: envValue,
+  pm25Max: envValue,
+  pm10Mean: envValue,
+  no2Mean: envValue,
+  so2Mean: envValue,
+  coMean: envValue,
+  o3Max8h: envValue,
+  eaqiMax: envValue,
+  usaqiMax: envValue,
+  uvIndexMax: envValue,
+  dustMax: envValue,
+  aodMax: envValue,
+  pollen: envPollen,
+});
+const getEnvironmentOutput: z.ZodRawShape = {
+  present: z.boolean(),
+  reason: z.string().optional(),
+  searchedWindow: z.string().optional(),
+  available: z
+    .object({
+      count: z.number(),
+      firstDate: z.string(),
+      lastDate: z.string(),
+      reachableWithWindow: z.string().nullable(),
+    })
+    .optional(),
+  data: z
+    .object({
+      window: coachScopeWindowSchema,
+      coverage: z.object({
+        firstDate: z.string(),
+        lastDate: z.string(),
+        days: z.number(),
+        awayDays: z.number(),
+        airQualityDays: z.number().optional(),
+      }),
+      daily: z.array(
+        z.object({
+          date: z.string(),
+          tempMin: envValue,
+          tempMax: envValue,
+          tempMean: envValue,
+          apparentMax: envValue,
+          precipSum: envValue,
+          sunshineHours: envValue,
+          pressureMean: envValue,
+          pressureDelta: envValue,
+          humidityMean: envValue,
+          airQuality: envAirQuality.nullable().optional(),
+        }),
+      ),
+      summary: z.object({
+        hotNights: z.number(),
+        veryPoorAirDays: z.number().optional(),
+        highPollenDays: z.number().optional(),
+        pollenPeak: envValue.optional(),
+      }),
+      airQuality: z.enum(["on", "off_account", "off_operator"]),
+      provenance: z.object({
+        weather: z.string(),
+        airQuality: z.string(),
+        note: z.string(),
+      }),
+      attributions: z.array(z.string()),
+    })
+    .optional(),
+};
+
+/**
+ * v1.42 (#613) — `get_day`. Declared field by field, so the advertised schema
+ * itself says what a day can carry for a model: no note, no document name,
+ * and no life-event section anywhere (the section enum below leaves it out,
+ * and a strict client refuses a result that grew one). Titles are the
+ * person's own words and come fenced.
+ */
+const MODEL_DAY_SECTIONS = DAY_SECTION_KEYS.filter(
+  (key) => !(MODEL_EXCLUDED_DAY_SECTIONS as readonly string[]).includes(key),
+) as [DaySectionKey, ...DaySectionKey[]];
+const modelDaySection = z.enum(MODEL_DAY_SECTIONS);
+const getDayOutput: z.ZodRawShape = {
+  present: z.boolean(),
+  reason: z.string().optional(),
+  url: z.string().optional(),
+  data: z
+    .object({
+      date: z.string(),
+      counts: z.object({ values: z.number(), entries: z.number() }),
+      running: z.array(
+        z.object({
+          kind: z.enum(DAY_RUNNING_KINDS),
+          section: modelDaySection,
+          title: z.string(),
+          sub: z.string().nullable(),
+          since: z.string().nullable(),
+          until: z.string().nullable(),
+          dayIndex: z.number().nullable(),
+          dayCount: z.number().nullable(),
+        }),
+      ),
+      values: z.array(
+        z.object({
+          type: z.string(),
+          value: z.number(),
+          unit: z.string(),
+          at: z.string(),
+          band: z
+            .object({ lo: z.number(), hi: z.number(), n: z.number() })
+            .nullable(),
+        }),
+      ),
+      events: z.array(
+        z.object({
+          at: z.string().nullable(),
+          kind: z.enum(DAY_EVENT_KINDS),
+          section: modelDaySection,
+          title: z.string(),
+          meta: z.string().nullable(),
+        }),
+      ),
+      notable: z.array(
+        z.object({
+          kind: z.enum(DAY_NOTABLE_KINDS),
+          type: z.string().nullable(),
+          params: z.record(z.string(), z.union([z.string(), z.number()])),
+        }),
+      ),
+      scores: z.array(
+        z.object({
+          score: z.enum(DAY_SCORE_KEYS),
+          value: z.number(),
+          max: z.number(),
+          band: z
+            .object({ lo: z.number(), hi: z.number(), n: z.number() })
+            .nullable(),
+        }),
+      ),
+      unavailable: z.array(
+        z.object({
+          section: modelDaySection,
+          reason: z.enum(["module_disabled", "not_shared"]),
+        }),
+      ),
+    })
+    .optional(),
+};
 
 const getCorrelationOutput: z.ZodRawShape = {
   present: z.boolean(),
@@ -886,6 +1105,20 @@ const listMetricsOutput: z.ZodRawShape = {
         present: z.boolean(),
         count: z.number().optional(),
         metric: z.string().optional(),
+        // #1170 — what the record holds for a domain the window found
+        // nothing in (`InventoryEntry.availability`). The handler always
+        // returned it; the advertised schema did not declare it, and the
+        // output schema closes every object, so a strict client refused the
+        // whole result.
+        availability: z
+          .object({
+            state: z.string(),
+            count: z.number().optional(),
+            firstDate: z.string().optional(),
+            lastDate: z.string().optional(),
+            reachableWithWindow: z.string().nullable(),
+          })
+          .optional(),
       }),
     )
     .optional(),
@@ -955,7 +1188,25 @@ const getMetricBaselineOutput: z.ZodRawShape = {
     .object({ low: z.number(), high: z.number(), sampleDays: z.number() })
     .optional(),
   latest: z.number().optional(),
+  latestDate: z
+    .string()
+    .optional()
+    .describe(
+      "Calendar day of `latest` in the user's time zone, `YYYY-MM-DD`.",
+    ),
+  latestIsToday: z
+    .boolean()
+    .optional()
+    .describe(
+      "True when `latest` is from today. When false, `latest` is an older reading: name its date, never call it today's.",
+    ),
   placement: z.enum(["within", "above", "below"]).optional(),
+  basis: z
+    .literal("sameHours")
+    .optional()
+    .describe(
+      "Present when today is still in progress for a metric whose day mean moves with the hour (blood glucose): `latest` is today's mean so far and `baseline` the usual range for the same hours of earlier days, not the whole-day range.",
+    ),
   referenceBand: bandShape,
   driver: z
     .object({ note: z.string(), behaviour: z.string(), outcome: z.string() })
@@ -1184,6 +1435,10 @@ const getIntradayPulseOutput: z.ZodRawShape = {
         startMinute: z.number(),
         mean: z.number(),
         count: z.number(),
+        // v1.41.2 — the bucket's low / high where the source carries a
+        // spread (`IntradayHrBucket`); returned since v1.30.7, never declared.
+        min: z.number().optional(),
+        max: z.number().optional(),
       }),
     )
     .optional(),
@@ -1358,7 +1613,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     name: "get_correlations",
     title: "Get discovered correlations",
     description:
-      "Fetch the user's statistically-vetted (FDR-controlled) day-to-next-day driver pairs between behaviours (daylight, mood, glucose, blood pressure, steps) and outcomes (sleep, HRV, resting HR, weight), each with direction, lag, sample size, and a descriptive — never causal — note over a fixed trailing window. Returns { present: false } when too little paired data exists.",
+      "Fetch the user's statistically-vetted (FDR-controlled) driver pairs between behaviours (daylight, mood, glucose, blood pressure, steps, and with the environment module the weather, fine particles, ozone and pollen) and outcomes (sleep, HRV, resting HR, weight, mood, symptoms), each with direction, lag, sample size, and a descriptive — never causal — note over a fixed trailing window. Season and trend are removed from both series first. lagDays 1 pairs a day with the next day's outcome; lagDays 0 (the environment channels) pairs the mean of the day before and the day itself with that same day's outcome. Returns { present: false } when too little paired data exists.",
     inputShape: {},
     annotations: READ_ONLY_ANNOTATIONS,
     outputShape: coachReadOutput,
@@ -1415,7 +1670,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     name: "get_metric_baseline",
     title: "Get a metric's personal baseline",
     description:
-      "Fetch where the user's latest reading for ONE metric sits against their own usual range (median ± robust deviation), plus the strongest lagged driver of that metric. Re-exports the same baseline engine the metric page renders. Also resolves the clinical-signal metrics (grip strength, pain 0–10 NRS, waist circumference, waist-to-height ratio). A metric can be named by its alias, its key, or its display name in any language HealthLog ships (e.g. 'poids', 'Blutzucker'). Returns the personal band, today's value + placement (within/above/below), and the population reference band. Returns { present: false } with reason 'insufficient_history' below the 7-day learning floor — never a fabricated range.",
+      "Fetch where the user's latest reading for ONE metric sits against their own usual range (median ± robust deviation), plus the strongest lagged driver of that metric. Re-exports the same baseline engine the metric page renders. Also resolves the clinical-signal metrics (grip strength, pain 0–10 NRS, waist circumference, waist-to-height ratio). A metric can be named by its alias, its key, or its display name in any language HealthLog ships (e.g. 'poids', 'Blutzucker'). Returns the personal band, the latest value with its date and whether it is from today (latestDate, latestIsToday) + placement (within/above/below), and the population reference band. Returns { present: false } with reason 'insufficient_history' below the 7-day learning floor — never a fabricated range.",
     inputShape: {
       metric: z.string().min(1).max(60),
     },
@@ -1520,6 +1775,55 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       return runCoachTool(ctx, "get_cycle", args);
     },
   },
+  {
+    name: "get_environment",
+    title: "Get weather, air quality and pollen",
+    description:
+      "Fetch the weather, air quality, pollen and UV the user's stored days had (environment module): per day the temperature (min, max, mean, feels-like high), precipitation, sunshine hours, pressure and humidity, and while air quality is on, PM2.5 (mean and peak), PM10, NO2, the ozone 8-hour high, the European AQI peak, UV, dust and six pollen kinds; plus coverage and a summary (hot nights, very poor air days, high pollen days). These are modelled outdoor conditions at a coarse location (ERA5 and CAMS, 9 to 45 km grid), not the user's personal exposure; describe co-occurrence, never a cause. Null means not covered, never zero. Carries no coordinates and no place names. Each result lists the attributions to show with it (Open-Meteo, CC BY 4.0; Copernicus Atmosphere Monitoring Service). Returns { present: false, reason: \"module_disabled\" } when the environment module is off, and no_data / outside_window when nothing is stored in the window.",
+    inputShape: {
+      window: coachScopeWindowSchema.optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    outputShape: getEnvironmentOutput,
+    run(ctx, args) {
+      return whenModuleOn(ctx, "environment", "get_environment", () =>
+        runCoachTool(ctx, "get_environment", args),
+      );
+    },
+  },
+  {
+    name: DAY_TOOL_NAME,
+    title: "Get one day",
+    description:
+      "Fetch one local calendar day of the user's record (YYYY-MM-DD, in the user's own time zone): what ran through it (medications and courses with dose and day n, pauses, an illness with its day n, a cycle phase with its cycle day, a trip; day n counts from the record's own start date and is null, with `since` null, when the record holds none), the readings in that day's window with the user's usual range over the 30 days before (null with too little history), what happened on it (intakes, dose changes, symptoms, lab results, visits, vaccinations, check-ups, documents by kind, mood and screener scores, workouts), the day's scores (healthScore, readiness, recovery from a device, sleepScore, strain; each a number on its own 0 to `max` scale with the usual range beside it, absent when not recorded that day), and deterministic notable observations (highest or lowest for at least three months, first reading of a kind). Notes, document names, visit reasons, practitioner names and life events are never included. `unavailable` names sections whose module is off (module_disabled). Each result carries `url`, the day in the app. Returns { present: false } with no_data, outside_window (a future date) or invalid_arguments.",
+    inputShape: {
+      date: z.string().describe("The local calendar date, YYYY-MM-DD."),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    outputShape: getDayOutput,
+    async run(ctx, args) {
+      const parsed = getDayArgsSchema.safeParse(args ?? {});
+      if (!parsed.success) {
+        return { present: false, reason: "invalid_arguments" };
+      }
+      const result = await readDayForTool({
+        userId: ctx.userId,
+        date: parsed.data.date,
+        reach: UNBOUNDED_REACH,
+        text: fenceUserText,
+      });
+      annotate({
+        action: { name: "mcp.tool.invoked" },
+        meta: { tool: DAY_TOOL_NAME, present: result.present },
+      });
+      if (!result.present) return result;
+      return {
+        present: true,
+        url: `${resolveBaseOrigin()}/?${DAY_QUERY_PARAM}=${parsed.data.date}`,
+        data: result.data,
+      };
+    },
+  },
   // ── Multi-metric fan-out (catalogue: query expressiveness) ──────────
   {
     name: "get_metrics",
@@ -1566,6 +1870,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         page.map(async (metric) => {
           const r = (await executeCoachTool({
             userId: ctx.userId,
+            sourceSnapshot: true,
             name: "get_metric_series",
             rawArguments: JSON.stringify({
               metric,
@@ -1706,6 +2011,18 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       // The live era start per medication (see `live-era.ts`).
       const eraStartByMedId = liveEraStartsByMedication(eraFloors);
 
+      // v1.42.2 — under auto-take a rolling cadence stands where the job
+      // will record next (see `auto-take.ts`).
+      const engineLastIntakeAt = await loadAutoTakeRollingAnchors(prisma, {
+        userId: ctx.userId,
+        medicationIds: medications
+          .filter((m) => m.autoMarkTaken)
+          .map((m) => m.id),
+        now,
+        userTz,
+        lastIntakeAt: (id) => lastTakenAtByMedId.get(id) ?? null,
+      });
+
       const rows = medications.map((m) => {
         const display = computeDisplayDue({
           medication: {
@@ -1720,7 +2037,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           schedules: dueSchedules(m),
           now,
           userTz,
-          lastIntakeAt: lastTakenAtByMedId.get(m.id) ?? null,
+          lastIntakeAt: engineLastIntakeAt(m.id),
           resolvedSlots: resolvedSlotsByMedId.get(m.id) ?? [],
           eraStart: eraStartByMedId.get(m.id) ?? null,
         });

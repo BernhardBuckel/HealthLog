@@ -154,9 +154,28 @@ describe("proxy.ts DEMO_MODE mutation allowlist", () => {
     ).toBe(403);
   });
 
+  it("permits the record search, a read that travels as a POST", () => {
+    // The query rides the body so it stays out of URLs and access logs; the
+    // route writes nothing, so the demo searches like any other instance.
+    expect(proxy(makeRequest("/api/search", "POST")).status).not.toBe(403);
+    expect(proxy(makeRequest("/api/search", "DELETE")).status).toBe(403);
+  });
+
   it("still blocks a health-data mutation (POST /api/measurements)", () => {
     const res = proxy(makeRequest("/api/measurements", "POST"));
     expect(res.status).toBe(403);
+  });
+
+  it("refuses the Coach chat with a code a client can name", async () => {
+    // The chat POST is not on the allowlist. The refusal carries a stable
+    // code, so the Coach says "not in the demo" instead of reading the 403
+    // as a provider outage.
+    const res = proxy(makeRequest("/api/insights/chat", "POST"));
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as {
+      meta?: { demo?: boolean; errorCode?: string };
+    };
+    expect(body.meta).toEqual({ demo: true, errorCode: "demo.readOnly" });
   });
 
   it("does not drag in the layout-reset DELETE on the allowlisted widgets path", () => {

@@ -82,6 +82,9 @@ const PINNED_AFFORDANCES: Record<
   // the two status grids used to spell the tint at every call site and now
   // name a tone instead, so the marker lives here once.
   "src/components/admin/_shared.tsx": { "text-success": 3, "toast.success": 1 },
+  // v1.42: the readiness inventory's "carries" status icon, one arm of the
+  // carries / thin / empty tone table, beside its spoken status label.
+  "src/components/timeline/readiness-inventory.tsx": { "text-success": 1 },
   "src/components/admin/ai-server-key-section.tsx": { "toast.success": 1 },
   "src/components/admin/api-token-overview-section.tsx": { "text-success": 1 },
   "src/components/admin/app-log-preview-section.tsx": {
@@ -97,6 +100,11 @@ const PINNED_AFFORDANCES: Record<
     "toast.success": 1,
   },
   "src/components/admin/glitchtip-section.tsx": { "toast.success": 1 },
+  // Fires only when the route answered `enqueued: true`; a run already queued
+  // reads as an info toast instead, and the outcome itself is the status line.
+  "src/components/admin/measurement-maintenance-card.tsx": {
+    "toast.success": 1,
+  },
   "src/components/admin/invite-tokens-section.tsx": {
     "text-success": 2,
     "toast.success": 3,
@@ -173,7 +181,14 @@ const PINNED_AFFORDANCES: Record<
     CheckCircle2: 2,
     "toast.success": 1,
   },
-  "src/components/insights/coach-panel/chat-bubble.tsx": { "text-success": 4 },
+  // The Coach message action row: the copy tick after the clipboard write
+  // resolved, and the remember icon and toast only for the self-context entry
+  // the tap wrote (`adopted`); an entry that was already there gets a neutral
+  // icon and `toast.info`.
+  "src/components/insights/coach-panel/message-actions.tsx": {
+    "text-success": 2,
+    "toast.success": 1,
+  },
   // The copy tick on a result table: shown only after the clipboard write
   // resolved, so it reports a copy that happened; nothing is written to the
   // record.
@@ -182,9 +197,6 @@ const PINNED_AFFORDANCES: Record<
   },
   "src/components/insights/coach-panel/history-rail.tsx": {
     "toast.success": 1,
-  },
-  "src/components/insights/coach-panel/plan-proposal-card.tsx": {
-    "text-success": 1,
   },
   "src/components/insights/coach-panel/reminder-suggestion-card.tsx": {
     "text-success": 1,
@@ -262,6 +274,11 @@ const PINNED_AFFORDANCES: Record<
     "toast.success": 3,
   },
   "src/components/medications/sections/intake-tracking-section.tsx": {
+    "toast.success": 1,
+  },
+  // v1.42.2 — the auto-mark-taken switch confirms the flip, like its
+  // intake-tracking sibling.
+  "src/components/medications/sections/auto-mark-taken-section.tsx": {
     "toast.success": 1,
   },
   "src/components/medications/sections/inventory-section.tsx": {
@@ -367,10 +384,9 @@ const PINNED_AFFORDANCES: Record<
     "text-success": 2,
   },
   "src/components/settings/mcp-section.tsx": {
-    "text-success": 5,
+    "text-success": 4,
     "toast.success": 2,
   },
-  "src/components/settings/modules-section.tsx": { "toast.success": 1 },
   "src/components/settings/notification-status-card.tsx": {
     CheckCircle2: 2,
     "text-success": 1,

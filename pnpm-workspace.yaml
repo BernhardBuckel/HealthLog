@@ -27,6 +27,13 @@ overrides:
   "@hono/node-server@<1.19.15": "^1.19.15"
   "picomatch@<4.0.4": "^4.0.4"
   "body-parser@<2.3.0": "^2.3.0"
+  # CVE-2026-93749 (source-map-js < 1.2.2, HIGH, under postcss and the
+  # Tailwind build), CVE-2026-104844 (postcss-selector-parser < 7.1.6, under
+  # shadcn) and GHSA-r4xh-jqrq-34v2 (smol-toml < 1.9.0, under knip). All three
+  # are quadratic-time parsers reached at build or dev time only.
+  "source-map-js@<1.2.2": "^1.2.2"
+  "postcss-selector-parser@<7.1.6": "^7.1.6"
+  "smol-toml@<1.9.0": "^1.9.0"
   # Array-limit bypass through bracket-key comma parsing, and a denial of
   # service through an attacker-controlled isBuffer. 6.16.0 covers both.
   "qs@<6.16.0": "^6.16.0"
@@ -38,6 +45,10 @@ overrides:
   # follow-up fixed in 3.1.8, raised the floor from 3.1.6.
   "fast-uri@<3.1.8": "^3.1.8"
   "flatted@<3.4.2": "^3.4.2"
+  # GHSA-jqcg-44mw-7w3h: IP spoofing through IPv4-mapped addresses. It
+  # arrives under express in the MCP SDK; the app resolves client IPs itself,
+  # but the copy sits on a production path.
+  "proxy-addr@<2.0.8": "^2.0.8"
   # GHSA-3f6p-5ww8-9rcr: auth-plugin downgrade leaking plaintext credentials.
   # Reached only through prisma's MySQL driver, which this app never opens;
   # pinned so the audit reads clean, and mirrored for /opt/prisma-cli in the

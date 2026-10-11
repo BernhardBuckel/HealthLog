@@ -35,6 +35,7 @@ import {
 } from "@/lib/medications/course-window";
 import { Buffer } from "node:buffer";
 
+import { DEFAULT_REASONING_MAX_EFFORT } from "@/lib/ai/reasoning/levels";
 import { prisma, toJson } from "@/lib/db";
 import { normaliseSourceInstance } from "@/lib/validations/inbound-documents";
 import { auditLog } from "@/lib/auth/audit";
@@ -66,17 +67,17 @@ import {
   listTenantEdges,
 } from "@/lib/export/tenant-boundary";
 import { encryptNote } from "@/lib/crypto/note-cipher";
+import { sealForRestore } from "@/lib/export/sealed-text";
 import { encryptToBytes } from "@/lib/ai/coach/bytes-codec";
 import { encryptContextToBytes } from "@/lib/labs/biomarker-store";
 import { encryptNoteToBytes } from "@/lib/labs/store";
 import { annotate } from "@/lib/logging/context";
+import type { BackupMeasurement } from "@/lib/validations/backup";
 import {
-  parseBackupPayload,
   isCompatibleSchemaVersion,
   summarizeBackup,
-  type BackupMeasurement,
   type BackupSummary,
-} from "@/lib/validations/backup";
+} from "@/lib/validations/backup-summary";
 import { recomputeUserMoodRollups } from "@/lib/rollups/mood-rollups";
 import {
   recomputeUserMedicationCompliance,
@@ -113,6 +114,7 @@ import { restoreAwardsData } from "@/lib/export/awards-backup";
 import { restoreEnvironmentData } from "@/lib/export/environment-backup";
 import { restoreEcgData } from "@/lib/export/ecg-backup";
 import { restoreSymptomsData } from "@/lib/export/symptoms-backup";
+import { restoreLifeEventsData } from "@/lib/export/life-events-backup";
 import { restoredMedicationCreatedAt } from "@/lib/export/medication-created-at";
 import {
   encryptCategoryLabel,
@@ -121,6 +123,12 @@ import {
 } from "@/lib/medication-category";
 import { invalidateUserData } from "@/lib/cache/invalidate";
 import { TOMBSTONE_RETENTION_DAYS } from "@/lib/auth/native-client";
+import {
+  FOLDED_TYPES,
+  compactionTombstoneCoverId,
+} from "@/lib/measurements/folded-window";
+import { enqueueMeasurementFoldRepair } from "@/lib/jobs/measurement-fold-repair";
+import { resolveUserTimezone } from "@/lib/measurements/consolidation-base";
 import { stampSyncReset } from "@/lib/sync/reset";
 import {
   classifyRestoreFailure,
@@ -172,6 +180,7 @@ export interface RestoreResponse {
     encounterLinks: number;
     vaccinations: number;
     vaccinationLinks: number;
+    customVaccines: number;
     measurementReminders: number;
     measurementReminderEvents: number;
     coachConversations: number;
@@ -188,6 +197,7 @@ export interface RestoreResponse {
     environmentTravelLocations: number;
     ecgRecordings: number;
     symptomDefinitions: number;
+    lifeEvents: number;
   };
 }
 
@@ -417,19 +427,47 @@ export async function restoreBackup(
   // The measurements are the exception: `readStreamedBackup` checks each one
   // against the element schema as it goes and keeps only their count, and
   // the transaction reads them a second time, in batches, as it writes them.
+  // v1.42 — the live `stats:` ids of the folded types, gathered on the first
+  // read, so the measurement pass can tell a compaction tombstone from a
+  // person's deletion without a third read of the file. Keyed by source as
+  // well: Health Connect folds into the same `stats:` ids as Apple Health, and
+  // an Apple Health hour must not make a Health Connect deletion look folded.
+  const liveFoldStatsIds = new Set<string>();
+  const foldedTypes = new Set<string>(FOLDED_TYPES);
+  const foldSources = new Set<string>(["APPLE_HEALTH", "HEALTH_CONNECT"]);
+  const foldStatsKey = (source: string, type: string, externalId: string) =>
+    `${source}|${type}|${externalId}`;
+  const noteLiveFoldRow = (row: BackupMeasurement) => {
+    if (
+      row.deletedAt == null &&
+      row.source !== undefined &&
+      foldSources.has(row.source) &&
+      foldedTypes.has(row.type) &&
+      row.externalId?.startsWith("stats:")
+    ) {
+      liveFoldStatsIds.add(foldStatsKey(row.source, row.type, row.externalId));
+    }
+  };
+  // Set inside the transaction when the restore takes the account's fold
+  // repair marker away; the repair is queued once the transaction commits.
+  let foldRepairReset = false;
   let raw: unknown;
   let payload;
   let streamed: StreamedBackup;
   try {
     streamed = await readStreamedBackup(source, {
-      onMeasurementChecked: (checked) => {
+      onMeasurementChecked: (checked, row) => {
         progress.measurementsChecked = checked;
         report("validating");
+        noteLiveFoldRow(row);
       },
     });
     progress.measurementsTotal = streamed.measurementCount;
     report("validating", true);
     raw = streamed.raw;
+    // Loaded here, not at import: the schema is ~12 MB of heap and a server
+    // that never validates a backup should not hold it (`backup-summary.ts`).
+    const { parseBackupPayload } = await import("@/lib/validations/backup");
     payload = parseBackupPayload(raw);
   } catch (err) {
     const readFailure = isStoredBackupReadError(err);
@@ -862,6 +900,11 @@ export async function restoreBackup(
               settings.assistantInsightStatusEnabled,
             assistantDocumentAiEnabled:
               settings.assistantDocumentAiEnabled ?? true,
+            // v1.41 — absent on a file written before the controls existed,
+            // which restores them at their defaults: allowed, no cap.
+            aiReasoningEnabled: settings.aiReasoningEnabled ?? true,
+            aiReasoningMaxEffort:
+              settings.aiReasoningMaxEffort ?? DEFAULT_REASONING_MAX_EFFORT,
             moduleAvailabilityJson: coachFold.moduleAvailabilityJson as never,
             documentMaxFileBytes: settings.documentMaxFileBytes,
             documentQuotaBytes: BigInt(settings.documentQuotaBytes),
@@ -977,9 +1020,75 @@ export async function restoreBackup(
         // row.
         const tombstoneHorizonMs =
           Date.now() - TOMBSTONE_RETENTION_DAYS * 86_400_000;
+        //
+        // v1.42 — nor is a compaction tombstone, whatever its age: a raw
+        // sample the folds soft-deleted before v1.42, whose whole hour or day
+        // the fold had reached when it was deleted and which a live `stats:`
+        // row of the same source in the same file covers. The folds
+        // delete those outright now and the backlog purge removes the old
+        // ones, so writing one back would only hand the purge the same row
+        // again; the `folded_window` ingest guard is what keeps the sample
+        // from being uploaded again. Classified by the rule the purge and
+        // the sync feed use (`folded-window.ts`), against the `stats:` ids
+        // gathered on the file's first read and the zone the account will
+        // have after the restore. Counted with the expired ones.
+        const foldTz = resolveUserTimezone(
+          payload.accountSettings?.timezone ??
+            (
+              await tx.user.findUnique({
+                where: { id: ownerId },
+                select: { timezone: true },
+              })
+            )?.timezone ??
+            null,
+        );
+        // Only once the fold repair has been through the means this file
+        // holds. The repair recomputes a mean an older release folded from
+        // part of its day, and these tombstones are what it reads. A file
+        // exported after the account's repair finished carries repaired
+        // means, so its compaction tombstones can go. Any other file is
+        // written back whole, the account's repair marker is removed, and the
+        // repair runs again once the transaction commits; the purge then
+        // removes the tombstones as usual.
+        const foldRepair = await tx.measurementFoldRepair.findUnique({
+          where: { userId: ownerId },
+          select: { completedAt: true },
+        });
+        const dropCompactionTombstones =
+          foldRepair !== null &&
+          new Date(payload.exportedAt).getTime() >
+            foldRepair.completedAt.getTime();
+        if (!dropCompactionTombstones) {
+          await tx.measurementFoldRepair.deleteMany({
+            where: { userId: ownerId },
+          });
+          foldRepairReset = true;
+        }
+        const isCompactionTombstone = (measurement: BackupMeasurement) => {
+          if (!dropCompactionTombstones) return false;
+          if (measurement.deletedAt == null) return false;
+          const source = measurement.source ?? "MANUAL";
+          const covering = compactionTombstoneCoverId(
+            {
+              type: measurement.type,
+              source,
+              externalId: measurement.externalId ?? null,
+              measuredAt: new Date(measurement.measuredAt),
+              deletedAt: new Date(measurement.deletedAt),
+            },
+            foldTz,
+          );
+          return (
+            covering !== null &&
+            liveFoldStatsIds.has(
+              foldStatsKey(source, measurement.type, covering),
+            )
+          );
+        };
         const isExpiredTombstone = (measurement: BackupMeasurement) =>
           measurement.deletedAt != null &&
-          new Date(measurement.deletedAt).getTime() < tombstoneHorizonMs;
+          (new Date(measurement.deletedAt).getTime() < tombstoneHorizonMs ||
+            isCompactionTombstone(measurement));
         let expiredTombstonesSkipped = 0;
         report("measurements");
         await streamed.forEachMeasurementBatch(
@@ -1123,6 +1232,22 @@ export async function restoreBackup(
               oneShot: m.oneShot ?? false,
               asNeeded: m.asNeeded ?? false,
               trackIntake: m.trackIntake ?? true,
+              // v1.42.2 — an option that is on always carries its floor, and
+              // a restored floor is never before the restore: a portable file
+              // carries no removed doses, so a dose the person deleted in the
+              // days before the export would otherwise be filled again as
+              // taken by the next auto-take pass.
+              autoMarkTaken: m.autoMarkTaken ?? false,
+              autoMarkTakenSince: m.autoMarkTaken
+                ? new Date(
+                    Math.max(
+                      m.autoMarkTakenSince
+                        ? Date.parse(m.autoMarkTakenSince)
+                        : 0,
+                      restoreStartedAt.getTime(),
+                    ),
+                  )
+                : null,
               deliveryForm: m.deliveryForm ?? "ORAL",
               trackInjectionSites: m.trackInjectionSites ?? false,
               allowedInjectionSites: m.allowedInjectionSites ?? [],
@@ -1494,6 +1619,7 @@ export async function restoreBackup(
                 takenAt: e.takenAt ? new Date(e.takenAt) : null,
                 skipped: e.skipped ?? false,
                 autoMissed: e.autoMissed ?? false,
+                autoRecorded: e.autoRecorded ?? false,
                 attributionSource: e.attributionSource ?? "AUTO",
                 source: e.source ?? "WEB",
                 idempotencyKey: e.idempotencyKey ?? null,
@@ -1514,6 +1640,130 @@ export async function restoreBackup(
         }
 
         reportSection("mood");
+        // The account's own categories, tags and hidden set are written
+        // whether or not the file carries a mood entry: an account that set
+        // up its mood vocabulary before logging a single entry has them too,
+        // and they used to be written only inside the entries branch.
+        // The account's own CATEGORIES go in before its tags. A custom
+        // tag's `categoryId` is a real foreign key, so writing the tag
+        // first threw `mood_tags_category_id_fkey` and rolled the entire
+        // restore back — an account that had grouped its own mood factors
+        // could not be restored at all, and the failure named a constraint
+        // rather than the thing that was missing.
+        //
+        // Upserted by key for the same reason the tags below are: `key` is
+        // globally unique, so a seeded category that later claims the key
+        // must be left alone rather than overwritten by a restore.
+        // Labels this host's keys do not open, by file path.
+        const unopenedMoodLabels: string[] = [];
+        for (const category of payload.customMoodTagCategories) {
+          await tx.moodTagCategory.upsert({
+            where: { key: category.key },
+            create: {
+              id: category.id,
+              userId: ownerId,
+              key: category.key,
+              labelKey: category.labelKey,
+              icon: category.icon ?? null,
+              sortOrder: category.sortOrder ?? 0,
+              isActive: category.isActive ?? true,
+              labelEncrypted: sealForRestore(
+                category.labelEncrypted,
+                category.label,
+                `customMoodTagCategories.${category.key}.labelEncrypted`,
+                unopenedMoodLabels,
+              ),
+            },
+            update: {},
+          });
+        }
+
+        // Re-create the account's own tag definitions first. The lookup
+        // below used to ask only for the seeded catalogue (`userId: null`),
+        // so a single custom rated tag made the whole restore throw
+        // "Unknown mood factor keys" — the file was complete and unusable.
+        for (const tag of payload.customMoodTags) {
+          await tx.moodTag.upsert({
+            where: { key: tag.key },
+            create: {
+              ...(tag.id ? { id: tag.id } : {}),
+              userId: ownerId,
+              key: tag.key,
+              labelKey: tag.labelKey,
+              categoryId: tag.categoryId,
+              kind: tag.kind,
+              isActive: tag.isActive,
+              icon: tag.icon ?? null,
+              sortOrder: tag.sortOrder,
+              labelEncrypted: sealForRestore(
+                tag.labelEncrypted,
+                tag.label,
+                `customMoodTags.${tag.key}.labelEncrypted`,
+                unopenedMoodLabels,
+              ),
+              scaleMin: tag.scaleMin,
+              scaleMax: tag.scaleMax,
+              inverse: tag.inverse,
+            },
+            // `key` is globally unique, so a seeded key would collide.
+            // Leave the catalogue row alone; the links resolve either way.
+            update: {},
+          });
+        }
+        recordUnknownKeys(
+          skips,
+          "moodLabelCiphertext",
+          unopenedMoodLabels,
+          unopenedMoodLabels,
+        );
+
+        // Which tags the account hid. Delete-then-recreate like every
+        // other section, and resolved by KEY: what people hide is almost
+        // always a seeded tag, whose id differs on every instance.
+        //
+        // A key this instance no longer knows costs one hidden row and is
+        // REPORTED. Dropping it silently would un-hide a factor the person
+        // had deliberately taken out of their mood editor, and they would
+        // have no way to know why it came back.
+        await tx.moodTagHidden.deleteMany({ where: { userId: ownerId } });
+        if (payload.hiddenMoodTags.length > 0) {
+          const hiddenKeys = payload.hiddenMoodTags.map((h) => h.key);
+          const hiddenRows = await tx.moodTag.findMany({
+            where: {
+              key: { in: [...new Set(hiddenKeys)] },
+              OR: [{ userId: null }, { userId: ownerId }],
+            },
+            select: { id: true, key: true },
+          });
+          const hiddenByKey = new Map(
+            hiddenRows.map((row) => [row.key, row.id]),
+          );
+          const unresolvedHidden: string[] = [];
+          const writableHidden = payload.hiddenMoodTags.filter((entry) => {
+            if (hiddenByKey.has(entry.key)) return true;
+            unresolvedHidden.push(entry.key);
+            return false;
+          });
+          if (writableHidden.length > 0) {
+            await tx.moodTagHidden.createMany({
+              data: writableHidden.map((entry) => ({
+                userId: ownerId,
+                moodTagId: hiddenByKey.get(entry.key)!,
+                ...(entry.createdAt
+                  ? { createdAt: new Date(entry.createdAt) }
+                  : {}),
+              })),
+              skipDuplicates: true,
+            });
+          }
+          recordUnknownKeys(
+            skips,
+            "moodTag",
+            [...new Set(unresolvedHidden)],
+            unresolvedHidden,
+          );
+        }
+
         if (payload.moodEntries.length > 0) {
           const referencedFactorKeys = payload.moodEntries.flatMap((entry) =>
             entry.factors.map((factor) => factor.key),
@@ -1523,108 +1773,6 @@ export async function restoreBackup(
             (entry) => entry.structuredTags,
           );
           const tagKeys = [...new Set(referencedTagKeys)];
-          // The account's own CATEGORIES go in before its tags. A custom
-          // tag's `categoryId` is a real foreign key, so writing the tag
-          // first threw `mood_tags_category_id_fkey` and rolled the entire
-          // restore back — an account that had grouped its own mood factors
-          // could not be restored at all, and the failure named a constraint
-          // rather than the thing that was missing.
-          //
-          // Upserted by key for the same reason the tags below are: `key` is
-          // globally unique, so a seeded category that later claims the key
-          // must be left alone rather than overwritten by a restore.
-          for (const category of payload.customMoodTagCategories) {
-            await tx.moodTagCategory.upsert({
-              where: { key: category.key },
-              create: {
-                id: category.id,
-                userId: ownerId,
-                key: category.key,
-                labelKey: category.labelKey,
-                icon: category.icon ?? null,
-                sortOrder: category.sortOrder ?? 0,
-                isActive: category.isActive ?? true,
-                labelEncrypted: category.labelEncrypted ?? null,
-              },
-              update: {},
-            });
-          }
-
-          // Re-create the account's own tag definitions first. The lookup
-          // below used to ask only for the seeded catalogue (`userId: null`),
-          // so a single custom rated tag made the whole restore throw
-          // "Unknown mood factor keys" — the file was complete and unusable.
-          for (const tag of payload.customMoodTags) {
-            await tx.moodTag.upsert({
-              where: { key: tag.key },
-              create: {
-                ...(tag.id ? { id: tag.id } : {}),
-                userId: ownerId,
-                key: tag.key,
-                labelKey: tag.labelKey,
-                categoryId: tag.categoryId,
-                kind: tag.kind,
-                isActive: tag.isActive,
-                icon: tag.icon ?? null,
-                sortOrder: tag.sortOrder,
-                labelEncrypted: tag.labelEncrypted ?? null,
-                scaleMin: tag.scaleMin,
-                scaleMax: tag.scaleMax,
-                inverse: tag.inverse,
-              },
-              // `key` is globally unique, so a seeded key would collide.
-              // Leave the catalogue row alone; the links resolve either way.
-              update: {},
-            });
-          }
-
-          // Which tags the account hid. Delete-then-recreate like every
-          // other section, and resolved by KEY: what people hide is almost
-          // always a seeded tag, whose id differs on every instance.
-          //
-          // A key this instance no longer knows costs one hidden row and is
-          // REPORTED. Dropping it silently would un-hide a factor the person
-          // had deliberately taken out of their mood editor, and they would
-          // have no way to know why it came back.
-          await tx.moodTagHidden.deleteMany({ where: { userId: ownerId } });
-          if (payload.hiddenMoodTags.length > 0) {
-            const hiddenKeys = payload.hiddenMoodTags.map((h) => h.key);
-            const hiddenRows = await tx.moodTag.findMany({
-              where: {
-                key: { in: [...new Set(hiddenKeys)] },
-                OR: [{ userId: null }, { userId: ownerId }],
-              },
-              select: { id: true, key: true },
-            });
-            const hiddenByKey = new Map(
-              hiddenRows.map((row) => [row.key, row.id]),
-            );
-            const unresolvedHidden: string[] = [];
-            const writableHidden = payload.hiddenMoodTags.filter((entry) => {
-              if (hiddenByKey.has(entry.key)) return true;
-              unresolvedHidden.push(entry.key);
-              return false;
-            });
-            if (writableHidden.length > 0) {
-              await tx.moodTagHidden.createMany({
-                data: writableHidden.map((entry) => ({
-                  userId: ownerId,
-                  moodTagId: hiddenByKey.get(entry.key)!,
-                  ...(entry.createdAt
-                    ? { createdAt: new Date(entry.createdAt) }
-                    : {}),
-                })),
-                skipDuplicates: true,
-              });
-            }
-            recordUnknownKeys(
-              skips,
-              "moodTag",
-              [...new Set(unresolvedHidden)],
-              unresolvedHidden,
-            );
-          }
-
           const factorRows =
             factorKeys.length === 0
               ? []
@@ -1917,6 +2065,7 @@ export async function restoreBackup(
                 biomarker.context == null
                   ? null
                   : encryptContextToBytes(biomarker.context),
+              analyteKey: biomarker.analyteKey ?? null,
               ...(biomarker.createdAt
                 ? { createdAt: new Date(biomarker.createdAt) }
                 : {}),
@@ -2023,6 +2172,8 @@ export async function restoreBackup(
               sourceReferenceLow: lab.sourceReferenceLow ?? null,
               sourceReferenceHigh: lab.sourceReferenceHigh ?? null,
               sourceReferenceText: lab.sourceReferenceText ?? null,
+              sourceValue: lab.sourceValue ?? null,
+              sourceUnit: lab.sourceUnit ?? null,
               takenAt: new Date(lab.takenAt),
               source: lab.source,
               noteEncrypted:
@@ -2182,6 +2333,16 @@ export async function restoreBackup(
           payload,
           episodeIds,
           skips,
+        );
+
+        // The person's life events (v1.42). They reference nothing but the
+        // account, so they have no ordering constraint and sit beside the
+        // other person-made rows. Both ends live in
+        // `src/lib/export/life-events-backup.ts`.
+        const lifeEventsCleared = await restoreLifeEventsData(
+          tx,
+          ownerId,
+          payload,
         );
 
         reportSection("allergies");
@@ -2450,6 +2611,11 @@ export async function restoreBackup(
           ownerId,
           payload,
           new Set(payload.coachConversations.map((c) => c.id)),
+          new Set(
+            payload.coachConversations.flatMap((c) =>
+              c.messages.map((m) => m.id),
+            ),
+          ),
           skips,
         );
 
@@ -2514,6 +2680,7 @@ export async function restoreBackup(
           tx,
           ownerId,
           payload,
+          skips,
         );
 
         const cleared = {
@@ -2549,6 +2716,7 @@ export async function restoreBackup(
           encounterLinks: visitsCleared.encounterLinks,
           vaccinations: vaccinationsCleared.vaccinations,
           vaccinationLinks: vaccinationsCleared.vaccinationLinks,
+          customVaccines: vaccinationsCleared.customVaccines,
           measurementReminders: remindersCleared.measurementReminders,
           measurementReminderEvents: remindersCleared.measurementReminderEvents,
           coachConversations: coachCleared.coachConversations,
@@ -2566,6 +2734,7 @@ export async function restoreBackup(
             environmentCleared.environmentTravelLocations,
           ecgRecordings: ecgCleared.ecgRecordings,
           symptomDefinitions: symptomsCleared.symptomDefinitions,
+          lifeEvents: lifeEventsCleared.lifeEvents,
         };
         assertNoNewForeignReferences(
           foreignBefore,
@@ -2696,6 +2865,24 @@ export async function restoreBackup(
   // ran past the per-request statement limit, the fold was dropped, and the
   // account's charts stayed empty until the next boot (#1031). It gets the
   // time the deadline check above keeps free for it instead.
+  // The restore took the fold repair marker away (see the measurement pass):
+  // queue the repair now that the restored rows are committed. Best-effort;
+  // the next boot's discovery queues it otherwise, and the purge waits
+  // either way.
+  if (foldRepairReset) {
+    try {
+      await enqueueMeasurementFoldRepair(ownerId);
+    } catch (err) {
+      annotate({
+        meta: {
+          fold_repair_enqueue_failed: true,
+          fold_repair_enqueue_error:
+            err instanceof Error ? err.message : String(err),
+        },
+      });
+    }
+  }
+
   if (measurementsRestored > 0) {
     try {
       await recomputeUserRollups(ownerId, {
@@ -2808,6 +2995,7 @@ export async function restoreBackup(
         encounterLinks: summary.encounterLinks,
         vaccinations: summary.vaccinations,
         vaccinationLinks: summary.vaccinationLinks,
+        customVaccines: summary.customVaccines,
         measurementReminders: summary.measurementReminders,
         measurementReminderEvents: summary.measurementReminderEvents,
       },

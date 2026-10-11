@@ -38,6 +38,8 @@ vi.mock("@/lib/db", () => ({
       },
     },
     auditLog: { deleteMany: vi.fn() },
+    // v1.41 — the operator's reasoning controls; an untouched instance.
+    appSettings: { findUnique: vi.fn(async () => null) },
   },
 }));
 // The `briefing` capability is available in these fixtures; the refusal
@@ -163,6 +165,8 @@ describe("daily-briefing re-roll on unchanged data", () => {
     const params = runRawCompletionWithFallback.mock.calls[0][0].params;
     expect(params.temperature).toBe(0.6);
     expect(params.seed).toBeUndefined();
+    // v1.41 — the re-roll thinks like the generation it replaces.
+    expect(params.reasoning?.effort).toBe("medium");
 
     // The cache write swaps only the paragraph; findings + summary preserved.
     const write = userUpdate.mock.calls.find(
@@ -178,6 +182,10 @@ describe("daily-briefing re-roll on unchanged data", () => {
       { headline: "BP steady", tone: "good" },
     ]);
     expect(stored.summary).toBe("stable summary");
+    // New text, so a new generation moment.
+    expect(Date.parse(stored.briefingGeneratedAt)).toBeGreaterThan(
+      Date.now() - 60_000,
+    );
     expect(data.insightsBriefingRerollDate).toBe(todayKey);
     expect(invalidateUserInsights).toHaveBeenCalledWith("u1");
   });
@@ -223,5 +231,14 @@ describe("daily-briefing re-roll on unchanged data", () => {
           .insightsBriefingRerollDate !== undefined,
     );
     expect(write).toBeTruthy();
+    // The stamp refresh keeps yesterday's text and its generation moment:
+    // it writes no text at all.
+    expect(
+      userUpdate.mock.calls.some(
+        (c) =>
+          (c[0] as { data: Record<string, unknown> }).data
+            .insightsCachedText !== undefined,
+      ),
+    ).toBe(false);
   });
 });

@@ -242,7 +242,7 @@ async function tryProviderIndex(
     return { outcome: null, note: null };
   }
 
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(userId);
   const reservation = await reserveBudget(
     userId,
     AI_BUDGETS.documentTranscribe.maxTokens,

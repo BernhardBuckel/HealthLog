@@ -170,6 +170,24 @@ export function resolveGeoProviderHost(): string {
 }
 
 /**
+ * How login IPs are placed on this host: from the mounted GeoLite2 databases,
+ * by the online provider, or not at all (`IP_GEO_LOOKUP_DISABLED`).
+ */
+export function geoLookupMode(): "offline" | "online" | "off" {
+  if (offlineGeoReady()) return "offline";
+  return envFlag("IP_GEO_LOOKUP_DISABLED") ? "off" : "online";
+}
+
+/**
+ * Whether the operator named the online provider (`IP_GEO_LOOKUP_URL`).
+ * An explicit provider is a decision about where login IPs go; the default
+ * is not, so the admin status only warns about the default.
+ */
+export function geoProviderChosen(): boolean {
+  return Boolean(process.env.IP_GEO_LOOKUP_URL?.trim());
+}
+
+/**
  * Directory the offline MMDBs are read from.
  *
  * `GEOLITE2_DIR` is on the compose `environment:` whitelist, so an
@@ -409,7 +427,10 @@ async function evaluateOfflineGeoNotice(): Promise<void> {
           host: resolveGeoProviderHost(),
           docsUrl: GEOLITE2_DOCS_URL,
         },
-        metadata: { source: "geo-offline-detection" },
+        metadata: {
+          source: "geo-offline-detection",
+          url: "/admin/system-status",
+        },
       });
     }
   } catch (err) {

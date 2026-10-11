@@ -34,10 +34,11 @@ import { formatDateTime } from "@/lib/format";
  * the users' own plans. The operator ceiling is enforced against the second
  * figure, so both belong on screen.
  */
+/** Summed over every account's own current day, the day its ceilings use. */
 interface SpendToday {
-  dateKey: string;
   totalTokens: number;
   operatorTokens: number;
+  accounts: number;
 }
 
 interface ProviderHealthRow {
@@ -48,6 +49,14 @@ interface ProviderHealthRow {
   lastOkAt: string | null;
   lastFailureAt: string | null;
   lastFailureStatus: number | null;
+  /** v1.42 — users this provider is paused for, and when the last lifts. */
+  pausedUsers?: number;
+  pausedUntil?: string | null;
+  /** v1.42 — the operator key's model check, while it is failing. */
+  modelListing?: {
+    model: string;
+    listing: "listed" | "not_listed" | "unknown";
+  } | null;
 }
 
 export function ProviderHealthSection() {
@@ -99,7 +108,7 @@ export function ProviderHealthSection() {
       {spendToday ? (
         <p className="text-muted-foreground text-sm" data-slot="ai-spend-today">
           {t("admin.providerHealth.spendToday", {
-            date: spendToday.dateKey,
+            accounts: groupDigits(spendToday.accounts),
             total: groupDigits(spendToday.totalTokens),
             operator: groupDigits(spendToday.operatorTokens),
           })}
@@ -151,10 +160,32 @@ export function ProviderHealthSection() {
                       })}`
                     : ""}
                 </span>
+                {p.pausedUsers && p.pausedUntil ? (
+                  <span
+                    className="text-muted-foreground text-xs"
+                    data-slot="provider-paused"
+                  >
+                    {t("admin.providerHealth.pausedHint", {
+                      count: p.pausedUsers,
+                      at: formatDateTime(p.pausedUntil),
+                    })}
+                  </span>
+                ) : null}
+                {p.modelListing?.listing === "not_listed" ? (
+                  <span className="text-sm" data-slot="provider-model-missing">
+                    {t("admin.providerHealth.modelNotServed", {
+                      model: p.modelListing.model,
+                    })}
+                  </span>
+                ) : null}
               </div>
               {p.failing === 0 ? (
                 <Badge variant="secondary">
                   {t("admin.providerHealth.statusHealthy")}
+                </Badge>
+              ) : p.pausedUsers ? (
+                <Badge variant="destructive">
+                  {t("admin.providerHealth.statusPaused")}
                 </Badge>
               ) : (
                 <Badge variant="destructive">

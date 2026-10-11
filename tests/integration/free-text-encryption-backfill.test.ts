@@ -71,8 +71,15 @@ describe("free-text encryption backfill (real Postgres)", () => {
     await Promise.all([seedUser("ft-a"), seedUser("ft-b"), seedUser("ft-c")]);
 
     // ft-a: a legacy readable title and a sealed one.
+    // Last active months ago: the backfill must not make it look recent.
+    const lastActive = new Date("2026-03-02T09:15:00.000Z");
     await prisma.coachConversation.create({
-      data: { id: "conv-legacy", userId: "ft-a", title: "Legacy title" },
+      data: {
+        id: "conv-legacy",
+        userId: "ft-a",
+        title: "Legacy title",
+        updatedAt: lastActive,
+      },
     });
     await prisma.coachConversation.create({
       data: {
@@ -126,6 +133,9 @@ describe("free-text encryption backfill (real Postgres)", () => {
       routeGeometriesMigrated: 0,
       appointmentAddressesCleared: 0,
       contactAuditRowsScrubbed: 0,
+      homeLocationsMigrated: 0,
+      travelLocationsMigrated: 0,
+      dayLocationsMigrated: 0,
     });
     expect(await runFreeTextEncryptionBackfillForUser("ft-b")).toEqual({
       conversationTitlesMigrated: 0,
@@ -134,6 +144,9 @@ describe("free-text encryption backfill (real Postgres)", () => {
       routeGeometriesMigrated: 0,
       appointmentAddressesCleared: 0,
       contactAuditRowsScrubbed: 0,
+      homeLocationsMigrated: 0,
+      travelLocationsMigrated: 0,
+      dayLocationsMigrated: 0,
     });
 
     const conversations = await prisma.coachConversation.findMany({
@@ -150,6 +163,9 @@ describe("free-text encryption backfill (real Postgres)", () => {
       { id: "conv-legacy", readable: null, text: "Legacy title" },
       { id: "conv-sealed", readable: null, text: "Sealed title" },
     ]);
+    // The Coach panel orders and groups by updatedAt; sealing a title is not
+    // activity, so the stamp is the one the conversation already had.
+    expect(conversations[0].updatedAt).toEqual(lastActive);
     const entries = await prisma.customMetricEntry.findMany({
       where: { userId: "ft-b" },
       orderBy: { id: "asc" },
@@ -179,6 +195,9 @@ describe("free-text encryption backfill (real Postgres)", () => {
       routeGeometriesMigrated: 0,
       appointmentAddressesCleared: 0,
       contactAuditRowsScrubbed: 0,
+      homeLocationsMigrated: 0,
+      travelLocationsMigrated: 0,
+      dayLocationsMigrated: 0,
     });
   });
 
@@ -263,6 +282,9 @@ describe("free-text encryption backfill (real Postgres)", () => {
       routeGeometriesMigrated: 0,
       appointmentAddressesCleared: 0,
       contactAuditRowsScrubbed: 0,
+      homeLocationsMigrated: 0,
+      travelLocationsMigrated: 0,
+      dayLocationsMigrated: 0,
     });
     expect(await runFreeTextEncryptionBackfillForUser("pc-b")).toEqual({
       conversationTitlesMigrated: 0,
@@ -271,6 +293,9 @@ describe("free-text encryption backfill (real Postgres)", () => {
       routeGeometriesMigrated: 1,
       appointmentAddressesCleared: 0,
       contactAuditRowsScrubbed: 0,
+      homeLocationsMigrated: 0,
+      travelLocationsMigrated: 0,
+      dayLocationsMigrated: 0,
     });
 
     const practitioners = await prisma.practitioner.findMany({
@@ -331,6 +356,9 @@ describe("free-text encryption backfill (real Postgres)", () => {
       routeGeometriesMigrated: 0,
       appointmentAddressesCleared: 0,
       contactAuditRowsScrubbed: 0,
+      homeLocationsMigrated: 0,
+      travelLocationsMigrated: 0,
+      dayLocationsMigrated: 0,
     });
   });
 
@@ -428,6 +456,9 @@ describe("free-text encryption backfill (real Postgres)", () => {
     expect(summaryA).toMatchObject({
       appointmentAddressesCleared: 1,
       contactAuditRowsScrubbed: 1,
+      homeLocationsMigrated: 0,
+      travelLocationsMigrated: 0,
+      dayLocationsMigrated: 0,
     });
     await runFreeTextEncryptionBackfillForUser("ad-b");
 

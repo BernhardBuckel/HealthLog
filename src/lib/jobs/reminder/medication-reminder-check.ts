@@ -31,6 +31,7 @@ import {
   determinePhase,
   getPhaseMessage,
   getPhaseKeyboard,
+  openingPhase,
 } from "@/lib/jobs/reminder-phases";
 import {
   claimNotificationEvent,
@@ -40,6 +41,7 @@ import {
 import { getUserTodayBounds as getUserTodayBoundsUtil } from "@/lib/tz/local-day";
 import { getWorkerPrisma, parseTimeToMinutes } from "./shared";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
+import { sendsMedicationReminders } from "@/lib/medications/auto-mark-taken";
 import {
   LIVE_ERA_REVISION_ARGS,
   liveEraStart as liveEraStartOf,
@@ -555,6 +557,9 @@ export async function handleReminderCheck(
                       windowStart: phaseWindow.start,
                       minutesToEnd,
                       currentPhase,
+                      followUp:
+                        currentPhase !==
+                        openingPhase(thresholds, windowDuration),
                     }
                   : null;
               })
@@ -570,6 +575,7 @@ export async function handleReminderCheck(
               windowStart,
               minutesToEnd,
               currentPhase,
+              followUp,
             } = phaseCandidate;
             const slotInstant = slotScheduledFor.getTime();
             if (liveEraStart !== null && slotInstant < liveEraStart) {
@@ -657,7 +663,7 @@ export async function handleReminderCheck(
               }),
             });
 
-            if (med.notificationsEnabled) {
+            if (sendsMedicationReminders(med, { now, timeZone: userTz })) {
               const claimed = await claimNotificationEvent(prisma, {
                 recordUserId: med.user.id,
                 eventType: "MEDICATION_REMINDER",
@@ -721,7 +727,7 @@ export async function handleReminderCheck(
             // banner, every other channel the user configured still delivers
             // — so the gate lives in the dispatcher's APNs branch, which is
             // the only place that knows whether an APNs send was on the table.
-            if (med.notificationsEnabled) {
+            if (sendsMedicationReminders(med, { now, timeZone: userTz })) {
               const recipientLocale = await resolveJobLocale(med.user.locale);
               const { title, message } = getPhaseMessage(
                 currentPhase,
@@ -767,6 +773,12 @@ export async function handleReminderCheck(
                     medicationId: med.id,
                     scheduleId: schedule.id,
                     phase: currentPhase,
+                    // False for the reminder that announces the dose (the
+                    // slot's opening phase), true for every escalation after
+                    // it. A client that reminds locally at dose time
+                    // (`medication.clientManaged`) replaces only the first
+                    // one, so only that one is kept off APNs.
+                    followUp,
                     date: slotScheduledFor.toLocaleDateString("sv-SE", {
                       timeZone: userTz,
                     }),

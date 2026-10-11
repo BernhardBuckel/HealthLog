@@ -1007,6 +1007,62 @@ describe("forceWarmUser — on-demand single-user warm (v1.8.7.1)", () => {
     }
   });
 
+  it("a today warm runs past the freshness window, under the daily cap, and warms no card", async () => {
+    // The weigh-in at 07:05 after the blood-pressure warm at 07:00: the
+    // briefing is minutes old, and still has to read the new reading.
+    const now = new Date("2026-06-10T12:00:00.000Z");
+    const { prisma, findUnique } = makePrisma([]);
+    findUnique.mockResolvedValue({
+      insightsCachedAt: new Date(now.getTime() - 5 * 60 * 1000),
+      insightsWarmFailedAt: null,
+    });
+    const generate = vi
+      .fn()
+      .mockResolvedValue({ status: "generated", providerType: "openai" });
+    const statusGenerators = Array.from({ length: 7 }, () =>
+      vi.fn().mockResolvedValue({ hasProvider: true, cached: true }),
+    );
+    const warmGenericMetrics = vi.fn().mockResolvedValue(0);
+
+    const result = await forceWarmUser(prisma as never, "u1", "de", {
+      generate,
+      statusGenerators,
+      warmGenericMetrics,
+      now,
+      today: true,
+    });
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.comprehensive).toBe("generated");
+    expect(checkRateLimit).toHaveBeenCalledWith(
+      "insight-pregenerate-daily:u1",
+      FORCE_WARM_DAILY_LIMIT,
+      expect.any(Number),
+    );
+    for (const g of statusGenerators) expect(g).not.toHaveBeenCalled();
+    expect(warmGenericMetrics).not.toHaveBeenCalled();
+  });
+
+  it("a today warm stays inside the daily forced-warm cap", async () => {
+    const now = new Date("2026-06-10T12:00:00.000Z");
+    const { prisma, findUnique } = makePrisma([]);
+    findUnique.mockResolvedValue({
+      insightsCachedAt: new Date(now.getTime() - 5 * 60 * 1000),
+      insightsWarmFailedAt: null,
+    });
+    checkRateLimit.mockResolvedValue({ allowed: false });
+    const generate = vi.fn();
+    const result = await forceWarmUser(prisma as never, "u1", "de", {
+      generate,
+      statusGenerators: [],
+      warmGenericMetrics: vi.fn().mockResolvedValue(0),
+      now,
+      today: true,
+    });
+    expect(generate).not.toHaveBeenCalled();
+    expect(result.comprehensive).toBe("capped");
+  });
+
   it("backs off after a recent failed attempt instead of re-driving the provider chain", async () => {
     const now = new Date("2026-06-10T12:00:00.000Z");
     const { prisma, findUnique } = makePrisma([]);
@@ -1450,5 +1506,133 @@ describe("runInsightPregenerate — warm budget honours the response timeout (v1
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// v1.42 — the run used to annotate one wide event per candidate and the last
+// write won, so a night where one account worked and the last one failed read
+// as `all-failed`. The run now reports every candidate's outcome together, a
+// withheld (screened) briefing and a dead sign-in queue no provider retry,
+// and a time-budget cut-off reports the unreached accounts as deferred.
+describe("runInsightPregenerate — one outcome per candidate (v1.42)", () => {
+  type Reported = {
+    queue: string;
+    runId: string;
+    candidates: Array<{ key: string; outcome: string; cause?: string }>;
+  };
+
+  function harness(users: Array<{ id: string; locale: string }>) {
+    const { prisma } = makePrisma(users);
+    const reportRun = vi.fn(async (input: Reported) => ({
+      total: input.candidates.length,
+      attempted: 0,
+      failed: 0,
+      allFailed: input.candidates.every((c) => c.outcome === "failed"),
+      partial: false,
+    }));
+    const enqueueRetry = vi.fn().mockResolvedValue(undefined);
+    const statusGenerators = Array.from({ length: 7 }, () =>
+      vi.fn().mockResolvedValue({ hasProvider: true, cached: true }),
+    );
+    const warmGenericMetrics = vi.fn().mockResolvedValue(0);
+    return {
+      prisma,
+      reportRun,
+      enqueueRetry,
+      statusGenerators,
+      warmGenericMetrics,
+    };
+  }
+
+  it("reports ok, auth_failed and screened candidates side by side, and retries none of the last two", async () => {
+    const h = harness([
+      { id: "ok-user", locale: "de" },
+      { id: "dead-codex", locale: "de" },
+      { id: "screened", locale: "de" },
+    ]);
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "generated", providerType: "codex" })
+      .mockResolvedValueOnce({
+        status: "failed",
+        reason: "all-providers-failed",
+        credentialExpired: true,
+      })
+      .mockResolvedValueOnce({ status: "failed", reason: "outbound-screened" });
+
+    const result = await runInsightPregenerate(h.prisma as never, {
+      generate,
+      statusGenerators: h.statusGenerators,
+      warmGenericMetrics: h.warmGenericMetrics,
+      enqueueRetry: h.enqueueRetry,
+      reportRun: h.reportRun as never,
+    });
+
+    expect(h.reportRun).toHaveBeenCalledTimes(1);
+    const reported = h.reportRun.mock.calls[0][0];
+    expect(reported.queue).toBe(INSIGHT_PREGENERATE_QUEUE);
+    expect(reported.candidates.map((c) => c.outcome)).toEqual([
+      "ok",
+      "auth_failed",
+      "screened",
+    ]);
+    expect(reported.candidates[1].cause).toBe("all-providers-failed");
+    expect(reported.candidates[2].cause).toBe("outbound-screened");
+    // Keys never carry the account id.
+    for (const c of reported.candidates) {
+      expect(c.key).toMatch(/^[0-9a-f]{8}$/);
+      expect(JSON.stringify(c)).not.toContain("user");
+    }
+    expect(h.enqueueRetry).not.toHaveBeenCalled();
+    expect(result.allFailed).toBe(false);
+  });
+
+  it("still queues the bounded retry for an ordinary provider failure", async () => {
+    const h = harness([{ id: "u1", locale: "de" }]);
+    const generate = vi
+      .fn()
+      .mockResolvedValue({ status: "failed", reason: "all-providers-failed" });
+
+    const result = await runInsightPregenerate(h.prisma as never, {
+      generate,
+      statusGenerators: h.statusGenerators,
+      warmGenericMetrics: h.warmGenericMetrics,
+      enqueueRetry: h.enqueueRetry,
+      reportRun: h.reportRun as never,
+    });
+
+    expect(h.enqueueRetry).toHaveBeenCalledTimes(1);
+    expect(h.reportRun.mock.calls[0][0].candidates).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        cause: "all-providers-failed",
+      }),
+    ]);
+    expect(result.allFailed).toBe(true);
+  });
+
+  it("reports the candidates a time-budget stop never reached as deferred", async () => {
+    const h = harness([
+      { id: "a", locale: "de" },
+      { id: "b", locale: "de" },
+      { id: "c", locale: "de" },
+    ]);
+    const generate = vi
+      .fn()
+      .mockResolvedValue({ status: "generated", providerType: "x" });
+    let calls = 0;
+
+    await runInsightPregenerate(h.prisma as never, {
+      generate,
+      statusGenerators: h.statusGenerators,
+      warmGenericMetrics: h.warmGenericMetrics,
+      enqueueRetry: h.enqueueRetry,
+      reportRun: h.reportRun as never,
+      shouldStop: () => ++calls > 1,
+    });
+
+    expect(
+      h.reportRun.mock.calls[0][0].candidates.map((c) => c.outcome),
+    ).toEqual(["ok", "deferred", "deferred"]);
   });
 });

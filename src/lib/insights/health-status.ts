@@ -17,7 +17,7 @@
 import type { MeasurementType } from "@/generated/prisma/client";
 import type { VitalDeviation } from "@/lib/insights/derived/coincident-deviation";
 import type { ChangepointSignal } from "@/lib/insights/derived/changepoint";
-import { isCurrentForTodayClaim } from "@/lib/insights/measurement-freshness";
+import { isFromToday } from "@/lib/insights/measurement-freshness";
 
 /** One vital sitting outside its personal band today. */
 export interface HealthStatusDeviation {
@@ -30,6 +30,12 @@ export interface HealthStatusDeviation {
   high: number;
   /** Which side of the band the value falls on. */
   direction: "above" | "below";
+  /**
+   * What the band describes: the whole day (`day`), or the same hours of the
+   * earlier days (`sameHours`), for a day still in progress whose mean moves
+   * with the hour (glucose). A surface naming the range says which.
+   */
+  basis: "day" | "sameHours";
 }
 
 /** One dated, sustained level shift from the changepoint detector. */
@@ -60,14 +66,12 @@ export function summariseHealthStatus(
 ): HealthStatusSummary {
   const deviations: HealthStatusDeviation[] = vitals
     // Present tense, so present readings only. "Your pulse is above your usual
-    // range" describes now; a reading from last week describes last week, and
-    // the card carried no date to say which. A vital whose freshest reading is
-    // outside the claim window is left out rather than dressed as current —
+    // range ... now 95" describes today; a reading from yesterday describes
+    // yesterday, and the card carries no date to say which. A vital whose
+    // freshest reading is not from today is left out rather than dressed as
+    // current —
     // the changepoint shifts below are dated by construction and unaffected.
-    .filter(
-      (v) =>
-        v.outside && v.direction !== "in" && isCurrentForTodayClaim(v.daysAgo),
-    )
+    .filter((v) => v.outside && v.direction !== "in" && isFromToday(v.daysAgo))
     .map((v) => ({
       type: v.type,
       value: v.value,
@@ -75,6 +79,7 @@ export function summariseHealthStatus(
       low: v.low,
       high: v.high,
       direction: v.direction === "above" ? "above" : "below",
+      basis: v.basis ?? "day",
     }));
 
   const mappedShifts: HealthStatusShift[] = shifts.map((s) => ({

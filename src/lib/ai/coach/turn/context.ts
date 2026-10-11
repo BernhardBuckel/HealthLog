@@ -31,17 +31,28 @@ import {
 } from "@/lib/ai/coach/chat-request-builder";
 import { buildWorkoutEvidenceSection } from "@/lib/ai/coach/workout-evidence-builder";
 import { getScheduledDoseValues } from "@/lib/medications/scheduled-doses";
+import { getMedicationNames } from "@/lib/medications/medication-names";
 import { buildRememberAddendum } from "@/lib/ai/coach/reminders";
 import { buildSuggestActionAddendum } from "@/lib/ai/coach/suggest-action";
 import {
   parseCoachPrefs,
   type CoachPrefs,
 } from "@/lib/validations/coach-prefs";
+import {
+  clampWindow,
+  reachFromPrefs,
+  type CoachHistoryReach,
+} from "@/lib/ai/coach/history-reach";
 
 import type { TurnConversation } from "./types";
 
 export interface TurnContext {
   coachPrefs: CoachPrefs;
+  /**
+   * How far back this turn may read: the saved `defaultWindow` as a limit.
+   * Every snapshot build and tool call of the turn honours it.
+   */
+  reach: CoachHistoryReach;
   /**
    * v1.22 (#89) — the upstream timeout for THIS turn's provider call. On the
    * streaming (local) path it is the per-idle-gap ceiling; on the buffered
@@ -52,6 +63,8 @@ export interface TurnContext {
   snapshot: CoachSnapshotResult;
   aboutMe: string | null;
   scheduleDoses: Awaited<ReturnType<typeof getScheduledDoseValues>>;
+  /** The schedule's medication names, which the outbound dose screen reads. */
+  medicationNames: string[];
   turnContext: CoachTurnContext;
   workoutEvidence: Record<string, unknown> | null;
   systemPrompt: string;
@@ -76,10 +89,8 @@ export async function assembleTurnContext(args: {
   // separately so excluded metrics never even leave the DB.
   //
   // v1.4.25 W5 — `coachPrefs.defaultWindow` is the user's saved
-  // analysis-window preference. Merge it into the snapshot scope when
-  // the client didn't supply a per-conversation override; the override
-  // (header pill / sources rail) always wins. Keep the merge cheap so
-  // we don't accidentally widen narrow per-call scopes.
+  // analysis-window preference, merged into the snapshot scope when the
+  // client didn't supply a per-conversation window.
   const prefsRow = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -98,11 +109,17 @@ export async function assembleTurnContext(args: {
     prefsRow?.aiResponseTimeoutSeconds != null
       ? prefsRow.aiResponseTimeoutSeconds * 1000
       : 180_000;
-  const effectiveScope =
-    scope?.window === undefined && coachPrefs.defaultWindow
-      ? { ...(scope ?? {}), window: coachPrefs.defaultWindow }
-      : scope;
-  const snapshot = await buildCoachSnapshot(userId, effectiveScope);
+  // The saved window is a limit as well as the default: a
+  // client-sent window (header pill, deep link) may narrow it, never widen it.
+  const reach = reachFromPrefs(coachPrefs);
+  const requestedWindow = scope?.window ?? coachPrefs.defaultWindow;
+  const effectiveScope: CoachScope = {
+    ...(scope ?? {}),
+    ...(requestedWindow !== undefined
+      ? { window: clampWindow(requestedWindow, reach) }
+      : {}),
+  };
+  const snapshot = await buildCoachSnapshot(userId, effectiveScope, { reach });
   // v1.15.20 — the user-authored "about me" self-description (Settings →
   // AI) rides the system prompt as a delimited, user-provided context
   // block. Fail-open: a missing / undecryptable text yields null and the
@@ -115,6 +132,7 @@ export async function assembleTurnContext(args: {
   // continuation exemption. Fail-open: a read failure yields an empty set, which
   // keeps the Guard I phrase-anchored dose behaviour.
   const scheduleDoses = await getScheduledDoseValues(userId).catch(() => []);
+  const medicationNames = await getMedicationNames(userId).catch(() => []);
   // v1.22 (B2/F6) — the canonical system-prompt module is owned elsewhere, so
   // the two memory/action clauses are appended at assembly time here: one
   // teaches the model to emit `---REMEMBER---` (durable "remind me" capture),
@@ -163,18 +181,19 @@ export async function assembleTurnContext(args: {
     // Fact capture must never break the chat turn; the >TURN_CAP LLM
     // extraction remains as the catch-all on long conversations.
   });
-  if (turnContext.historyElided) {
-    void enqueueCoachMemoryRefresh({
-      conversationId,
-      userId,
-      // Coach memory prose is composed in de/en only — it is MODEL-FACING
-      // context (a rolling conversation summary + extracted durable facts),
-      // not user-facing prose, so English is the correct target for every
-      // locale without a reviewed body. The former `=== "en" ? "en" : "de"`
-      // binary composed and keyed a French account's memory in German.
-      locale: instructionLocale(locale),
-    });
-  }
+  // v1.41 — every turn enqueues the refresh; the job waits for the
+  // conversation to go quiet and runs once per conversation (its debounce
+  // and singleton key), so a short chat is remembered too.
+  void enqueueCoachMemoryRefresh({
+    conversationId,
+    userId,
+    // Coach memory prose is composed in de/en only — it is MODEL-FACING
+    // context (a rolling conversation summary + extracted durable facts),
+    // not user-facing prose, so English is the correct target for every
+    // locale without a reviewed body. The former `=== "en" ? "en" : "de"`
+    // binary composed and keyed a French account's memory in German.
+    locale: instructionLocale(locale),
+  });
 
   // A workout launch is an optional narrowing of Coach, not permission to
   // bypass the workouts module. Disabled modules contribute no read and no
@@ -183,7 +202,7 @@ export async function assembleTurnContext(args: {
     !workoutId || (await isModuleEnabled(userId, "workouts"));
   const workoutEvidence =
     isFirstTurn && workoutId && workoutsEnabled
-      ? await buildWorkoutEvidenceSection(userId, workoutId)
+      ? await buildWorkoutEvidenceSection(userId, workoutId, reach)
       : null;
   if (workoutId) {
     annotate({
@@ -210,11 +229,13 @@ export async function assembleTurnContext(args: {
 
   return {
     coachPrefs,
+    reach,
     aiResponseTimeoutMs,
     effectiveScope,
     snapshot,
     aboutMe,
     scheduleDoses,
+    medicationNames,
     turnContext,
     workoutEvidence,
     systemPrompt,

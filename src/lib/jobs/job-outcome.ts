@@ -43,10 +43,13 @@ export type JobFacts = Readonly<Record<string, JobFact>>;
  */
 export const JOB_FACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "access_tokens_deleted",
+  "accounts_completed",
   // v1.40 — the document AI run reaper's three outcomes.
   "ai_runs_deleted",
   "ai_runs_timed_out",
   "ai_runs_worker_unavailable",
+  // v1.42 — every candidate a fan-out pass attempted failed (`reportJobRun`).
+  "all_failed",
   // An admission delivery that found its import still running from an
   // earlier delivery of the same job and did nothing.
   "already_running",
@@ -126,6 +129,8 @@ export const JOB_FACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "in_window",
   "insufficient",
   "intake_auto_skip_count",
+  "intake_auto_take_medications",
+  "intake_auto_take_recorded",
   "intakes_pruned",
   "inventory_expired_count",
   "inventory_items_migrated",
@@ -136,6 +141,16 @@ export const JOB_FACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "manual_mints_removed",
   "markers",
   "mean_days_consolidated",
+  // v1.42 — the one-time fold repair: windows whose stored mean was compared
+  // with the mean over every sample, and those it corrected. Counts only.
+  "means_checked",
+  "means_corrected",
+  // Windows it left as stored because a tombstone in them may be a person's
+  // deletion, windows before the horizon it left as stored, and live samples
+  // it took into a checked mean.
+  "means_left_ambiguous",
+  "means_samples_absorbed",
+  "means_skipped_beyond_horizon",
   "mean_rows_soft_deleted",
   "measurements_imported",
   "measurements_migrated",
@@ -186,17 +201,22 @@ export const JOB_FACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "refused",
   "reminders_due",
   "removed",
+  "resting_corrected",
   "rows_written",
   // v1.39.1 — the background restore of a stored backup, and the sweep that
   // re-queues one a stopped worker left running. Counts and a claim flag.
   "restore_claimed",
+  "restore_drill_accounts",
+  "restore_drill_accounts_failed",
   "restore_drill_age_days",
+  "restore_drill_date",
   "restore_drill_ciphertext_bytes",
   "restore_drill_intake_events",
   "restore_drill_measurements",
   "restore_drill_medications",
   "restore_drill_mood_entries",
   "restore_drill_plaintext_bytes",
+  "restore_drill_unchecked",
   "restore_drill_stale",
   "restore_fail_cause",
   "restore_failed",

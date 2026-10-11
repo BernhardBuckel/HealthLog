@@ -40,7 +40,17 @@ import {
   dayKeyForUserTz,
   canonicalDailyTimestamp,
 } from "@/lib/measurements/drain-per-sample-cumulative";
+import { isHealthLogOriginEntry } from "@/lib/apple-health/own-origin";
+import {
+  isSameReadingAcrossSource,
+  MEASURED_AT_TOLERANCE_MS,
+} from "@/lib/measurements/cross-source-merge";
 import { reconcileExternalMeasurement } from "@/lib/measurements/reconcile-external-measurement";
+import {
+  FOLDED_WINDOW_REASON,
+  findFoldedWindowDuplicates,
+  isFoldedWindowCandidate,
+} from "@/lib/measurements/folded-window";
 import {
   insertNewMeasurementRows,
   type InsertedMeasurementRow,
@@ -116,6 +126,22 @@ export interface ImportJobResult {
   };
   clinical: { skipped: number };
   /**
+   * Records left out because HealthLog wrote them into Apple Health itself and
+   * this account already holds them under their own source, each counted once
+   * however often the export repeats it: `byMarker` carry the app's origin
+   * marker and a HealthLog row id of this account (a cycle sample: a day-log of
+   * this account on its day), `byExternalId` carry such a row id without the
+   * marker (samples from before the marker existed), `matchedManual` match a
+   * manual entry (same type and value, within 2 s). A marked sample this
+   * account does not hold (a move to a new instance without a backup) is
+   * imported like any other.
+   */
+  writtenByHealthLog: {
+    byMarker: number;
+    byExternalId: number;
+    matchedManual: number;
+  };
+  /**
    * v1.15.0 — reproductive HealthKit samples routed into CYCLE day-logs
    * (NOT Measurement). Absent / zeroed when the account has no cycle
    * tracking enabled (the fold is gated) or the export carried no
@@ -161,6 +187,32 @@ interface PreparedMeasurement {
   externalSourceVersion: string | null;
   sleepStage: Prisma.MeasurementCreateInput["sleepStage"];
   deviceType: string | null;
+}
+
+/**
+ * A quantity `<Record>` read up to its open tag. Its contribution is committed
+ * at the close tag, once its `<MetadataEntry>` children have been read.
+ */
+interface PendingRecord {
+  /**
+   * Queue the record; `healthLogId` is the `HKExternalUUID` it carried and
+   * `marked` whether it (or its correlation) carried the origin marker.
+   */
+  commit: (healthLogId: string | null, marked: boolean) => void;
+  ownOrigin: boolean;
+  healthLogId: string | null;
+  /** The record's sample identity, computed only when it is left out. */
+  sampleKey: () => string;
+}
+
+/** Apple's export name for `HKMetadataKeyExternalUUID`. */
+const HK_EXTERNAL_UUID_METADATA_KEY = "HKExternalUUID";
+
+/** The two halves of a blood pressure reading are one kind for an id match. */
+function kindOf(type: MeasurementType): string {
+  return type === "BLOOD_PRESSURE_SYS" || type === "BLOOD_PRESSURE_DIA"
+    ? "BLOOD_PRESSURE"
+    : type;
 }
 
 /** Flush row written to the `Workout` table. */
@@ -328,7 +380,11 @@ export interface StreamParseInput {
   /** Prisma client to flush rows through. */
   prisma: Pick<
     PrismaClient,
-    "measurement" | "workout" | "$transaction" | "$queryRawUnsafe"
+    | "measurement"
+    | "workout"
+    | "cycleDayLog"
+    | "$transaction"
+    | "$queryRawUnsafe"
   >;
   /**
    * Live progress hook. Called every `PROGRESS_TICK_RECORDS` records
@@ -405,13 +461,61 @@ export async function streamParseExportXml(
     dayKey: string;
     rawValue: string | undefined;
     protectionUsed?: boolean;
+    sampleKey: string;
+    ownOrigin: boolean;
   } | null = null;
+  // Marked cycle samples, held to the end of the parse: one counts as written
+  // by HealthLog only when this account holds a day-log on its day.
+  const markedCycle: Array<{
+    hkType: string;
+    dayKey: string;
+    rawValue: string | undefined;
+    protectionUsed?: boolean;
+    sampleKey: string;
+  }> = [];
 
   // Cumulative fold: type -> local day -> hashed source identity -> subtotal.
   const cumulativeBucket = new Map<
     MeasurementType,
     Map<string, CumulativeSourceSubtotals>
   >();
+  // A record's contribution is committed at its close tag, once its child
+  // `<MetadataEntry>` rows are read: one of them can mark the sample as written
+  // by HealthLog itself, which has to keep it out of the import.
+  let pendingRecord: PendingRecord | null = null;
+  const writtenByHealthLog = { byMarker: 0, byExternalId: 0, matchedManual: 0 };
+  // An export can carry the same sample twice (a correlation's records also
+  // stand on their own), so a left-out sample is counted by its sample key.
+  const countedOwn = new Set<string>();
+  const countOwn = (
+    reason: keyof typeof writtenByHealthLog,
+    sampleKey: string,
+  ): void => {
+    if (countedOwn.has(sampleKey)) return;
+    countedOwn.add(sampleKey);
+    writtenByHealthLog[reason] += 1;
+  };
+  // The `HKExternalUUID` a queued spot row carried, checked at flush, and the
+  // queued rows that carried the origin marker.
+  const healthLogIdOf = new Map<PreparedMeasurement, string>();
+  const markedRows = new Set<PreparedMeasurement>();
+  // Marked cumulative samples that named a HealthLog row id, held to the end
+  // of the parse and added to their day only when the id is not this
+  // account's. Small: one per mirrored total.
+  const markedCumulative: Array<{
+    type: MeasurementType;
+    healthLogId: string;
+    sampleKey: string;
+    add: () => void;
+  }> = [];
+  // A `<Correlation>` (a blood pressure reading) wraps its records, and the
+  // marker may sit on the correlation itself, before or after them. Its records
+  // are held until it closes, then all kept or all left out together.
+  let currentCorrelation: {
+    ownOrigin: boolean;
+    healthLogId: string | null;
+    held: PendingRecord[];
+  } | null = null;
   // Spot-row batch awaiting flush.
   const spotBatch: PreparedMeasurement[] = [];
   // Workout-row batch awaiting flush.
@@ -468,9 +572,188 @@ export async function streamParseExportXml(
   };
 
   // ── Flush helpers ──────────────────────────────────────────
+  // A sample the app wrote carries the HealthLog row id as `HKExternalUUID`,
+  // with the origin marker or (before the marker existed) without it. A hit on
+  // one of this account's rows (deleted ones included: the sample is ours
+  // either way) of the same kind is an exact match. The marker alone proves
+  // nothing about THIS account: after a move to a new instance without a
+  // backup, re-importing the export must bring the mirrored values back.
+  // Blood pressure is one row per half, while the app stamps both samples of a
+  // reading with one id (the systolic row's, the diastolic row's in older
+  // builds), so either half matches either id.
+  const ownRowKinds = async (
+    ids: ReadonlySet<string>,
+  ): Promise<Map<string, string>> => {
+    const out = new Map<string, string>();
+    const list = [...ids];
+    for (let i = 0; i < list.length; i += 1000) {
+      const known = await prisma.measurement.findMany({
+        where: { userId, id: { in: list.slice(i, i + 1000) } },
+        select: { id: true, type: true },
+      });
+      for (const row of known) out.set(row.id, kindOf(row.type));
+    }
+    return out;
+  };
+  const withoutHealthLogIds = async (
+    rows: PreparedMeasurement[],
+  ): Promise<PreparedMeasurement[]> => {
+    const ids = new Set<string>();
+    for (const row of rows) {
+      const id = healthLogIdOf.get(row);
+      if (id) ids.add(id);
+    }
+    if (ids.size === 0) return rows;
+    const kindOfId = await ownRowKinds(ids);
+    if (kindOfId.size === 0) return rows;
+    return rows.filter((row) => {
+      const id = healthLogIdOf.get(row);
+      const rowKind = id ? kindOfId.get(id) : undefined;
+      if (!rowKind || rowKind !== kindOf(row.type)) return true;
+      countOwn(
+        markedRows.has(row) ? "byMarker" : "byExternalId",
+        row.externalId,
+      );
+      return false;
+    });
+  };
+
+  // A manual entry mirrored with neither the marker nor an id comes back as a
+  // second copy of the reading. Leave it out when a MANUAL row of the same
+  // type and value sits within 2 s. Only MANUAL: Withings and import rows are
+  // written into Apple Health by the server-to-Health mirror, which has always
+  // stamped the row id, so a value-and-time match against them would only add
+  // false positives. Same rule and tolerance as the sync path
+  // (`cross-source-merge.ts`).
+  //
+  // The types that hold MANUAL rows are read once per import, so a batch of a
+  // type the account never typed in asks nothing, and a batch that does asks
+  // one time window per type rather than one clause per row.
+  let manualTypes: Promise<Set<MeasurementType>> | null = null;
+  const withoutManualMirrors = async (
+    rows: PreparedMeasurement[],
+  ): Promise<PreparedMeasurement[]> => {
+    if (rows.length === 0) return rows;
+    manualTypes ??= prisma.measurement
+      .groupBy({
+        by: ["type"],
+        where: { userId, source: "MANUAL", deletedAt: null },
+      })
+      .then((groups) => new Set(groups.map((group) => group.type)));
+    const typed = await manualTypes;
+    const windows = new Map<MeasurementType, { from: number; to: number }>();
+    for (const row of rows) {
+      if (!typed.has(row.type)) continue;
+      const at = row.measuredAt.getTime();
+      const window = windows.get(row.type);
+      if (!window) windows.set(row.type, { from: at, to: at });
+      else {
+        if (at < window.from) window.from = at;
+        if (at > window.to) window.to = at;
+      }
+    }
+    if (windows.size === 0) return rows;
+    const candidates = await prisma.measurement.findMany({
+      where: {
+        userId,
+        source: "MANUAL",
+        deletedAt: null,
+        OR: [...windows].map(([type, window]) => ({
+          type,
+          measuredAt: {
+            gte: new Date(window.from - MEASURED_AT_TOLERANCE_MS),
+            lte: new Date(window.to + MEASURED_AT_TOLERANCE_MS),
+          },
+        })),
+      },
+      select: { type: true, source: true, value: true, measuredAt: true },
+      orderBy: { measuredAt: "asc" },
+    });
+    if (candidates.length === 0) return rows;
+    const byType = new Map<MeasurementType, typeof candidates>();
+    for (const candidate of candidates) {
+      const list = byType.get(candidate.type);
+      if (list) list.push(candidate);
+      else byType.set(candidate.type, [candidate]);
+    }
+    return rows.filter((row) => {
+      const list = byType.get(row.type);
+      if (!list) return true;
+      const at = row.measuredAt.getTime();
+      // First candidate not earlier than the tolerance window.
+      let lo = 0;
+      let hi = list.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (list[mid].measuredAt.getTime() < at - MEASURED_AT_TOLERANCE_MS)
+          lo = mid + 1;
+        else hi = mid;
+      }
+      for (let i = lo; i < list.length; i++) {
+        if (list[i].measuredAt.getTime() > at + MEASURED_AT_TOLERANCE_MS) break;
+        const mirrored = isSameReadingAcrossSource(
+          {
+            type: row.type,
+            source: "APPLE_HEALTH",
+            value: row.value,
+            measuredAt: row.measuredAt,
+          },
+          list[i],
+        );
+        if (mirrored) {
+          countOwn("matchedManual", row.externalId);
+          return false;
+        }
+      }
+      return true;
+    });
+  };
+
+  // v1.42 — the `folded_window` guard, the same rule the batch route applies
+  // (`folded-window.ts`). A raw sample of a dense or mean type whose hour or
+  // day the consolidation has already folded into a live `stats:` row is left
+  // out: the fold deletes its raw rows outright since v1.42, so re-importing
+  // the export would otherwise put them back beside the mean that already
+  // accounts for them. One read per flush, none when nothing is old enough.
+  const withoutFoldedWindows = async (
+    rows: PreparedMeasurement[],
+  ): Promise<PreparedMeasurement[]> => {
+    if (rows.length === 0) return rows;
+    const now = new Date();
+    const candidates = rows.map((row) => ({
+      type: row.type,
+      source: "APPLE_HEALTH" as const,
+      externalId: row.externalId,
+      measuredAt: row.measuredAt,
+    }));
+    if (!candidates.some((row) => isFoldedWindowCandidate(row, now))) {
+      return rows;
+    }
+    const folded = await findFoldedWindowDuplicates(
+      prisma,
+      userId,
+      candidates,
+      { now, tz: userTimezone },
+    );
+    if (folded.size === 0) return rows;
+    return rows.filter((row, index) => {
+      if (!folded.has(index)) return true;
+      unknown[`${row.type}::${FOLDED_WINDOW_REASON}`] =
+        (unknown[`${row.type}::${FOLDED_WINDOW_REASON}`] ?? 0) + 1;
+      return false;
+    });
+  };
+
   const flushSpotBatch = async (): Promise<void> => {
     if (spotBatch.length === 0) return;
-    const chunk = spotBatch.splice(0, spotBatch.length);
+    const incoming = spotBatch.splice(0, spotBatch.length);
+    const chunk = await withoutFoldedWindows(
+      await withoutManualMirrors(await withoutHealthLogIds(incoming)),
+    );
+    for (const row of incoming) {
+      healthLogIdOf.delete(row);
+      markedRows.delete(row);
+    }
     for (const row of chunk) widenSpan(row.measuredAt);
     const insertedArrivals: Array<{
       id: string;
@@ -800,6 +1083,61 @@ export async function streamParseExportXml(
     }
   };
 
+  const consumeCycle = (rec: {
+    hkType: string;
+    dayKey: string;
+    rawValue: string | undefined;
+    protectionUsed?: boolean;
+  }): void => {
+    const consumed = cycleAccumulator.consume(
+      rec.hkType,
+      rec.dayKey,
+      rec.rawValue,
+      rec.protectionUsed,
+    );
+    if (!consumed) {
+      // Recognised identifier but unrecognised value — count it under
+      // `unknown` with the reason tag so operators can spot it.
+      unknown[`${rec.hkType}::cycle_unmapped`] =
+        (unknown[`${rec.hkType}::cycle_unmapped`] ?? 0) + 1;
+    }
+  };
+
+  // Marked cumulative samples: left out when their id is a row of this
+  // account of the same kind, added to their day otherwise.
+  const settleMarkedCumulative = async (): Promise<void> => {
+    if (markedCumulative.length === 0) return;
+    const kindOfId = await ownRowKinds(
+      new Set(markedCumulative.map((m) => m.healthLogId)),
+    );
+    for (const m of markedCumulative.splice(0, markedCumulative.length)) {
+      if (kindOfId.get(m.healthLogId) === kindOf(m.type)) {
+        countOwn("byMarker", m.sampleKey);
+      } else {
+        m.add();
+      }
+    }
+  };
+
+  // Marked cycle samples: left out when this account holds a day-log on
+  // their day (deleted ones included), folded in otherwise.
+  const settleMarkedCycle = async (): Promise<void> => {
+    if (markedCycle.length === 0) return;
+    const days = [...new Set(markedCycle.map((rec) => rec.dayKey))];
+    const held = new Set<string>();
+    for (let i = 0; i < days.length; i += 1000) {
+      const logs = await prisma.cycleDayLog.findMany({
+        where: { userId, date: { in: days.slice(i, i + 1000) } },
+        select: { date: true },
+      });
+      for (const log of logs) held.add(log.date);
+    }
+    for (const rec of markedCycle.splice(0, markedCycle.length)) {
+      if (held.has(rec.dayKey)) countOwn("byMarker", rec.sampleKey);
+      else consumeCycle(rec);
+    }
+  };
+
   // ── SAX parser configuration ────────────────────────────────
   const parser = sax.parser(true, { trim: true });
   let pendingError: Error | null = null;
@@ -847,7 +1185,18 @@ export async function streamParseExportXml(
           Date.parse(attrs.endDate ?? attrs.startDate ?? ""),
         )
           ? null
-          : { hkType, dayKey, rawValue: attrs.value };
+          : {
+              hkType,
+              dayKey,
+              rawValue: attrs.value,
+              sampleKey: hashSampleKey(
+                hkType,
+                attrs.value ?? "",
+                attrs.startDate,
+                attrs.endDate,
+              ),
+              ownOrigin: false,
+            };
         return;
       }
 
@@ -907,46 +1256,79 @@ export async function streamParseExportXml(
       const stat = bumpStat(mapped.type);
       stat.read += 1;
 
-      if (CUMULATIVE_HK_TYPES.has(mapped.type)) {
-        const dayKey = dayKeyForUserTz(mapped.takenAt, userTimezone);
-        const sourceHash = hashCumulativeSourceIdentity(
-          attrs.sourceName,
-          attrs.device,
-        );
-        let byDay = cumulativeBucket.get(mapped.type);
-        if (!byDay) {
-          byDay = new Map();
-          cumulativeBucket.set(mapped.type, byDay);
-        }
-        let bySource = byDay.get(dayKey);
-        if (!bySource) {
-          bySource = new Map();
-          byDay.set(dayKey, bySource);
-        }
-        bySource.set(
-          sourceHash,
-          (bySource.get(sourceHash) ?? 0) + mapped.value,
-        );
-      } else {
-        // Spot row: derive a stable externalId, queue for flush.
-        const externalId = hashSampleKey(
-          hkType,
-          attrs.value ?? "",
-          attrs.startDate,
-          attrs.endDate,
-        );
-        spotBatch.push({
-          userId,
-          type: mapped.type,
-          value: mapped.value,
-          unit: mapped.unit,
-          measuredAt: mapped.takenAt,
-          externalId,
-          externalSourceVersion: attrs.sourceVersion ?? null,
-          sleepStage: mapped.sleepStage ?? null,
-          deviceType: null,
-        });
-      }
+      pendingRecord = {
+        ownOrigin: false,
+        healthLogId: null,
+        sampleKey: () =>
+          hashSampleKey(
+            hkType,
+            attrs.value ?? "",
+            attrs.startDate,
+            attrs.endDate,
+          ),
+        commit: (healthLogId, marked) => {
+          if (CUMULATIVE_HK_TYPES.has(mapped.type)) {
+            const dayKey = dayKeyForUserTz(mapped.takenAt, userTimezone);
+            const sourceHash = hashCumulativeSourceIdentity(
+              attrs.sourceName,
+              attrs.device,
+            );
+            const add = () => {
+              let byDay = cumulativeBucket.get(mapped.type);
+              if (!byDay) {
+                byDay = new Map();
+                cumulativeBucket.set(mapped.type, byDay);
+              }
+              let bySource = byDay.get(dayKey);
+              if (!bySource) {
+                bySource = new Map();
+                byDay.set(dayKey, bySource);
+              }
+              bySource.set(
+                sourceHash,
+                (bySource.get(sourceHash) ?? 0) + mapped.value,
+              );
+            };
+            if (marked && healthLogId) {
+              markedCumulative.push({
+                type: mapped.type,
+                healthLogId,
+                sampleKey: hashSampleKey(
+                  hkType,
+                  attrs.value ?? "",
+                  attrs.startDate,
+                  attrs.endDate,
+                ),
+                add,
+              });
+            } else {
+              add();
+            }
+          } else {
+            // Spot row: derive a stable externalId, queue for flush.
+            const externalId = hashSampleKey(
+              hkType,
+              attrs.value ?? "",
+              attrs.startDate,
+              attrs.endDate,
+            );
+            const row: PreparedMeasurement = {
+              userId,
+              type: mapped.type,
+              value: mapped.value,
+              unit: mapped.unit,
+              measuredAt: mapped.takenAt,
+              externalId,
+              externalSourceVersion: attrs.sourceVersion ?? null,
+              sleepStage: mapped.sleepStage ?? null,
+              deviceType: null,
+            };
+            spotBatch.push(row);
+            if (healthLogId) healthLogIdOf.set(row, healthLogId);
+            if (marked) markedRows.add(row);
+          }
+        },
+      };
       return;
     }
 
@@ -1024,7 +1406,25 @@ export async function streamParseExportXml(
       return;
     }
 
+    if (name === "Correlation") {
+      currentCorrelation = { ownOrigin: false, healthLogId: null, held: [] };
+      return;
+    }
+
     if (name === "MetadataEntry") {
+      if (isHealthLogOriginEntry(attrs.key, attrs.value)) {
+        // On a record, or on the correlation that wraps it.
+        if (pendingRecord) pendingRecord.ownOrigin = true;
+        else if (currentCycleRecord) currentCycleRecord.ownOrigin = true;
+        else if (currentCorrelation) currentCorrelation.ownOrigin = true;
+      }
+      if (attrs.key === HK_EXTERNAL_UUID_METADATA_KEY) {
+        // On a record, or on the correlation that wraps it.
+        if (pendingRecord) pendingRecord.healthLogId = attrs.value || null;
+        else if (currentCorrelation && !currentCycleRecord) {
+          currentCorrelation.healthLogId = attrs.value || null;
+        }
+      }
       // Attach the SexualActivity protection flag to the open cycle record.
       // Apple writes `HKMetadataKeySexualActivityProtectionUsed` with a
       // `"0"`/`"1"` (or `"true"`/`"false"`) value.
@@ -1051,16 +1451,15 @@ export async function streamParseExportXml(
 
     if (
       name === "Me" ||
-      name === "Correlation" ||
       name === "ActivitySummary" ||
       name === "WorkoutEvent" ||
       name === "WorkoutRoute" ||
       name === "FileReference" ||
       name === "HealthData"
     ) {
-      // Known elements we intentionally ignore at the open-tag stage.
-      // Correlation envelopes flatten naturally because their child
-      // `<Record>` elements still fire their own `onopentag`.
+      // Known elements we intentionally ignore at the open-tag stage. A
+      // `<Correlation>` is handled above: its child `<Record>` elements fire
+      // their own `onopentag`, and are held until it closes.
       return;
     }
 
@@ -1070,6 +1469,22 @@ export async function streamParseExportXml(
   };
 
   parser.onclosetag = async (tagName) => {
+    if (tagName === "Record" && pendingRecord) {
+      const rec = pendingRecord;
+      pendingRecord = null;
+      if (currentCorrelation) currentCorrelation.held.push(rec);
+      else rec.commit(rec.healthLogId, rec.ownOrigin);
+    }
+    if (tagName === "Correlation" && currentCorrelation) {
+      const correlation = currentCorrelation;
+      currentCorrelation = null;
+      for (const rec of correlation.held) {
+        rec.commit(
+          rec.healthLogId ?? correlation.healthLogId,
+          correlation.ownOrigin || rec.ownOrigin,
+        );
+      }
+    }
     if (tagName === "Workout" && currentWorkout) {
       workoutBatch.push(currentWorkout);
       currentWorkout = null;
@@ -1077,18 +1492,13 @@ export async function streamParseExportXml(
     if (tagName === "Record" && currentCycleRecord) {
       const rec = currentCycleRecord;
       currentCycleRecord = null;
-      const consumed = cycleAccumulator.consume(
-        rec.hkType,
-        rec.dayKey,
-        rec.rawValue,
-        rec.protectionUsed,
-      );
-      if (!consumed) {
-        // Recognised identifier but unrecognised value — count it under
-        // `unknown` with the reason tag so operators can spot it.
-        unknown[`${rec.hkType}::cycle_unmapped`] =
-          (unknown[`${rec.hkType}::cycle_unmapped`] ?? 0) + 1;
+      if (rec.ownOrigin) {
+        // A day HealthLog mirrored into Apple Health from a day-log; decided
+        // at the end of the parse against this account's day-logs.
+        markedCycle.push(rec);
+        return;
       }
+      consumeCycle(rec);
     }
   };
 
@@ -1166,7 +1576,9 @@ export async function streamParseExportXml(
   // threshold during the parse.
   await flushSpotBatch();
   await flushWorkoutBatch();
+  await settleMarkedCumulative();
   await flushCumulativeBuckets();
+  await settleMarkedCycle();
 
   // v1.15.0 — fold the accumulated reproductive samples into CYCLE
   // day-logs. Gated on cycle-tracking being enabled for the account so a
@@ -1212,6 +1624,7 @@ export async function streamParseExportXml(
     perType,
     workouts,
     clinical,
+    writtenByHealthLog,
     cycle,
     deferred,
     unknown,

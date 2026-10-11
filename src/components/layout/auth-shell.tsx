@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { DayLayerMount } from "@/components/day/day-layer";
 import { AchievementUnlockNotifier } from "@/components/gamification/achievement-unlock-notifier";
 import { MaintainershipBanner } from "@/components/i18n/maintainership-banner";
 import { LayoutCoachFab } from "@/components/insights/layout-coach-fab";
@@ -23,11 +24,20 @@ import { CoachLaunchProvider } from "@/lib/insights/coach-launch-context";
 import { isManageDelegateSettingsDestination } from "@/lib/record-settings/classification";
 import { isDestinationInSharedRecord } from "./nav-model";
 import { BottomNav } from "./bottom-nav";
+import { GlobalShortcuts } from "./global-shortcuts";
+import { CommandPaletteMount } from "@/components/command-palette/command-palette.lazy";
 import { DemoBanner } from "./demo-banner";
 import { OfflineBanner } from "./offline-banner";
 import { SharedRecordBanner } from "./shared-record-banner";
+import { ShellStripOutlet } from "./shell-dock";
+import { ShellSidePanelOutlet } from "./shell-side-panel";
 import { SharedRecordUnavailable } from "./shared-record-unavailable";
-import { ModulePageGate } from "@/components/layout/module-page-gate";
+import {
+  ModulePageGate,
+  switchedOffModule,
+} from "@/components/layout/module-page-gate";
+import { cn } from "@/lib/utils";
+import { isFullBleedPage } from "./full-bleed";
 import { isOnboardingPathname } from "@/lib/onboarding/wizard-steps";
 import { RecordScopeHydrationGate } from "./record-scope-hydration-gate";
 import { SidebarNav } from "./sidebar-nav";
@@ -59,6 +69,10 @@ const PUBLIC_PATHS = [
   // so without the entry the shell classifies the route as protected and
   // `router.replace("/auth/login")` wins the race against the redirect.
   "/invite/",
+  // v1.42 (#959) — the managed-profile handover link is an edge redirect onto
+  // `/auth/claim?token=…`, public in `proxy.ts` for the same reason as
+  // `/invite/`.
+  "/claim/",
 ];
 
 export function AuthShell({
@@ -141,6 +155,11 @@ export function AuthShell({
     inSharedRecord &&
     !isDestinationInSharedRecord(pathname, sections) &&
     !isRecordSettingsPath;
+  const fullBleed = isFullBleedPage({
+    pathname,
+    outsideSharedRecord,
+    moduleOff: switchedOffModule(pathname, user?.modules) !== undefined,
+  });
   // The whole setup flow, not only its front door: every screen lives under
   // `/onboarding/<step>` (v1.39 C2), and an exact match here put the
   // questions inside the full app chrome, sidebar and all.
@@ -262,13 +281,18 @@ export function AuthShell({
     if (isStandalonePublicPage) {
       return <>{children}</>;
     }
+    // `min-h-dvh`, not `h-dvh`: a phone held sideways is ~390 px tall, and
+    // a sign-in form that is taller than a fixed-height box centres out of
+    // it at the top, where nothing can scroll back to it. A minimum lets the
+    // box grow and the document scroll. The safe-area padding keeps the form
+    // off the status bar and the home indicator in an installed app.
     return (
-      <div className="flex h-dvh flex-col">
+      <div className="flex min-h-dvh flex-col pt-[env(safe-area-inset-top,0px)] pr-[env(safe-area-inset-right,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)]">
         {demoMode ? <DemoBanner /> : null}
         <MaintainershipBanner />
         <main
           id="main-content"
-          className="flex flex-1 items-center justify-center px-4"
+          className="flex flex-1 items-center justify-center px-4 py-6"
         >
           {children}
         </main>
@@ -336,7 +360,7 @@ export function AuthShell({
         {showUnlockNotifier && user?.id ? (
           <AchievementUnlockNotifier userId={user.id} />
         ) : null}
-        <div className="flex min-h-dvh flex-col">
+        <div className="flex min-h-dvh flex-col pt-[env(safe-area-inset-top,0px)] pr-[env(safe-area-inset-right,0px)] pl-[env(safe-area-inset-left,0px)]">
           <MaintainershipBanner />
           <div className="flex flex-1 items-center justify-center px-4 py-8">
             {children}
@@ -402,7 +426,21 @@ export function AuthShell({
         vertical scroller. Measured in `e2e/chrome-header-seam-banners.spec.ts`
         at both breakpoints.
       */}
-      <div className="flex h-dvh flex-col">
+      {/*
+        The installed app draws under the status bar and beside the notch
+        (`viewport-fit=cover` + `black-translucent`), so the shell takes the
+        insets once, here, for everything inside it: the banner stack, the
+        top bar, the sidebar's logo band and any docked side panel all start
+        below the status bar together, and the seam between the top bar and
+        the logo band cannot come apart over an inset only one of them
+        reserved. The bands used to pad themselves inside their 4rem
+        (border-box), which on a phone with a 59 px inset left the top bar
+        five pixels of content box and pushed the logo and the account menu
+        across its bottom border. `shell-safe-area` paints the strip behind
+        the status bar in the chrome colour (globals.css). The bottom inset
+        stays with the bottom nav and `<main>`, which own that edge.
+      */}
+      <div className="shell-safe-area flex h-dvh flex-col">
         {/*
           v1.4.43 QoL (M5) — `<OfflineBanner>` paints only when
           `navigator.onLine === false`. Sits above the maintainership
@@ -423,7 +461,7 @@ export function AuthShell({
             error after the user already filled in a form. */}
         {demoMode ? <DemoBanner /> : null}
         <MaintainershipBanner />
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <div className="shell-desktop:flex-row flex min-h-0 flex-1 flex-col">
           <SidebarNav />
           {/* `min-w-0` lets the content column shrink below its children's
               intrinsic min width (e.g. the measurements table); without it
@@ -461,7 +499,10 @@ export function AuthShell({
               // window. Anchoring the scroll container closes the escape route
               // for all of them at once instead of asking each new
               // absolutely-positioned child to remember its own wrapper.
-              className="relative flex-1 [scrollbar-gutter:stable] overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0"
+              className={cn(
+                "shell-desktop:pb-0 relative flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom,0px))]",
+                fullBleed ? "flex flex-col" : "[scrollbar-gutter:stable]",
+              )}
             >
               {/*
               v1.4.33 IW9 — container normalised on `max-w-screen-xl`
@@ -479,7 +520,12 @@ export function AuthShell({
             */}
               <div
                 data-slot="main-content-wrapper"
-                className="mx-auto max-w-screen-xl px-4 pt-6 pb-20 md:px-6"
+                data-full-bleed={fullBleed ? "true" : undefined}
+                className={
+                  fullBleed
+                    ? "flex min-h-0 flex-1 flex-col"
+                    : "mx-auto max-w-screen-xl px-4 pt-6 pb-20 md:px-6"
+                }
               >
                 {outsideSharedRecord ? (
                   <SharedRecordUnavailable />
@@ -489,6 +535,15 @@ export function AuthShell({
               </div>
             </main>
           </div>
+          {/* A page's side panel (the Coach's docked conversations) is a
+              column of this row, beside the top bar and `<main>`: it runs
+              the row's full height, from the top of the window to the
+              bottom, and the top bar ends at its left edge. Empty and out of
+              the row on every other page. */}
+          <ShellSidePanelOutlet className="flex min-h-0 shrink-0 empty:hidden" />
+          {/* The docked panels' strips, right of the panels: one per panel,
+              always shown from 1280 px (`shell-dock.tsx`). */}
+          <ShellStripOutlet className="flex min-h-0 shrink-0 empty:hidden" />
           <BottomNav />
         </div>
       </div>
@@ -512,6 +567,11 @@ export function AuthShell({
         part of what this person was given.
       */}
       {!inSharedRecord && <LayoutCoachMount />}
+      {/* v1.42 — the day layer: `?day=` opens one day over whichever page
+          is open (docked beside it from 1280 px, a sheet below that). It
+          reads the record the shell resolved, shared or one's own; the day
+          route decides per section what that grant may see. */}
+      <DayLayerMount />
       {/* v1.18.6 — the module-tour launcher lives at the shell level so its
           overlay survives the cross-page `router.push`es the tour makes. It
           self-gates: it only auto-opens on the dashboard for a user who has
@@ -525,6 +585,13 @@ export function AuthShell({
           got a raw 403. Demo is read-only by design; the FAB has no job
           here, so it's mounted only outside demo mode. */}
       {!demoMode && !inSharedRecord && <LayoutCoachFab />}
+      {/* v1.42 — the keyboard shortcuts (`g d`, `n`, `?` …) and their list.
+          Mounted here and only here, so they never run on the sign-in pages
+          or in the setup flow, which return above. */}
+      <GlobalShortcuts />
+      {/* v1.42 — the command palette (Cmd/Ctrl+K, the top-bar search). Its
+          code loads on first use. */}
+      <CommandPaletteMount />
     </CoachLaunchProvider>
   );
 }

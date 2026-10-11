@@ -24,7 +24,7 @@ jobs:
   # mobile route sweep landed, and a slow runner tipped them over; three
   # shards with a 30-minute cap leave room for both.
   shard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload Playwright HTML report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-shard-${{ matrix.shard }}
           path: playwright-report/
@@ -117,7 +117,7 @@ jobs:
       # job below. Only uploaded when the shard ran to completion, so a missing
       # artifact there means a shard that did not finish, not an empty suite.
       - name: Upload Playwright JSON report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-json-shard-${{ matrix.shard }}
           path: playwright-json/results.json
@@ -128,7 +128,7 @@ jobs:
   # that name and answers for both shards: it fails when any shard failed or
   # was cancelled, so a half-green matrix cannot satisfy the gate.
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: shard
     if: always()
     timeout-minutes: 5

@@ -5,6 +5,7 @@
  * chat turn's own context, the reply through the turn's parsers) and the
  * grade, so a live run measures the model and nothing else.
  */
+import { TURN_LIMITS } from "@/lib/ai/coach/tools/turn-budget";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CompletionParams, CompletionResult } from "@/lib/ai/types";
@@ -51,7 +52,9 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("runScenarioLive", () => {
+// Each case drives the whole scripted turn through the real assembler; on a
+// loaded machine that has run past the 5 s default while taking ~1.5 s idle.
+describe("runScenarioLive", { timeout: 20_000 }, () => {
   it("captures each call with its arguments and sends the chat turn's context", async () => {
     const provider = scripted([
       toolRound("show_result", { ref: "m1.r1", view: "chart" }),
@@ -117,21 +120,52 @@ describe("runScenarioLive", () => {
     expect(evaluateScenario(s, observation, { layer: "live" })).toEqual([]);
   });
 
-  it("forces an answer after three rounds of tool calls", async () => {
+  it("forces an answer at the round cap of the person's own plan", async () => {
     const call = toolRound("get_metric_table", { metric: "pulse" });
-    const provider = scripted([call, call, call, { content: "So far." }]);
+    // v1.41.2 — the cap is sixteen (was twelve); read from the limits so
+    // the scenario run and the turn cannot drift apart again.
+    const cap = TURN_LIMITS.user.maxRounds;
+    expect(cap).toBe(16);
+    const provider = scripted([
+      ...Array.from({ length: cap - 1 }, () => call),
+      { content: "So far." },
+    ]);
     const observation = await runScenarioLive({
       scenario: scenario("forced-final.en"),
       provider,
     });
-    expect(observation.providerCalls).toBe(4);
+    expect(observation.providerCalls).toBe(cap);
     expect(provider.sent.map((p) => p.toolChoice)).toEqual([
-      "auto",
-      "auto",
-      "auto",
+      ...Array.from({ length: cap - 1 }, () => "auto"),
       "none",
     ]);
     expect(observation.prose).toBe("So far.");
+    expect(observation.toolRounds).toBe(cap - 1);
+    // The same call every round: graded as repeats.
+    expect(observation.repeatedCalls).toBe(cap - 2);
+  });
+
+  it("ends the run on a clarifying question asked through the tool", async () => {
+    const provider = scripted([
+      toolRound("ask_clarification", {
+        kind: "metric",
+        question: "Resting or walking heart rate? Otherwise resting.",
+        choices: ["resting_hr", "walking_hr"],
+        assumption: "resting_hr",
+      }),
+    ]);
+    const observation = await runScenarioLive({
+      scenario: scenario("pulse-ambiguous.en"),
+      provider,
+    });
+    expect(observation.providerCalls).toBe(1);
+    expect(observation.clarification?.kind).toBe("metric");
+    expect(observation.prose).toMatch(/\?/);
+    // The offered tools include the comparison and the dialog tools.
+    const names = (provider.sent[0].tools ?? []).map((t) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["compare_series", "ask_clarification"]),
+    );
   });
 
   it("never shows the model an earlier table's title", async () => {

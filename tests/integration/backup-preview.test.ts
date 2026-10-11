@@ -9,8 +9,9 @@
  * and its preview kept; a key dropped after the copy was written is still
  * named, because the verdict is taken again at every read.
  *
- * Mutations that must turn this red: drop the preview scanner from
- * `storeBackupBlob` (no preview on the row, the route opens the copy), or
+ * Mutations that must turn this red: drop the `preview` the weekly job or
+ * the upload route hands `storeBackupBlob` (no preview on the row, the route
+ * opens the copy), or
  * answer from the stored verdict instead of taking it again (the dropped key
  * is not named).
  */
@@ -125,8 +126,8 @@ async function preview(id: string) {
 
 /** The counts a full read of the stored copy gives: the old preview. */
 async function fullReadSummary(id: string) {
-  const { parseBackupPayload, summarizeBackup } =
-    await import("@/lib/validations/backup");
+  const { parseBackupPayload } = await import("@/lib/validations/backup");
+  const { summarizeBackup } = await import("@/lib/validations/backup-summary");
   const opensBefore = opened.count;
   const payload = parseBackupPayload(
     JSON.parse(await readStoredBackup(getPrismaClient(), id)),
@@ -156,6 +157,15 @@ describe("restore preview kept with the copy", () => {
     const row = await prisma.dataBackup.findFirstOrThrow({
       where: { userId: admin.id, type: "WEEKLY_AUTO" },
     });
+    // The pass marked the account started and then finished: only a process
+    // that died under it would leave the start alone.
+    const attempt = await prisma.backupPassAttempt.findUniqueOrThrow({
+      where: { userId_pass: { userId: admin.id, pass: "data-backup" } },
+    });
+    expect(attempt.finishedAt).not.toBeNull();
+    expect(attempt.finishedAt!.getTime()).toBeGreaterThanOrEqual(
+      attempt.startedAt.getTime(),
+    );
     expect(row.preview).toMatchObject({
       version: 1,
       copy: `chunks:${row.chunkStreamId}:${row.chunkCount}`,

@@ -25,6 +25,8 @@ import { z } from "zod/v4";
 
 import { accountAccessBlockSchema } from "@/lib/sharing/account-access-schema";
 import { SHARE_DOMAINS } from "@/lib/sharing/scope";
+import { REASONING_LEVELS } from "@/lib/ai/reasoning/levels";
+import { REASONING_SOURCES } from "@/lib/ai/reasoning/resolve";
 import {
   inviteGrantSchema,
   switchAccountSchema,
@@ -34,6 +36,11 @@ import {
   inviteManagedProfileGuardianSchema,
   updateManagedProfileSchema,
 } from "@/lib/validations/managed-profiles";
+import {
+  createHandoverSchema,
+  handoverAccessSchema,
+  handoverDecisionSchema,
+} from "@/lib/validations/managed-profile-handover";
 import { onboardingStateResource } from "./onboarding";
 import { aiAccountBlock, moduleAccessMap } from "./profile";
 import { dataEnvelope, errorEnvelope, stdResponses } from "./shared";
@@ -437,6 +444,51 @@ export const accountAccessBlock = accountAccessBlockSchema.meta({
 });
 
 /**
+ * v1.41 — the Coach's thinking depth, resolved. Enumerated because a client
+ * DECIDES on it: the settings field offers the levels up to `maxLevel`, locks
+ * itself when `available` is false, and names the lowest option "Off" or
+ * "Minimal" from `offIsReal`. None of it is recomputed on a client.
+ */
+const coachReasoningBlock = z
+  .object({
+    level: z
+      .enum(REASONING_LEVELS)
+      .describe(
+        "The level a Coach turn runs at right now, every cap applied: the person's choice, lowered to the operator's highest level, to `medium` when the operator pays for the provider, and `off` when the operator switched reasoning off or the provider cannot reason.",
+      ),
+    preference: z
+      .enum(REASONING_LEVELS)
+      .describe(
+        "What the person picked (`reasoning` on `PUT /api/auth/me/coach-prefs`), `medium` when they never chose. Bind the settings field to this, not to `level`.",
+      ),
+    maxLevel: z
+      .enum(REASONING_LEVELS)
+      .describe(
+        "The highest level the settings may offer. Options above it are shown disabled as limited by the operator. `off` when the operator switched reasoning off.",
+      ),
+    available: z
+      .boolean()
+      .describe(
+        "False when the operator switched reasoning off or the configured provider cannot reason; the settings field is then locked.",
+      ),
+    offIsReal: z
+      .boolean()
+      .describe(
+        'False when the provider cannot switch reasoning off (it thinks at its lowest level instead); label the lowest option "Minimal" rather than "Off".',
+      ),
+    source: z
+      .enum(REASONING_SOURCES)
+      .describe(
+        "Which layer decided `level`: the person's own choice (`user`), the operator's switch (`admin_off`) or cap (`admin_cap`), the operator-funded ceiling (`cost_cap`), or a provider that cannot reason (`unsupported`). `job` never appears here.",
+      ),
+  })
+  .meta({
+    id: "CoachReasoningState",
+    description:
+      "The Coach's thinking depth for the signed-in person, resolved on the server from their preference, the operator's reasoning switch and cap, who pays for the provider, and what the provider can do.",
+  });
+
+/**
  * The account payload, documented for the one field this release adds.
  *
  * Loose on purpose. `GET /api/auth/me` has never been in this spec, and its
@@ -449,12 +501,38 @@ const accountPayload = z
   .looseObject({
     id: z.string(),
     username: z.string(),
+    // Enumerated because clients cut days and convert glucose by them: the
+    // day key and the unit must be the server's, not the device's.
+    timezone: z
+      .string()
+      .describe(
+        "The IANA zone the server cuts this account's days in: the stored zone, or the instance default when the stored one is unusable. Resolved, never the raw column, so bucket day keys by this value.",
+      ),
+    glucoseUnit: z
+      .enum(["mg/dL", "mmol/L"])
+      .nullable()
+      .describe(
+        "The account's chosen glucose display unit, as stored. `null` means the person never chose one (or the stored value is neither unit), and the server then shows glucose in mg/dL.",
+      ),
+    features: z
+      .object({
+        trackIntake: z
+          .literal(true)
+          .describe(
+            "Medications take `trackIntake`: a medication can be kept as a record whose doses are never due, and a dose written against one is refused with `medication.intake.notTracked`.",
+          ),
+      })
+      .describe(
+        "What this server understands, for a client released apart from it. Constant across accounts; a flag appears once the server supports the feature and stays `true`. Absent on servers older than v1.42.0. A client that meets a flag it does not know ignores it.",
+      ),
     accountAccess: accountAccessBlock,
     moduleAccess: moduleAccessMap,
     // v1.39 — enumerated because every AI surface decides on it: a client
     // renders an AI surface only when its capability is available, and never
     // derives the answer from the switches, the modules or the provider.
     ai: aiAccountBlock,
+    // v1.41 — enumerated for the reason `ai` is: the settings decide on it.
+    coachReasoning: coachReasoningBlock,
     recordSession: recordSessionState.nullable(),
     // Enumerated because a client DECIDES on it rather than displays it: the
     // medication surface hides the server-side reminder switch when
@@ -480,7 +558,7 @@ const accountPayload = z
   .meta({
     id: "AccountPayload",
     description:
-      "The signed-in account: its identity, its preferences, and (since v1.36.0) what account sharing lets it do. Additional properties are the preference fields this spec does not yet enumerate. Under an active switch the identity and preference fields still describe the CALLER, because display preferences belong to the person at the keyboard rather than to the record they are reading. Two fields are the exception (v1.38.14): `modules` and `cycleTrackingEnabled` describe the ACTIVE RECORD, since every surface they gate shows the record's data — and they are masked to the sections the active grant opens, so a scoped grant reads `false` for a module outside it rather than the record's true state. With no switch — which is every native request, since the Bearer transport carries none — the two are the same account and nothing is masked. `moduleAccess` says WHY each module is or is not there — the record's own switch, the edge of the grant, or the operator's instance-wide one — beside the `modules` booleans it never contradicts. `ai` (v1.39) is the resolved AI capability map for the same record, with the same masking; it replaces reading `GET /api/feature-flags`.",
+      "The signed-in account: its identity, its preferences, and (since v1.36.0) what account sharing lets it do. Additional properties are the preference fields this spec does not yet enumerate. Under an active switch the identity and preference fields still describe the CALLER, because display preferences belong to the person at the keyboard rather than to the record they are reading. Two fields are the exception (v1.38.14): `modules` and `cycleTrackingEnabled` describe the ACTIVE RECORD, since every surface they gate shows the record's data — and they are masked to the sections the active grant opens, so a scoped grant reads `false` for a module outside it rather than the record's true state. With no switch — which is every native request, since the Bearer transport carries none — the two are the same account and nothing is masked. `moduleAccess` says WHY each module is or is not there — the record's own switch, the edge of the grant, or the operator's instance-wide one — beside the `modules` booleans it never contradicts. `ai` (v1.39) is the resolved AI capability map for the same record, with the same masking; it replaces reading `GET /api/feature-flags`. `coachReasoning` (v1.41) is the Coach's resolved thinking depth: the caller's own preference against the operator's reasoning controls and the record's provider.",
   });
 
 /**
@@ -496,7 +574,243 @@ const managedProfileEnvelope = dataEnvelope(
   "ManagedProfileEnvelope",
 );
 
+// v1.42 (#959) — handing a managed profile over to the person it describes.
+const handoverAccess = handoverAccessSchema
+  .describe(
+    "What a guardian's access becomes after the handover: ended (`end`), view only (`read`), or still managing (`manage`).",
+  )
+  .meta({ id: "ManagedProfileHandoverAccess" });
+
+const createHandoverRequest = createHandoverSchema.meta({
+  id: "CreateManagedProfileHandoverRequest",
+  description:
+    "`expiresInDays` is 1, 7 (default) or 14. `proposals` names at most one entry per active guardian grant; a guardian left out is proposed `read`, and a grant that is not an active guardian of this profile is refused with 422.",
+});
+
+const managedProfileHandover = z
+  .object({
+    id: z.string(),
+    token: z
+      .string()
+      .describe(
+        "The one-time `hlp_` token. Returned only in this response and never again; only its hash is stored.",
+      ),
+    url: z.string().describe("The link to hand over: `<app>/claim/<token>`."),
+    expiresAt: z.iso.datetime({ offset: true }),
+  })
+  .meta({ id: "ManagedProfileHandover" });
+
+const managedProfileHandoverStatus = z
+  .object({
+    available: z
+      .boolean()
+      .describe(
+        "False on an instance that allows single sign-on only, where a handover cannot be created.",
+      ),
+    open: z
+      .object({
+        id: z.string(),
+        createdAt: z.iso.datetime({ offset: true }),
+        expiresAt: z.iso.datetime({ offset: true }),
+        createdByYou: z.boolean(),
+      })
+      .nullable()
+      .describe(
+        "The profile's open link, or null. Never the link itself: only its hash is stored.",
+      ),
+  })
+  .meta({ id: "ManagedProfileHandoverStatus" });
+
+const handoverDecisionRequest = handoverDecisionSchema.meta({
+  id: "HandoverDecisionRequest",
+  description:
+    "The new owner's decision per former guardian, named by the guardian's grant id at the claim. A guardian left out keeps the access the claim gave them.",
+});
+
+const pendingHandoverDecision = z
+  .object({
+    pending: z
+      .object({
+        claimedAt: z.iso.datetime({ offset: true }),
+        guardians: z.array(
+          z.object({
+            grantId: z
+              .string()
+              .describe(
+                "The guardian's grant at the claim; what a decision names.",
+              ),
+            displayName: z.string(),
+            proposal: handoverAccess,
+            current: handoverAccess,
+            decidable: z
+              .boolean()
+              .describe(
+                "False when the access moved since the claim (the guardian stepped away, or it was changed under shared access); such a row is shown and left alone.",
+              ),
+          }),
+        ),
+      })
+      .nullable(),
+  })
+  .meta({ id: "PendingHandoverDecision" });
+
 export const accountSharingPaths: NonNullable<ZodOpenApiObject["paths"]> = {
+  "/api/managed-profiles/{id}/handover": {
+    get: {
+      tags: ["Account sharing"],
+      summary: "Whether a handover link is open",
+      description:
+        "The profile's open handover link, if any, and whether this instance allows creating one. Never returns the link: only its hash is stored. Cookie-only, no step-up.",
+      requestParams: { path: z.object({ id: z.string() }) },
+      responses: {
+        ...stdResponses,
+        "200": {
+          description: "The status.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                managedProfileHandoverStatus,
+                "ManagedProfileHandoverStatusEnvelope",
+              ),
+            },
+          },
+        },
+        "404": {
+          description:
+            "No such managed profile, or the caller is not one of its Guardians (`meta.errorCode: managed_profile.not_found`).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+      },
+    },
+    post: {
+      tags: ["Account sharing"],
+      summary: "Create a handover link for a managed profile",
+      description:
+        "Mints the one-time link that lets the person a managed profile describes take it over as their own account. No data moves: claiming sets credentials on the profile's own record. Claiming applies each guardian's proposal at once; the new owner then confirms or changes it on first sign-in, and until they do the proposal holds. Creating a new link withdraws an open one. Pending invitations on the profile are withdrawn when it is claimed. Cookie-only and step-up gated, like every act on a managed profile; ten an hour per caller. Refused on an instance that allows single sign-on only.",
+      requestParams: { path: z.object({ id: z.string() }) },
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: createHandoverRequest } },
+      },
+      responses: {
+        ...stdResponses,
+        "201": {
+          description: "The link, shown once.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                managedProfileHandover,
+                "ManagedProfileHandoverEnvelope",
+              ),
+            },
+          },
+        },
+        "403": {
+          description:
+            "The instance allows single sign-on only (`meta.errorCode: profile_claim.oidc_only_unsupported`).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "404": {
+          description:
+            "No such managed profile, or the caller is not one of its Guardians (`meta.errorCode: managed_profile.not_found`).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "422": {
+          description:
+            "The body is invalid, or a proposal names a grant that is not an active guardian of this profile (`meta.errorCode: managed_profile.handover.unknown_guardian`).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+      },
+    },
+    delete: {
+      tags: ["Account sharing"],
+      summary: "Withdraw the open handover link",
+      description:
+        "Withdraws the profile's open handover link, if there is one; the link then answers like any unknown one. Cookie-only; no step-up, because withdrawing only takes something away.",
+      requestParams: { path: z.object({ id: z.string() }) },
+      responses: {
+        ...stdResponses,
+        "200": {
+          description: "Withdrawn, or there was no open link.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                z.object({ revoked: z.boolean() }),
+                "RevokeManagedProfileHandoverEnvelope",
+              ),
+            },
+          },
+        },
+        "404": {
+          description:
+            "No such managed profile, or the caller is not one of its Guardians (`meta.errorCode: managed_profile.not_found`).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+      },
+    },
+  },
+  "/api/account/handover-decision": {
+    get: {
+      tags: ["Account sharing"],
+      summary: "The handover decision waiting for a new owner",
+      description:
+        "After claiming a managed profile, the new owner decides each former guardian's access. This answers that decision, or `pending: null` when none is waiting. Refused while acting on another account.",
+      responses: {
+        ...stdResponses,
+        "200": {
+          description: "The waiting decision, or null.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                pendingHandoverDecision,
+                "PendingHandoverDecisionEnvelope",
+              ),
+            },
+          },
+        },
+      },
+    },
+    post: {
+      tags: ["Account sharing"],
+      summary: "Decide each former guardian's access",
+      description:
+        "Records the new owner's final decision per former guardian. A changed level ends the guardian's grant and writes a new one; `manage` can restore access a guardian held before the handover. After this, access changes through the ordinary grant endpoints. Refused while acting on another account.",
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: handoverDecisionRequest } },
+      },
+      responses: {
+        ...stdResponses,
+        "200": {
+          description: "Decided.",
+          content: {
+            "application/json": {
+              schema: dataEnvelope(
+                z.object({
+                  decided: z.literal(true),
+                  changed: z
+                    .number()
+                    .int()
+                    .describe("How many guardians' access this changed."),
+                }),
+                "HandoverDecisionEnvelope",
+              ),
+            },
+          },
+        },
+        "409": {
+          description:
+            "No decision is waiting (`meta.errorCode: managed_profile.handover.no_pending`).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+        "422": {
+          description:
+            "The body is invalid, or a decision names somebody who was not a guardian at the claim (`meta.errorCode: managed_profile.handover.unknown_guardian`).",
+          content: { "application/json": { schema: errorEnvelope } },
+        },
+      },
+    },
+  },
   "/api/auth/me": {
     get: {
       tags: ["Auth"],

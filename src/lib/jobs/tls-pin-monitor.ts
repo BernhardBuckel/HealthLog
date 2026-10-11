@@ -95,6 +95,7 @@ async function alertAdminsOfPinChange(
       },
       metadata: {
         source: "tls-pin-monitor",
+        url: "/admin/system-status",
         host,
         servedPin: probe.pin,
         knownPins: knownPins.join(","),

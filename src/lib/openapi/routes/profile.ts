@@ -9,6 +9,7 @@ import { z } from "zod/v4";
 import type { ZodOpenApiObject } from "zod-openapi";
 import { notificationPrefsSchema } from "@/lib/validations/notification-prefs";
 import { sourcePrioritySchema } from "@/lib/validations/source-priority";
+import { measurementSourceEnum } from "@/lib/validations/measurement";
 import { modulePrefsPatchSchema } from "@/lib/validations/modules";
 import { MODULE_KEYS } from "@/lib/modules/registry";
 import {
@@ -36,6 +37,7 @@ import {
 } from "@/lib/validations/user-prefs";
 import {
   aiProviderPatchSchema,
+  reasoningEffortSchema,
   aiTestOverrideSchema,
 } from "@/lib/validations/ai-provider";
 import {
@@ -55,6 +57,7 @@ import {
   recordRefusal,
   stdResponses,
   updatedAtTokenField,
+  validationIssue,
 } from "./shared";
 
 // v1.18.0 — module enable/disable. The PATCH request is the REAL runtime
@@ -202,6 +205,21 @@ export const aiAccountBlock = z
       "Which AI capabilities the record this session is inside has, and why not when it has none. Resolved on the server for the ACTIVE RECORD and masked to the sections the active grant opens, exactly like `modules` and `moduleAccess`; with no switch (every native request) it describes the caller's own record.",
   });
 
+/**
+ * The source-priority read and save both echo the resolved ladders plus
+ * `inUse`: the ranked sources the account has connected or holds data from.
+ * Context for an editor, never part of the stored shape (the PUT body stays
+ * `SourcePriority`).
+ */
+const sourcePriorityResolved = sourcePrioritySchema
+  .extend({
+    inUse: z.array(measurementSourceEnum).meta({
+      description:
+        "Ranked sources this account has connected or holds at least one measurement from, in ladder-catalogue order. Read-only; an editor may list only these while the ladders keep every source.",
+    }),
+  })
+  .meta({ id: "ResolvedSourcePriority" });
+
 const moduleMapEnvelopeInner = z
   .object({ modules: moduleMapResolved, updatedAt: updatedAtTokenField })
   .meta({ id: "ModulesResponse" });
@@ -258,7 +276,7 @@ const notificationPrefsResolved = z
       clientManaged: z
         .boolean()
         .describe(
-          "True when the iOS app owns local medication reminders; the server-side MEDICATION_REMINDER APNs cron is suppressed.",
+          "True when the iOS app delivers medication reminders locally. The server then keeps the reminder that announces a dose off APNs (the phone shows its own at dose time) and still pushes the follow-ups for a dose that stays open, which the phone does not send (v1.42.0; before, every MEDICATION_REMINDER push was suppressed). Other channels are never affected.",
         ),
       deliveryDefault: z
         .enum(["server", "client"])
@@ -316,6 +334,13 @@ const notificationPrefsResolved = z
       nudgeFrequency: z
         .enum(["weekly", "biweekly"])
         .describe("Nudge frequency cap: one per 7 or per 14 days."),
+    }),
+    content: z.object({
+      detail: z
+        .enum(["generic", "detailed"])
+        .describe(
+          'What a notification may show. "generic" (default) names what it is about with no health figure; "detailed" adds figures such as the morning score. Tap targets and quick answers are the same in both.',
+        ),
     }),
   })
   .meta({
@@ -586,13 +611,7 @@ const profileUpdateResponse = z
       .boolean()
       .describe("Whether a KVNR is on file (the value itself is not echoed)."),
     rejectedFields: z
-      .array(
-        z.object({
-          path: z.string(),
-          code: z.string(),
-          message: z.string(),
-        }),
-      )
+      .array(validationIssue)
       .optional()
       .describe(
         "Present only on a PARTIAL success: the fields that were skipped while the rest of the patch was written. A 200 carrying this key means the save was incomplete — surface it, do not treat the response as a clean save. `code` is the validator code for a field that failed validation, or `rate_limited` for an email-address change that has spent the account's hourly budget; that one is not a bad value and the same address will be accepted once the window rolls over. The handler has always been able to answer with this key on this path; it was published only on PUT /api/auth/profile.",
@@ -674,6 +693,12 @@ const aiProviderResponse = z
       .describe(
         "v1.22 (#89) — per-user response timeout for AI generation, in seconds (10–600). Null = the built-in comprehensive-briefing default (~120 s). Mainly for slow local/self-hosted backends.",
       ),
+    localReasoningEffort: reasoningEffortSchema.describe(
+      "#1126 — reasoning setting of the Local provider entry, sent as `reasoning_effort` (`none` = Off). Null = Default: the key is not sent.",
+    ),
+    compatReasoningEffort: reasoningEffortSchema.describe(
+      "#1126 — the same for the OpenAI-compatible gateway entry.",
+    ),
     // v1.38.19 — the setup flow's last screen used to promise
     // that insights "work for you right away" as soon as `managedBy` read
     // `server`. That is a presence read; it never knew whether the key
@@ -1423,7 +1448,7 @@ export const profilePaths: NonNullable<ZodOpenApiObject["paths"]> = {
           content: {
             "application/json": {
               schema: dataEnvelope(
-                sourcePrioritySchema,
+                sourcePriorityResolved,
                 "GetSourcePriorityResponse",
               ),
             },
@@ -1447,7 +1472,7 @@ export const profilePaths: NonNullable<ZodOpenApiObject["paths"]> = {
           content: {
             "application/json": {
               schema: dataEnvelope(
-                sourcePrioritySchema,
+                sourcePriorityResolved,
                 "PutSourcePriorityResponse",
               ),
             },
@@ -1631,7 +1656,7 @@ export const profilePaths: NonNullable<ZodOpenApiObject["paths"]> = {
       tags: ["Notifications"],
       summary: "Update per-user notification preferences",
       description:
-        'Deep-merges the supplied partial shape over the persisted row — a PATCH touching only one category leaves the siblings intact. Always returns the fully-resolved next state so clients can hard-set their optimistic update. `medication.clientManaged: true` (or `deliveryDefault: "client"`) suppresses server-side MEDICATION_REMINDER APNs; `medication.lowStockRunwayDays` (1–60, nullable, default 7) tunes the low-stock alert — null switches it off. Rate-limit 60/min per user.',
+        'Deep-merges the supplied partial shape over the persisted row — a PATCH touching only one category leaves the siblings intact. Always returns the fully-resolved next state so clients can hard-set their optimistic update. `medication.clientManaged: true` (or `deliveryDefault: "client"`) keeps the MEDICATION_REMINDER that announces a dose off APNs and leaves the follow-ups for a dose still open on it (v1.42.0); `medication.lowStockRunwayDays` (1–60, nullable, default 7) tunes the low-stock alert — null switches it off. Rate-limit 60/min per user.',
       requestBody: {
         required: true,
         content: {

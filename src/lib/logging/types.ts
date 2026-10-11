@@ -59,7 +59,8 @@ export interface WideEvent {
       | "api_key"
       | "cron_secret"
       | "telegram_webhook"
-      | "webhook_secret";
+      | "webhook_secret"
+      | "notification_action_token";
     /**
      * v1.36.0 — the account whose record this request read or wrote, when it
      * is not the caller's own. `user_id` above always stays the ACTOR: the
@@ -115,6 +116,12 @@ export interface WideEvent {
     duration_ms: number;
     status?: number;
     error?: string;
+    /**
+     * v1.42 — an expected non-2xx the caller recovers from by design (a
+     * filter dialect probe), recorded without `error` so a query for
+     * failed calls does not find it.
+     */
+    note?: string;
   }>;
 
   // Hintergrundaufgabe (nur bei kind === "background")

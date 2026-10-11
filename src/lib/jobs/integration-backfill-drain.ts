@@ -25,7 +25,7 @@ import { runStravaBackfillForUser } from "@/lib/jobs/strava-backfill";
 import { runSleepTimelineBackfillForUser } from "@/lib/jobs/sleep-timeline-backfill";
 import { runLabBiomarkerBackfillForUser } from "@/lib/jobs/lab-biomarker-backfill";
 import {
-  integrationBackfillAdmissionSingletonKey,
+  integrationBackfillIdentity,
   type IntegrationBackfillAdmissionPayload,
 } from "@/lib/jobs/integration-backfill-admission";
 import { withIntegrationBackfillLock } from "@/lib/jobs/integration-backfill-lock";
@@ -36,6 +36,8 @@ import { withBackgroundEvent } from "@/lib/logging/background";
 
 interface RunCounts {
   imported: number;
+  /** Imports that ended a slice with progress and sent the next one. */
+  continued: number;
   removed: number;
   deleted: number;
   markers: number;
@@ -66,14 +68,16 @@ async function runAdmitted(
       return;
     }
     case "google-health-backfill": {
-      const { imported } = await runGoogleHealthBackfillForUser(
+      const { imported, continued } = await runGoogleHealthBackfillForUser(
         userId,
         shouldStop,
+        data.slice ?? 0,
       );
       totals.imported += imported;
+      if (continued) totals.continued += 1;
       workerLog(
         "info",
-        `[google-health-backfill] user=${userId} imported=${imported}`,
+        `[google-health-backfill] user=${userId} imported=${imported}${continued ? " continued" : ""}`,
       );
       return;
     }
@@ -152,6 +156,7 @@ export async function drainIntegrationBackfillAdmission(
   const shouldStop = jobBudget(jobs);
   const totals: RunCounts = {
     imported: 0,
+    continued: 0,
     removed: 0,
     deleted: 0,
     markers: 0,
@@ -159,7 +164,7 @@ export async function drainIntegrationBackfillAdmission(
   };
   let alreadyRunning = 0;
   for (const job of jobs) {
-    const identity = integrationBackfillAdmissionSingletonKey(job.data);
+    const identity = integrationBackfillIdentity(job.data);
     const run = await withIntegrationBackfillLock(identity, () =>
       runAdmitted(job.data, shouldStop, totals),
     );
@@ -183,6 +188,7 @@ export async function drainIntegrationBackfillAdmission(
     jobs: jobs.length,
     already_running: alreadyRunning,
     imported: totals.imported,
+    continued: totals.continued,
     removed: totals.removed,
     deleted: totals.deleted,
     markers: totals.markers,

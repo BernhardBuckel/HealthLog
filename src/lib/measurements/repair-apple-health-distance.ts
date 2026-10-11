@@ -326,7 +326,7 @@ export async function applyAppleHealthDistanceRepair(
            SET value = value * ${factor},
                unit = 'm',
                sync_version = sync_version + 1,
-               updated_at = NOW()
+               updated_at = (NOW() AT TIME ZONE 'UTC')
          WHERE id = ANY(${chunk})`;
     }
     await auditLog(APPLE_HEALTH_DISTANCE_REPAIR_ACTION, {

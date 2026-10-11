@@ -14,7 +14,9 @@ import {
   SCHEDULE_COMPLIANCE_SELECT,
 } from "@/lib/analytics/compliance";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
-import { userDayKey } from "@/lib/tz/format";
+import { DEFAULT_TIMEZONE, userDayKey } from "@/lib/tz/format";
+import { readingsMean } from "@/lib/measurements/day-mean";
+import { usesHourlyMeanDay } from "@/lib/measurements/day-statistic";
 import { isCurrentForTodayClaim } from "@/lib/insights/measurement-freshness";
 import { computeMoodDimensionSeries } from "@/lib/insights/mood-dimension-series";
 import { computeContextMoodComparison } from "@/lib/insights/mood-context-crosstab";
@@ -52,7 +54,10 @@ import {
   computeSignalsOfDay,
   type SignalOfDay,
 } from "@/lib/insights/signals-of-day";
-import type { RollupGranularity } from "@/generated/prisma/client";
+import type {
+  MeasurementType,
+  RollupGranularity,
+} from "@/generated/prisma/client";
 
 import { resolveWeightTargetOverride } from "@/lib/analytics/effective-range";
 import {
@@ -142,10 +147,14 @@ export interface MoodDimensionFeature {
  */
 async function buildMoodDimensionFeatures(
   userId: string,
+  floor: Date | null,
 ): Promise<MoodDimensionFeature[] | undefined> {
   const tz = await resolveUserTimezone(userId);
   const { t } = getServerTranslator("en");
-  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const since = laterDate(
+    new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+    floor,
+  );
   const rows = await prisma.moodEntry.findMany({
     where: { userId, deletedAt: null, moodLoggedAt: { gte: since } },
     orderBy: { moodLoggedAt: "desc" },
@@ -222,7 +231,15 @@ async function buildMoodDimensionFeatures(
  * Bounded: the same 90-day window the dimensions use, and the comparison's own
  * cap on how many rows survive.
  */
-async function buildMoodContextBlock(userId: string): Promise<{
+/** The later of `date` and an optional floor. */
+function laterDate(date: Date, floor: Date | null): Date {
+  return floor !== null && floor.getTime() > date.getTime() ? floor : date;
+}
+
+async function buildMoodContextBlock(
+  userId: string,
+  floor: Date | null,
+): Promise<{
   context?: {
     note: string;
     comparisons: Array<{
@@ -235,7 +252,10 @@ async function buildMoodContextBlock(userId: string): Promise<{
     }>;
   };
 }> {
-  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const since = laterDate(
+    new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+    floor,
+  );
   const rows = await prisma.moodEntry.findMany({
     where: {
       userId,
@@ -313,11 +333,14 @@ async function buildMoodContextBlock(userId: string): Promise<{
  * block-level `asOf`. Absent entirely when nobody has answered a dimension,
  * so an account that only ever taps a face carries neither key.
  */
-async function buildMoodDimensionBlock(userId: string): Promise<{
+async function buildMoodDimensionBlock(
+  userId: string,
+  floor: Date | null,
+): Promise<{
   dimensions?: MoodDimensionFeature[];
   dimensionsAsOfNote?: string;
 }> {
-  const dimensions = await buildMoodDimensionFeatures(userId);
+  const dimensions = await buildMoodDimensionFeatures(userId, floor);
   if (!dimensions) return {};
   return {
     dimensions,
@@ -914,12 +937,19 @@ function computeCoverage(
   };
 }
 
-/** Compute average of values within a time window (days ago from now). */
+/**
+ * Compute average of values within a time window (days ago from now).
+ *
+ * `day` names the type and the zone its days are read in. For a type whose
+ * day is the mean of its hours' means (pulse, see `day-mean.ts`) the window
+ * is then the mean of its day values; every other type keeps the plain mean.
+ */
 export function avgInWindow(
   records: Array<{ value: number; measuredAt: Date }>,
   now: number,
   fromDaysAgo: number,
   toDaysAgo: number = 0,
+  day?: { type: string; tz: string },
 ): number | null {
   const fromMs = now - fromDaysAgo * 24 * 60 * 60 * 1000;
   const toMs = now - toDaysAgo * 24 * 60 * 60 * 1000;
@@ -928,6 +958,10 @@ export function avgInWindow(
     return t >= fromMs && t <= toMs;
   });
   if (filtered.length === 0) return null;
+  if (day && usesHourlyMeanDay(day.type)) {
+    const mean = readingsMean(day.type, filtered, day.tz);
+    return mean === null ? null : Math.round(mean * 100) / 100;
+  }
   const sum = filtered.reduce((s, r) => s + r.value, 0);
   return Math.round((sum / filtered.length) * 100) / 100;
 }
@@ -946,6 +980,190 @@ export function avgInWindow(
 const INTEGRATION_BLOCK_MIN_WINDOW_DAYS = 180;
 
 /**
+ * The mood feature block and the per-day points it was built from. Split out of
+ * `extractFeatures` so a caller that needs only this block (the single-metric
+ * Coach read) runs exactly the same reads without the rest of the function.
+ */
+async function readMoodFeature(
+  userId: string,
+  /** The Coach's lookback floor, or null: see `extractFeatures`. */
+  historyFloor: Date | null,
+): Promise<{
+  feature: AggregatedFeatures["mood"];
+  dailyPoints: Array<{ measuredAt: Date; value: number; count: number }>;
+}> {
+  let feature: AggregatedFeatures["mood"];
+  // Mood
+  //
+  // v1.4.40 — swap the unbounded `prisma.moodEntry.findMany` for the
+  // persistent mood-rollup DAY tier (audit Critical Finding #2). The
+  // feature block downstream consumes:
+  //   - `avg7` / `avg30` over recent rollup means
+  //   - `trend30` from first-half vs second-half of last 30 days
+  //   - `latest` = newest individual entry score (one bounded row)
+  //   - `totalEntries` = sum of rollup `count` across all DAY rows
+  //   - `oldest` / `newest` = first and last rollup `bucketStart`
+  //   - `moodPoints` for cross-metric correlations (one per-day mean
+  //     DataPoint — same resolution as the legacy raw-score series for
+  //     single-entry-per-day power users, slightly different on
+  //     multi-entry days, which is the rollup-tier semantic the
+  //     v1.4.39 `/api/mood/analytics` already shipped)
+  //
+  // Coverage-fallback: when raw entries exist but the rollup tier is
+  // still empty (legacy account before boot-time backfill caught up),
+  // we fall back to a bounded 1-year raw walk and fire the warm-up so
+  // the next request lands on the rollup tier. Same posture as
+  // `/api/mood/analytics`.
+  void ensureUserMoodRollupsFresh(userId);
+  // Five-year window mirrors the mood-rollup writer default; covers
+  // every realistic user history span without an unbounded scan.
+  const moodSince = laterDate(
+    new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000),
+    historyFloor,
+  );
+  const moodRollupDayRows = await readMoodDayRollups(userId, moodSince);
+
+  type MoodDayPoint = {
+    measuredAt: Date;
+    value: number;
+    count: number;
+  };
+  let moodDailyPoints: MoodDayPoint[] = [];
+  let moodLatestScore: number | null = null;
+  let moodTotalEntries = 0;
+
+  if (moodRollupDayRows.length > 0) {
+    moodDailyPoints = moodRollupDayRows.map((r) => ({
+      measuredAt: r.bucketStart,
+      value: r.mean,
+      count: r.count,
+    }));
+    moodTotalEntries = moodRollupDayRows.reduce((s, r) => s + r.count, 0);
+    // Latest score = newest individual entry (one bounded row).
+    const latestEntry = await prisma.moodEntry.findFirst({
+      // v1.7.0 sync — exclude tombstoned rows.
+      where: {
+        userId,
+        deletedAt: null,
+        ...(historyFloor ? { moodLoggedAt: { gte: historyFloor } } : {}),
+      },
+      orderBy: { moodLoggedAt: "desc" },
+      select: { score: true },
+    });
+    moodLatestScore = latestEntry?.score ?? null;
+  } else {
+    // Coverage-fallback. Bounded 1-year walk (instead of the legacy
+    // unbounded `findMany`) so even a cache miss is capped.
+    const oneYearAgo = laterDate(
+      new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+      historyFloor,
+    );
+    const moodEntriesRaw = await prisma.moodEntry.findMany({
+      // v1.7.0 sync — exclude tombstoned rows.
+      where: { userId, deletedAt: null, moodLoggedAt: { gte: oneYearAgo } },
+      orderBy: { moodLoggedAt: "asc" },
+      select: { score: true, moodLoggedAt: true, date: true },
+    });
+    if (moodEntriesRaw.length > 0) {
+      // Bucket per `date` (TZ-anchored YYYY-MM-DD label, same key the
+      // rollup tier would emit for Berlin-anchored single-entry days)
+      // so the fallback shape matches the rollup-tier shape.
+      const byDay = new Map<string, { sum: number; count: number; ts: Date }>();
+      for (const e of moodEntriesRaw) {
+        const k = e.date;
+        const cur = byDay.get(k) ?? { sum: 0, count: 0, ts: e.moodLoggedAt };
+        cur.sum += e.score;
+        cur.count += 1;
+        // Pin the bucket's measuredAt to the latest entry's timestamp
+        // — close enough for the trailing-window filters below.
+        if (e.moodLoggedAt > cur.ts) cur.ts = e.moodLoggedAt;
+        byDay.set(k, cur);
+      }
+      moodDailyPoints = Array.from(byDay.values())
+        .map((b) => ({
+          measuredAt: b.ts,
+          value: b.sum / b.count,
+          count: b.count,
+        }))
+        .sort((a, b) => a.measuredAt.getTime() - b.measuredAt.getTime());
+      moodTotalEntries = moodEntriesRaw.length;
+      moodLatestScore = moodEntriesRaw[moodEntriesRaw.length - 1].score;
+    }
+  }
+
+  if (moodDailyPoints.length > 0) {
+    const moodNow = Date.now();
+    const last7 = moodDailyPoints.filter(
+      (e) => moodNow - e.measuredAt.getTime() < 7 * 24 * 60 * 60 * 1000,
+    );
+    const last30 = moodDailyPoints.filter(
+      (e) => moodNow - e.measuredAt.getTime() < 30 * 24 * 60 * 60 * 1000,
+    );
+
+    const avg = (points: MoodDayPoint[]) =>
+      points.length > 0
+        ? Math.round(
+            (points.reduce((s, e) => s + e.value, 0) / points.length) * 100,
+          ) / 100
+        : null;
+
+    // Compute 30-day trend: compare first half vs second half of last 30 days
+    let trend30: "improving" | "declining" | "stable" | null = null;
+    if (last30.length >= 4) {
+      const firstHalf = last30.filter(
+        (e) => moodNow - e.measuredAt.getTime() >= 15 * 24 * 60 * 60 * 1000,
+      );
+      const secondHalf = last30.filter(
+        (e) => moodNow - e.measuredAt.getTime() < 15 * 24 * 60 * 60 * 1000,
+      );
+      if (firstHalf.length >= 2 && secondHalf.length >= 2) {
+        const avgFirst = avg(firstHalf)!;
+        const avgSecond = avg(secondHalf)!;
+        const diff = avgSecond - avgFirst;
+        if (diff > 0.3) trend30 = "improving";
+        else if (diff < -0.3) trend30 = "declining";
+        else trend30 = "stable";
+      }
+    }
+
+    const oldest = moodDailyPoints[0].measuredAt;
+    const newest = moodDailyPoints[moodDailyPoints.length - 1].measuredAt;
+    const spanDays = Math.round(
+      (newest.getTime() - oldest.getTime()) / (24 * 60 * 60 * 1000),
+    );
+    const avgDaysBetween =
+      moodTotalEntries > 1
+        ? Math.round((spanDays / (moodTotalEntries - 1)) * 10) / 10
+        : null;
+
+    feature = {
+      scale: "1=LAUSIG, 2=SCHLECHT, 3=OKAY, 4=GUT, 5=SUPER_GUT",
+      avg7: avg(last7),
+      avg30: avg(last30),
+      latest: moodLatestScore,
+      trend30,
+      totalEntries: moodTotalEntries,
+      ...(await buildMoodDimensionBlock(userId, historyFloor)),
+      ...(await buildMoodContextBlock(userId, historyFloor)),
+      ...(historyFloor ? {} : await buildMoodPrognosisBlock(userId)),
+      coverage: {
+        count: moodTotalEntries,
+        spanDays,
+        avgDaysBetween,
+        oldestDaysAgo: Math.round(
+          (moodNow - oldest.getTime()) / (24 * 60 * 60 * 1000),
+        ),
+        newestDaysAgo: Math.round(
+          (moodNow - newest.getTime()) / (24 * 60 * 60 * 1000),
+        ),
+      },
+    };
+  }
+
+  return { feature, dailyPoints: moodDailyPoints };
+}
+
+/**
  * v1.25 — newest-first row cap on the bulk measurement read in
  * `extractFeatures`. Mirrors the Coach snapshot's `SNAPSHOT_MEASUREMENT_ROW_CAP`
  * (6000): the prompt / insights aggregates only ever fold this read into a
@@ -955,11 +1173,50 @@ const INTEGRATION_BLOCK_MIN_WINDOW_DAYS = 180;
  */
 const FEATURE_MEASUREMENT_ROW_CAP = 6000;
 
+/**
+ * The feature blocks the single-metric Coach read can ask for on their own.
+ * Each is built from exactly the reads the full extraction runs for it.
+ */
+export type ScopedFeatureBlock = "weight" | "bloodPressure" | "pulse" | "mood";
+
+const SCOPED_BLOCK_TYPES: Readonly<
+  Record<ScopedFeatureBlock, readonly MeasurementType[]>
+> = {
+  weight: ["WEIGHT"],
+  bloodPressure: ["BLOOD_PRESSURE_SYS", "BLOOD_PRESSURE_DIA"],
+  pulse: ["PULSE"],
+  mood: [],
+};
+
 export async function extractFeatures(
   userId: string,
   includeRaw: boolean,
-  options: { sinceDays?: number } = {},
+  options: {
+    sinceDays?: number;
+    /**
+     * Build only these blocks (plus `context`) and return. Each block is
+     * identical to the one the full extraction builds: the bulk read keeps its
+     * all-type newest-first cap, so the rows a block sees do not change. Used
+     * by the single-metric Coach read, which reads one block and nothing else.
+     */
+    only?: ReadonlySet<ScopedFeatureBlock>;
+    /**
+     * The Coach's lookback floor. Given, nothing older than it is read: the
+     * `allTime*` figures cover the history from the floor on, the mood
+     * history and its sub-blocks start at it, and the mood forecast, a model
+     * fitted on the whole history, is left out.
+     */
+    historyFloor?: Date;
+  } = {},
 ): Promise<AggregatedFeatures | RawFeatures> {
+  const only = options.only;
+  const historyFloor = options.historyFloor ?? null;
+  const wants = (block: ScopedFeatureBlock) => !only || only.has(block);
+  const allTimeTypes = (["weight", "bloodPressure", "pulse"] as const).flatMap(
+    (block) => (wants(block) ? SCOPED_BLOCK_TYPES[block] : []),
+  );
+  // The bulk read feeds every block except mood; a mood-only read skips it.
+  const needsMeasurementRows = !only || allTimeTypes.length > 0;
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -993,29 +1250,31 @@ export async function extractFeatures(
   // cap is safe even unbounded: the genuine all-time extremes are sourced
   // separately via `readAllTimeExtremes` on the bounded branch, so capping only
   // sheds the deepest rows of the bulk read and never relabels an extreme.
-  const measurements = await prisma.measurement
-    .findMany({
-      where: sinceCutoff
-        ? { userId, measuredAt: { gte: sinceCutoff }, deletedAt: null }
-        : { userId, deletedAt: null },
-      orderBy: { measuredAt: "desc" },
-      take: FEATURE_MEASUREMENT_ROW_CAP,
-      // Project only the columns every downstream consumer reads (`byType`,
-      // `summarize`, BP pairing, and `reconstructSleepNights`'s `SleepStageRow`).
-      // The PULSE / glucose windows are 200k-row-class; pulling every column
-      // (notes, externalId, …) is pure wasted I/O on the shared Prisma pool.
-      select: {
-        type: true,
-        value: true,
-        measuredAt: true,
-        sleepStage: true,
-        source: true,
-        deviceType: true,
-      },
-    })
-    // Restore ascending order so order-sensitive consumers (oldest/newest span,
-    // BP pairing, sleep reconstruction) see the same shape as before the cap.
-    .then((rows) => rows.reverse());
+  const measurements = !needsMeasurementRows
+    ? []
+    : await prisma.measurement
+        .findMany({
+          where: sinceCutoff
+            ? { userId, measuredAt: { gte: sinceCutoff }, deletedAt: null }
+            : { userId, deletedAt: null },
+          orderBy: { measuredAt: "desc" },
+          take: FEATURE_MEASUREMENT_ROW_CAP,
+          // Project only the columns every downstream consumer reads (`byType`,
+          // `summarize`, BP pairing, and `reconstructSleepNights`'s `SleepStageRow`).
+          // The PULSE / glucose windows are 200k-row-class; pulling every column
+          // (notes, externalId, …) is pure wasted I/O on the shared Prisma pool.
+          select: {
+            type: true,
+            value: true,
+            measuredAt: true,
+            sleepStage: true,
+            source: true,
+            deviceType: true,
+          },
+        })
+        // Restore ascending order so order-sensitive consumers (oldest/newest span,
+        // BP pairing, sleep reconstruction) see the same shape as before the cap.
+        .then((rows) => rows.reverse());
 
   // v1.18.11 P1 — when the bulk read is bounded to a recent window, the
   // windowed `summarize()` no longer covers the full history, so the `allTime*`
@@ -1023,16 +1282,23 @@ export async function extractFeatures(
   // genuine full-history min / max / mean from one grouped aggregation (no row
   // materialisation) so the labels stay honest. Unbounded reads (sinceCutoff
   // null) already see the whole history and skip the extra query.
+  // Grouped by type, so asking for fewer types leaves each one's figures as
+  // they were.
   const allTimeExtremes = sinceCutoff
-    ? await readAllTimeExtremes(userId, [
-        "WEIGHT",
-        "BLOOD_PRESSURE_SYS",
-        "BLOOD_PRESSURE_DIA",
-        "PULSE",
-      ])
+    ? await readAllTimeExtremes(
+        userId,
+        only
+          ? allTimeTypes
+          : ["WEIGHT", "BLOOD_PRESSURE_SYS", "BLOOD_PRESSURE_DIA", "PULSE"],
+        historyFloor,
+      )
     : null;
 
   const byType = (type: string) => measurements.filter((m) => m.type === type);
+  // The zone pulse days are read in; resolved only when there is pulse to read.
+  const pulseTz = measurements.some((m) => m.type === "PULSE")
+    ? await resolveUserTimezone(userId)
+    : DEFAULT_TIMEZONE;
 
   const bpTargets = getBpTargets(user?.dateOfBirth ?? null);
 
@@ -1086,7 +1352,7 @@ export async function extractFeatures(
 
   // Weight
   const weightData = byType("WEIGHT");
-  if (weightData.length > 0) {
+  if (wants("weight") && weightData.length > 0) {
     const summary = summarize(toDataPoints(weightData));
     const bmi =
       user?.heightCm && summary.latest
@@ -1130,7 +1396,7 @@ export async function extractFeatures(
   // Blood Pressure
   const sysData = byType("BLOOD_PRESSURE_SYS");
   const diaData = byType("BLOOD_PRESSURE_DIA");
-  if (sysData.length > 0 || diaData.length > 0) {
+  if (wants("bloodPressure") && (sysData.length > 0 || diaData.length > 0)) {
     const sysSummary =
       sysData.length > 0 ? summarize(toDataPoints(sysData)) : null;
     const diaSummary =
@@ -1229,18 +1495,25 @@ export async function extractFeatures(
 
   // Pulse
   const pulseData = byType("PULSE");
-  if (pulseData.length > 0) {
+  if (wants("pulse") && pulseData.length > 0) {
     const summary = summarize(toDataPoints(pulseData));
+    // A day of pulse is the mean of its local hours' means and a window the
+    // mean of its days (see `day-mean.ts`): `summarize` means every reading,
+    // so the means come from the shared helper over the same windows.
+    const pulseDays = { type: "PULSE", tz: pulseTz };
+    const pulseMean = (fromDaysAgo: number) =>
+      avgInWindow(pulseData, now, fromDaysAgo, 0, pulseDays);
+    const allPulse = readingsMean("PULSE", pulseData, pulseTz);
     features.pulse = {
-      avg7: summary.avg7,
-      avg30: summary.avg30,
-      avg90: avgInWindow(pulseData, now, 90),
+      avg7: pulseMean(7),
+      avg30: pulseMean(30),
+      avg90: pulseMean(90),
       // v1.18.11 P1 — full-history extremes when the bulk read is windowed.
       allTimeAvg: allTimeExtremes
         ? roundMean(allTimeExtremes.get("PULSE")?.mean ?? null)
-        : summary.count > 0
-          ? summary.mean
-          : null,
+        : allPulse === null
+          ? null
+          : Math.round(allPulse * 100) / 100,
       allTimeMin: allTimeExtremes
         ? (allTimeExtremes.get("PULSE")?.min ?? null)
         : summary.count > 0
@@ -1255,6 +1528,14 @@ export async function extractFeatures(
       anomalyCount: summary.anomalyCount ?? 0,
       coverage: computeCoverage(pulseData, now),
     };
+  }
+
+  if (only) {
+    if (only.has("mood")) {
+      const moodRead = await readMoodFeature(userId, historyFloor);
+      if (moodRead.feature) features.mood = moodRead.feature;
+    }
+    return features;
   }
 
   // Body Fat
@@ -1359,162 +1640,10 @@ export async function extractFeatures(
     };
   }
 
-  // Mood
-  //
-  // v1.4.40 — swap the unbounded `prisma.moodEntry.findMany` for the
-  // persistent mood-rollup DAY tier (audit Critical Finding #2). The
-  // feature block downstream consumes:
-  //   - `avg7` / `avg30` over recent rollup means
-  //   - `trend30` from first-half vs second-half of last 30 days
-  //   - `latest` = newest individual entry score (one bounded row)
-  //   - `totalEntries` = sum of rollup `count` across all DAY rows
-  //   - `oldest` / `newest` = first and last rollup `bucketStart`
-  //   - `moodPoints` for cross-metric correlations (one per-day mean
-  //     DataPoint — same resolution as the legacy raw-score series for
-  //     single-entry-per-day power users, slightly different on
-  //     multi-entry days, which is the rollup-tier semantic the
-  //     v1.4.39 `/api/mood/analytics` already shipped)
-  //
-  // Coverage-fallback: when raw entries exist but the rollup tier is
-  // still empty (legacy account before boot-time backfill caught up),
-  // we fall back to a bounded 1-year raw walk and fire the warm-up so
-  // the next request lands on the rollup tier. Same posture as
-  // `/api/mood/analytics`.
-  void ensureUserMoodRollupsFresh(userId);
-  // Five-year window mirrors the mood-rollup writer default; covers
-  // every realistic user history span without an unbounded scan.
-  const moodSince = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000);
-  const moodRollupDayRows = await readMoodDayRollups(userId, moodSince);
-
-  type MoodDayPoint = {
-    measuredAt: Date;
-    value: number;
-    count: number;
-  };
-  let moodDailyPoints: MoodDayPoint[] = [];
-  let moodLatestScore: number | null = null;
-  let moodTotalEntries = 0;
-
-  if (moodRollupDayRows.length > 0) {
-    moodDailyPoints = moodRollupDayRows.map((r) => ({
-      measuredAt: r.bucketStart,
-      value: r.mean,
-      count: r.count,
-    }));
-    moodTotalEntries = moodRollupDayRows.reduce((s, r) => s + r.count, 0);
-    // Latest score = newest individual entry (one bounded row).
-    const latestEntry = await prisma.moodEntry.findFirst({
-      // v1.7.0 sync — exclude tombstoned rows.
-      where: { userId, deletedAt: null },
-      orderBy: { moodLoggedAt: "desc" },
-      select: { score: true },
-    });
-    moodLatestScore = latestEntry?.score ?? null;
-  } else {
-    // Coverage-fallback. Bounded 1-year walk (instead of the legacy
-    // unbounded `findMany`) so even a cache miss is capped.
-    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
-    const moodEntriesRaw = await prisma.moodEntry.findMany({
-      // v1.7.0 sync — exclude tombstoned rows.
-      where: { userId, deletedAt: null, moodLoggedAt: { gte: oneYearAgo } },
-      orderBy: { moodLoggedAt: "asc" },
-      select: { score: true, moodLoggedAt: true, date: true },
-    });
-    if (moodEntriesRaw.length > 0) {
-      // Bucket per `date` (TZ-anchored YYYY-MM-DD label, same key the
-      // rollup tier would emit for Berlin-anchored single-entry days)
-      // so the fallback shape matches the rollup-tier shape.
-      const byDay = new Map<string, { sum: number; count: number; ts: Date }>();
-      for (const e of moodEntriesRaw) {
-        const k = e.date;
-        const cur = byDay.get(k) ?? { sum: 0, count: 0, ts: e.moodLoggedAt };
-        cur.sum += e.score;
-        cur.count += 1;
-        // Pin the bucket's measuredAt to the latest entry's timestamp
-        // — close enough for the trailing-window filters below.
-        if (e.moodLoggedAt > cur.ts) cur.ts = e.moodLoggedAt;
-        byDay.set(k, cur);
-      }
-      moodDailyPoints = Array.from(byDay.values())
-        .map((b) => ({
-          measuredAt: b.ts,
-          value: b.sum / b.count,
-          count: b.count,
-        }))
-        .sort((a, b) => a.measuredAt.getTime() - b.measuredAt.getTime());
-      moodTotalEntries = moodEntriesRaw.length;
-      moodLatestScore = moodEntriesRaw[moodEntriesRaw.length - 1].score;
-    }
-  }
-
-  if (moodDailyPoints.length > 0) {
-    const moodNow = Date.now();
-    const last7 = moodDailyPoints.filter(
-      (e) => moodNow - e.measuredAt.getTime() < 7 * 24 * 60 * 60 * 1000,
-    );
-    const last30 = moodDailyPoints.filter(
-      (e) => moodNow - e.measuredAt.getTime() < 30 * 24 * 60 * 60 * 1000,
-    );
-
-    const avg = (points: MoodDayPoint[]) =>
-      points.length > 0
-        ? Math.round(
-            (points.reduce((s, e) => s + e.value, 0) / points.length) * 100,
-          ) / 100
-        : null;
-
-    // Compute 30-day trend: compare first half vs second half of last 30 days
-    let trend30: "improving" | "declining" | "stable" | null = null;
-    if (last30.length >= 4) {
-      const firstHalf = last30.filter(
-        (e) => moodNow - e.measuredAt.getTime() >= 15 * 24 * 60 * 60 * 1000,
-      );
-      const secondHalf = last30.filter(
-        (e) => moodNow - e.measuredAt.getTime() < 15 * 24 * 60 * 60 * 1000,
-      );
-      if (firstHalf.length >= 2 && secondHalf.length >= 2) {
-        const avgFirst = avg(firstHalf)!;
-        const avgSecond = avg(secondHalf)!;
-        const diff = avgSecond - avgFirst;
-        if (diff > 0.3) trend30 = "improving";
-        else if (diff < -0.3) trend30 = "declining";
-        else trend30 = "stable";
-      }
-    }
-
-    const oldest = moodDailyPoints[0].measuredAt;
-    const newest = moodDailyPoints[moodDailyPoints.length - 1].measuredAt;
-    const spanDays = Math.round(
-      (newest.getTime() - oldest.getTime()) / (24 * 60 * 60 * 1000),
-    );
-    const avgDaysBetween =
-      moodTotalEntries > 1
-        ? Math.round((spanDays / (moodTotalEntries - 1)) * 10) / 10
-        : null;
-
-    features.mood = {
-      scale: "1=LAUSIG, 2=SCHLECHT, 3=OKAY, 4=GUT, 5=SUPER_GUT",
-      avg7: avg(last7),
-      avg30: avg(last30),
-      latest: moodLatestScore,
-      trend30,
-      totalEntries: moodTotalEntries,
-      ...(await buildMoodDimensionBlock(userId)),
-      ...(await buildMoodContextBlock(userId)),
-      ...(await buildMoodPrognosisBlock(userId)),
-      coverage: {
-        count: moodTotalEntries,
-        spanDays,
-        avgDaysBetween,
-        oldestDaysAgo: Math.round(
-          (moodNow - oldest.getTime()) / (24 * 60 * 60 * 1000),
-        ),
-        newestDaysAgo: Math.round(
-          (moodNow - newest.getTime()) / (24 * 60 * 60 * 1000),
-        ),
-      },
-    };
-  }
+  // Mood — see `readMoodFeature`.
+  const moodRead = await readMoodFeature(userId, historyFloor);
+  const moodDailyPoints = moodRead.dailyPoints;
+  if (moodRead.feature) features.mood = moodRead.feature;
 
   // Cross-metric correlations
   const weightPoints = toDataPoints(weightData);
@@ -1650,6 +1779,7 @@ export async function extractFeatures(
     features.historicalComparison.pulse = computeHistoricalComparison(
       pulseData,
       now,
+      { type: "PULSE", tz: pulseTz },
     );
   }
 
@@ -1680,7 +1810,10 @@ export async function extractFeatures(
     // findMany loop. Same shape as the v1.3.0 fix to /api/insights/comprehensive
     // (the previous N+1 the v3 audit closed). 90 days is the longest window
     // calculateCompliance uses below, so we don't need the full intake history.
-    const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000);
+    const ninetyDaysAgo = laterDate(
+      new Date(Date.now() - 90 * 86_400_000),
+      historyFloor,
+    );
     const allEvents = await prisma.medicationIntakeEvent.findMany({
       where: {
         userId,
@@ -1768,7 +1901,14 @@ export async function extractFeatures(
   // in-memory measurement set (no extra DB round-trip). Lands inside the
   // compacted features payload, so it feeds both the briefing prompt AND the
   // content-hash gate — a fresh daily signal forces the briefing to refresh.
-  const signalsOfDay = computeSignalsOfDay(byType, now);
+  // Each signal is a statement about today, which is a calendar day in the
+  // reader's own zone, so the zone is resolved for every account here, not
+  // only for the ones with pulse.
+  const signalsOfDay = computeSignalsOfDay(
+    byType,
+    now,
+    await resolveUserTimezone(userId),
+  );
   if (signalsOfDay.length > 0) {
     features.signalsOfDay = signalsOfDay;
   }

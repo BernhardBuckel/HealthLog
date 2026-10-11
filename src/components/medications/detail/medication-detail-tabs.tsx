@@ -93,6 +93,7 @@ import { useTranslations, useFormatters } from "@/lib/i18n/context";
 import { formatDose } from "@/lib/medications/format-dose";
 import type { MedicationPayload } from "@/components/medications/wizard/wizard-payload";
 import type { ComplianceDisplay } from "@/lib/analytics/compliance";
+import { AutoMarkTakenBody } from "@/components/medications/sections/auto-mark-taken-section";
 import { IntakeTrackingBody } from "@/components/medications/sections/intake-tracking-section";
 
 // v1.15.20 — Recharts stays out of the detail page's initial bundle:
@@ -174,6 +175,8 @@ export interface MedicationDetailSnapshot {
    * `recordedSchedules`; the page shows (and edits) the stored rows.
    */
   trackIntake?: boolean;
+  /** v1.42.2 — doses recorded automatically. */
+  autoMarkTaken?: boolean;
   /** v1.39.4 (#1040) — where today sits in the course (server-resolved). */
   courseStatus?: "UPCOMING" | "CURRENT" | "ENDED";
   /** v1.40 (#1024) — the server-resolved courses. */
@@ -193,7 +196,6 @@ const TAB_SLUGS = [
   "bestand",
   "verlauf",
   "injektion",
-  "api",
   "erweitert",
 ] as const;
 type TabSlug = (typeof TAB_SLUGS)[number];
@@ -208,9 +210,8 @@ const OWNER_ONLY_TABS: ReadonlySet<TabSlug> = new Set([
   // Schedule times are a MANAGE route, but the tab also carries the reminder
   // and notification settings, which resolve the caller.
   "zeitplan",
-  // Per-medication tokens: a credential surface, never delegated.
-  "api",
-  // Phase config, export and the token-adjacent rows resolve the caller.
+  // Phase config, export and the per-medication tokens (a credential
+  // surface, never delegated) resolve the caller.
   "erweitert",
 ]);
 
@@ -230,6 +231,9 @@ const MANAGE_TABS: ReadonlySet<TabSlug> = new Set(["bestand"]);
  */
 const LEGACY_TAB_SLUGS: Record<string, TabSlug> = {
   erinnerung: "zeitplan",
+  // The API tab folded back into Erweitert in v1.42: two tabs for the
+  // rarely-opened owner settings made a strip that could not fit a phone.
+  api: "erweitert",
 };
 
 function snapshotToWizardPayload(
@@ -252,6 +256,7 @@ function snapshotToWizardPayload(
     oneShot: med.oneShot ?? false,
     asNeeded: med.asNeeded ?? false,
     trackIntake: med.trackIntake !== false,
+    autoMarkTaken: med.autoMarkTaken === true,
     schedules: med.schedules.map((s) => ({
       id: s.id,
       windowStart: s.windowStart,
@@ -524,7 +529,9 @@ export function MedicationDetailTabs({
         data-slot="medication-detail-tabs"
       >
         <TabsList
-          className="w-full justify-start"
+          // Six tabs do not fit a phone in one row; they sit in a three-up
+          // grid there instead of scrolling a label off the edge.
+          className="w-full justify-start max-sm:grid! max-sm:h-auto! max-sm:grid-cols-3"
           aria-label={t("medications.detail.shell.tablistLabel")}
         >
           {availableTabs.map((slug) => (
@@ -728,6 +735,15 @@ export function MedicationDetailTabs({
               dataSlot="medication-zeitplan-reminder"
             >
               <div className="space-y-4">
+                {/* v1.42.2 — leads the reminder card: with it on, the doses
+                    are recorded and no reminder is sent. */}
+                {medication.asNeeded !== true && (
+                  <AutoMarkTakenBody
+                    key={medication.autoMarkTaken ? "on" : "off"}
+                    medicationId={id}
+                    autoMarkTaken={medication.autoMarkTaken === true}
+                  />
+                )}
                 <NotificationsBody
                   medicationId={id}
                   notificationsEnabled={medication.notificationsEnabled}
@@ -871,33 +887,9 @@ export function MedicationDetailTabs({
           </TabsContent>
         )}
 
-        {/* API — the external-ingest surface in its own tab: per-medication
-            tokens + the drug-coding identifiers external systems key on.
-            Pulled out of Erweitert so the destructive zone and the token
-            management stop sharing one surface. */}
-        <TabsContent value="api" className="space-y-4 pt-2">
-          <SettingsGroup
-            label={t("medications.detail.erweitert.group.externalApi")}
-            dataSlot="api-group-external-api"
-          >
-            <div className="py-3">
-              <ApiTokensRow
-                medicationId={id}
-                medicationName={medication.name}
-              />
-            </div>
-            <div className="py-3">
-              <DrugCodingRow
-                medicationId={id}
-                atcCode={medication.atcCode}
-                rxNormCode={medication.rxNormCode}
-              />
-            </div>
-          </SettingsGroup>
-        </TabsContent>
-
-        {/* ERWEITERT — Lifecycle → Daten → Gefahrenzone. The external-API
-            group moved to its own API tab. */}
+        {/* ERWEITERT — Lifecycle → Daten → external API → Gefahrenzone.
+            The API tab folded back in here (v1.42); its group stays
+            collapsed like the other two, and the danger zone stays last. */}
         <TabsContent value="erweitert" className="space-y-4 pt-2">
           <SettingsGroup
             label={t("medications.detail.erweitert.group.lifecycle")}
@@ -972,6 +964,27 @@ export function MedicationDetailTabs({
               <DataPortabilityRow
                 medicationId={id}
                 onOpenImport={() => setImportOpen(true)}
+              />
+            </div>
+          </SettingsGroup>
+
+          <SettingsGroup
+            label={t("medications.detail.erweitert.group.externalApi")}
+            dataSlot="api-group-external-api"
+            collapsible
+            defaultOpen={false}
+          >
+            <div className="py-3">
+              <ApiTokensRow
+                medicationId={id}
+                medicationName={medication.name}
+              />
+            </div>
+            <div className="py-3">
+              <DrugCodingRow
+                medicationId={id}
+                atcCode={medication.atcCode}
+                rxNormCode={medication.rxNormCode}
               />
             </div>
           </SettingsGroup>

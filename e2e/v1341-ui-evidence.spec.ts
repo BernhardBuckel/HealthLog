@@ -30,7 +30,12 @@ const NARRATIVE_DIGEST: DailyDigest = {
     composition: ["BLOOD_PRESSURE", "ACTIVITY", "SLEEP"],
   },
   topSignal: LONG_HEADLINE_BRIEFING.signalsOfDay?.[0] ?? null,
+  // The lead talks about blood pressure, so the server keeps only the delta.
+  signalLine: { headline: null, delta: "−12 mmHg vs. 30-Tage-Mittel" },
   briefingLead: LONG_HEADLINE_BRIEFING.paragraph,
+  lead: { text: LONG_HEADLINE_BRIEFING.paragraph, source: "briefing" },
+  today: [],
+  restMode: null,
   line: LONG_HEADLINE_BRIEFING.paragraph,
   worthALook: [],
   justIn: null,
@@ -104,6 +109,7 @@ test.describe("v1.34.1 deterministic UI evidence", () => {
       ...NARRATIVE_DIGEST,
       topSignal: null,
       briefingLead: null,
+      lead: null,
       line: "Dein Gesundheitsscore liegt heute bei 84.",
       reactionLine: null,
     };

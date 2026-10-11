@@ -44,6 +44,7 @@ import { isArrivalKind, type DataArrival } from "@/lib/arrivals/types";
 import { enqueueWorkoutInsight } from "@/lib/jobs/workout-insight-generate-shared";
 
 import { getWorkerPrisma, workerLog } from "./reminder/shared";
+import { logCaught } from "@/lib/logging/signal";
 
 export { DATA_ARRIVAL_QUEUE };
 
@@ -146,7 +147,7 @@ async function claimReaction(
             ),
             operator_tokens = GREATEST(0, operator_tokens - ${operatorReserved}),
             message_count = GREATEST(0, message_count - 1),
-            updated_at = NOW()
+            updated_at = (NOW() AT TIME ZONE 'UTC')
         WHERE user_id = ${arrival.userId}
           AND date_key = ${current.generationBudgetDateKey}
       `;
@@ -274,7 +275,8 @@ export async function runDataArrival(
   // process, and it costs nothing when it is not.
   try {
     invalidateUserDashboardSnapshot(arrival.userId);
-  } catch {
+  } catch (err) {
+    logCaught("daily.arrival.cache_evict_failed", err);
     // A cache miss is never worth failing a job over.
   }
 

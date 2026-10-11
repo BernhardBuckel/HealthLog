@@ -28,10 +28,12 @@
  * nothing else under `/api`.
  */
 import { shouldRunWeb } from "@/lib/process-type";
+import { DEMO_REFUSAL_BODY } from "@/lib/demo-refusal";
 
 export const PROXY_BYPASS_ROUTES: readonly string[] = [
   // Streamed archive uploads, up to 1.5 GB.
   "/api/import/apple-health-export",
+  "/api/import/health-connect-export",
   "/api/admin/import-apple-health-export",
   // Backup file upload, up to 512 MB raw.
   "/api/admin/backups/upload",
@@ -115,14 +117,7 @@ export function bypassRouteRefusal(method: string): Response | null {
   const m = method.toUpperCase();
   const isMutation = m !== "GET" && m !== "HEAD" && m !== "OPTIONS";
   if (process.env.DEMO_MODE === "true" && isMutation) {
-    return Response.json(
-      {
-        data: null,
-        error: "Demo mode: modifications are disabled",
-        meta: { demo: true },
-      },
-      { status: 403 },
-    );
+    return Response.json(DEMO_REFUSAL_BODY, { status: 403 });
   }
   return null;
 }

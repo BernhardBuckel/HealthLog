@@ -57,8 +57,25 @@ describe("summariseHealthStatus", () => {
     expect(s.shifts[0]).toMatchObject({ metric: "WEIGHT", direction: "up" });
   });
 
+  it("does not present yesterday's reading as now", () => {
+    const s = summariseHealthStatus([vital(true, "above", 1)], []);
+    expect(s.present).toBe(false);
+    expect(s.deviations).toHaveLength(0);
+  });
+
   it("drops a vital flagged outside but with an 'in' direction", () => {
     const s = summariseHealthStatus([vital(true, "in")], []);
     expect(s.present).toBe(false);
+  });
+
+  it("says when a deviation is measured against the same hours", () => {
+    const s = summariseHealthStatus(
+      [
+        { ...vital(true, "below"), type: "BLOOD_GLUCOSE", basis: "sameHours" },
+        vital(true, "above"),
+      ],
+      [],
+    );
+    expect(s.deviations.map((d) => d.basis)).toEqual(["sameHours", "day"]);
   });
 });

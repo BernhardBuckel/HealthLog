@@ -3,7 +3,7 @@
 /**
  * The Dokumente vault — one wide, calm, filing-cabinet-fast surface.
  *
- * Filter state lives in the URL (`?q&kind&episode&year`) so every view is
+ * Filter state lives in the URL (`?q&kind&episode&encounter&year`) so every view is
  * shareable, back-button-safe, and deep-linkable from the illness page and
  * labs. Search debounces 200 ms and `/` focuses it. The timeline below is
  * virtualized; uploads appear optimistically above it in < 100 ms.
@@ -27,13 +27,16 @@ import {
   SearchX,
   Upload,
   UploadCloud,
+  Wrench,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useIllnessEpisodes } from "@/components/illness/use-illness";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { QueryErrorCard } from "@/components/ui/query-error-card";
@@ -44,7 +47,10 @@ import { usePullToRefresh } from "@/hooks/use-pull-to-refresh";
 import { useUrlFilterSync } from "@/hooks/use-url-filter-sync";
 import { PullToRefreshIndicator } from "@/components/ui/pull-to-refresh-indicator";
 import { apiGet, apiPost } from "@/lib/api/api-fetch";
-import { encounterKindText } from "@/components/encounters/encounter-labels";
+import {
+  bodySiteText,
+  encounterKindText,
+} from "@/components/encounters/encounter-labels";
 import { useEncounters } from "@/hooks/use-encounters";
 import { useFormatters, useTranslations } from "@/lib/i18n/context";
 import type { EncounterKind } from "@/generated/prisma/client";
@@ -53,6 +59,7 @@ import {
   useCoachLaunch,
 } from "@/lib/insights/coach-launch-context";
 import { invalidateKeys, queryKeys } from "@/lib/query-keys";
+import { useDocumentsLayout } from "@/lib/queries/use-documents-layout";
 import {
   DOCUMENT_BULK_MAX_IDS,
   type DocumentBulkAction,
@@ -73,12 +80,14 @@ import { useReindexAll } from "./use-content-index";
 import { useDocumentUpload } from "./use-document-upload";
 import { usePageFileDrop } from "./use-page-file-drop";
 import {
+  buildProcedureChoices,
   buildVaultListApiSearch,
   countActiveFilters,
   documentDateKey,
   expandRangeSelection,
   hasProcessingDocument,
   parseVaultSearchParams,
+  type ProcedureFilterChoice,
   resolveBulkShareDocuments,
   SHARE_LINK_MAX_DOCUMENTS,
   vaultFiltersToSearch,
@@ -345,6 +354,17 @@ export function DocumentsView() {
     );
   };
 
+  const toggleEncounter = (encounterId: string) => {
+    applyFilters(
+      {
+        ...filters,
+        encounterId:
+          filters.encounterId === encounterId ? undefined : encounterId,
+      },
+      "push",
+    );
+  };
+
   const toggleYear = (year: number) => {
     applyFilters(
       { ...filters, year: filters.year === year ? undefined : year },
@@ -392,6 +412,10 @@ export function DocumentsView() {
     [list.data],
   );
 
+  // The reader's presentation (cards / list, stacked / flowing months),
+  // persisted per user and changed behind the wrench.
+  const { layout, isLayoutLoading } = useDocumentsLayout(moduleEnabled);
+
   // v1.30.1 M12 — pull-to-refresh parity with labs/checkups/mood/
   // measurements/medications. The vault is one of the sharpest PWA-resume-
   // staleness surfaces named in the audit: a document indexed server-side
@@ -418,15 +442,19 @@ export function DocumentsView() {
     enqueueRef.current = upload.enqueue;
   }, [upload.enqueue]);
   const episodeIdFilter = filters.episodeId;
+  const encounterIdFilter = filters.encounterId;
   const enqueueFiles = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
-      enqueueRef.current(files, { episodeId: episodeIdFilter });
+      enqueueRef.current(files, {
+        episodeId: episodeIdFilter,
+        encounterId: encounterIdFilter,
+      });
       setUploadAnnouncement(
         t("documents.upload.queuedAnnouncement", { count: files.length }),
       );
     },
-    [episodeIdFilter, t],
+    [episodeIdFilter, encounterIdFilter, t],
   );
   const { dropActive } = usePageFileDrop(
     canManageDocuments ? enqueueFiles : undefined,
@@ -499,10 +527,46 @@ export function DocumentsView() {
           label: `${
             visit.practitioner?.name ??
             encounterKindText(t, visit.kind as EncounterKind)
-          } · ${format.date(visit.occurredAt)}`,
+          }, ${format.date(visit.occurredAt)}`,
         })),
     [visits.data, t, format],
   );
+
+  // Procedure choices: every procedure carrying at least one live document
+  // link, served by the usage endpoint for the same reason as the condition
+  // chips, plus the actively filtered visit when it is a procedure (see
+  // `buildProcedureChoices`).
+  const procedureChips = useMemo<ProcedureFilterChoice[]>(() => {
+    const activeVisit = filters.encounterId
+      ? [...(visits.data?.upcoming ?? []), ...(visits.data?.past ?? [])].find(
+          (v) => v.id === filters.encounterId && v.kind === "PROCEDURE",
+        )
+      : undefined;
+    return buildProcedureChoices(
+      usage.data?.linkedProcedures ?? [],
+      activeVisit
+        ? {
+            encounterId: activeVisit.id,
+            occurredAt: activeVisit.occurredAt,
+            reason: activeVisit.reason,
+            bodySite: activeVisit.bodySite,
+            laterality: activeVisit.laterality,
+            practitionerName: activeVisit.practitioner?.name ?? null,
+          }
+        : null,
+      {
+        kindName: encounterKindText(t, "PROCEDURE"),
+        siteText: (site, laterality) => bodySiteText(t, site, laterality),
+        formatDate: (iso) => format.date(iso),
+      },
+    );
+  }, [
+    usage.data?.linkedProcedures,
+    filters.encounterId,
+    visits.data,
+    t,
+    format,
+  ]);
 
   // Year segmenter: years present in the loaded corpus (+ the active year).
   const years = useMemo(() => {
@@ -699,6 +763,21 @@ export function DocumentsView() {
     [bulk, clearSelection, restoreBulk, t],
   );
 
+  // ── Delete confirmation ───────────────────────────────────────────────
+  // Every way of deleting from the vault page — the bulk bar's Delete and a
+  // card's Delete key — comes through here and asks first. Nothing on this
+  // page calls `deleteBulk` directly.
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(
+    null,
+  );
+  const requestDelete = useCallback((ids: string[]) => {
+    if (ids.length > 0) setPendingDeleteIds(ids);
+  }, []);
+  const confirmDelete = useCallback(() => {
+    if (pendingDeleteIds) deleteBulk(pendingDeleteIds);
+    setPendingDeleteIds(null);
+  }, [pendingDeleteIds, deleteBulk]);
+
   // ── Bulk share ────────────────────────────────────────────────────────
   // ONE documents-only link for the whole selection (the share model carries
   // up to SHARE_MAX_DOCUMENTS docs per link). The titles come from the loaded
@@ -878,17 +957,45 @@ export function DocumentsView() {
         title={t("documents.title")}
         description={t("documents.subtitle")}
         actions={
-          canManageDocuments ? (
+          canManageDocuments || !inSharedRecord ? (
             <div className="flex flex-wrap items-center gap-2">
-              {/* Renders only with a connected Paperless-ngx or Papra. */}
-              <ImportFromSourceButton className="min-h-11 sm:min-h-9" />
-              <Button
-                className="min-h-11 sm:min-h-9"
-                onClick={() => uploadInputRef.current?.click()}
-              >
-                <Upload className="size-4" aria-hidden />
-                {t("documents.pageUpload")}
-              </Button>
+              {/* The wrench left of the primary action, as on the illness
+                  journal: it opens this vault's display settings. `/settings`
+                  is the caller's own, so it never shows inside somebody
+                  else's record. */}
+              {!inSharedRecord ? (
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="icon"
+                  className="min-h-11 min-w-11 sm:min-h-9 sm:min-w-9"
+                >
+                  <Link
+                    href="/settings/layout/documents"
+                    aria-label={t("documents.customize")}
+                    title={t("documents.customize")}
+                    data-slot="documents-customize"
+                  >
+                    <Wrench className="size-4" aria-hidden />
+                  </Link>
+                </Button>
+              ) : null}
+              {canManageDocuments ? (
+                <>
+                  {/* Renders only with a connected Paperless-ngx or Papra. */}
+                  <ImportFromSourceButton className="min-h-11 sm:min-h-9" />
+                  {/* An empty vault's empty state carries the upload. */}
+                  {showEmpty && !isFiltered ? null : (
+                    <Button
+                      className="min-h-11 sm:min-h-9"
+                      onClick={() => uploadInputRef.current?.click()}
+                    >
+                      <Upload className="size-4" aria-hidden />
+                      {t("documents.pageUpload")}
+                    </Button>
+                  )}
+                </>
+              ) : null}
             </div>
           ) : null
         }
@@ -921,6 +1028,9 @@ export function DocumentsView() {
         conditionChips={conditionChips}
         activeEpisodeId={filters.episodeId}
         onToggleEpisode={toggleEpisode}
+        procedureChips={procedureChips}
+        activeEncounterId={filters.encounterId}
+        onToggleEncounter={toggleEncounter}
         years={years}
         activeYear={filters.year}
         onToggleYear={toggleYear}
@@ -931,15 +1041,30 @@ export function DocumentsView() {
         onIndexAll={handleIndexAll}
       />
 
-      {list.isPending ? (
-        <div
-          data-slot="documents-loading"
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          {Array.from({ length: 9 }, (_, i) => (
-            <Skeleton key={i} className="h-28 rounded-xl" />
-          ))}
-        </div>
+      {list.isPending || isLayoutLoading ? (
+        layout.view === "list" ? (
+          <div data-slot="documents-loading" className="space-y-4">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} className="h-20 w-full rounded-xl" />
+            ))}
+          </div>
+        ) : (
+          <div
+            data-slot="documents-loading"
+            // The archive's tile shape (a 4:3 preview over two text lines),
+            // in the timeline's column counts, so the grid does not jump when
+            // the first page lands.
+            className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4"
+          >
+            {Array.from({ length: 8 }, (_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="aspect-[4/3] w-full rounded-xl" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+            ))}
+          </div>
+        )
       ) : list.isError ? (
         <QueryErrorCard
           title={t("documents.list.loadError")}
@@ -950,7 +1075,6 @@ export function DocumentsView() {
           icon={<FolderOpen className="size-6" aria-hidden />}
           title={t("documents.empty.title")}
           description={t("documents.empty.description")}
-          ctaSize="lg"
           action={
             canManageDocuments ? (
               <Button
@@ -976,6 +1100,8 @@ export function DocumentsView() {
         />
       ) : (
         <DocumentTimeline
+          view={layout.view}
+          arrangement={layout.arrangement}
           timezone={timezone}
           documents={documents}
           uploadItems={upload.items}
@@ -986,7 +1112,9 @@ export function DocumentsView() {
           selectedIds={selectedIds}
           onToggleSelected={canManageDocuments ? toggleSelected : undefined}
           onOpen={openDetail}
-          onDelete={canManageDocuments ? (id) => deleteBulk([id]) : undefined}
+          onDelete={
+            canManageDocuments ? (id) => requestDelete([id]) : undefined
+          }
           highlightId={upload.highlightId}
           onPrefetch={prefetchDetail}
         />
@@ -1015,10 +1143,29 @@ export function DocumentsView() {
             runBulk("linkEncounter", { encounterId })
           }
           onShare={openBulkShare}
-          onDelete={() => deleteBulk([...selectedIds])}
+          onRequestDelete={() => requestDelete([...selectedIds])}
           onClear={clearSelection}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={pendingDeleteIds !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteIds(null);
+        }}
+        title={
+          pendingDeleteIds !== null && pendingDeleteIds.length > 1
+            ? t("documents.deleteConfirm.titleMany", {
+                count: pendingDeleteIds.length,
+              })
+            : t("documents.deleteConfirm.titleOne")
+        }
+        body={t("documents.deleteConfirm.body")}
+        confirmLabel={t("documents.deleteConfirm.action")}
+        onConfirm={confirmDelete}
+        slot="documents-delete"
+        destructive
+      />
 
       <DocumentShareSheet
         open={bulkShareOpen}

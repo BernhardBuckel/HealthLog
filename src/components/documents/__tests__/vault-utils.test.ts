@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { InboundDocumentDto } from "@/lib/validations/inbound-documents";
 import {
+  buildProcedureChoices,
+  buildFlowTimelineItems,
   buildTimelineItems,
   buildVaultListApiSearch,
   classifyUploadFailure,
@@ -126,6 +128,28 @@ describe("API list search", () => {
 });
 
 describe("timeline items", () => {
+  it("flowing: rows run across month boundaries and mark where each month opens", () => {
+    const docs = [
+      doc({ id: "a", documentDate: "2026-03-20" }),
+      doc({ id: "b", documentDate: "2026-03-15" }),
+      doc({ id: "c", documentDate: "2026-02-28" }),
+      doc({ id: "d", documentDate: "2026-02-10" }),
+      doc({ id: "e", documentDate: "2026-01-05" }),
+    ];
+    const items = buildFlowTimelineItems(docs, 3, "UTC");
+    // No row is spent on a month: five documents in three columns are two rows.
+    expect(items.map((i) => i.type)).toEqual(["row", "row"]);
+    expect(items[0]).toMatchObject({
+      documents: [docs[0], docs[1], docs[2]],
+      monthStarts: { a: "2026-03", c: "2026-02" },
+    });
+    // February continues into the second row without a second marker.
+    expect(items[1]).toMatchObject({
+      documents: [docs[3], docs[4]],
+      monthStarts: { e: "2026-01" },
+    });
+  });
+
   it("buckets by month and chunks rows to the column count", () => {
     const docs = [
       doc({ id: "a", documentDate: "2026-03-20" }),
@@ -455,5 +479,65 @@ describe("documentCardKeyAction", () => {
     for (const key of ["Enter", "Escape", "a", "ArrowDown", "Del"]) {
       expect(documentCardKeyAction(key)).toBeNull();
     }
+  });
+});
+
+describe("buildProcedureChoices", () => {
+  const labels = {
+    kindName: "Procedure or surgery",
+    siteText: (site: string | null, side: string | null) =>
+      site ? (side ? `${site} (${side.toLowerCase()})` : site) : null,
+    formatDate: (iso: string) => iso.slice(0, 10),
+  };
+  const knee = {
+    encounterId: "enc-knee",
+    occurredAt: "2025-10-02T08:00:00.000Z",
+    reason: "Knee arthroscopy",
+    bodySite: "Knee",
+    laterality: "LEFT" as const,
+    practitionerName: "Day clinic",
+  };
+
+  it("heads each choice like the visits page: reason, else practice, else kind", () => {
+    const choices = buildProcedureChoices(
+      [
+        knee,
+        { ...knee, encounterId: "enc-2", reason: null, bodySite: null },
+        {
+          ...knee,
+          encounterId: "enc-3",
+          reason: "  ",
+          practitionerName: null,
+          laterality: null,
+        },
+      ],
+      null,
+      labels,
+    );
+    expect(choices).toEqual([
+      {
+        encounterId: "enc-knee",
+        name: "Knee arthroscopy",
+        detail: "Knee (left), 2025-10-02",
+      },
+      { encounterId: "enc-2", name: "Day clinic", detail: "2025-10-02" },
+      {
+        encounterId: "enc-3",
+        name: "Procedure or surgery",
+        detail: "Knee, 2025-10-02",
+      },
+    ]);
+  });
+
+  it("keeps an active procedure the usage list no longer holds, once", () => {
+    const gone = { ...knee, encounterId: "enc-gone", reason: "Appendectomy" };
+    const choices = buildProcedureChoices([knee], gone, labels);
+    expect(choices.map((c) => c.encounterId)).toEqual(["enc-knee", "enc-gone"]);
+    // Already listed: not added a second time.
+    expect(buildProcedureChoices([knee], knee, labels)).toHaveLength(1);
+  });
+
+  it("offers nothing when no procedure carries a document", () => {
+    expect(buildProcedureChoices([], null, labels)).toEqual([]);
   });
 });

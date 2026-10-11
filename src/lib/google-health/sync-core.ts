@@ -19,7 +19,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { prisma } from "@/lib/db";
 import type { MeasurementType } from "@/generated/prisma/client";
 import { encrypt, decrypt } from "@/lib/crypto";
-import { getEvent } from "@/lib/logging/context";
+import { annotate, getEvent } from "@/lib/logging/context";
+import type { GoogleHealthCollectionKey } from "./collection-keys";
+import { userDayKey } from "@/lib/tz/format";
+import { isP2002 } from "@/lib/prisma-errors";
+import {
+  reconcileExternalMeasurement,
+  type MeasurementReconciliationVerdict,
+} from "@/lib/measurements/reconcile-external-measurement";
 import { dropImplausibleMeasurements } from "@/lib/measurements/plausibility-gate";
 import { emitInsertedMeasurementArrivals } from "@/lib/arrivals/measurement-emit";
 import { recordSyncFailure, type FailureKind } from "@/lib/integrations/status";
@@ -29,10 +36,12 @@ import {
 } from "@/lib/rollups/measurement-rollups";
 import { invalidateStatusInsightsForTypes } from "@/lib/insights/comprehensive-generate";
 import {
+  googleHealthOutcomeTruncated,
   noteGoogleHealthMapped,
   noteGoogleHealthOutcomeFailure,
   noteGoogleHealthWritten,
   refreshAccessToken,
+  type GoogleHealthTokenSource,
 } from "./client";
 import { getUserGoogleHealthCredentials } from "./credentials";
 import {
@@ -59,8 +68,47 @@ const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
  */
 export const GOOGLE_HEALTH_DEFAULT_OVERLAP_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * v1.42 (#1023) — the overlap for intraday samples (heart rate, one point a
+ * minute). The 24 h overlap exists for daily summaries and sleep, which
+ * Google re-scores after the fact; a minute sample is final when it is
+ * written. Re-reading a whole day of it every hour meant 38 to 40 pages per
+ * sync on a per-minute stream, which a slow host felt. Two hours still
+ * covers a watch that syncs to the phone late.
+ */
+export const GOOGLE_HEALTH_INTRADAY_OVERLAP_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * The intraday overlap for one cycle. Two hours covers a watch that reaches
+ * the phone a little late, but a watch worn without its phone uploads to
+ * Google's cloud only when it next meets the phone, which can be many hours
+ * after the samples were taken. Those samples carry their original sample
+ * time, so once `lastSyncedAt` has moved past them a two-hour window never
+ * sees them again.
+ *
+ * So the first successful cycle of each local day reads intraday samples
+ * with the full day of overlap, and every later cycle that day keeps the
+ * short window. "First of the day" is derived from the watermark itself
+ * (`lastSyncedAt` falls on an earlier local day than now), so no extra state
+ * is needed, and a failed wide cycle does not stamp `markSynced`, which makes
+ * the next cycle wide again. Cost stays bounded: one day-wide read per day
+ * instead of one per hour, still under the dense page cap (#1023).
+ */
+export function intradayOverlapMs(
+  lastSyncedAt: Date | null,
+  tz: string,
+  now: Date = new Date(),
+): number {
+  if (!lastSyncedAt) return GOOGLE_HEALTH_INTRADAY_OVERLAP_MS;
+  return userDayKey(lastSyncedAt, tz) === userDayKey(now, tz)
+    ? GOOGLE_HEALTH_INTRADAY_OVERLAP_MS
+    : GOOGLE_HEALTH_DEFAULT_OVERLAP_MS;
+}
+
 export interface GoogleHealthTokenInfo {
   accessToken: string;
+  /** When `accessToken` stops being accepted. */
+  expiresAt: Date;
   connection: { id: string; googleUserId: string };
 }
 
@@ -77,6 +125,7 @@ export interface GoogleHealthTokenInfo {
  */
 export async function getValidToken(
   userId: string,
+  opts: { forceRefresh?: boolean } = {},
 ): Promise<GoogleHealthTokenInfo | null> {
   const connection = await prisma.googleHealthConnection.findUnique({
     where: { userId },
@@ -87,8 +136,8 @@ export async function getValidToken(
   const refreshToken = decrypt(connection.refreshToken);
 
   if (
-    connection.tokenExpiresAt.getTime() - TOKEN_REFRESH_BUFFER_MS <
-    Date.now()
+    opts.forceRefresh === true ||
+    connection.tokenExpiresAt.getTime() - TOKEN_REFRESH_BUFFER_MS < Date.now()
   ) {
     try {
       const creds = await getUserGoogleHealthCredentials(userId);
@@ -132,6 +181,7 @@ export async function getValidToken(
 
       return {
         accessToken: newTokens.access_token,
+        expiresAt,
         connection: {
           id: connection.id,
           googleUserId: connection.googleUserId,
@@ -171,10 +221,56 @@ export async function getValidToken(
 
   return {
     accessToken,
+    expiresAt: connection.tokenExpiresAt,
     connection: {
       id: connection.id,
       googleUserId: connection.googleUserId,
     },
+  };
+}
+
+/**
+ * Thrown by a token source when no valid token can be had any more. The
+ * failure is already on the ledger and the cycle's verdict by then
+ * (`getValidToken` records it), so the collection that hit it only has to
+ * stop.
+ */
+export class GoogleHealthTokenUnavailableError extends Error {
+  constructor() {
+    super("Google Health access token unavailable");
+    this.name = "GoogleHealthTokenUnavailableError";
+  }
+}
+
+/**
+ * The token source a resource hands to its walks (see
+ * `GoogleHealthTokenSource`). It starts from the token the resource resolved
+ * and renews it whenever it comes within the refresh buffer of expiring, or
+ * when a request reports it refused.
+ *
+ * Before this the resource resolved one token and every walk carried it to
+ * the end. An access token lives an hour, a full-history heart-rate walk runs
+ * for several, and once the hour was up every remaining request answered 401.
+ * A 401 classifies as a revoked grant, so the account was parked at
+ * `error_reauth` over a token that had simply expired, with a refresh token
+ * that was still perfectly good, and stayed parked until it was reconnected
+ * by hand (#1194).
+ */
+export function googleHealthTokenSource(
+  userId: string,
+  initial: GoogleHealthTokenInfo,
+): GoogleHealthTokenSource {
+  let current = initial;
+  return async ({ forceRefresh }) => {
+    if (
+      forceRefresh ||
+      current.expiresAt.getTime() - TOKEN_REFRESH_BUFFER_MS < Date.now()
+    ) {
+      const next = await getValidToken(userId, { forceRefresh });
+      if (!next) throw new GoogleHealthTokenUnavailableError();
+      current = next;
+    }
+    return current.accessToken;
   };
 }
 
@@ -306,6 +402,114 @@ export async function runWithGoogleHealthSyncCycle<T>(
 }
 
 /**
+ * Collections a full-history backfill already walked to the end, carried from
+ * one attempt of the backfill to the next.
+ *
+ * A backfill that ended early (its job budget ran out, a collection failed)
+ * used to start the next attempt from the first page of the first collection,
+ * so the dense heart-rate walk, thousands of pages, was paid for again on
+ * every retry, and an account whose walk never fit into one attempt never
+ * finished at all. Each collection that completes cleanly is now written to
+ * `backfillProgress`, and the next attempt skips it and goes on with the
+ * collections it did not reach. A collection is the unit because Google
+ * offers no cursor that survives between attempts; its page tokens are not
+ * documented to outlive the walk that received them.
+ */
+interface BackfillResumeTracker {
+  userId: string;
+  done: Set<string>;
+  /** Collections this attempt skipped because an earlier one finished them. */
+  skipped: string[];
+}
+const backfillResumeStorage = new AsyncLocalStorage<BackfillResumeTracker>();
+
+/** Read the `backfillProgress` column into the set of finished collections. */
+export function readGoogleHealthBackfillDone(value: unknown): Set<string> {
+  const done =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as { done?: unknown }).done
+      : undefined;
+  return new Set(
+    Array.isArray(done)
+      ? done.filter(
+          (key): key is string => typeof key === "string" && key.length <= 64,
+        )
+      : [],
+  );
+}
+
+/**
+ * Run a full-history backfill attempt that resumes: collections in `done` are
+ * skipped, and each collection finished cleanly during this attempt is added
+ * to it and persisted at once, so an attempt that dies part-way keeps what it
+ * finished.
+ */
+export async function runWithGoogleHealthBackfillResume<T>(
+  userId: string,
+  done: Set<string>,
+  fn: () => Promise<T>,
+): Promise<{ result: T; skipped: string[] }> {
+  const tracker: BackfillResumeTracker = { userId, done, skipped: [] };
+  const result = await backfillResumeStorage.run(tracker, fn);
+  return { result, skipped: tracker.skipped };
+}
+
+/**
+ * Walk one collection, under the backfill's resume bookkeeping when there is
+ * one in scope. Outside a backfill this is just `fn()`.
+ *
+ * Inside one, a collection already walked to the end by an earlier attempt is
+ * skipped. Otherwise it runs, and it counts as finished only when nothing
+ * went wrong while it ran: no hard failure on the cycle's ledger, no 403
+ * soft-skip, and no walk that ended short (its page ceiling, or the job's
+ * budget asking it to stop). Anything less is walked again next attempt.
+ */
+export async function runGoogleHealthCollection(
+  key: GoogleHealthCollectionKey,
+  fn: () => Promise<number>,
+): Promise<number> {
+  const resume = backfillResumeStorage.getStore();
+  if (!resume) return fn();
+  if (resume.done.has(key)) {
+    resume.skipped.push(key);
+    return 0;
+  }
+  const hardBefore = hardFailStorage.getStore()?.failures.length ?? 0;
+  const softBefore = softSkipStorage.getStore()?.count ?? 0;
+  const truncatedBefore = googleHealthOutcomeTruncated();
+  const imported = await fn();
+  const clean =
+    (hardFailStorage.getStore()?.failures.length ?? 0) === hardBefore &&
+    (softSkipStorage.getStore()?.count ?? 0) === softBefore &&
+    !truncatedBefore &&
+    !googleHealthOutcomeTruncated();
+  if (clean) {
+    // The collection counts as finished only once the note says so. The job
+    // reads the size of `done` as this attempt's progress and sends another
+    // slice on it; a key added before a write that then failed would be
+    // progress nobody can see next attempt, and a chain of slices could keep
+    // "progressing" over the same collection forever.
+    try {
+      await prisma.googleHealthConnection.update({
+        where: { userId: resume.userId },
+        data: { backfillProgress: { done: [...resume.done, key] } },
+      });
+      resume.done.add(key);
+    } catch (err) {
+      // Not finished, then: the collection is walked again next attempt. It
+      // must not fail a collection whose rows are written.
+      getEvent()?.addWarning(
+        `google-health: backfill progress write failed for ${key}: ${err}`,
+      );
+      annotate({
+        meta: { "googleHealth.backfill.progressWriteFailed": key },
+      });
+    }
+  }
+  return imported;
+}
+
+/**
  * Single-source the per-resource collection-fetch error handling. A 403 on one
  * data class soft-skips it (warn + return 0) so sibling resources still sync; a
  * soft-skip increments the ambient tracker so `syncUserGoogleHealth` can refuse
@@ -324,6 +528,14 @@ export async function handleCollectionFetchError(
   userId: string,
   err: unknown,
 ): Promise<number> {
+  if (err instanceof GoogleHealthTokenUnavailableError) {
+    // `getValidToken` already recorded the failure and failed the cycle;
+    // recording it again would count one dead token twice.
+    getEvent()?.addWarning(
+      `google-health ${resource} stopped for ${userId}: no valid access token`,
+    );
+    return 0;
+  }
   if (isCollectionForbidden(err)) {
     getEvent()?.addWarning(
       `google-health ${resource} sync skipped for ${userId}: collection 403 (soft-skip)`,
@@ -354,6 +566,12 @@ export interface GoogleHealthResourceSyncOptions {
   fullSync?: boolean;
   /** The incremental lower bound, snapshotted once by the orchestrator. */
   start?: Date;
+  /**
+   * v1.42 — the incremental lower bound for intraday samples, from the same
+   * snapshot with `GOOGLE_HEALTH_INTRADAY_OVERLAP_MS`. Undefined on a full
+   * run, like `start`; a resource that does not set it falls back to `start`.
+   */
+  intradayStart?: Date;
   /**
    * When true, `upsertGoogleHealthMeasurements` writes the rows but SKIPS the
    * inline per-(type,day) DAY-rollup recompute + status-insight invalidate,
@@ -401,6 +619,51 @@ export interface GoogleHealthMeasurementUpsert {
   sleepStage?: "IN_BED" | "AWAKE" | "ASLEEP" | "REM" | "CORE" | "DEEP" | null;
 }
 
+/**
+ * Keep one reading per natural key — `(type, measuredAt, sleepStage)`, the
+ * second unique index on measurements — out of a batch.
+ *
+ * Google reports overlapping sleep segments: two sessions for one night, or
+ * two segments of one session with the same stage and the same end. Both
+ * readings carry their own externalId, but only one row can hold their
+ * natural key. Writing both was never possible; what happened instead
+ * depended on the order of the batch. A fresh pair lost one reading to
+ * `skipDuplicates` without a trace, and a re-score that moved one row onto
+ * the other's slot threw P2002 and failed the whole sync (#1195).
+ *
+ * The rule picks the same reading every time Google sends the same pair, so
+ * the row that holds the slot does not change hands from one sync to the
+ * next: the longer one (for a sleep segment, the span that covers the
+ * shorter one ending at the same instant), then the smaller externalId.
+ * Readings that share an externalId as well are the same reading fetched
+ * twice, and collapse the same way.
+ */
+export function collapseNaturalKeyTwins<
+  T extends GoogleHealthMeasurementUpsert,
+>(readings: readonly T[]): { kept: T[]; dropped: number } {
+  const byKey = new Map<string, T>();
+  for (const r of readings) {
+    const key = `${r.type}|${r.measuredAt.getTime()}|${r.sleepStage ?? ""}`;
+    const held = byKey.get(key);
+    if (
+      !held ||
+      r.value > held.value ||
+      (r.value === held.value && r.externalId < held.externalId)
+    ) {
+      byKey.set(key, r);
+    }
+  }
+  return {
+    kept: readings.filter(
+      (r) =>
+        byKey.get(
+          `${r.type}|${r.measuredAt.getTime()}|${r.sleepStage ?? ""}`,
+        ) === r,
+    ),
+    dropped: readings.length - byKey.size,
+  };
+}
+
 /** Chunk size for the batched `createMany` insert of fresh readings. */
 const GOOGLE_HEALTH_CREATE_CHUNK = 500;
 
@@ -410,7 +673,10 @@ export interface GoogleHealthSleepReplaceWindow {
   windowStart: Date | null;
   /** Latest segment end (UTC). */
   windowEnd: Date | null;
-  /** The fresh externalIds for THIS session — never soft-deleted. */
+  /**
+   * The fresh externalIds that must survive — every session's of the fetch,
+   * since sessions can overlap (see `replaceStaleGoogleHealthSleep`).
+   */
   keepIds: string[];
 }
 
@@ -422,11 +688,12 @@ export interface GoogleHealthSleepReplaceWindow {
  * night-total silently double-counted (a 7h35 night read as 10h+). For each
  * just-fetched session this soft-deletes any LIVE `GOOGLE_HEALTH`
  * `SLEEP_DURATION` row whose `measuredAt` falls inside the session's
- * `[windowStart, windowEnd]` but was NOT re-produced by this fetch (`keepIds`
- * are this session's fresh externalIds). Sleep sessions do not overlap in time,
- * so a scan bounded to one session's window only ever touches that session's own
- * rows — a fresh row is protected by `keepIds`, and any leftover (old volatile
- * key, or a segment Google dropped) is cleared. Rows OUTSIDE every returned
+ * `[windowStart, windowEnd]` but was NOT re-produced by this fetch. Sessions
+ * CAN overlap in time (Google reports two sessions over one stretch of a night
+ * from two sources), so the caller passes every fresh externalId of the fetch
+ * in `keepIds`, not only this session's: a window then never clears a row
+ * another session just re-produced, and any leftover (old volatile key, or a
+ * segment Google dropped) is cleared. Rows OUTSIDE every returned
  * window are never touched, so a night Google did not re-report this tick stays
  * intact — no data loss, only stale duplicates and re-score orphans go. This is
  * also the repair path: a full backfill re-fetches history and cleans each night
@@ -510,11 +777,15 @@ export async function upsertGoogleHealthMeasurements(
   // before they can become rows. A refused reading is dropped and tallied on
   // the ambient event, never clamped and never written for a later reader to
   // discover.
-  const readings = dropImplausibleMeasurements(
-    "googleHealth",
-    incoming,
-    (r) => ({ type: r.type, value: r.value }),
+  const { kept: readings, dropped: naturalKeyTwins } = collapseNaturalKeyTwins(
+    dropImplausibleMeasurements("googleHealth", incoming, (r) => ({
+      type: r.type,
+      value: r.value,
+    })),
   );
+  if (naturalKeyTwins > 0) {
+    annotate({ meta: { "googleHealth.naturalKeyTwins": naturalKeyTwins } });
+  }
   if (readings.length === 0) return { imported: 0, touched: [], inserted: [] };
 
   // Probe EVERY existing row (live AND tombstoned) for the batch's externalIds
@@ -668,6 +939,13 @@ export async function upsertGoogleHealthMeasurements(
   // value, the NEW externalId (the migration itself), `deletedAt: null`.
   if (toCreate.length > 0) {
     try {
+      // A row this batch already matched by externalId belongs to that
+      // reading. When the reading moves it (a re-scored segment end), the
+      // slot it leaves is free by the time the inserts run (updates go
+      // first, below), so a fresh reading for that slot is an insert, not a
+      // rescue: re-keying the moving row would hand it to two readings at
+      // once and drop one of them.
+      const claimedIds = new Set([...rowByKey.values()].map((row) => row.id));
       const rescued = new Set<number>();
       const naturalKeyOf = (
         type: string,
@@ -705,7 +983,7 @@ export async function upsertGoogleHealthMeasurements(
           const id = byNaturalKey.get(
             naturalKeyOf(c.type, c.measuredAt, c.sleepStage),
           );
-          if (id) {
+          if (id && !claimedIds.has(id)) {
             rescued.add(i + j);
             toUpdate.push({
               id,
@@ -744,6 +1022,121 @@ export async function upsertGoogleHealthMeasurements(
     type: MeasurementType;
     measuredAt: Date;
   }> = [];
+
+  // Existing-row overwrites first, inserts second: a re-scored segment that
+  // moves its row frees the slot the row held, and a fresh reading for that
+  // slot can only land once the move has happened.
+  //
+  // Per-row update (differing values) on the matched id, so the re-fetched
+  // daily summary overwrites in place and bumps `syncVersion`.
+  // `deletedAt: null` rides along unconditionally — a no-op on a live row, a
+  // deliberate RESURRECTION on a tombstoned one (Google is the source of truth
+  // for its own rows; see TOMBSTONES RESURRECT above).
+  //
+  // A move can still land on a slot another row holds: Google reports
+  // overlapping sleep segments, and a re-score can put one segment's end on
+  // the end another segment of the same stage already has. The natural-key
+  // index refuses that write (P2002). It is not a failed sync: the row that
+  // holds the slot is a stale copy of the same reading, so the move is handed
+  // to `reconcileExternalMeasurement`, which retires the stale copy and lands
+  // the reading, the same way every other provider settles the two
+  // identities. Only a reconcile that itself fails holds the watermark.
+  const conflicts: typeof toUpdate = [];
+  for (const entry of toUpdate) {
+    const { id, r, reKeyTo, movedFrom } = entry;
+    try {
+      await prisma.measurement.update({
+        where: { id },
+        data: {
+          value: r.value,
+          unit: r.unit,
+          measuredAt: r.measuredAt,
+          sleepStage: r.sleepStage ?? null,
+          deletedAt: null,
+          // Key-format migration: adopt the fresh externalId in place.
+          ...(reKeyTo ? { externalId: reKeyTo } : {}),
+          // Surface the server-side mutation to the iOS LWW reconciler.
+          syncVersion: { increment: 1 },
+        },
+      });
+      touched.push({
+        type: r.type as MeasurementType,
+        measuredAt: r.measuredAt,
+      });
+      // A row that moved (a daily anchor re-cut on the user's local noon)
+      // leaves its old day too; that day's rollup needs the refold.
+      if (movedFrom) {
+        touched.push({
+          type: r.type as MeasurementType,
+          measuredAt: movedFrom,
+        });
+      }
+      imported++;
+    } catch (err) {
+      if (isP2002(err)) {
+        conflicts.push(entry);
+        continue;
+      }
+      getEvent()?.addWarning(
+        `google-health: failed to update measurement: ${err}`,
+      );
+      // Same rule as the create catch: hold the watermark so the overwrite is
+      // retried next tick rather than silently dropped.
+      noteHardFailure("measurements:update");
+    }
+  }
+
+  if (conflicts.length > 0) {
+    let resolved = 0;
+    for (const { r, movedFrom } of conflicts) {
+      const verdict = await prisma
+        .$transaction((tx) =>
+          reconcileExternalMeasurement(tx, {
+            userId,
+            type: r.type as MeasurementType,
+            source: "GOOGLE_HEALTH",
+            value: r.value,
+            unit: r.unit,
+            measuredAt: r.measuredAt,
+            externalId: r.externalId,
+            sleepStage: r.sleepStage ?? null,
+          }),
+        )
+        .catch((err): MeasurementReconciliationVerdict => ({
+          status: "failed",
+          error: { message: String(err) },
+        }));
+      if (verdict.status === "failed") {
+        getEvent()?.addWarning(
+          `google-health: failed to reconcile measurement: ${verdict.error.message}`,
+        );
+        noteHardFailure("measurements:update");
+        continue;
+      }
+      if (verdict.status === "rejected_range") continue;
+      resolved++;
+      imported++;
+      touched.push({
+        type: r.type as MeasurementType,
+        measuredAt: r.measuredAt,
+      });
+      if (movedFrom) {
+        touched.push({
+          type: r.type as MeasurementType,
+          measuredAt: movedFrom,
+        });
+      }
+      for (const dirty of verdict.dirtyIdentities ?? []) {
+        touched.push({ type: dirty.type, measuredAt: dirty.measuredAt });
+      }
+    }
+    annotate({
+      meta: {
+        "googleHealth.naturalKeyConflicts": conflicts.length,
+        "googleHealth.naturalKeyConflictsResolved": resolved,
+      },
+    });
+  }
 
   // Fresh inserts: chunked `createMany` (server-owned rows, field-by-field).
   // `skipDuplicates` guards the partial-unique index in the rare race where a
@@ -784,50 +1177,6 @@ export async function upsertGoogleHealthMeasurements(
       // next tick re-fetches them. No rethrow: sibling chunks and resources
       // must keep writing.
       noteHardFailure("measurements:create");
-    }
-  }
-
-  // Existing-row overwrites: per-row update (differing values) on the matched
-  // id, so the re-fetched daily summary overwrites in place and bumps
-  // `syncVersion`. `deletedAt: null` rides along unconditionally — a no-op on
-  // a live row, a deliberate RESURRECTION on a tombstoned one (Google is the
-  // source of truth for its own rows; see TOMBSTONES RESURRECT above).
-  for (const { id, r, reKeyTo, movedFrom } of toUpdate) {
-    try {
-      await prisma.measurement.update({
-        where: { id },
-        data: {
-          value: r.value,
-          unit: r.unit,
-          measuredAt: r.measuredAt,
-          sleepStage: r.sleepStage ?? null,
-          deletedAt: null,
-          // Key-format migration: adopt the fresh externalId in place.
-          ...(reKeyTo ? { externalId: reKeyTo } : {}),
-          // Surface the server-side mutation to the iOS LWW reconciler.
-          syncVersion: { increment: 1 },
-        },
-      });
-      touched.push({
-        type: r.type as MeasurementType,
-        measuredAt: r.measuredAt,
-      });
-      // A row that moved (a daily anchor re-cut on the user's local noon)
-      // leaves its old day too; that day's rollup needs the refold.
-      if (movedFrom) {
-        touched.push({
-          type: r.type as MeasurementType,
-          measuredAt: movedFrom,
-        });
-      }
-      imported++;
-    } catch (err) {
-      getEvent()?.addWarning(
-        `google-health: failed to update measurement: ${err}`,
-      );
-      // Same rule as the create catch: hold the watermark so the overwrite is
-      // retried next tick rather than silently dropped.
-      noteHardFailure("measurements:update");
     }
   }
 
@@ -875,14 +1224,21 @@ export async function upsertGoogleHealthMeasurements(
 }
 
 /**
- * Stamp `lastSyncedAt = now`. Called ONCE per cycle by `syncUserGoogleHealth`
- * after a non-degenerate run — never per resource, so the watermark can't move
- * mid-cycle and shrink a later resource's fetch window.
+ * Stamp `lastSyncedAt`. Called ONCE per cycle by `syncUserGoogleHealth` after
+ * a non-degenerate run — never per resource, so the watermark can't move
+ * mid-cycle and shrink a later resource's fetch window. The orchestrator
+ * passes the instant the cycle STARTED: a sample written to Google while the
+ * cycle was still walking is newer than what the walk read, and stamping the
+ * end would put the watermark past it. That gap is seconds for an hourly run
+ * and hours for a full-history backfill.
  */
-export async function markSynced(userId: string): Promise<void> {
+export async function markSynced(
+  userId: string,
+  at: Date = new Date(),
+): Promise<void> {
   await prisma.googleHealthConnection.update({
     where: { userId },
-    data: { lastSyncedAt: new Date() },
+    data: { lastSyncedAt: at },
   });
 }
 

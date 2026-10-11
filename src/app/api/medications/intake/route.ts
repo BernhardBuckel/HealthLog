@@ -54,7 +54,11 @@ import { queueMedicationIntakeSync } from "@/lib/notifications/medication-intake
 import { dispatchMedicationIntakeWebClear } from "@/lib/notifications/web-push-clear";
 import { notifyDelegatedIntake } from "@/lib/notifications/delegated-intake";
 import { countOutstandingDosesToday } from "@/lib/medications/outstanding-doses";
-import { TRACKED_INTAKE_EVENT_WHERE } from "@/lib/medications/intake-tracking";
+import {
+  TRACKED_INTAKE_EVENT_WHERE,
+  isRecordOnly,
+} from "@/lib/medications/intake-tracking";
+import { refuseUntrackedIntake } from "@/lib/medications/route-guards";
 
 // The query + body schemas moved to `@/lib/validations/medication` when this
 // endpoint joined the published contract: the OpenAPI registry generates from
@@ -265,12 +269,23 @@ export const POST = apiHandler(async (request: NextRequest) => {
           deliveryForm: true,
           trackInjectionSites: true,
           allowedInjectionSites: true,
+          trackIntake: true,
         },
       },
     },
   });
   if (!existing || existing.userId !== user.id) {
     return apiError("Intake event not found", 404);
+  }
+
+  // A record-only medication keeps the doses it already has, and an owner may
+  // still correct one of those (that is an edit of history). What it no longer
+  // takes is a NEW dose: resolving or snoozing an event that is still open
+  // would record one, and it would then be counted nowhere (iOS #116, item
+  // 15). Refused by name, the same code the per-medication route answers with.
+  const stillOpen = existing.takenAt === null && !existing.skipped;
+  if (stillOpen && isRecordOnly(existing.medication)) {
+    return refuseUntrackedIntake();
   }
 
   // v1.36.1 — this route is admitted for delegates because marking a dose is
@@ -423,6 +438,8 @@ export const POST = apiHandler(async (request: NextRequest) => {
           data: {
             takenAt: resolvedTakenAt,
             skipped: false,
+            // v1.42.2 — the person confirmed it; no longer automatic.
+            autoRecorded: false,
             syncVersion: { increment: 1 },
             // v1.8.5 — persist the resolved site on the taken branch.
             ...(resolvedInjectionSite !== null && {
@@ -510,7 +527,13 @@ export const POST = apiHandler(async (request: NextRequest) => {
     updated = await prisma.medicationIntakeEvent.update({
       where: { id: intakeId },
       // v1.7.0 sync — bump the reconciliation counter on the skip toggle.
-      data: { takenAt: null, skipped: true, syncVersion: { increment: 1 } },
+      // v1.42.2 — a skip the person records clears the automatic marker.
+      data: {
+        takenAt: null,
+        skipped: true,
+        autoRecorded: false,
+        syncVersion: { increment: 1 },
+      },
     });
     // v1.16.10 — the row stopped being taken; refund whatever its
     // consumption stamp recorded (no-op for a never-consumed row).

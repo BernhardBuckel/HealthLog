@@ -8,6 +8,8 @@
  * is one-way (snapshot → series), never back.
  */
 import { userDayKey } from "@/lib/tz/format";
+import { dayValue, readingsMean } from "@/lib/measurements/day-mean";
+import { usesHourlyMeanDay } from "@/lib/measurements/day-statistic";
 import {
   applyDisplayTransform,
   type DisplayTransform,
@@ -16,6 +18,8 @@ import { buildTieredSeries } from "@/lib/rollups/tiered-context";
 import type { MeasurementType } from "@/generated/prisma/client";
 import { buildBaselineBand } from "@/lib/insights/derived/baseline";
 import { DEFAULT_WINDOW } from "./snapshot-cache";
+import { COACH_DAILY_DETAIL_DAYS } from "./history-reach";
+import type { DailyPoint } from "./series-condense";
 import type { CoachScope, CoachScopeSource, CoachScopeWindow } from "./types";
 
 const WEEKDAY_KEYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -34,12 +38,12 @@ export function windowToDays(window: CoachScopeWindow): number {
       // stays bounded, but with explicit semantics — the Coach knows
       // the user is asking about a long-horizon view rather than the
       // unbounded "all time" backfill.
-      return 365;
+      return COACH_DAILY_DETAIL_DAYS;
     case "allTime":
       // Cap "allTime" at one year for the timeline. The aggregate
       // section already cites multi-year ranges via the features
       // pipeline; the timeline stays tight to keep token budget sane.
-      return 365;
+      return COACH_DAILY_DETAIL_DAYS;
   }
 }
 
@@ -135,11 +139,33 @@ function dailyMeans<T extends { measuredAt: Date; value: number }>(
   return grouped;
 }
 
+function groupRowsByDay(
+  rows: Array<{ measuredAt: Date; value: number }>,
+  tz: string,
+): Map<string, Array<{ measuredAt: Date; value: number }>> {
+  const out = new Map<string, Array<{ measuredAt: Date; value: number }>>();
+  for (const r of rows) {
+    const key = tzDayKey(r.measuredAt, tz);
+    const list = out.get(key);
+    if (list) list.push(r);
+    else out.set(key, [r]);
+  }
+  return out;
+}
+
+/**
+ * `type`, when given, names the measurement type: for a type whose day is the
+ * mean of its hours' means (pulse, `day-mean.ts`) a week's mean is the mean of
+ * its days and a day's value that day value. `count` stays the readings.
+ */
 export function bucketWeekly(
   rows: Array<{ measuredAt: Date; value: number }>,
   tz: string,
+  type?: string,
 ): WeeklyBucket[] {
+  const hourly = type !== undefined && usesHourlyMeanDay(type);
   const grouped = new Map<string, number[]>();
+  const members = new Map<string, Array<{ measuredAt: Date; value: number }>>();
   for (const r of rows) {
     const key = isoWeekKey(r.measuredAt, tz);
     const list = grouped.get(key);
@@ -148,15 +174,23 @@ export function bucketWeekly(
     } else {
       grouped.set(key, [r.value]);
     }
+    if (hourly) {
+      const kept = members.get(key);
+      if (kept) kept.push(r);
+      else members.set(key, [r]);
+    }
   }
   return Array.from(grouped.entries())
-    .map(([weekISO, values]) => ({
-      weekISO,
-      mean:
-        Math.round((values.reduce((s, v) => s + v, 0) / values.length) * 10) /
-        10,
-      count: values.length,
-    }))
+    .map(([weekISO, values]) => {
+      const mean = hourly
+        ? (readingsMean(type!, members.get(weekISO) ?? [], tz) ?? 0)
+        : values.reduce((s, v) => s + v, 0) / values.length;
+      return {
+        weekISO,
+        mean: Math.round(mean * 10) / 10,
+        count: values.length,
+      };
+    })
     .sort((a, b) => a.weekISO.localeCompare(b.weekISO));
 }
 
@@ -164,12 +198,19 @@ export function buildDailyValueRows(
   rows: Array<{ measuredAt: Date; value: number }>,
   recentCutoff: Date,
   tz: string,
+  type?: string,
 ): DailyValueRow[] {
   const recent = rows.filter((r) => r.measuredAt >= recentCutoff);
   const grouped = dailyMeans(recent, tz);
+  const hourly = type !== undefined && usesHourlyMeanDay(type);
+  const members = hourly
+    ? groupRowsByDay(recent, tz)
+    : new Map<string, Array<{ measuredAt: Date; value: number }>>();
   return Array.from(grouped.entries())
     .map(([date, info]) => {
-      const mean = info.values.reduce((s, v) => s + v, 0) / info.values.length;
+      const mean = hourly
+        ? (dayValue(type!, members.get(date) ?? [], tz) ?? 0)
+        : info.values.reduce((s, v) => s + v, 0) / info.values.length;
       return {
         date,
         weekday: tzWeekday(info.date, tz),
@@ -212,6 +253,13 @@ export async function buildCoarseTimelineTail(
   tz: string,
   /** The user's source-priority blob, already loaded by the caller. */
   userPriorityJson: unknown,
+  /**
+   * The Coach's lookback floor, or null for none. Under a floor only the
+   * MONTH buckets that start inside it are kept; the YEAR band and the
+   * anomaly envelope go, because the envelope is scored against the spread
+   * of every coarse bucket, the older ones included.
+   */
+  floor: Date | null = null,
 ): Promise<CoarseTimelineTail | undefined> {
   // `buildTieredSeries` reads fall back on miss — a coverage miss yields empty
   // bands, which collapse to `undefined` here. The try/catch keeps the coarse
@@ -233,25 +281,39 @@ export async function buildCoarseTimelineTail(
   } catch {
     return undefined;
   }
-  const monthly = series.monthBand.map(
-    (b) =>
-      [b.bucketStart, b.mean, b.min, b.max] as [string, number, number, number],
-  );
-  const yearly = series.yearBand.map(
-    (b) =>
-      [b.bucketStart, b.mean, b.min, b.max] as [string, number, number, number],
-  );
-  if (
-    monthly.length === 0 &&
-    yearly.length === 0 &&
-    series.anomalies.length === 0
-  ) {
+  const monthly = series.monthBand
+    .filter(
+      (b) => floor === null || Date.parse(b.bucketStart) >= floor.getTime(),
+    )
+    .map(
+      (b) =>
+        [b.bucketStart, b.mean, b.min, b.max] as [
+          string,
+          number,
+          number,
+          number,
+        ],
+    );
+  const yearly =
+    floor === null
+      ? series.yearBand.map(
+          (b) =>
+            [b.bucketStart, b.mean, b.min, b.max] as [
+              string,
+              number,
+              number,
+              number,
+            ],
+        )
+      : [];
+  const anomalies = floor === null ? series.anomalies : [];
+  if (monthly.length === 0 && yearly.length === 0 && anomalies.length === 0) {
     return undefined;
   }
   return {
     monthly,
     yearly,
-    anomalies: series.anomalies.map((a) => ({
+    anomalies: anomalies.map((a) => ({
       band: a.band,
       date: a.date,
       kind: a.kind,
@@ -259,6 +321,23 @@ export async function buildCoarseTimelineTail(
       deltaSd: a.deltaSd,
     })),
   };
+}
+
+/**
+ * Every day's value over `rows`, the same day value the timeline's daily
+ * rows use, in the reader's unit when a transform is given. Feeds the
+ * summary of a condensed block (`series-condense.ts`).
+ */
+export function dailyPoints(
+  rows: Array<{ measuredAt: Date; value: number }>,
+  tz: string,
+  type?: string,
+  transform?: DisplayTransform,
+): DailyPoint[] {
+  return buildDailyValueRows(rows, new Date(0), tz, type).map((row) => ({
+    date: row.date,
+    value: transform ? applyDisplayTransform(row.value, transform) : row.value,
+  }));
 }
 
 /**

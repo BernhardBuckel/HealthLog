@@ -140,6 +140,9 @@ function medicationFixture(notificationPrefs: unknown = null) {
     active: true,
     asNeeded: false,
     notificationsEnabled: true,
+    // The reminder gate reads the full row.
+    autoMarkTaken: false,
+    trackIntake: true,
     snoozedUntil: null,
     startsOn: null,
     endsOn: null,

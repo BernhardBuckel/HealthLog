@@ -163,7 +163,11 @@ export async function sendViaEmail(
 
   // Plain text only — strip HTML + decorative emoji on routine reminders.
   const subject = plainPushText(payload.title, payload.eventType);
-  const text = plainPushText(stripHtml(payload.message), payload.eventType);
+  const body = plainPushText(stripHtml(payload.message), payload.eventType);
+  // The tap target as a plain link line (plain text body, no markup).
+  const text = payload.tap?.url
+    ? `${body}\n\n${payload.tap.label}: ${payload.tap.url}`
+    : body;
 
   try {
     await transport.transporter.sendMail({

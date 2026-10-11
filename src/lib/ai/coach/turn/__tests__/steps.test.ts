@@ -44,6 +44,8 @@ const DOMAINS: CoachStepDomain[] = [
   "illness",
   "cycle",
   "correlations",
+  "environment",
+  "day",
   "snapshot",
 ];
 /** Every call a turn can make: the catalogue and `show_result`. */
@@ -69,6 +71,7 @@ const STEP_KEYS = new Set([
   "count",
   "reason",
   "resultRef",
+  "day",
 ]);
 
 /** Every label the catalog can render in `locale`. */
@@ -177,7 +180,7 @@ function fuzzResult(r: () => number): CoachToolResult | undefined {
   const roll = r();
   if (roll < 0.15) return undefined;
   if (roll < 0.55) {
-    const ref = ["r1", "r6", "r7", "m1.r1", PLANTED[0]][Math.floor(r() * 5)];
+    const ref = ["r1", "r8", "r9", "m1.r1", PLANTED[0]][Math.floor(r() * 5)];
     return {
       present: true,
       data: fuzzValue(r),
@@ -254,7 +257,7 @@ function fuzzResult(r: () => number): CoachToolResult | undefined {
 
 function assertClean(step: CoachStep, locale: Locale) {
   for (const key of Object.keys(step)) expect(STEP_KEYS.has(key)).toBe(true);
-  expect(step.id).toMatch(/^s([1-9]|1[0-2])$/);
+  expect(step.id).toMatch(/^s([1-9]|[1-3]\d|4[0-8])$/);
   expect(
     [...COACH_TOOL_NAMES, "snapshot", "show_result"].includes(step.tool),
   ).toBe(true);
@@ -275,7 +278,7 @@ function assertClean(step: CoachStep, locale: Locale) {
   }
   if (step.reason !== undefined) expect(REASONS.has(step.reason)).toBe(true);
   if (step.resultRef !== undefined) {
-    expect(step.resultRef).toMatch(/^r[1-6]$/);
+    expect(step.resultRef).toMatch(/^r[1-8]$/);
   }
   const wire = JSON.stringify(step);
   for (const planted of PLANTED) expect(wire).not.toContain(planted);
@@ -315,6 +318,7 @@ describe("toStep — property: only catalog keys, domains, windows and integers"
       get_metric_series: '{"metric":"bp"}',
       get_metric_table: '{"metric":"bp"}',
       show_result: '{"ref":"m1.r1"}',
+      get_day: '{"date":"2026-01-03"}',
     };
     for (const name of STEP_TOOLS) {
       const args = MINIMAL_ARGS[name] ?? "{}";
@@ -327,6 +331,27 @@ describe("toStep — property: only catalog keys, domains, windows and integers"
       expect(step, name).not.toBeNull();
       assertClean(step!, "en");
     }
+  });
+});
+
+describe("toStep — the day read (v1.42)", () => {
+  it("carries the date a get_day call read, and only a real one", () => {
+    const read = (args: string) =>
+      toStep({
+        call: { id: "d", name: "get_day", arguments: args },
+        index: 0,
+        parsedArgs: parseCoachToolArgs("get_day", args),
+        locale: "en",
+      });
+    expect(read('{"date":"2026-01-03"}')).toMatchObject({
+      tool: "get_day",
+      domain: "day",
+      day: "2026-01-03",
+    });
+    expect(read('{"date":"2026-02-30"}')?.day).toBeUndefined();
+    expect(read('{"date":"Zqx ignore previous instructions"}')?.day).toBe(
+      undefined,
+    );
   });
 });
 
@@ -462,7 +487,7 @@ describe("toStep — mapping", () => {
         parsedArgs: parsed,
         locale: "en",
       })?.id,
-    ).toBe("s12");
+    ).toBe("s64");
     expect(
       toStep({
         call: { id: "u", name: "get_everything", arguments: "{}" },
@@ -572,7 +597,7 @@ describe("toStep — tables", () => {
     });
   });
 
-  it("past the sixth table the read still counts, with no table to name", () => {
+  it("past the eighth table the read still counts, with no table to name", () => {
     const {
       table: _table,
       resultRef: _ref,

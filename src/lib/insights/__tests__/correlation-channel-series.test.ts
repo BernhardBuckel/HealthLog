@@ -4,15 +4,26 @@ import type { SleepStage } from "@/generated/prisma/client";
 const measurementFindMany = vi.fn();
 const moodFindMany = vi.fn();
 const customMetricFindMany = vi.fn();
+const environmentFindMany = vi.fn();
+const userFindUnique = vi.fn(async () => ({
+  environmentAirQualityEnabled: true,
+}));
 vi.mock("@/lib/db", () => ({
   prisma: {
+    user: { findUnique: () => userFindUnique() },
     measurement: { findMany: (a: unknown) => measurementFindMany(a) },
     moodEntry: { findMany: (a: unknown) => moodFindMany(a) },
     customMetric: { findMany: (a: unknown) => customMetricFindMany(a) },
+    environmentContext: {
+      findMany: (a: unknown) => environmentFindMany(a),
+    },
   },
 }));
 
+import { ENVIRONMENT_FIELDS, POLLEN_COLUMNS } from "@/lib/environment/fields";
 import {
+  averageWithPreviousDay,
+  fetchEnvironmentSeries,
   buildMeasurementDailySeries,
   fetchMeasurementWindowSeries,
   fetchCustomMetricBehaviourSeries,
@@ -144,6 +155,39 @@ describe("buildMeasurementDailySeries — grain consistency (v1.29.6)", () => {
     const points = buildMeasurementDailySeries("PULSE", rows, "UTC", null);
 
     expect(points).toEqual([{ day: "2026-06-04", value: 62 }]);
+  });
+
+  it("makes a pulse day the mean of its local hours' means, not of its readings", () => {
+    // A dense workout hour (six readings at 150) and two resting hours at 60.
+    // The plain mean would be (6 * 150 + 120) / 8 = 127.5; each hour once
+    // gives (150 + 60 + 60) / 3 = 90.
+    const rows: MeasurementSeriesRow[] = [
+      ...[0, 10, 20, 30, 40, 50].map((m) =>
+        row(`2026-06-04T10:${String(m).padStart(2, "0")}:00.000Z`, 150),
+      ),
+      row("2026-06-04T12:00:00.000Z", 60),
+      row("2026-06-04T14:00:00.000Z", 60),
+    ];
+    expect(buildMeasurementDailySeries("PULSE", rows, "UTC", null)).toEqual([
+      { day: "2026-06-04", value: 90 },
+    ]);
+    // HRV keeps the plain mean of its readings.
+    expect(
+      buildMeasurementDailySeries("HEART_RATE_VARIABILITY", rows, "UTC", null),
+    ).toEqual([{ day: "2026-06-04", value: 127.5 }]);
+  });
+
+  it("reads the pulse hours on the profile zone's own clock", () => {
+    // Asia/Kolkata (UTC+05:30): 10:20Z and 10:40Z are 15:50 and 16:10 local,
+    // two local hours (100 and 40), though one UTC hour.
+    const rows: MeasurementSeriesRow[] = [
+      row("2026-06-04T10:20:00.000Z", 100),
+      row("2026-06-04T10:25:00.000Z", 100),
+      row("2026-06-04T10:40:00.000Z", 40),
+    ];
+    expect(
+      buildMeasurementDailySeries("PULSE", rows, "Asia/Kolkata", null),
+    ).toEqual([{ day: "2026-06-04", value: 70 }]);
   });
 });
 
@@ -310,5 +354,143 @@ describe("fetchCustomMetricBehaviourSeries", () => {
         points: [{ day: "2026-07-01", value: 42 }],
       },
     ]);
+  });
+});
+
+describe("environment exposure: the averaged lag 0–1 window (v1.42)", () => {
+  it("averages each day with the day before, and only where both exist", () => {
+    const out = averageWithPreviousDay([
+      { day: "2026-05-03", value: 14 },
+      { day: "2026-05-01", value: 10 },
+      { day: "2026-05-02", value: 12 },
+      // 05-04 missing: neither 05-04 nor 05-05 gets a point.
+      { day: "2026-05-05", value: 20 },
+      { day: "2026-05-06", value: 22 },
+    ]);
+    expect(out).toEqual([
+      { day: "2026-05-02", value: 11 },
+      { day: "2026-05-03", value: 13 },
+      { day: "2026-05-06", value: 21 },
+    ]);
+  });
+
+  it("crosses a month and a year boundary on calendar days", () => {
+    expect(
+      averageWithPreviousDay([
+        { day: "2025-12-31", value: 2 },
+        { day: "2026-01-01", value: 4 },
+      ]),
+    ).toEqual([{ day: "2026-01-01", value: 3 }]);
+  });
+
+  it("tags every environment channel lagDays 0 over averaged points", async () => {
+    environmentFindMany.mockResolvedValueOnce([
+      { date: "2026-05-01", tempMin: 8, tempMean: 12, sunshineSec: 3600 },
+      { date: "2026-05-02", tempMin: 10, tempMean: 14, sunshineSec: 7200 },
+    ]);
+    const series = await fetchEnvironmentSeries(
+      "u1",
+      new Date("2026-04-01T00:00:00Z"),
+    );
+    expect(series.length).toBeGreaterThan(0);
+    for (const s of series) {
+      expect(s.lagDays, s.key).toBe(0);
+      expect(s.role).toBe("behaviour");
+    }
+    const tMin = series.find((s) => s.key === "ENV_TEMP_MIN")!;
+    // The night before 05-02 and its morning: (8 + 10) / 2, keyed on 05-02.
+    expect(tMin.points).toEqual([{ day: "2026-05-02", value: 9 }]);
+    const sun = series.find((s) => s.key === "ENV_SUNSHINE")!;
+    expect(sun.points).toEqual([{ day: "2026-05-02", value: 1.5 }]);
+  });
+});
+
+describe("environment exposure: the air-quality channels (v1.42, #615)", () => {
+  beforeEach(() => {
+    environmentFindMany.mockReset();
+    userFindUnique.mockReset();
+    userFindUnique.mockResolvedValue({ environmentAirQualityEnabled: true });
+    vi.unstubAllEnvs();
+  });
+
+  it("selects every column a channel reads (an unselected column reads as never covered)", async () => {
+    environmentFindMany.mockResolvedValueOnce([]);
+    await fetchEnvironmentSeries("u1", new Date("2026-04-01T00:00:00Z"));
+    const select = (
+      environmentFindMany.mock.calls[0][0] as {
+        select: Record<string, boolean>;
+      }
+    ).select;
+    const read = ENVIRONMENT_FIELDS.flatMap((f) =>
+      f.column === "pollenMax" ? [...POLLEN_COLUMNS] : [f.column],
+    );
+    for (const column of read) expect(select[column], column).toBe(true);
+  });
+
+  it("adds exactly three air-quality channels", () => {
+    expect(
+      ENVIRONMENT_FIELDS.filter((f) => f.airQuality).map((f) => f.key),
+    ).toEqual(["ENV_PM25", "ENV_OZONE_8H", "ENV_POLLEN_MAX"]);
+  });
+
+  it("takes the pollen high over the covered kinds, never a zero for the uncovered", async () => {
+    environmentFindMany.mockResolvedValueOnce([
+      {
+        date: "2026-05-01",
+        pm25Mean: 10,
+        o3Max8h: 80,
+        pollenBirchMax: 40,
+        pollenGrassMax: null,
+        pollenAlderMax: null,
+      },
+      {
+        date: "2026-05-02",
+        pm25Mean: 14,
+        o3Max8h: null,
+        pollenBirchMax: null,
+        pollenGrassMax: 20,
+        pollenAlderMax: 2,
+      },
+      // A day the feed did not cover at all: no point, not a zero.
+      { date: "2026-05-03", pm25Mean: null, o3Max8h: null },
+    ]);
+    const series = await fetchEnvironmentSeries(
+      "u1",
+      new Date("2026-04-01T00:00:00Z"),
+    );
+    const by = (key: string) => series.find((s) => s.key === key)!.points;
+    expect(by("ENV_POLLEN_MAX")).toEqual([{ day: "2026-05-02", value: 30 }]);
+    expect(by("ENV_PM25")).toEqual([{ day: "2026-05-02", value: 12 }]);
+    // Ozone is missing on 05-02, so no averaged point anywhere.
+    expect(by("ENV_OZONE_8H")).toEqual([]);
+  });
+
+  it("leaves the air-quality channels empty when the account turned air quality off", async () => {
+    userFindUnique.mockResolvedValue({ environmentAirQualityEnabled: false });
+    environmentFindMany.mockResolvedValueOnce([
+      { date: "2026-05-01", pm25Mean: 10, tempMin: 5 },
+      { date: "2026-05-02", pm25Mean: 14, tempMin: 7 },
+    ]);
+    const series = await fetchEnvironmentSeries(
+      "u1",
+      new Date("2026-04-01T00:00:00Z"),
+    );
+    expect(series.find((s) => s.key === "ENV_PM25")!.points).toEqual([]);
+    expect(series.find((s) => s.key === "ENV_TEMP_MIN")!.points).toEqual([
+      { day: "2026-05-02", value: 6 },
+    ]);
+  });
+
+  it("leaves them empty when the operator turned air quality off", async () => {
+    vi.stubEnv("ENVIRONMENT_AIR_QUALITY_DISABLED", "1");
+    environmentFindMany.mockResolvedValueOnce([
+      { date: "2026-05-01", pm25Mean: 10 },
+      { date: "2026-05-02", pm25Mean: 14 },
+    ]);
+    const series = await fetchEnvironmentSeries(
+      "u1",
+      new Date("2026-04-01T00:00:00Z"),
+    );
+    expect(series.find((s) => s.key === "ENV_PM25")!.points).toEqual([]);
   });
 });

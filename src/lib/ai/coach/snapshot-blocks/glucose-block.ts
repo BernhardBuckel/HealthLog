@@ -25,11 +25,8 @@ import {
 import { annotate } from "@/lib/logging/context";
 import type { ReferenceMetric } from "@/lib/reference-ranges";
 import { bucketWeekly, buildDailyValueRows } from "../snapshot-series";
-import type {
-  CoachProvenance,
-  CoachProvenanceMetric,
-  CoachScopeSource,
-} from "../types";
+import type { RegisterBlock } from "../series-condense";
+import type { CoachProvenance, CoachProvenanceMetric } from "../types";
 
 /**
  * v1.17.0 — the glucose clinical panel is a fixed trailing-30-day artifact,
@@ -57,7 +54,7 @@ interface GlucoseBlockContext {
   snapshot: Record<string, unknown>;
   metrics: Set<CoachProvenanceMetric>;
   counts: NonNullable<CoachProvenance["counts"]>;
-  registerBlock: (key: string, source: CoachScopeSource) => void;
+  registerBlock: RegisterBlock;
   groundingValues: Map<ReferenceMetric, number>;
 }
 
@@ -102,6 +99,10 @@ export function buildGlucoseBlock(ctx: Readonly<GlucoseBlockContext>): void {
       byContext.set(ctxKey, list);
     }
     const contexts: Record<string, unknown> = {};
+    const dailyByContext: Record<
+      string,
+      Array<{ date: string; value: number }>
+    > = {};
     for (const [ctxKey, rows] of byContext) {
       // v1.16.16 — glucose is stored canonical mg/dL. A mmol/L-preference
       // user's Coach must read the same number every other surface shows
@@ -123,6 +124,15 @@ export function buildGlucoseBlock(ctx: Readonly<GlucoseBlockContext>): void {
           : w,
       );
       contexts[ctxKey] = { recent, weekly };
+      dailyByContext[ctxKey] = buildDailyValueRows(
+        rows,
+        new Date(0),
+        userTz,
+      ).map((d) => ({
+        date: d.date,
+        // The reader's unit; a mg/dL day is a whole number, as the app states it.
+        value: convertGlucose(d.value, glucoseUnit),
+      }));
     }
     // v1.17.0 — clinical panel summary from the ONE literature-locked engine
     // the insights panel + doctor report also consume, computed over the SAME
@@ -134,6 +144,8 @@ export function buildGlucoseBlock(ctx: Readonly<GlucoseBlockContext>): void {
     // rather than asserted as a clinical AGP. The headline mean is converted
     // ONCE to the user's display unit; the unit-agnostic fractions / indices
     // travel as-is.
+    // `null` rows: the panel's fixed window reaches past the Coach's lookback
+    // limit, so the panel is left out rather than computed over fewer days.
     const clinicalRaw = computeGlucoseClinicalMetrics(
       (glucoseClinicalRows ?? []).map((r) => ({
         measuredAt: r.measuredAt,
@@ -194,10 +206,14 @@ export function buildGlucoseBlock(ctx: Readonly<GlucoseBlockContext>): void {
         };
     // The display unit travels with the block so the prompt renders
     // "<value> <unit>" and the EVIDENCE BLOCK tags glucose lines correctly.
-    snapshot.glucose = { unit: glucoseUnit, byContext: contexts, clinical };
+    snapshot.glucose = {
+      unit: glucoseUnit,
+      byContext: contexts,
+      ...(glucoseClinicalRows !== null ? { clinical } : {}),
+    };
     metrics.add("glucose");
     counts.glucose = glucoseRows.length;
-    registerBlock("glucose", "glucose");
+    registerBlock("glucose", "glucose", () => dailyByContext);
     // W7 grounding: fasting glucose mean in RAW mg/dL (the reference band's
     // unit), independent of the user's mmol/L display preference. The
     // grounding line's band selection respects the W6 `hasDiabetes` opt-in;

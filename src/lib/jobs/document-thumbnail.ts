@@ -15,6 +15,12 @@
  * kind icon), and `runDocumentThumbnail` returns cleanly so pg-boss does not
  * retry it. Only an unexpected throw (a DB hiccup) propagates for retry.
  *
+ * Each run is one background wide event (`job.document_thumbnail`). A run
+ * that should have produced a preview and did not is raised to `warn` with
+ * the reason, so a document left with its kind icon is explained in the log.
+ * Without the event every annotation below went nowhere: a whole class of
+ * PDFs went without previews for weeks and the log never said so.
+ *
  * The queue MUST be registered in the maintenance registrar
  * (`src/lib/jobs/reminder/register-maintenance.ts`) so pg-boss provisions it.
  */
@@ -25,7 +31,9 @@ import {
 } from "@/lib/documents/store";
 import { generateThumbnail } from "@/lib/documents/thumbnail";
 import { getGlobalBoss } from "@/lib/jobs/boss-instance";
+import { withBackgroundEvent } from "@/lib/logging/background";
 import { annotate } from "@/lib/logging/context";
+import { logCaught } from "@/lib/logging/signal";
 
 export const DOCUMENT_THUMBNAIL_QUEUE = "document-thumbnail";
 
@@ -49,7 +57,20 @@ export async function runDocumentThumbnail(
 ): Promise<void> {
   const { userId, documentId } = payload;
   if (!userId || !documentId) return;
+  await withBackgroundEvent("job.document_thumbnail", async (evt) => {
+    evt.addMeta("document_id", documentId);
+    await renderThumbnail(userId, documentId, (reason) => {
+      evt.addMeta("thumbnail_missing_reason", reason);
+      evt.elevateLevel("warn");
+    });
+  });
+}
 
+async function renderThumbnail(
+  userId: string,
+  documentId: string,
+  warn: (reason: string) => void,
+): Promise<void> {
   // Owner-scoped load; the blob column is selected ONLY here (the job that
   // renders the preview), never in the list/detail queries. Skip a document
   // that already has a thumbnail so a re-enqueue is a cheap no-op.
@@ -84,6 +105,8 @@ export async function runDocumentThumbnail(
       action: { name: "documents.thumbnail.decryptFailed" },
       meta: { documentId },
     });
+    warn("decrypt-failed");
+    await recordThumbnailFailure(userId, document.id, "decrypt-failed");
     return;
   }
 
@@ -91,8 +114,20 @@ export async function runDocumentThumbnail(
   if (!result.ok) {
     annotate({
       action: { name: "documents.thumbnail.run" },
-      meta: { documentId, generated: false },
+      meta: { documentId, generated: false, mimeType: document.mimeType },
     });
+    // An Office or text document has no preview by design; anything else
+    // was meant to get one.
+    if (result.reason !== "unsupported-type") warn(result.reason);
+    // Kept, so the boot-time backfill stops queueing a document whose render
+    // cannot succeed. An unsupported type is never queued by it; a host
+    // without the canvas build never runs it.
+    if (
+      result.reason !== "unsupported-type" &&
+      result.reason !== "native-canvas-unsupported"
+    ) {
+      await recordThumbnailFailure(userId, document.id, result.reason);
+    }
     return;
   }
 
@@ -120,9 +155,30 @@ export async function runDocumentThumbnail(
     },
   });
 
+  await prisma.documentThumbnailFailure.deleteMany({
+    where: { documentId: document.id },
+  });
+
   annotate({
     action: { name: "documents.thumbnail.run" },
     meta: { documentId, generated: true, byteSize: jpeg.byteLength },
+  });
+}
+
+/**
+ * Note that a render failed, counting the attempts since the last success
+ * (`DocumentThumbnailFailure`). `userId` comes from the scoped load.
+ */
+async function recordThumbnailFailure(
+  userId: string,
+  documentId: string,
+  reason: string,
+): Promise<void> {
+  const failedAt = new Date();
+  await prisma.documentThumbnailFailure.upsert({
+    where: { documentId },
+    create: { documentId, userId, reason, attempts: 1, failedAt },
+    update: { reason, attempts: { increment: 1 }, failedAt },
   });
 }
 
@@ -158,6 +214,7 @@ export async function enqueueDocumentThumbnail(
       action: { name: "documents.thumbnail.enqueueFailed" },
       meta: { documentId, reason: err instanceof Error ? err.name : "unknown" },
     });
+    logCaught("documents.thumbnail.enqueue_failed", err);
     return { enqueued: false };
   }
 }

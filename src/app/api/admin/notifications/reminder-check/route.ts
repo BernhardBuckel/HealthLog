@@ -8,6 +8,7 @@ import { adminReminderCheckSchema } from "@/lib/validations/notifications";
 import { parseScheduleRecurrence } from "@/lib/medication-schedule";
 import { dispatchLocalisedNotification } from "@/lib/notifications/dispatch-localised";
 import { getUserTodayBounds, getDayOfWeekInTz } from "@/lib/tz/local-day";
+import { sendsMedicationReminders } from "@/lib/medications/auto-mark-taken";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
 import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
 
@@ -182,7 +183,13 @@ export const POST = apiHandler(async (request: NextRequest) => {
       const isOverdue = dayMatch && minutesPastEnd > 0;
       const hasEvent = eventCount > schedulesProcessed;
 
-      if (isOverdue && !hasEvent && med.notificationsEnabled) {
+      // v1.42.2 — a medication whose doses are recorded automatically
+      // is never reminded, here or in the worker.
+      if (
+        isOverdue &&
+        !hasEvent &&
+        sendsMedicationReminders(med, { now, timeZone: userTz })
+      ) {
         const doseInfo = schedule.dose ?? med.dose;
         const timeWindow = `${schedule.windowStart}–${schedule.windowEnd}`;
 

@@ -2,11 +2,14 @@
  * Pool configuration stays unit-tested here so connection ceilings and wait
  * timeouts cannot silently fall back to separate library defaults.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildSessionOptions,
   getConnectionBudget,
+  pinTimeZoneOnConnect,
+  SET_SESSION_TIME_ZONE,
+  timeZoneSessionOptions,
   getPgBossPoolMax,
   getPoolConnectionTimeoutMs,
   getPrismaPoolMax,
@@ -108,12 +111,18 @@ describe("getStatementTimeoutMs", () => {
 
 describe("buildSessionOptions", () => {
   const originalEnv = process.env.DATABASE_STATEMENT_TIMEOUT_MS;
+  const originalWorkMem = process.env.DATABASE_WORK_MEM;
 
   afterEach(() => {
     if (originalEnv === undefined) {
       delete process.env.DATABASE_STATEMENT_TIMEOUT_MS;
     } else {
       process.env.DATABASE_STATEMENT_TIMEOUT_MS = originalEnv;
+    }
+    if (originalWorkMem === undefined) {
+      delete process.env.DATABASE_WORK_MEM;
+    } else {
+      process.env.DATABASE_WORK_MEM = originalWorkMem;
     }
   });
 
@@ -124,8 +133,99 @@ describe("buildSessionOptions", () => {
     expect(opts).toContain("-c idle_in_transaction_session_timeout=60000");
   });
 
-  it("returns undefined (no options) when the timeout is disabled", () => {
+  // v1.42 — work_mem rides the same startup options, and must survive a
+  // disabled timeout: up to v1.41 the whole string was undefined at 0.
+  it("keeps work_mem when the timeout is disabled", () => {
     process.env.DATABASE_STATEMENT_TIMEOUT_MS = "0";
-    expect(buildSessionOptions()).toBeUndefined();
+    delete process.env.DATABASE_WORK_MEM;
+    expect(buildSessionOptions()).toBe("-c work_mem=16MB -c TimeZone=UTC");
+  });
+
+  it("sets the default work_mem beside the timeouts", () => {
+    delete process.env.DATABASE_STATEMENT_TIMEOUT_MS;
+    delete process.env.DATABASE_WORK_MEM;
+    expect(buildSessionOptions()).toBe(
+      "-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000 -c work_mem=16MB -c TimeZone=UTC",
+    );
+  });
+
+  it("sends no startup options at all when a connection pooler needs that", () => {
+    process.env.DATABASE_SESSION_OPTIONS_DISABLED = "true";
+    try {
+      expect(buildSessionOptions()).toBeUndefined();
+      process.env.DATABASE_SESSION_OPTIONS_DISABLED = "0";
+      expect(buildSessionOptions()).toContain("-c work_mem=");
+    } finally {
+      delete process.env.DATABASE_SESSION_OPTIONS_DISABLED;
+    }
+  });
+
+  it("takes DATABASE_WORK_MEM and refuses a value that would inject a flag", () => {
+    process.env.DATABASE_WORK_MEM = "64MB";
+    expect(buildSessionOptions()).toContain("-c work_mem=64MB");
+    process.env.DATABASE_WORK_MEM = "8MB -c statement_timeout=0";
+    expect(buildSessionOptions()).toContain("-c work_mem=16MB");
+    expect(buildSessionOptions()).toContain("statement_timeout=60000");
+  });
+});
+
+// Every session runs in UTC whatever the database default says: the stored
+// `timestamp` values are UTC and `now()` reads through the session zone.
+describe("session time zone pin", () => {
+  afterEach(() => {
+    delete process.env.DATABASE_SESSION_OPTIONS_DISABLED;
+  });
+
+  it("rides the startup options of every pool", () => {
+    expect(buildSessionOptions()).toContain("-c TimeZone=UTC");
+    expect(timeZoneSessionOptions()).toBe("-c TimeZone=UTC");
+  });
+
+  it("adds no connect hook while the startup options carry the pin", () => {
+    const on = vi.fn();
+    pinTimeZoneOnConnect({ on } as never);
+    expect(on).not.toHaveBeenCalled();
+  });
+
+  it("pins by statement on connect when the startup options are off", async () => {
+    process.env.DATABASE_SESSION_OPTIONS_DISABLED = "true";
+    expect(timeZoneSessionOptions()).toBeUndefined();
+    const on = vi.fn();
+    pinTimeZoneOnConnect({ on } as never);
+    expect(on).toHaveBeenCalledWith("connect", expect.any(Function));
+    const query = vi.fn().mockResolvedValue(undefined);
+    const hook = on.mock.calls[0][1] as (client: unknown) => void;
+    hook({ query });
+    expect(query).toHaveBeenCalledWith(SET_SESSION_TIME_ZONE);
+    expect(SET_SESSION_TIME_ZONE).toBe("SET TIME ZONE 'UTC'");
+  });
+});
+
+describe("process-wide Prisma client", () => {
+  const globalSlot = globalThis as unknown as { prisma?: unknown };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete globalSlot.prisma;
+    vi.resetModules();
+  });
+
+  it("shares one client across separate copies of the module in production", async () => {
+    // A production build loads this module once per server bundle; each copy
+    // must resolve the same client rather than constructing its own.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://healthlog:test@db:5432/healthlog?connection_limit=20",
+    );
+    delete globalSlot.prisma;
+
+    vi.resetModules();
+    const first = (await import("../db")).prisma;
+    vi.resetModules();
+    const second = (await import("../db")).prisma;
+
+    expect(second).toBe(first);
+    expect(globalSlot.prisma).toBe(first);
   });
 });

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -11,15 +18,19 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import type {
+  CoachActivity,
   CoachClarification,
   CoachConversationAttachmentDTO,
   CoachConversationDetailDTO,
   CoachConversationsPage,
   CoachFollowUp,
+  CoachMemoryNote,
+  CoachPlanProposal,
   CoachProvenance,
   CoachResultTable,
   CoachScope,
   CoachStep,
+  CoachStop,
   CoachStreamEvent,
   CoachSuggestion,
   CoachUsage,
@@ -27,6 +38,7 @@ import type {
 import type { CoachSuggestedAction } from "@/lib/ai/coach/suggest-action";
 import { useTranslations } from "@/lib/i18n/context";
 import {
+  ApiError,
   apiDelete,
   apiFetchRaw,
   apiGet,
@@ -34,6 +46,13 @@ import {
   apiPost,
 } from "@/lib/api/api-fetch";
 import { queryKeys } from "@/lib/query-keys";
+import { getRecordScope } from "@/lib/query-keys/record-scope";
+import {
+  coachDeleteJournalOwner,
+  resendCoachDeleteJournal,
+  writeCoachDeleteJournal,
+} from "@/lib/ai/coach/delete-journal";
+import { useAuth } from "@/hooks/use-auth";
 
 /**
  * v1.4.20 phase B2b — TanStack Query + SSE client for the AI Coach
@@ -281,121 +300,280 @@ export function useCoachConversation(id: string | null) {
   });
 }
 
+function removeConversationFromCache(data: unknown, id: string): unknown {
+  if (!data || typeof data !== "object") return data;
+
+  if ("pages" in data && Array.isArray(data.pages)) {
+    let changed = false;
+    const pages = data.pages.map((page) => {
+      const next = removeConversationFromCache(page, id);
+      changed ||= next !== page;
+      return next;
+    });
+    return changed ? { ...data, pages } : data;
+  }
+
+  if ("conversations" in data && Array.isArray(data.conversations)) {
+    const conversations = data.conversations.filter(
+      (conversation) =>
+        !(
+          conversation &&
+          typeof conversation === "object" &&
+          "id" in conversation &&
+          conversation.id === id
+        ),
+    );
+    return conversations.length === data.conversations.length
+      ? data
+      : { ...data, conversations };
+  }
+  return data;
+}
+
 /**
- * Delete a conversation with optimistic removal from the rail cache.
- * Rolls back if the server responds with a non-2xx.
+ * Drop one conversation from every materialised list cache: the head list
+ * the auto-open reads and every search variant of the paginated history
+ * below the same prefix. Synchronous on purpose, so the row is gone from the
+ * caches before any hide filter that covered it is released. Returns the
+ * previous data for a rollback.
  */
-export function useDeleteCoachConversation() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      await apiDelete(`/api/insights/chat/${id}`);
-      return id;
-    },
-    onMutate: async (id: string) => {
-      await queryClient.cancelQueries({ queryKey: QUERY_KEYS.list() });
-      const previous = queryClient.getQueryData<CoachConversationsPage>(
-        QUERY_KEYS.list(),
-      );
-      if (previous) {
-        queryClient.setQueryData<CoachConversationsPage>(QUERY_KEYS.list(), {
-          ...previous,
-          conversations: previous.conversations.filter((c) => c.id !== id),
-        });
-      }
-      return { previous };
-    },
-    onError: (_err, _id, ctx) => {
-      if (ctx?.previous) {
-        queryClient.setQueryData(QUERY_KEYS.list(), ctx.previous);
-      }
-    },
-    onSettled: (_data, _err, id) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.list() });
-      if (typeof id === "string") {
-        queryClient.removeQueries({ queryKey: QUERY_KEYS.one(id) });
-      }
-    },
+export function removeCoachConversationFromCaches(
+  queryClient: QueryClient,
+  id: string,
+): CoachConversationRenameSnapshot {
+  void queryClient.cancelQueries({ queryKey: QUERY_KEYS.list() });
+  const snapshot = queryClient.getQueriesData({ queryKey: QUERY_KEYS.list() });
+  for (const [key, previous] of snapshot) {
+    queryClient.setQueryData(key, removeConversationFromCache(previous, id));
+  }
+  return snapshot;
+}
+
+/**
+ * The DELETE itself. `keepalive` lets the request outlive the page, which is
+ * what a delete committed from `pagehide` or a backgrounded app needs.
+ */
+export function deleteCoachConversationRequest(id: string): Promise<unknown> {
+  return apiDelete(`/api/insights/chat/${encodeURIComponent(id)}`, undefined, {
+    keepalive: true,
   });
 }
 
 // v1.30.1 M5 — delayed-commit delete window, in milliseconds. Long
 // enough to read + tap Undo, short enough that the eventual DELETE
 // isn't a surprise days later.
-const CONVERSATION_DELETE_UNDO_MS = 6000;
+export const CONVERSATION_DELETE_UNDO_MS = 6000;
+
+export interface CoachConversationDeleteQueue {
+  /** Schedule the delete; it commits when the window runs out. */
+  request(id: string): void;
+  /** Cancel a scheduled delete. False once it has been committed. */
+  undo(id: string): boolean;
+  /** Commit every scheduled delete now. */
+  flush(): void;
+}
 
 /**
- * v1.30.1 M5 — replaces the old "tap once to arm, tap the same row
- * again to delete" confirm, which never disarmed (a row armed minutes
- * earlier deleted on a later stray tap) and had no way back once fired.
- * Mirrors the Documents delete-with-undo pattern instead: a single tap
- * hides the row immediately and schedules the real
+ * The undo window as plain state, apart from React. A delete that is still
+ * waiting when the page goes away is committed by `flush`, never dropped:
+ * the window exists to offer an Undo, not to make the delete conditional on
+ * the tab staying open for another six seconds.
+ */
+export function createCoachConversationDeleteQueue(
+  commit: (id: string) => void,
+  delayMs: number = CONVERSATION_DELETE_UNDO_MS,
+): CoachConversationDeleteQueue {
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const fire = (id: string) => {
+    const timer = timers.get(id);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timers.delete(id);
+    commit(id);
+  };
+  return {
+    request(id) {
+      if (timers.has(id)) return;
+      timers.set(
+        id,
+        setTimeout(() => fire(id), delayMs),
+      );
+    },
+    undo(id) {
+      const timer = timers.get(id);
+      if (timer === undefined) return false;
+      clearTimeout(timer);
+      timers.delete(id);
+      return true;
+    },
+    flush() {
+      for (const id of [...timers.keys()]) fire(id);
+    },
+  };
+}
+
+/**
+ * Conversations this page has deleted or is deleting, shared by every
+ * surface: a row hidden in the Coach panel is hidden in the settings card
+ * too. An id stays here once its delete went through; the server no longer
+ * has the row, so hiding it costs nothing and closes the gap before the
+ * refetch lands.
+ */
+let hiddenConversationIds: ReadonlySet<string> = new Set();
+const NO_HIDDEN_CONVERSATIONS: ReadonlySet<string> = new Set();
+const hiddenConversationListeners = new Set<() => void>();
+
+function setConversationHidden(id: string, hidden: boolean): void {
+  if (hiddenConversationIds.has(id) === hidden) return;
+  const next = new Set(hiddenConversationIds);
+  if (hidden) next.add(id);
+  else next.delete(id);
+  hiddenConversationIds = next;
+  for (const listener of hiddenConversationListeners) listener();
+}
+
+function subscribeHiddenConversations(listener: () => void): () => void {
+  hiddenConversationListeners.add(listener);
+  return () => hiddenConversationListeners.delete(listener);
+}
+
+const deletesInFlight = new Set<string>();
+
+/**
+ * Send one delete. Synchronous up to the request, so a commit made from
+ * `pagehide` is on the wire before the page is torn down. Every list cache
+ * drops the row first; a failure restores them, shows the row again and
+ * calls `onFailed`. A 404 is success: the row is gone, which is the point.
+ * That reading holds because the delete is only ever sent in the scope it
+ * was journaled under (`owner`, see `@/lib/ai/coach/delete-journal`); with no
+ * known owner nothing is journaled and the keepalive request is all there is.
+ */
+export function commitCoachConversationDelete(
+  queryClient: QueryClient,
+  id: string,
+  owner: string | null,
+  onFailed: () => void,
+): void {
+  if (deletesInFlight.has(id)) return;
+  deletesInFlight.add(id);
+  setConversationHidden(id, true);
+  if (owner !== null) writeCoachDeleteJournal(owner, id, true);
+  const request = deleteCoachConversationRequest(id);
+  const snapshot = removeCoachConversationFromCaches(queryClient, id);
+  request
+    .catch((error: unknown) => {
+      if (error instanceof ApiError && error.status === 404) return;
+      throw error;
+    })
+    .then(
+      () => {
+        queryClient.removeQueries({ queryKey: QUERY_KEYS.one(id) });
+      },
+      () => {
+        restoreCoachConversationRename(queryClient, snapshot);
+        setConversationHidden(id, false);
+        onFailed();
+      },
+    )
+    .finally(() => {
+      deletesInFlight.delete(id);
+      if (owner !== null) writeCoachDeleteJournal(owner, id, false);
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.list() });
+    });
+}
+
+/**
+ * v1.30.1 M5 — one tap hides the row and schedules the real
  * `DELETE /api/insights/chat/[id]` after `CONVERSATION_DELETE_UNDO_MS`;
- * calling `undoDelete` within that window cancels the network call and
- * un-hides the row. `pendingDeleteIds` is a client-only hide filter —
- * consumers subtract it from whatever list they render.
+ * `undoDelete` within that window cancels it. `pendingDeleteIds` is the
+ * hide filter every surface subtracts from what it renders.
  *
- * Centralised here (rather than duplicated in the rail + the standalone
- * `/coach/conversations` page, which previously carried byte-identical
- * arm/confirm logic) so both surfaces share one implementation.
+ * The delete is never conditional on the page surviving the window. A
+ * scheduled delete commits early when the page is hidden (an installed app
+ * sent to the background, a tab switched away), on `pagehide` (reload,
+ * close, navigation away) and when the owning component unmounts; the
+ * request goes out with `keepalive`, and a delete the page could not confirm
+ * is sent again by the next one (see `@/lib/ai/coach/delete-journal`). Before that, a
+ * delete followed by a reload inside the window was never sent, and the
+ * conversation came back.
+ *
+ * Shared by every surface that deletes a Coach conversation: the Coach
+ * panel's rail, `/coach/conversations` and the settings memory card.
  */
 export function useDeleteCoachConversationWithUndo() {
-  const deleteMutation = useDeleteCoachConversation();
-  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(
-    () => new Set(),
+  const queryClient = useQueryClient();
+  const { t } = useTranslations();
+  const { user } = useAuth();
+  // The account and the record this page acts on; the journal is bound to it.
+  const owner = user
+    ? coachDeleteJournalOwner(user.id, getRecordScope())
+    : null;
+  const pendingDeleteIds = useSyncExternalStore(
+    subscribeHiddenConversations,
+    () => hiddenConversationIds,
+    () => NO_HIDDEN_CONVERSATIONS,
   );
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  // Kept current by an effect, so the queue below is created once and still
+  // commits with the latest translator.
+  const commitRef = useRef<(id: string) => void>(() => {});
+  useEffect(() => {
+    const failedMessage = t("insights.coach.historyDeleteFailed");
+    commitRef.current = (id) =>
+      commitCoachConversationDelete(queryClient, id, owner, () =>
+        toast.error(failedMessage),
+      );
+  });
+
+  // Created on first use, from a handler or an effect, never during render.
+  const queueRef = useRef<CoachConversationDeleteQueue | null>(null);
+  const getQueue = useCallback(
+    () =>
+      (queueRef.current ??= createCoachConversationDeleteQueue((id) =>
+        commitRef.current(id),
+      )),
+    [],
+  );
 
   useEffect(() => {
-    // A closed drawer / unmounted page must not silently lose a
-    // scheduled delete: fire any still-pending ones immediately rather
-    // than leaking the timer (or worse, never deleting at all).
-    const timerMap = timers.current;
-    return () => {
-      for (const [id, timer] of timerMap) {
-        clearTimeout(timer);
-        deleteMutation.mutate(id);
-      }
-      timerMap.clear();
+    // Finish what a previous page of this tab could not confirm, in this
+    // scope only: another account's or another record's entries stay put.
+    if (owner === null) return;
+    resendCoachDeleteJournal(owner, (id) => commitRef.current(id));
+  }, [owner]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") getQueue().flush();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on unmount only
-  }, []);
+    const onPageHide = () => getQueue().flush();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      // A closed drawer or a left page commits what it scheduled.
+      getQueue().flush();
+    };
+  }, [getQueue]);
 
   const requestDelete = useCallback(
     (id: string) => {
-      setPendingDeleteIds((prev) => {
-        const next = new Set(prev);
-        next.add(id);
-        return next;
-      });
-      const timer = setTimeout(() => {
-        timers.current.delete(id);
-        setPendingDeleteIds((prev) => {
-          if (!prev.has(id)) return prev;
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-        deleteMutation.mutate(id);
-      }, CONVERSATION_DELETE_UNDO_MS);
-      timers.current.set(id, timer);
+      setConversationHidden(id, true);
+      getQueue().request(id);
     },
-    [deleteMutation],
+    [getQueue],
   );
 
-  const undoDelete = useCallback((id: string) => {
-    const timer = timers.current.get(id);
-    if (timer) {
-      clearTimeout(timer);
-      timers.current.delete(id);
-    }
-    setPendingDeleteIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }, []);
+  const undoDelete = useCallback(
+    (id: string): boolean => {
+      // Too late once committed: the row stays hidden, as the server has it.
+      const undone = getQueue().undo(id);
+      if (undone) setConversationHidden(id, false);
+      return undone;
+    },
+    [getQueue],
+  );
 
   return { pendingDeleteIds, requestDelete, undoDelete };
 }
@@ -558,6 +736,18 @@ export interface CoachStreamingMessage {
   followUps: CoachFollowUp[];
   /** v1.39.4 — the choices from the additive `clarification` frame. */
   clarification: CoachClarification | null;
+  /**
+   * v1.41 — the live trail from the additive `activity` frames, upserted by
+   * id in first-seen order. Persisted messages carry the metadata on
+   * `metricSource.activity` and the model text behind `…/trail`.
+   */
+  activity: CoachActivity[];
+  /** v1.41 — the fact this turn saved or proposes (`memoryNote` frame). */
+  memoryNote: CoachMemoryNote | null;
+  /** v1.41 — the plan this turn proposes (`planProposal` frame). */
+  planProposal: CoachPlanProposal | null;
+  /** v1.41 — why the answer was forced, when it was (`done.stop`). */
+  stop: CoachStop | null;
   /** True until the `done` frame closes the stream. */
   inProgress: boolean;
   /** Final messageId once `done` lands; null otherwise. */
@@ -640,6 +830,10 @@ const EMPTY_STREAMING: CoachStreamingMessage = {
   results: [],
   followUps: [],
   clarification: null,
+  activity: [],
+  memoryNote: null,
+  planProposal: null,
+  stop: null,
   inProgress: false,
   messageId: null,
   errorCode: null,
@@ -653,6 +847,47 @@ export function upsertStep(steps: CoachStep[], step: CoachStep): CoachStep[] {
   const next = [...steps];
   next[at] = step;
   return next;
+}
+
+/** v1.41 — insert a trail entry, or replace the one with the same id. */
+export function upsertActivity(
+  activity: CoachActivity[],
+  entry: CoachActivity,
+): CoachActivity[] {
+  const at = activity.findIndex((a) => a.id === entry.id);
+  if (at === -1) return [...activity, entry];
+  const next = [...activity];
+  // A later frame may leave out what an earlier one carried (the title on a
+  // `done` frame that only adds the duration); keep it.
+  next[at] = { ...next[at], ...entry };
+  return next;
+}
+
+/**
+ * v1.41 — insert a table, or replace the one with the same ref. An interim
+ * table and the final frame for it share a ref.
+ */
+export function upsertResult(
+  results: CoachResultTable[],
+  result: CoachResultTable,
+): CoachResultTable[] {
+  const at = results.findIndex((r) => r.ref === result.ref);
+  if (at === -1) return [...results, result];
+  const next = [...results];
+  next[at] = result;
+  return next;
+}
+
+/**
+ * v1.41 — the stream's state after `done`: a turn blocked after its interim
+ * tables went out takes them down again.
+ */
+export function withoutWithheldResults(
+  results: CoachResultTable[],
+  interimRefs: readonly string[],
+): CoachResultTable[] {
+  const withheld = new Set(interimRefs);
+  return results.filter((r) => !withheld.has(r.ref));
 }
 
 export interface SendCoachMessageParams {
@@ -709,6 +944,13 @@ export interface SendCoachMessageParams {
    * tapped (absent when the person typed their own answer). Tool route only.
    */
   clarification?: { messageId: string; choiceId?: string };
+  /**
+   * v1.41 — the person answered a fact proposal with a reply pill. The
+   * server reads the fact from what it stored on that message.
+   */
+  memoryDecision?: { messageId: string; proposalId: string; accept: boolean };
+  /** v1.41 — the person answered a plan proposal with a reply pill. */
+  planDecision?: { messageId: string; planId: string; accept: boolean };
 }
 
 /**
@@ -758,6 +1000,8 @@ export function resolveCoachSendTarget(params: SendCoachMessageParams): {
       workoutId: params.workoutId,
       followUp: params.followUp,
       clarification: params.clarification,
+      memoryDecision: params.memoryDecision,
+      planDecision: params.planDecision,
     }),
   };
 }
@@ -902,10 +1146,7 @@ export function useSendCoachMessage(opts: UseSendCoachMessageOptions = {}) {
           content: params.message,
           conversationId: params.conversationId ?? null,
         });
-        setStreaming({
-          ...EMPTY_STREAMING,
-          inProgress: true,
-        });
+        setStreaming({ ...EMPTY_STREAMING, inProgress: true });
 
         // v1.4.47 W8 — pre-check navigator.onLine so an airplane-mode
         // user gets the offline-specific copy immediately rather than
@@ -1005,9 +1246,15 @@ export function useSendCoachMessage(opts: UseSendCoachMessageOptions = {}) {
         let collectedSuggestion: CoachSuggestion | null = null;
         let collectedSuggestedAction: CoachSuggestedAction | null = null;
         let collectedSteps: CoachStep[] = [];
-        const collectedResults: CoachResultTable[] = [];
+        let collectedResults: CoachResultTable[] = [];
         let collectedFollowUps: CoachFollowUp[] = [];
         let collectedClarification: CoachClarification | null = null;
+        let collectedActivity: CoachActivity[] = [];
+        const interimRefs: string[] = [];
+        let collectedMemoryNote: CoachMemoryNote | null = null;
+        let collectedPlanProposal: CoachPlanProposal | null = null;
+        let collectedStop: CoachStop | null = null;
+        let withheldResults = false;
         let lastError: string | null = null;
         let messageId: string | null = null;
         let collectedUsage: CoachUsage | null = null;
@@ -1061,13 +1308,40 @@ export function useSendCoachMessage(opts: UseSendCoachMessageOptions = {}) {
                 }
                 case "result": {
                   const result = evt.result;
-                  collectedResults.push(result);
+                  collectedResults = upsertResult(collectedResults, result);
+                  if (evt.interim && !interimRefs.includes(result.ref)) {
+                    interimRefs.push(result.ref);
+                  }
+                  // An interim table is kept quietly: nothing renders it
+                  // until the answer's own results do, and `done` may still
+                  // take it down again (`withheldResults`).
                   setStreaming((prev) => ({
                     ...prev,
-                    results: [...prev.results, result],
+                    results: upsertResult(prev.results, result),
                   }));
                   break;
                 }
+                case "activity": {
+                  // v1.41 — the live trail, upserted by entry id.
+                  const entry = evt.activity;
+                  collectedActivity = upsertActivity(collectedActivity, entry);
+                  setStreaming((prev) => ({
+                    ...prev,
+                    activity: upsertActivity(prev.activity, entry),
+                  }));
+                  break;
+                }
+                case "memoryNote":
+                  collectedMemoryNote = evt.note;
+                  setStreaming((prev) => ({ ...prev, memoryNote: evt.note }));
+                  break;
+                case "planProposal":
+                  collectedPlanProposal = evt.proposal;
+                  setStreaming((prev) => ({
+                    ...prev,
+                    planProposal: evt.proposal,
+                  }));
+                  break;
                 case "followUps":
                   collectedFollowUps = evt.followUps;
                   setStreaming((prev) => ({
@@ -1093,6 +1367,10 @@ export function useSendCoachMessage(opts: UseSendCoachMessageOptions = {}) {
                   messageId = evt.messageId;
                   // v1.18.9 — additive per-turn usage envelope.
                   collectedUsage = evt.usage ?? null;
+                  // v1.41 — why the answer was forced, and whether the
+                  // interim tables must come down again.
+                  collectedStop = evt.stop ?? null;
+                  withheldResults = evt.withheldResults === true;
                   break;
                 case "error":
                   lastError = evt.code;
@@ -1107,6 +1385,8 @@ export function useSendCoachMessage(opts: UseSendCoachMessageOptions = {}) {
               resolvedConversationId = evt.conversationId;
               messageId = evt.messageId;
               collectedUsage = evt.usage ?? null;
+              collectedStop = evt.stop ?? null;
+              withheldResults = evt.withheldResults === true;
             } else if (evt.type === "error") {
               lastError = evt.code;
             }
@@ -1117,6 +1397,12 @@ export function useSendCoachMessage(opts: UseSendCoachMessageOptions = {}) {
           }
         }
 
+        if (withheldResults) {
+          collectedResults = withoutWithheldResults(
+            collectedResults,
+            interimRefs,
+          );
+        }
         setStreaming({
           content: collectedContent,
           metricSource: collectedProvenance,
@@ -1126,6 +1412,10 @@ export function useSendCoachMessage(opts: UseSendCoachMessageOptions = {}) {
           results: collectedResults,
           followUps: collectedFollowUps,
           clarification: collectedClarification,
+          activity: collectedActivity,
+          memoryNote: collectedMemoryNote,
+          planProposal: collectedPlanProposal,
+          stop: collectedStop,
           inProgress: false,
           messageId,
           errorCode: lastError,

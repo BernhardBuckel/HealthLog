@@ -60,6 +60,20 @@ import type { MeasurementType } from "@/generated/prisma/client";
 import { Prisma } from "@/generated/prisma/client";
 
 import { prisma } from "@/lib/db";
+import {
+  HOURLY_MEAN_DAY_TYPES,
+  usesHourlyMeanDay,
+  windowWeighting,
+} from "@/lib/measurements/day-statistic";
+import {
+  SESSION_DAY_FRAME,
+  dayValue,
+  dayWeightedRows,
+  dayWeightedRowsSql,
+  foldMeanSql,
+  isHourlyMeanTypeSql,
+  windowMeanSql,
+} from "@/lib/measurements/day-mean";
 import type { DataSummary } from "@/lib/analytics/trends";
 import { measurementTypeEnum } from "@/lib/validations/measurement";
 import { annotate } from "@/lib/logging/context";
@@ -79,7 +93,7 @@ import {
 import { startOfUtcDay } from "@/lib/tz/start-of-utc-day";
 import {
   buildSourceRankCase,
-  canonicalMeasurementsFrom,
+  canonicalMeasurementsCte,
 } from "@/lib/analytics/source-rank-sql";
 import {
   isFullyCovered,
@@ -92,6 +106,9 @@ import {
   type SleepStageRow,
 } from "@/lib/analytics/sleep-night";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
+import { userDayKey } from "@/lib/tz/format";
+import { localDayWindow } from "@/lib/tz/local-day";
+import { canonicalRowsOfDay } from "@/lib/mood/linked-context";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -136,10 +153,36 @@ interface AllTimeAggregateRow {
 interface RollupAggregateRow {
   type: string;
   count: number;
+  /** Days that hold a reading: the weight of the mean for an hourly-mean type. */
+  days: number;
   min: number;
   max: number;
   mean: number;
 }
+
+/**
+ * The window means over canonical readings that carry a `day_weight` (see
+ * `day-mean.ts`): the mean of the day values for an hourly-mean type (pulse),
+ * the unchanged `AVG(value)` for every other type. Days are UTC days, the
+ * frame the canonical-source pick and the rollup tier bucket by.
+ */
+function windowedMean(filter: string): string {
+  return windowMeanSql({
+    typeColumn: 'm."type"',
+    value: 'm."value"',
+    weight: "m.day_weight",
+    filter,
+  });
+}
+const AVG7_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days'`,
+);
+const AVG30_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'`,
+);
+const AVG30_LAST_MONTH_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '60 days' AND m."measured_at" <  (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'`,
+);
 
 interface NarrowAggregateRow {
   type: string;
@@ -299,7 +342,10 @@ export async function computeSummariesSlice(
   // brand-new-type case stays correct.
   const coverage = precomputedCoverage ?? (await probeRollupCoverage(userId));
   if (isFullyCovered(coverage)) {
-    return withSleepNightTotals(userId, await computeFromRollups(userId));
+    return withLatestDayValues(
+      userId,
+      await withSleepNightTotals(userId, await computeFromRollups(userId)),
+    );
   }
   // v1.4.38.7 — annotate the live fallback with the per-type
   // coverage map so the operator can see WHICH type stranded the
@@ -321,7 +367,63 @@ export async function computeSummariesSlice(
       },
     },
   });
-  return withSleepNightTotals(userId, await computeFromLiveAggregate(userId));
+  return withLatestDayValues(
+    userId,
+    await withSleepNightTotals(userId, await computeFromLiveAggregate(userId)),
+  );
+}
+
+/**
+ * `latest` of an hourly-mean type (pulse) is the value of its latest local
+ * day, not its latest single reading.
+ *
+ * The dashboard's pulse tile led with the last reading a watch happened to
+ * take, while the day view showed the day's pulse as the mean of its hours'
+ * means (`day-mean.ts`). Both say "Pulse"; both now mean the same statistic:
+ * the latest day's value, read through the same canonical-source pick and
+ * the same day-mean helper the day view uses, in the person's own zone.
+ */
+async function withLatestDayValues(
+  userId: string,
+  slice: SummariesSlice,
+): Promise<SummariesSlice> {
+  const types = [...HOURLY_MEAN_DAY_TYPES].filter(
+    (type) =>
+      slice.summaries[type]?.latest != null && slice.lastSeenByType[type],
+  );
+  if (types.length === 0) return slice;
+  const [tz, priorityJson] = await Promise.all([
+    resolveUserTimezone(userId),
+    loadUserSourcePriority(userId),
+  ]);
+  await Promise.all(
+    types.map(async (type) => {
+      const seen = slice.lastSeenByType[type]!;
+      const day = userDayKey(new Date(seen.lastSeenAt), tz);
+      const { dayStart, dayEnd } = localDayWindow(day, tz);
+      const rows = await prisma.measurement.findMany({
+        where: {
+          userId,
+          type,
+          deletedAt: null,
+          measuredAt: { gte: dayStart, lt: dayEnd },
+        },
+        select: {
+          type: true,
+          value: true,
+          unit: true,
+          measuredAt: true,
+          source: true,
+          deviceType: true,
+        },
+        orderBy: [{ measuredAt: "asc" }, { id: "asc" }],
+      });
+      const canonical = canonicalRowsOfDay(rows, type, day, tz, priorityJson);
+      const value = dayValue(type, canonical, tz);
+      if (value !== null) slice.summaries[type].latest = value;
+    }),
+  );
+  return slice;
 }
 
 /**
@@ -454,26 +556,23 @@ async function computeFromRollups(userId: string): Promise<SummariesSlice> {
       // inner DISTINCT ON picks the ladder-winning source for each day, and the
       // join keeps only that source's readings so the 90-day AVG / median / slope
       // never blend two devices that both reported the same vital.
+      // The window means weigh each day once for an hourly-mean type
+      // (`windowedMean`); the median stays over every reading.
       prisma.$queryRawUnsafe<NarrowAggregateRow[]>(
         `
+      WITH cm AS (${canonicalMeasurementsCte(rankUnqualified, "90 days")}
+      )
       SELECT
         m."type"::text                                                AS type,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '7 days'
-        )::double precision                                           AS avg7,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '30 days'
-        )::double precision                                           AS avg30,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '60 days'
-            AND m."measured_at" <  NOW() - INTERVAL '30 days'
-        )::double precision                                           AS avg30_last_month,
+        ${AVG7_SQL}::double precision                                 AS avg7,
+        ${AVG30_SQL}::double precision                                AS avg30,
+        ${AVG30_LAST_MONTH_SQL}::double precision                     AS avg30_last_month,
         PERCENTILE_CONT(0.5) WITHIN GROUP (
           ORDER BY m."value"
         ) FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '90 days'
+          WHERE m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days'
         )::double precision                                           AS median
-      FROM ${canonicalMeasurementsFrom(rankUnqualified, "90 days")}
+      FROM ${dayWeightedRows("cm", SESSION_DAY_FRAME)} m
       GROUP BY m."type"
     `,
         userId,
@@ -526,12 +625,19 @@ async function computeFromRollups(userId: string): Promise<SummariesSlice> {
       SELECT
         "type"::text                                       AS type,
         SUM("count")::int                                  AS count,
+        COUNT(*)::int                                      AS days,
         MIN("min_value")::double precision                 AS min,
         MAX("max_value")::double precision                 AS max,
-        (
-          SUM("count" * "mean")::double precision
-          / NULLIF(SUM("count")::double precision, 0)
-        )                                                  AS mean
+        -- An hourly-mean type (pulse): every day once, the DAY mean already
+        -- being the mean of its hours' means. Every other type: every
+        -- reading once.
+        (CASE WHEN ${isHourlyMeanTypeSql('"type"')}
+          THEN AVG("mean")::double precision
+          ELSE (
+            SUM("count" * "mean")::double precision
+            / NULLIF(SUM("count")::double precision, 0)
+          )
+        END)                                               AS mean
       FROM collapsed
       GROUP BY "type"
     `,
@@ -575,16 +681,27 @@ async function computeFromRollups(userId: string): Promise<SummariesSlice> {
       // day first (a hash aggregate, a few rows per day however dense the
       // stream), each day then keeps its ladder-canonical source, so the
       // sort never sees more than one row per source per day.
+      // An hourly-mean type folds each source's day as the mean of its
+      // hours' means (`wsum` / `wdays`, see `day-mean.ts`) and the days into
+      // the remainder once each, the statistic the DAY rollup stores.
       prisma.$queryRaw<
         Array<{
           type: string;
           count: number;
+          days: number;
           min: number;
           max: number;
           mean: number;
         }>
       >`
-      WITH per_source AS (
+      WITH src AS (
+        SELECT *
+        FROM measurements m
+        WHERE m."user_id" = ${userId}
+          AND m."deleted_at" IS NULL
+          AND m."measured_at" < ${foldSplit}
+      ),
+      per_source AS (
         SELECT
           m."type",
           m."source",
@@ -592,25 +709,33 @@ async function computeFromRollups(userId: string): Promise<SummariesSlice> {
           COUNT(*)::int                      AS cnt,
           SUM(m."value")::double precision   AS total,
           MIN(m."value")::double precision   AS min_value,
-          MAX(m."value")::double precision   AS max_value
-        FROM measurements m
-        WHERE m."user_id" = ${userId}
-          AND m."deleted_at" IS NULL
-          AND m."measured_at" < ${foldSplit}
+          MAX(m."value")::double precision   AS max_value,
+          SUM(m."value" * m.day_weight)::double precision AS wsum,
+          SUM(m.day_weight)::double precision             AS wdays
+        FROM ${dayWeightedRowsSql("src", null, { bySource: true })} m
         GROUP BY m."type", m."source", 3
       ),
       canon AS (
         SELECT DISTINCT ON (p."type", p.day)
-          p."type", p.cnt, p.total, p.min_value, p.max_value
+          p."type", p.cnt, p.total, p.min_value, p.max_value, p.wsum, p.wdays
         FROM per_source p
         ORDER BY p."type", p.day, (${Prisma.raw(rankPerSource)}), p."source"::text
       )
       SELECT
         c."type"::text                                  AS type,
         SUM(c.cnt)::int                                 AS count,
+        COUNT(*)::int                                   AS days,
         MIN(c.min_value)::double precision              AS min,
         MAX(c.max_value)::double precision              AS max,
-        (SUM(c.total) / SUM(c.cnt))::double precision   AS mean
+        ${Prisma.raw(
+          foldMeanSql({
+            typeColumn: 'c."type"',
+            total: "c.total",
+            count: "c.cnt",
+            weightedSum: "c.wsum",
+            weightSum: "c.wdays",
+          }),
+        )}::double precision                            AS mean
       FROM canon c
       GROUP BY c."type"
     `,
@@ -618,11 +743,12 @@ async function computeFromRollups(userId: string): Promise<SummariesSlice> {
 
   const preFoldByType = new Map<
     string,
-    { count: number; min: number; max: number; mean: number }
+    { count: number; days: number; min: number; max: number; mean: number }
   >();
   for (const row of preFoldRemainder) {
     preFoldByType.set(row.type, {
       count: Number(row.count),
+      days: Number(row.days),
       min: Number(row.min),
       max: Number(row.max),
       mean: Number(row.mean),
@@ -753,8 +879,13 @@ async function computeFromRollups(userId: string): Promise<SummariesSlice> {
     const allCount = row.count + (pre?.count ?? 0);
     const allMin = pre ? Math.min(row.min, pre.min) : row.min;
     const allMax = pre ? Math.max(row.max, pre.max) : row.max;
+    // Both halves weigh their days once for an hourly-mean type (pulse), so
+    // they combine by day count; every other type combines by readings.
     const allMean = pre
-      ? (row.mean * row.count + pre.mean * pre.count) / allCount
+      ? usesHourlyMeanDay(row.type)
+        ? (row.mean * Number(row.days) + pre.mean * pre.days) /
+          (Number(row.days) + pre.days)
+        : (row.mean * row.count + pre.mean * pre.count) / allCount
       : row.mean;
     summaries[row.type] = {
       count: allCount,
@@ -888,45 +1019,42 @@ async function computeFromLiveAggregate(
   const [allTime, windowed, latests] = await Promise.all([
     prisma.$queryRawUnsafe<AllTimeAggregateRow[]>(
       `
+      WITH cm AS (${canonicalMeasurementsCte(rankUnqualified, ALL_TIME_LIVE_CAP_INTERVAL)}
+      )
       SELECT
         m."type"::text                                                AS type,
         COUNT(*)                                                      AS count,
         MIN(m."value")::double precision                              AS min_value,
         MAX(m."value")::double precision                              AS max_value,
-        AVG(m."value")::double precision                              AS mean_value
-      FROM ${canonicalMeasurementsFrom(rankUnqualified, ALL_TIME_LIVE_CAP_INTERVAL)}
+        ${windowMeanSql({ typeColumn: 'm."type"', value: 'm."value"', weight: "m.day_weight" })}::double precision
+                                                                      AS mean_value
+      FROM ${dayWeightedRows("cm", SESSION_DAY_FRAME)} m
       GROUP BY m."type"
     `,
       userId,
     ),
     prisma.$queryRawUnsafe<WindowedAggregateRow[]>(
       `
+      WITH cm AS (${canonicalMeasurementsCte(rankUnqualified, "90 days")}
+      )
       SELECT
         m."type"::text                                                AS type,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '7 days'
-        )::double precision                                           AS avg7,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '30 days'
-        )::double precision                                           AS avg30,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '60 days'
-            AND m."measured_at" <  NOW() - INTERVAL '30 days'
-        )::double precision                                           AS avg30_last_month,
+        ${AVG7_SQL}::double precision                                 AS avg7,
+        ${AVG30_SQL}::double precision                                AS avg30,
+        ${AVG30_LAST_MONTH_SQL}::double precision                     AS avg30_last_month,
         PERCENTILE_CONT(0.5) WITHIN GROUP (
           ORDER BY m."value"
         ) FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '90 days'
+          WHERE m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days'
         )::double precision                                           AS median,
         -- A2-M2 — anchor the regression windows on the UTC-midnight day
         -- boundary so this cold-fallback path returns the SAME boundary-day
         -- membership the warm computeFromRollups composes via
         -- startOfUtcDay(now - N days) + composeWindowedRegression. The
         -- expression date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL
-        -- 'N days' is the SQL twin of startOfUtcDay; the trailing AT TIME
-        -- ZONE 'UTC' re-materialises the naive truncation as a UTC instant
-        -- so the measured_at (timestamptz) comparison lands on the same wall
-        -- the rollup bucketStart sits on. The wall-clock NOW() - INTERVAL
+        -- 'N days' is the SQL twin of startOfUtcDay. It stays a naive UTC
+        -- timestamp, like measured_at itself, so the comparison never
+        -- passes through the session time zone. The wall-clock NOW() - INTERVAL
         -- bound let the boundary day flip in/out of the slope window across
         -- a warm-to-cold coverage transition (cache-dependent slope on the
         -- same request); the avg7/30/median windows above stay wall-clock
@@ -935,27 +1063,27 @@ async function computeFromLiveAggregate(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
         )::double precision                                           AS slope7,
         REGR_R2(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
         )::double precision                                           AS r2_7,
         REGR_SLOPE(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days')
         )::double precision                                           AS slope30,
         REGR_R2(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days')
         )::double precision                                           AS r2_30
-      FROM ${canonicalMeasurementsFrom(rankUnqualified, "90 days")}
+      FROM ${dayWeightedRows("cm", SESSION_DAY_FRAME)} m
       GROUP BY m."type"
     `,
       userId,
@@ -1109,6 +1237,7 @@ async function computeAvg30LastYearForType(
       minValue: r.minValue,
       maxValue: r.maxValue,
     })),
+    windowWeighting(type),
   );
   return composed.count > 0 ? composed.mean : null;
 }

@@ -42,24 +42,26 @@ function render(data: object | null) {
 }
 
 describe("<ProviderHealthSection> — today's spend by cost owner", () => {
-  it("shows both figures and the day they belong to", () => {
+  it("shows both figures, the account count, and which day they count", () => {
     const html = render({
       providers: [],
       spendToday: {
-        dateKey: "2026-09-11",
         totalTokens: 1_240_000,
         operatorTokens: 151_200,
+        accounts: 3,
       },
     });
-    expect(html).toContain("2026-09-11");
     expect(html).toContain("1,240,000");
     expect(html).toContain("151,200");
+    expect(html).toContain("accounts with spend: 3");
+    // Each account's own day, not one date for the whole instance.
+    expect(html).toContain("each account&#x27;s own calendar day");
   });
 
   it("renders a zero day rather than hiding the readout", () => {
     const html = render({
       providers: [],
-      spendToday: { dateKey: "2026-09-11", totalTokens: 0, operatorTokens: 0 },
+      spendToday: { totalTokens: 0, operatorTokens: 0, accounts: 0 },
     });
     expect(html).toContain('data-slot="ai-spend-today"');
   });

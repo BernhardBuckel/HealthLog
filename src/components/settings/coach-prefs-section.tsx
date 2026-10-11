@@ -39,10 +39,18 @@ import { SettingsCard } from "@/components/settings/settings-card";
 import { SettingsCardHeader } from "@/components/settings/_card-header";
 import { useTranslations } from "@/lib/i18n/context";
 import { useCoachPrefs, useSaveCoachPrefs } from "@/hooks/use-coach-prefs";
-import { useAiCapability } from "@/hooks/use-ai-capability";
-import { COACH_FOLLOW_UP_UI_KEYS } from "@/lib/ai/coach/dialog-keys";
 import {
+  CoachReasoningSelect,
+  reasoningStateOrDefault,
+} from "@/components/insights/coach-panel/coach-reasoning-field";
+import { useAiCapability, useCoachReasoning } from "@/hooks/use-ai-capability";
+import { COACH_FOLLOW_UP_UI_KEYS } from "@/lib/ai/coach/dialog-keys";
+import { HISTORY_REACH_DAYS, lookbackText } from "@/lib/ai/coach/history-reach";
+import {
+  DEFAULT_COACH_CLUSTERS,
   DEFAULT_COACH_PREFS,
+  coachDataClusterEnum,
+  coachReasoningLevel,
   type CoachExcludeMetric,
   type CoachPrefs,
   type CoachTone,
@@ -70,6 +78,32 @@ const CONTEXT_OPTIONS: CoachExcludeMetric[] = [
   "anthropometrics",
 ];
 
+/**
+ * One sentence on what the Coach reads at the saved setting: how many of the
+ * data areas are on and how far back it looks, in the words the lookback
+ * picker uses.
+ */
+function sourcesSummary(
+  prefs: CoachPrefs,
+  t: ReturnType<typeof useTranslations>["t"],
+): string {
+  const params = {
+    count: (prefs.dataClusters ?? DEFAULT_COACH_CLUSTERS).length,
+    total: coachDataClusterEnum.options.length,
+  };
+  const window = prefs.defaultWindow;
+  if (HISTORY_REACH_DAYS[window] === null) {
+    return t("insights.coach.settingsSourcesSummaryAll", params);
+  }
+  return t("insights.coach.settingsSourcesSummary", {
+    ...params,
+    window: t(
+      `insights.coach.lookback.option.${window}`,
+      lookbackText(window).optionParams,
+    ),
+  });
+}
+
 export interface CoachPrefsSectionProps {
   isAuthenticated: boolean;
 }
@@ -77,6 +111,7 @@ export interface CoachPrefsSectionProps {
 export function CoachPrefsSection({ isAuthenticated }: CoachPrefsSectionProps) {
   const { t } = useTranslations();
   const coach = useAiCapability("coach");
+  const reasoningState = reasoningStateOrDefault(useCoachReasoning());
 
   const { data: persisted } = useCoachPrefs({ enabled: isAuthenticated });
 
@@ -119,6 +154,7 @@ export function CoachPrefsSection({ isAuthenticated }: CoachPrefsSectionProps) {
   return (
     <SettingsCard data-slot="coach-prefs-section">
       <SettingsCardHeader
+        anchor="coach-preferences"
         icon={SlidersHorizontal}
         title={t("insights.coach.settingsTitle")}
         description={t("insights.coach.settingsDescription")}
@@ -221,28 +257,51 @@ export function CoachPrefsSection({ isAuthenticated }: CoachPrefsSectionProps) {
                 </p>
               )}
             </div>
+
+            {/* v1.41 — how hard the Coach thinks, a third field of the same
+                shape; the same field sits in the Coach's quick settings. */}
+            <CoachReasoningSelect
+              id="coach-prefs-reasoning"
+              variant="card"
+              value={coachReasoningLevel(draft)}
+              state={reasoningState}
+              onChange={(reasoning) =>
+                setDraft((prev) => ({ ...prev, reasoning }))
+              }
+            />
           </div>
 
-          {/* Data clusters + analysis window live on ONE owner: the
-              sources rail inside the chat ("What I draw on"). This card
-              used to render its own copies of both controls; two writable
-              surfaces for the same persisted fields is exactly the
-              redundancy the rail was built to end. A pointer replaces
-              them. Only while the Coach can open: without it the link
-              would bounce back to Insights and the rail is out of reach. */}
+          {/* Data clusters + analysis window live on ONE owner: "What I
+              can see" behind the Coach's settings gear, which
+              `/coach?settings=data` opens directly. This card used to render
+              its own copies of both controls; two writable surfaces for the
+              same persisted fields is exactly the redundancy the rail was
+              built to end. It says what the Coach sees at the saved setting
+              and links there. Only while the Coach can open: without it the
+              link would bounce back to Insights and the rail is out of
+              reach. */}
           {coach.available ? (
-            <p
+            <div
               data-slot="coach-prefs-sources-pointer"
-              className="text-muted-foreground border-border/60 rounded-md border border-dashed px-3 py-2 text-xs leading-relaxed"
+              className="flex items-start justify-between gap-3"
             >
-              {t("insights.coach.settingsSourcesPointer")}{" "}
-              <Link
-                href="/coach"
-                className="text-foreground underline underline-offset-2"
+              <p
+                data-slot="coach-prefs-sources-summary"
+                className="min-w-0 flex-1 text-sm"
               >
-                {t("insights.coach.settingsSourcesPointerLink")}
-              </Link>
-            </p>
+                {sourcesSummary(draft, t)}
+              </p>
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="min-h-11 shrink-0 sm:min-h-9"
+              >
+                <Link href="/coach?settings=data">
+                  {t("insights.coach.settingsSourcesPointerLink")}
+                </Link>
+              </Button>
+            </div>
           ) : null}
 
           {/* Exclude metrics — checked = excluded. */}

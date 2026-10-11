@@ -6,6 +6,7 @@
  * a person instead of ciphertext. Every refusal here leaves the account's
  * current value in place and names the column in the restore's skip report.
  */
+import { Buffer } from "node:buffer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 process.env.ENCRYPTION_KEY ??=
@@ -19,6 +20,13 @@ import {
   buildAccountSettingsBackupSection,
 } from "@/lib/export/account-settings-backup";
 import { UNREADABLE_EXPORT_MARKER } from "@/lib/export/unreadable-marker";
+import { openLocation, sealLocation } from "@/lib/environment/location-cipher";
+import { reasoningEffortFor } from "@/lib/ai/reasoning-effort";
+import { notificationsShowFigures } from "@/lib/validations/notification-prefs";
+import {
+  coachReasoningLevel,
+  parseCoachPrefs,
+} from "@/lib/validations/coach-prefs";
 
 /** A 1x1 PNG, the smallest image the avatar upload accepts. */
 const PNG_1X1 =
@@ -190,6 +198,91 @@ describe("admitAccountSettings", () => {
     ]);
   });
 
+  // #1126 — the reasoning setting lives on the provider chain entries, so
+  // the chain column carries it through a backup unchanged.
+  it("carries the provider chain's reasoning settings through a round trip", async () => {
+    const chain = [
+      {
+        providerType: "local",
+        priority: 1,
+        enabled: true,
+        reasoningEffort: "none",
+      },
+      {
+        providerType: "openai-compatible",
+        priority: 2,
+        enabled: false,
+        reasoningEffort: "high",
+      },
+      { providerType: "openai", priority: 3, enabled: true },
+    ];
+    const { accountSettings } = await buildAccountSettingsBackupSection(
+      prismaReturning(rowWith({ aiProviderChain: chain })),
+      "u1",
+      { purpose: "disaster-recovery" },
+    );
+    const restored = admitAccountSettings(
+      JSON.parse(JSON.stringify(accountSettings)),
+      ctx,
+    ).data.aiProviderChain;
+    expect(restored).toEqual(chain);
+    expect(reasoningEffortFor(restored, "local")).toBe("none");
+    expect(reasoningEffortFor(restored, "openai-compatible")).toBe("high");
+  });
+
+  it("carries the Coach's thinking depth through a round trip", async () => {
+    const prefs = {
+      tone: "warm",
+      verbosity: "default",
+      excludeMetrics: [],
+      showEvidenceByDefault: false,
+      defaultWindow: "allTime",
+      reasoning: "high",
+    };
+    const { accountSettings } = await buildAccountSettingsBackupSection(
+      prismaReturning(rowWith({ coachPrefsJson: prefs })),
+      "u1",
+      { purpose: "portable-export" },
+    );
+    const restored = admitAccountSettings(
+      JSON.parse(JSON.stringify(accountSettings)),
+      ctx,
+    ).data.coachPrefsJson;
+    expect(restored).toEqual(prefs);
+    expect(coachReasoningLevel(parseCoachPrefs(restored))).toBe("high");
+  });
+
+  it("carries the notification content detail through a round trip", async () => {
+    const prefs = {
+      mood: { reminderHour: 21 },
+      content: { detail: "detailed" },
+    };
+    const { accountSettings } = await buildAccountSettingsBackupSection(
+      prismaReturning(rowWith({ notificationPrefs: prefs })),
+      "u1",
+      { purpose: "portable-export" },
+    );
+    const restored = admitAccountSettings(
+      JSON.parse(JSON.stringify(accountSettings)),
+      ctx,
+    ).data.notificationPrefs;
+    expect(restored).toEqual(prefs);
+    expect(notificationsShowFigures(restored)).toBe(true);
+  });
+
+  it("restores a hidden dashboard top card with the rest of the layout", () => {
+    const layout = {
+      version: 1,
+      widgets: [{ id: "weight", visible: true, tileVisible: true, order: 0 }],
+      todayCardVisible: false,
+    };
+    const restored = admitAccountSettings(
+      JSON.parse(JSON.stringify({ dashboardWidgetsJson: layout })),
+      ctx,
+    ).data.dashboardWidgetsJson;
+    expect(restored).toEqual(layout);
+  });
+
   it("writes a database null for a JSON setting the file clears", () => {
     expect(
       admitAccountSettings({ dashboardWidgetsJson: null }, ctx).data
@@ -263,5 +356,76 @@ describe("admitAccountSettings", () => {
       ctx,
     );
     expect(data).toEqual({ heightCm: 180 });
+  });
+});
+
+describe("the environment home (v1.42, sealed at rest)", () => {
+  it("carries the home readable in a portable file, opened from its sealed copy", async () => {
+    const { accountSettings } = await buildAccountSettingsBackupSection(
+      prismaReturning(
+        rowWith({
+          homeLocationEncrypted: sealLocation({
+            lat: 51.5,
+            lon: 7.2,
+            label: "Bochum, Germany",
+          }),
+        }),
+      ),
+      "u1",
+      { purpose: "portable-export" },
+    );
+    expect(accountSettings).toMatchObject({
+      homeLat: 51.5,
+      homeLon: 7.2,
+      homeLabel: "Bochum, Germany",
+    });
+    expect(accountSettings).not.toHaveProperty("homeLocationEncrypted");
+  });
+
+  it("carries the sealed copy verbatim in a disaster-recovery file", async () => {
+    const sealed = sealLocation({ lat: 51.5, lon: 7.2, label: "Bochum" });
+    const { accountSettings } = await buildAccountSettingsBackupSection(
+      prismaReturning(rowWith({ homeLocationEncrypted: sealed })),
+      "u1",
+      { purpose: "disaster-recovery" },
+    );
+    expect(accountSettings!.homeLocationEncrypted).toBe(
+      Buffer.from(sealed).toString("base64"),
+    );
+  });
+
+  it("seals a readable home from a file and writes the readable columns empty", () => {
+    const { data, refused } = admitAccountSettings(
+      { homeLat: 48.137, homeLon: 11.575, homeLabel: "Munich" },
+      ctx,
+    );
+    expect(refused).toEqual([]);
+    expect(data).toMatchObject({
+      homeLat: null,
+      homeLon: null,
+      homeLabel: null,
+    });
+    expect(openLocation(data.homeLocationEncrypted as Uint8Array)).toEqual({
+      lat: 48.1,
+      lon: 11.6,
+      label: "Munich",
+    });
+  });
+
+  it("takes a sealed home as it came, and clears the home when the file has none", () => {
+    const sealed = sealLocation({ lat: 1, lon: 2, label: "x" });
+    const restored = admitAccountSettings(
+      { homeLocationEncrypted: Buffer.from(sealed).toString("base64") },
+      ctx,
+    ).data.homeLocationEncrypted as Uint8Array;
+    expect(Buffer.from(restored).equals(Buffer.from(sealed))).toBe(true);
+    expect(
+      admitAccountSettings({ homeLat: null, homeLon: null }, ctx).data,
+    ).toEqual({
+      homeLocationEncrypted: null,
+      homeLat: null,
+      homeLon: null,
+      homeLabel: null,
+    });
   });
 });

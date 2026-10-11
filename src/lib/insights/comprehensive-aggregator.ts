@@ -113,6 +113,12 @@ import {
   loadUserSourcePriority,
   type AccumulatorBucketRow,
 } from "@/lib/rollups/measurement-read";
+import { windowWeighting } from "@/lib/measurements/day-statistic";
+import {
+  SESSION_DAY_FRAME,
+  dayWeightedRows,
+  windowMeanSql,
+} from "@/lib/measurements/day-mean";
 import { startOfUtcDay } from "@/lib/tz/start-of-utc-day";
 import {
   buildSourceRankCase,
@@ -124,6 +130,30 @@ import {
   probeRollupCoverage,
 } from "@/lib/rollups/measurement-coverage";
 import { dateOnlyKey } from "@/lib/tz/date-only";
+
+/**
+ * Window means over canonical readings carrying a `day_weight` (see
+ * `day-mean.ts`): the mean of the day values for an hourly-mean type (pulse),
+ * the unchanged `AVG(value)` otherwise. Days are UTC days, the frame the
+ * canonical-source pick buckets by.
+ */
+function windowedMean(filter: string): string {
+  return windowMeanSql({
+    typeColumn: 'm."type"',
+    value: 'm."value"',
+    weight: "m.day_weight",
+    filter,
+  });
+}
+const AVG7_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days'`,
+);
+const AVG30_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'`,
+);
+const AVG30_LAST_MONTH_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '60 days' AND m."measured_at" <  (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'`,
+);
 
 /**
  * Heavy aggregate row — count/min/max/mean alongside the non-composable
@@ -418,6 +448,9 @@ async function buildFromRollups(
       -- instead of twice per rebuild. Output is identical.
       WITH cm AS (${canonicalMeasurementsCte(rankUnqualified, "90 days")}
       ),
+      -- The z-score's mean and spread stay over every reading: they measure
+      -- how far one reading sits from the others, a per-reading dispersion,
+      -- not the level the window means below report.
       window_stats AS (
         SELECT
           m."type",
@@ -439,18 +472,11 @@ async function buildFromRollups(
               (ROUND(((m."value" - ws.mean_value) / ws.stddev_value)::numeric, 2))
             ) > 2
         )                                                             AS anomaly_count,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '7 days'
-        )::double precision                                           AS avg7,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '30 days'
-        )::double precision                                           AS avg30,
+        ${AVG7_SQL}::double precision                                 AS avg7,
+        ${AVG30_SQL}::double precision                                AS avg30,
         -- Prior 30d window (days [30, 60) ago) used by tile delta callout.
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '60 days'
-            AND m."measured_at" <  NOW() - INTERVAL '30 days'
-        )::double precision                                           AS avg30_last_month
-      FROM cm m
+        ${AVG30_LAST_MONTH_SQL}::double precision                     AS avg30_last_month
+      FROM ${dayWeightedRows("cm", SESSION_DAY_FRAME)} m
       JOIN window_stats ws ON ws."type" = m."type"
       GROUP BY m."type", ws.stddev_value
     `,
@@ -466,7 +492,7 @@ async function buildFromRollups(
         m."measured_at" AS measured_at
       FROM measurements m
       WHERE m."user_id" = $1
-        AND m."measured_at" >= NOW() - INTERVAL '90 days'
+        AND m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days'
         AND m."deleted_at" IS NULL
       ORDER BY m."type", date_trunc('day', m."measured_at") DESC, (${rankM}), m."measured_at" DESC
     `,
@@ -544,7 +570,7 @@ async function buildFromRollups(
   // windowed columns (avg + anomaly) alongside; slope / r² / sd compose
   // from the per-bucket regression accumulators (v1.20.0 F6).
   for (const [type, buckets] of bucketsByType.entries()) {
-    const composed = aggregateBuckets(buckets);
+    const composed = aggregateBuckets(buckets, windowWeighting(type));
     if (composed.count === 0) continue;
     totalMeasurements += composed.count;
     const latest = latestByType.get(type);
@@ -661,6 +687,9 @@ async function buildFromLiveAggregate(
       -- so the DISTINCT-ON pick runs once. Output is identical.
       WITH cm AS (${canonicalMeasurementsCte(rankUnqualified, "90 days")}
       ),
+      -- The z-score's mean and spread stay over every reading: they measure
+      -- how far one reading sits from the others, a per-reading dispersion,
+      -- not the level the window means below report.
       window_stats AS (
         SELECT
           m."type",
@@ -674,7 +703,8 @@ async function buildFromLiveAggregate(
         COUNT(*)                                                      AS count,
         MIN(m."value")::double precision                              AS min_value,
         MAX(m."value")::double precision                              AS max_value,
-        AVG(m."value")::double precision                              AS mean_value,
+        ${windowMeanSql({ typeColumn: 'm."type"', value: 'm."value"', weight: "m.day_weight" })}::double precision
+                                                                      AS mean_value,
         ws.stddev_value::double precision                             AS stddev_value,
         COUNT(*) FILTER (
           WHERE ws.stddev_value IS NOT NULL
@@ -683,26 +713,18 @@ async function buildFromLiveAggregate(
               (ROUND(((m."value" - ws.mean_value) / ws.stddev_value)::numeric, 2))
             ) > 2
         )                                                             AS anomaly_count,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '7 days'
-        )::double precision                                           AS avg7,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '30 days'
-        )::double precision                                           AS avg30,
-        AVG(m."value") FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '60 days'
-            AND m."measured_at" <  NOW() - INTERVAL '30 days'
-        )::double precision                                           AS avg30_last_month,
+        ${AVG7_SQL}::double precision                                 AS avg7,
+        ${AVG30_SQL}::double precision                                AS avg30,
+        ${AVG30_LAST_MONTH_SQL}::double precision                     AS avg30_last_month,
         -- A2-M2 — the regression windows anchor on the UTC-midnight day
         -- boundary, NOT the wall-clock instant, so this cold-fallback path
         -- returns the SAME boundary-day membership the warm rollup path
         -- composes from (startOfUtcDay(now - N days) +
         -- composeWindowedRegression). The expression
         -- date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL 'N days'
-        -- is the SQL twin of startOfUtcDay; the trailing AT TIME ZONE 'UTC'
-        -- re-materialises the naive truncation as a UTC instant so the
-        -- measured_at (timestamptz) comparison is on the same wall the
-        -- rollup bucketStart sits on. Without this anchor an account that
+        -- is the SQL twin of startOfUtcDay. It stays a naive UTC timestamp,
+        -- like measured_at itself, so the comparison never passes through
+        -- the session time zone. Without this anchor an account that
         -- crosses a coverage boundary (warm to cold) saw the boundary day
         -- flip in/out of the slope window, giving a cache-dependent answer
         -- to the same request.
@@ -710,27 +732,27 @@ async function buildFromLiveAggregate(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
         )::double precision                                           AS slope7,
         REGR_R2(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
         )::double precision                                           AS r2_7,
         REGR_SLOPE(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days')
         )::double precision                                           AS slope30,
         REGR_R2(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days')
         )::double precision                                           AS r2_30
-      FROM cm m
+      FROM ${dayWeightedRows("cm", SESSION_DAY_FRAME)} m
       JOIN window_stats ws ON ws."type" = m."type"
       GROUP BY m."type", ws.stddev_value
     `,
@@ -746,7 +768,7 @@ async function buildFromLiveAggregate(
         m."measured_at" AS measured_at
       FROM measurements m
       WHERE m."user_id" = $1
-        AND m."measured_at" >= NOW() - INTERVAL '90 days'
+        AND m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days'
         AND m."deleted_at" IS NULL
       ORDER BY m."type", date_trunc('day', m."measured_at") DESC, (${rankM}), m."measured_at" DESC
     `,

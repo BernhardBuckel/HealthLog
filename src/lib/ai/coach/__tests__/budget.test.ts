@@ -5,6 +5,7 @@ import {
   OPERATOR_COST_CAP,
   USER_PLAN_CAP,
   INTERACTIVE_RESERVE_SHARE,
+  readInstanceSpendToday,
   resolveCostOwner,
   resolveDailyCap,
   resolveDailyCapFor,
@@ -15,6 +16,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     coachUsage: {
       findUnique: vi.fn(),
+      findMany: vi.fn(),
       upsert: vi.fn(),
     },
     $executeRaw: vi.fn(),
@@ -22,16 +24,48 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+const { zoneOf } = vi.hoisted(() => ({
+  zoneOf: vi.fn(async (userId: string) =>
+    userId === "berlin"
+      ? "Europe/Berlin"
+      : userId === "new-york"
+        ? "America/New_York"
+        : "UTC",
+  ),
+}));
+vi.mock("@/lib/tz/resolver", () => ({
+  resolveUserTimezone: zoneOf,
+  resolveServerDefaultTimezone: async () => "Europe/Berlin",
+}));
+
+/**
+ * The budget day turns at the account's own midnight, the boundary the daily
+ * briefing and the other per-day generations use. On the UTC day, the first
+ * generations of a new local day east of UTC were counted against the old
+ * day's exhausted ceiling.
+ */
 describe("buildDateKey", () => {
-  it("formats UTC YYYY-MM-DD", () => {
-    // 2026-05-10T22:30Z is UTC May 10 — Berlin would be May 11 already
-    const key = buildDateKey(new Date("2026-05-10T22:30:00.000Z"));
-    expect(key).toBe("2026-05-10");
+  it("is the account's local day, not the UTC day", async () => {
+    // 22:30 UTC on May 10 is already 00:30 on May 11 in Berlin (CEST).
+    const at = new Date("2026-05-10T22:30:00.000Z");
+    await expect(buildDateKey("berlin", at)).resolves.toBe("2026-05-11");
+    await expect(buildDateKey("utc", at)).resolves.toBe("2026-05-10");
+    expect(zoneOf).toHaveBeenCalledWith("berlin");
   });
 
-  it("rolls forward at UTC midnight", () => {
-    const key = buildDateKey(new Date("2026-05-11T00:01:00.000Z"));
-    expect(key).toBe("2026-05-11");
+  it("turns at local midnight on either side of it", async () => {
+    // Berlin: 23:59 local on May 10, then 00:01 local on May 11.
+    await expect(
+      buildDateKey("berlin", new Date("2026-05-10T21:59:00.000Z")),
+    ).resolves.toBe("2026-05-10");
+    await expect(
+      buildDateKey("berlin", new Date("2026-05-10T22:01:00.000Z")),
+    ).resolves.toBe("2026-05-11");
+    // West of UTC the local day ends after the UTC one: 02:00 UTC on May 11
+    // is still the evening of May 10 in New York.
+    await expect(
+      buildDateKey("new-york", new Date("2026-05-11T02:00:00.000Z")),
+    ).resolves.toBe("2026-05-10");
   });
 });
 
@@ -585,5 +619,53 @@ describe("OPERATOR_COST_CAP (F2 — reasoning-aware operator cap)", () => {
     // The user-plan cap is far more generous — a user's own egress is never
     // gated on the operator-cost ceiling.
     expect(USER_PLAN_CAP).toBeGreaterThan(OPERATOR_COST_CAP);
+  });
+});
+
+/**
+ * The operator's "today" is every account's own today. One date key for the
+ * whole instance counted some accounts' yesterday or tomorrow once the budget
+ * day turned local.
+ */
+describe("readInstanceSpendToday", () => {
+  it("sums each account's row for its own current day and nothing else", async () => {
+    const { prisma } = await import("@/lib/db");
+    // 22:30 UTC on May 10: Berlin is on May 11, New York and UTC on May 10.
+    const at = new Date("2026-05-10T22:30:00.000Z");
+    const row = (
+      dateKey: string,
+      total: number,
+      operator: number,
+      timezone: string | null,
+    ) => ({
+      dateKey,
+      totalTokens: total,
+      operatorTokens: operator,
+      user: { timezone },
+    });
+    vi.mocked(prisma.coachUsage.findMany).mockResolvedValue([
+      row("2026-05-11", 100, 10, "Europe/Berlin"), // Berlin today
+      row("2026-05-10", 1_000, 1_000, "Europe/Berlin"), // Berlin yesterday
+      row("2026-05-10", 200, 20, "America/New_York"), // New York today
+      row("2026-05-11", 7_000, 7_000, "America/New_York"), // not yet begun
+      row("2026-05-10", 300, 30, "UTC"), // UTC today
+      // No usable zone: the server default (Berlin here), so May 11.
+      row("2026-05-11", 40, 4, null),
+      row("2026-05-11", 50, 5, "+05:30"),
+    ] as never);
+
+    await expect(readInstanceSpendToday(at)).resolves.toEqual({
+      total: 100 + 200 + 300 + 40 + 50,
+      operator: 10 + 20 + 30 + 4 + 5,
+      accounts: 5,
+    });
+    // Only the three keys any zone can be on right now are read.
+    expect(prisma.coachUsage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          dateKey: { in: ["2026-05-09", "2026-05-10", "2026-05-11"] },
+        },
+      }),
+    );
   });
 });

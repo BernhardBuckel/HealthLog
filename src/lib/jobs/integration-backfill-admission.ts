@@ -28,6 +28,14 @@ export type IntegrationBackfillData = {
   userId: string;
   enqueuedAt: string;
   provider?: "WHOOP" | "WITHINGS";
+  /**
+   * The continuation number of an import that runs in slices: absent (0) for
+   * the job discovery or a connect sends, 1, 2, ... for each follow-up a
+   * slice that made progress sent for the rest. Part of the job's singleton
+   * key, so the follow-up is not swallowed by the `exclusive` policy while the
+   * slice that sends it is still active; never part of the import identity.
+   */
+  slice?: number;
 };
 
 export interface IntegrationBackfillAdmissionPayload {
@@ -88,7 +96,12 @@ export function integrationBackfillSourceOptions(
   };
 }
 
-export function integrationBackfillAdmissionSingletonKey(
+/**
+ * The import a job belongs to: one kind for one account (and provider). The
+ * import lock keys on it, so no two slices or deliveries of one import ever
+ * run at once.
+ */
+export function integrationBackfillIdentity(
   payload: IntegrationBackfillAdmissionPayload,
 ): string {
   if (payload.kind === "sleep-timeline-backfill") {
@@ -100,16 +113,28 @@ export function integrationBackfillAdmissionSingletonKey(
   return `${payload.kind}|${payload.data.userId}`;
 }
 
+/** The job's singleton key: the import identity, plus its slice number. */
+export function integrationBackfillAdmissionSingletonKey(
+  payload: IntegrationBackfillAdmissionPayload,
+): string {
+  const identity = integrationBackfillIdentity(payload);
+  const slice = payload.data.slice ?? 0;
+  return slice > 0 ? `${identity}|slice-${slice}` : identity;
+}
+
 export async function enqueueIntegrationBackfillAdmission(
   boss: BossSender,
   payload: IntegrationBackfillAdmissionPayload,
+  startAfterSeconds: number = 0,
 ): Promise<string | null> {
-  return boss.send(
-    INTEGRATION_BACKFILL_ADMISSION_QUEUE,
-    payload,
-    integrationBackfillAdmissionSendOptions(payload),
-  );
+  return boss.send(INTEGRATION_BACKFILL_ADMISSION_QUEUE, payload, {
+    ...integrationBackfillAdmissionSendOptions(payload),
+    ...(startAfterSeconds > 0 ? { startAfter: startAfterSeconds } : {}),
+  });
 }
+
+/** Breathing room between one slice of an import and the next. */
+export const INTEGRATION_BACKFILL_CONTINUATION_DELAY_SECONDS = 60;
 
 /**
  * The send options of one admission job. The options ride on the send, not on

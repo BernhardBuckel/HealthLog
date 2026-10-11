@@ -80,6 +80,8 @@ export async function notifyIllnessRedFlag(input: {
       messageKey,
       eventType: "SYSTEM_ALERT",
       urgent: true,
+      // Tap target: the illness episode the red flag belongs to.
+      metadata: { url: `/illness/${encodeURIComponent(episodeId)}` },
     });
 
     getEvent()?.addMeta("illness_red_flag_notified", episodeId);

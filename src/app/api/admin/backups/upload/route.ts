@@ -61,15 +61,13 @@ import { storeBackupBlob } from "@/lib/export/store-backup-blob";
 import { StreamedBackupInvalidError } from "@/lib/export/streamed-backup";
 import { annotate } from "@/lib/logging/context";
 import { checkRateLimit } from "@/lib/rate-limit";
+import type { BackupPayload } from "@/lib/validations/backup";
 import {
   BACKUP_SCHEMA_VERSION,
-  backupMeasurementSchema,
-  backupPayloadSchema,
   isCompatibleSchemaVersion,
   summarizeBackup,
-  type BackupPayload,
   type BackupSummary,
-} from "@/lib/validations/backup";
+} from "@/lib/validations/backup-summary";
 
 export const dynamic = "force-dynamic";
 
@@ -221,6 +219,9 @@ export const POST = apiHandler(async (request: NextRequest) => {
   let measurementCount = 0;
   let owner: { id: string; username: string } | null = null;
 
+  // Filled while the file is read; the preview is the summary this route
+  // answers with and the key uses it already holds (`backup-preview.ts`).
+  const keys = new BackupKeyIdCollector();
   let created: { id: string };
   try {
     created = await storeBackupBlob(
@@ -229,6 +230,16 @@ export const POST = apiHandler(async (request: NextRequest) => {
         userId: admin.id,
         type: uploadType,
         ownerAfterRead: () => owner!.id,
+        preview: () =>
+          payload
+            ? {
+                summary: {
+                  ...summarizeBackup(payload),
+                  measurements: measurementCount,
+                },
+                keys,
+              }
+            : null,
       },
       async (write) => {
         // One pass: every chunk is stored as it is checked, and a check that
@@ -239,8 +250,10 @@ export const POST = apiHandler(async (request: NextRequest) => {
             yield chunk;
           }
         }
+        // Loaded on first use, not at import (see `backup-summary.ts`).
+        const { backupMeasurementSchema, backupPayloadSchema } =
+          await import("@/lib/validations/backup");
         let firstWithoutId: number | null = null;
-        const keys = new BackupKeyIdCollector();
         let scanned;
         try {
           scanned = await scanBackupJson(storedAsRead(), {

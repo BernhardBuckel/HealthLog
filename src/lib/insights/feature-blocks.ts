@@ -12,6 +12,11 @@
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import { buildSourceRankCase } from "@/lib/analytics/source-rank-sql";
+import {
+  dayWeightedRowsSql,
+  foldMeanSql,
+  isHourlyMeanTypeSql,
+} from "@/lib/measurements/day-mean";
 import { loadUserSourcePriority } from "@/lib/rollups/measurement-read";
 import { classifyAgainstEffectiveRange } from "@/lib/labs/reference-range";
 import { calendarDaysUntil } from "@/lib/measurement-reminders/due-day";
@@ -54,9 +59,16 @@ interface AllTimeExtremes {
 export async function readAllTimeExtremes(
   userId: string,
   types: readonly MeasurementType[],
+  /**
+   * The Coach's lookback floor. Given, "all time" means all the history the
+   * Coach may read, and nothing older enters the figures.
+   */
+  floor: Date | null = null,
 ): Promise<Map<MeasurementType, AllTimeExtremes>> {
   const out = new Map<MeasurementType, AllTimeExtremes>();
   if (types.length === 0) return out;
+  const since =
+    floor === null ? Prisma.empty : Prisma.sql`AND m."measured_at" >= ${floor}`;
   const priorityJson = await loadUserSourcePriority(userId);
   const rank = Prisma.raw(
     buildSourceRankCase(priorityJson, 'p."type"', 'p."source"'),
@@ -64,10 +76,42 @@ export async function readAllTimeExtremes(
   const typeList = Prisma.join(
     types.map((t) => Prisma.sql`${t}::measurement_type`),
   );
+  // A day of pulse is the mean of its hours' means and the full history the
+  // mean of its days (`day-mean.ts`). `weighted` carries, per source and day,
+  // the day-weighted sum and the day's weight (one) for those types only;
+  // every other type keeps the reading-weighted mean below, unchanged.
+  const mean = Prisma.raw(
+    foldMeanSql({
+      typeColumn: 'c."type"',
+      total: "c.total",
+      count: "c.cnt",
+      weightedSum: "c.wsum",
+      weightSum: "c.wdays",
+    }),
+  );
   const rows = await prisma.$queryRaw<
     Array<{ type: string; mean: number; min: number; max: number }>
   >`
-    WITH per_source AS (
+    WITH hourly_src AS (
+      SELECT m.*
+      FROM measurements m
+      WHERE m."user_id" = ${userId}
+        AND m."deleted_at" IS NULL
+        AND m."type" IN (${typeList})
+        ${since}
+        AND ${Prisma.raw(isHourlyMeanTypeSql('m."type"'))}
+    ),
+    weighted AS (
+      SELECT
+        w."type",
+        w."source",
+        date_trunc('day', w."measured_at")              AS day,
+        SUM(w."value" * w.day_weight)::double precision AS wsum,
+        SUM(w.day_weight)::double precision             AS wdays
+      FROM ${dayWeightedRowsSql("hourly_src", null, { bySource: true })} w
+      GROUP BY w."type", w."source", 3
+    ),
+    per_source AS (
       SELECT
         m."type",
         m."source",
@@ -80,17 +124,20 @@ export async function readAllTimeExtremes(
       WHERE m."user_id" = ${userId}
         AND m."deleted_at" IS NULL
         AND m."type" IN (${typeList})
+        ${since}
       GROUP BY m."type", m."source", 3
     ),
     canon AS (
       SELECT DISTINCT ON (p."type", p.day)
-        p."type", p.cnt, p.total, p.min_value, p.max_value
+        p."type", p.cnt, p.total, p.min_value, p.max_value, w.wsum, w.wdays
       FROM per_source p
+      LEFT JOIN weighted w
+        ON w."type" = p."type" AND w."source" = p."source" AND w.day = p.day
       ORDER BY p."type", p.day, (${rank}), p."source"::text
     )
     SELECT
       c."type"::text                                  AS type,
-      (SUM(c.total) / SUM(c.cnt))::double precision   AS mean,
+      ${mean}::double precision                       AS mean,
       MIN(c.min_value)::double precision              AS min,
       MAX(c.max_value)::double precision              AS max
     FROM canon c

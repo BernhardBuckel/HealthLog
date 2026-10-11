@@ -1,9 +1,17 @@
 import { apiHandler, requireAdmin } from "@/lib/api-handler";
-import { buildDateKey } from "@/lib/ai/coach/budget";
+import { readInstanceSpendToday } from "@/lib/ai/coach/budget";
 import { prisma } from "@/lib/db";
 import { apiSuccess } from "@/lib/api-response";
 import { annotate } from "@/lib/logging/context";
 import { OPERATOR_HELD_PROVIDER_TYPES } from "@/lib/ai/provider-egress";
+import { PROVIDER_PAUSE_THRESHOLD } from "@/lib/ai/provider-health-ledger";
+import {
+  probeModelListing,
+  type ModelListing,
+} from "@/lib/ai/model-availability";
+import { decrypt } from "@/lib/crypto";
+import { isAnthropicBaseUrl } from "@/lib/ai/provider";
+import { isCanonicalOpenAIEndpoint } from "@/lib/ai/openai-capabilities";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +50,20 @@ interface ProviderHealthSummary {
    * success clears the status along with the rest of the failure state.
    */
   lastFailureStatus: number | null;
+  /**
+   * v1.42 — users whose chain has this provider PAUSED right now (a run of
+   * hard failures past the pause threshold, inside its window). The chain
+   * walks a paused provider last and tries it again once the window lifts.
+   */
+  pausedUsers: number;
+  /** When the latest of those pauses lifts. Null when none is paused. */
+  pausedUntil: string | null;
+  /**
+   * v1.42 — for the operator's own key while it is failing: whether its
+   * endpoint still lists the configured model. `not_listed` is the fix the
+   * card names; null when there is nothing to check.
+   */
+  modelListing: { model: string; listing: ModelListing } | null;
 }
 
 /**
@@ -53,9 +75,6 @@ const CENTRAL_TYPES = [...OPERATOR_HELD_PROVIDER_TYPES];
 export const GET = apiHandler(async () => {
   await requireAdmin();
   annotate({ action: { name: "admin.provider-health.get" } });
-
-  // The UTC day the ledger buckets by — the same key every reservation writes.
-  const dateKey = buildDateKey();
 
   const groups = await prisma.providerHealth.groupBy({
     // `lastStatus` joins the grouping key rather than an aggregate: the
@@ -71,6 +90,19 @@ export const GET = apiHandler(async () => {
     },
   });
 
+  // v1.42 — paused providers: a hard-failure run at or past the threshold,
+  // inside its window. Read as rows (one per user and type, two columns) so
+  // the count and the latest lift time are exact, not folded from a group.
+  const now = new Date();
+  const pausedRows = await prisma.providerHealth.findMany({
+    where: {
+      lastResult: "hard_failed",
+      consecutiveFailures: { gte: PROVIDER_PAUSE_THRESHOLD },
+      nextRetryAt: { gt: now },
+    },
+    select: { providerType: true, nextRetryAt: true },
+  });
+
   const byType = new Map<string, ProviderHealthSummary>();
   for (const g of groups) {
     const row = byType.get(g.providerType) ?? {
@@ -81,6 +113,9 @@ export const GET = apiHandler(async () => {
       lastOkAt: null,
       lastFailureAt: null,
       lastFailureStatus: null,
+      pausedUsers: 0,
+      pausedUntil: null,
+      modelListing: null,
     };
     row.tracked += g._count._all;
     if (g.lastResult !== "ok") {
@@ -103,6 +138,21 @@ export const GET = apiHandler(async () => {
     byType.set(g.providerType, row);
   }
 
+  for (const paused of pausedRows) {
+    const row = byType.get(paused.providerType);
+    if (!row || paused.nextRetryAt === null) continue;
+    row.pausedUsers += 1;
+    const until = paused.nextRetryAt.toISOString();
+    if (!row.pausedUntil || until > row.pausedUntil) row.pausedUntil = until;
+  }
+
+  // The operator's own key, while it is failing: does its endpoint still list
+  // the configured model? A free GET, cached; only on this admin read.
+  const adminRow = byType.get("admin-openai");
+  if (adminRow && adminRow.failing > 0) {
+    adminRow.modelListing = await adminModelListing();
+  }
+
   const providers = [...byType.values()].sort((a, b) => {
     const ca = CENTRAL_TYPES.indexOf(a.providerType);
     const cb = CENTRAL_TYPES.indexOf(b.providerType);
@@ -122,17 +172,58 @@ export const GET = apiHandler(async () => {
   // alarming until you see that 151 200 of them were the instance's own key
   // and the rest ran on the users' plans. The operator ceiling is enforced
   // against the second figure, so both belong on screen.
-  const spend = await prisma.coachUsage.aggregate({
-    where: { dateKey },
-    _sum: { totalTokens: true, operatorTokens: true },
-  });
+  //
+  // "Today" is each account's own calendar day, the day its ceilings are
+  // enforced on (`readInstanceSpendToday`), not one date for the instance:
+  // the budget day is per account local day, so a single date key would
+  // count some accounts' yesterday or tomorrow and miss part of their today.
+  const spend = await readInstanceSpendToday();
 
   return apiSuccess({
     providers,
     spendToday: {
-      dateKey,
-      totalTokens: spend._sum.totalTokens ?? 0,
-      operatorTokens: spend._sum.operatorTokens ?? 0,
+      totalTokens: spend.total,
+      operatorTokens: spend.operator,
+      accounts: spend.accounts,
     },
   });
 });
+
+/**
+ * The model check for the operator's key. Never fails the readout: a missing
+ * settings row, a key that does not decrypt, or a probe error is simply no
+ * answer.
+ */
+async function adminModelListing(): Promise<{
+  model: string;
+  listing: ModelListing;
+} | null> {
+  try {
+    const settings = await prisma.appSettings.findUnique({
+      where: { id: "singleton" },
+      select: {
+        adminAiModel: true,
+        adminAiBaseUrl: true,
+        adminAiKeyEncrypted: true,
+      },
+    });
+    if (!settings?.adminAiKeyEncrypted) return null;
+    const baseUrl = settings.adminAiBaseUrl ?? "https://api.openai.com/v1";
+    // The same scope as the client's own check: an OpenAI-compatible
+    // endpoint the operator typed. `api.openai.com` names a missing model in
+    // its own error; Anthropic lists models on a different contract.
+    if (isCanonicalOpenAIEndpoint(baseUrl) || isAnthropicBaseUrl(baseUrl)) {
+      return null;
+    }
+    const model = settings.adminAiModel ?? "gpt-4o";
+    const listing = await probeModelListing({
+      baseUrl,
+      apiKey: decrypt(settings.adminAiKeyEncrypted),
+      model,
+      operatorTrusted: true,
+    });
+    return { model, listing };
+  } catch {
+    return null;
+  }
+}

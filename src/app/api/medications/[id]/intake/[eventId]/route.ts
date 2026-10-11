@@ -252,6 +252,10 @@ export const PUT = apiHandler(
           // onto the slot the row already sits on, or an unpin whose band
           // re-attribution lands on the same anchor).
           ...(attributionSource !== undefined && { attributionSource }),
+          // v1.42.2 — an edit of the outcome is the person's own record.
+          ...((data.takenAt !== undefined || data.skipped !== undefined) && {
+            autoRecorded: false,
+          }),
           // v1.7.0 sync — bump the reconciliation counter on every
           // server-side mutation so the `/api/sync/changes` feed echoes a
           // monotonic value to paired clients.

@@ -21,7 +21,6 @@ const m = vi.hoisted(() => ({
   assembleTurnContext: vi.fn(),
   resolveTurnChain: vi.fn(),
   reserveTurnBudget: vi.fn(),
-  settleReservation: vi.fn(),
   runTurnModel: vi.fn(),
   guardReply: vi.fn(),
   surfaceCards: vi.fn(),
@@ -53,7 +52,6 @@ vi.mock("../context", () => ({ assembleTurnContext: m.assembleTurnContext }));
 vi.mock("../chain", () => ({ resolveTurnChain: m.resolveTurnChain }));
 vi.mock("../budget", () => ({
   reserveTurnBudget: m.reserveTurnBudget,
-  settleReservation: m.settleReservation,
 }));
 vi.mock("../model", () => ({ runTurnModel: m.runTurnModel }));
 // The record reaches back years, so the history chips have something to
@@ -76,6 +74,7 @@ import type {
 import { DEFAULT_COACH_PREFS } from "@/lib/validations/coach-prefs";
 
 import { runCoachTurn } from "../pipeline";
+import { STUB_PROMPT_CONTEXT, modelExtras, stubLedger } from "./turn-test-kit";
 import type { TurnInput } from "../types";
 
 const STORED: CoachResultTable = {
@@ -158,6 +157,7 @@ function input(over: Partial<TurnInput> = {}): TurnInput {
     workoutId: undefined,
     followUp: { messageId: "m-last", id: "f1" },
     clarification: undefined,
+    reasoningLevel: "medium",
     recheckCapability: async () => null,
     ...over,
   };
@@ -180,13 +180,15 @@ function annotated(name: string) {
 /** The model path, enough of it to reach the frames. */
 function modelPath(prefs = DEFAULT_COACH_PREFS) {
   m.assembleTurnContext.mockResolvedValue({
+    ...STUB_PROMPT_CONTEXT,
     coachPrefs: prefs,
     snapshot: { provenance: { windows: [], metrics: [] } },
   });
   m.resolveTurnChain.mockResolvedValue({ ok: true, chain: [], toolMode: true });
-  m.reserveTurnBudget.mockResolvedValue({ ok: true, reservation: {} });
+  m.reserveTurnBudget.mockResolvedValue({ ok: true, ledger: stubLedger() });
   const table = { ...STORED, chart: null, chartKind: null, displayed: true };
   m.runTurnModel.mockResolvedValue({
+    ...modelExtras(),
     ok: true,
     result: { content: "x", model: "gpt" },
     workingProviderType: "openai",
@@ -236,6 +238,7 @@ function modelPath(prefs = DEFAULT_COACH_PREFS) {
 
 beforeEach(() => {
   for (const fn of Object.values(m)) fn.mockReset();
+  m.persistUserTurn.mockResolvedValue({ messageId: "m-user" });
   m.readFollowUpHistory.mockResolvedValue({
     today: "2026-09-27",
     firstDate: { bp: "2024-01-01" },
@@ -290,14 +293,7 @@ describe("a reuse chip", () => {
     const order = out
       .map((f) => f.type)
       .filter((type, i, all) => type !== "token" || all[i - 1] !== "token");
-    expect(order).toEqual([
-      "step",
-      "token",
-      "provenance",
-      "result",
-      "followUps",
-      "done",
-    ]);
+    expect(order).toEqual(["step", "token", "provenance", "result", "done"]);
     expect(
       out.flatMap((f) => (f.type === "token" ? [f.token] : [])).join(""),
     ).toBe("Here are the same figures from my last answer, unchanged.");
@@ -310,11 +306,9 @@ describe("a reuse chip", () => {
       chart: STORED.chart,
       reusedFrom: { messageId: "m-last", ref: "r1" },
     });
-    const followUps = out.find((f) => f.type === "followUps");
-    // Shown as a chart now, so the other view is what is offered.
-    expect(
-      followUps?.type === "followUps" && followUps.followUps.map((c) => c.kind),
-    ).toEqual(["as_table"]);
+    // The table is shown with its chart, and the panel carries its own
+    // chart/table toggle, so no chip offers the other view again.
+    expect(out.some((f) => f.type === "followUps")).toBe(false);
     const done = out.at(-1);
     expect(done).toMatchObject({
       type: "done",
@@ -327,7 +321,7 @@ describe("a reuse chip", () => {
     expect(annotated("coach.followUp.reused")).toHaveLength(1);
   });
 
-  it("shows the table first on 'as a table' and offers the chart back", async () => {
+  it("shows the table first on 'as a table', leaving the chart to the panel's toggle", async () => {
     const asTable = { ...AS_CHART, kind: "as_table" as const };
     m.findMany.mockResolvedValue(latestReply([asTable]));
     m.readMessageResults.mockResolvedValue([STORED]);
@@ -338,10 +332,9 @@ describe("a reuse chip", () => {
       chart: STORED.chart,
       rows: STORED.rows,
     });
-    const chips = out.find((f) => f.type === "followUps");
-    expect(
-      chips?.type === "followUps" && chips.followUps.map((c) => c.kind),
-    ).toEqual(["as_chart"]);
+    // The chart stays on the result, one tap away on its toggle; a chip
+    // for it would repeat that toggle.
+    expect(out.some((f) => f.type === "followUps")).toBe(false);
   });
 
   it("goes to the model with the chip's hint when the table is withheld", async () => {

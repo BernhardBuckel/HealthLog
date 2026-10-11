@@ -18,12 +18,8 @@
  * of bubbling out of `prisma.createMany` with a useless message.
  */
 import { describe, expect, it } from "vitest";
-import {
-  backupPayloadSchema,
-  isCompatibleSchemaVersion,
-  parseBackupPayload,
-  summarizeBackup,
-} from "../backup";
+import { backupPayloadSchema, parseBackupPayload } from "../backup";
+import { isCompatibleSchemaVersion, summarizeBackup } from "../backup-summary";
 
 const baseEntry = {
   date: "2026-05-08",
@@ -701,5 +697,22 @@ describe("a Coach turn's stored tables are bounded on restore", () => {
   it("refuses sealed tables larger than a turn can store", () => {
     const sealed = "A".repeat(300 * 1024);
     expect(parseWithResults({ resultsEncrypted: sealed }).success).toBe(false);
+  });
+
+  it("bounds the trail's text the same way, at its own 16 KB", () => {
+    const fits = JSON.stringify({
+      entries: [{ id: "a1", text: "x".repeat(15 * 1024) }],
+    });
+    expect(parseWithResults({ trailJson: fits }).success).toBe(true);
+    expect(
+      parseWithResults({ trailEncrypted: "A".repeat(30 * 1024) }).success,
+    ).toBe(true);
+    const tooLong = JSON.stringify({
+      entries: [{ id: "a1", text: "x".repeat(17 * 1024) }],
+    });
+    expect(parseWithResults({ trailJson: tooLong }).success).toBe(false);
+    expect(
+      parseWithResults({ trailEncrypted: "A".repeat(40 * 1024) }).success,
+    ).toBe(false);
   });
 });

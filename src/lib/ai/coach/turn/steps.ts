@@ -11,6 +11,7 @@
  * without passing one of those checks.
  */
 import type { Locale } from "@/lib/i18n/config";
+import { isCalendarDateKey } from "@/lib/tz/date-only";
 import { getServerTranslator } from "@/lib/i18n/server-translator";
 import type { AiToolCall } from "@/lib/ai/types";
 import {
@@ -36,9 +37,14 @@ import {
   type CoachToolName,
 } from "@/lib/ai/coach/tools/definitions";
 import { isTurnResultRef } from "@/lib/ai/coach/results/refs";
+import { COMPARE_SERIES_TOOL_NAME } from "@/lib/ai/coach/tools/compare-series";
 
-/** At most this many steps per turn; later calls run but show no step. */
-export const MAX_TURN_STEPS = 12;
+/**
+ * At most this many steps per turn; later calls run but show no step.
+ * v1.41 — four per round of the longest turn: 48 for twelve rounds, 64 since
+ * v1.41.2 raised the cap to sixteen.
+ */
+export const MAX_TURN_STEPS = 64;
 
 const SCOPE_SOURCES: ReadonlySet<string> = new Set(
   coachScopeSourceSchema.options,
@@ -79,6 +85,8 @@ const TOOL_DOMAIN: Readonly<Record<CoachToolName, CoachStepDomain | null>> = {
   get_cycle: "cycle",
   get_correlations: "correlations",
   get_metric_table: null,
+  get_environment: "environment",
+  get_day: "day",
 };
 
 /**
@@ -100,6 +108,9 @@ const TOOL_WINDOW: Readonly<
   get_cycle: null,
   get_correlations: null,
   get_metric_table: "fallback",
+  get_environment: "fallback",
+  // One date, no window.
+  get_day: null,
 };
 
 /**
@@ -114,6 +125,9 @@ const MISS: Readonly<
   no_data: { status: "empty", reason: "no_data" },
   analyte_not_found: { status: "empty", reason: "no_data" },
   outside_window: { status: "empty", reason: "outside_window" },
+  // Beyond the lookback limit: to the person, "no readings in this window"
+  // is the true sentence; the limit itself is named in the answer.
+  outside_reach: { status: "empty", reason: "outside_window" },
   module_disabled: { status: "empty", reason: "module_disabled" },
   retrieval_failed: { status: "failed", reason: "retrieval_failed" },
   no_data_unconfirmed: { status: "failed", reason: "retrieval_failed" },
@@ -127,7 +141,7 @@ const MISS: Readonly<
   },
   use_get_workouts: { status: "failed", reason: "invalid_arguments" },
   // `show_result`: a name the conversation does not hold, a stored table
-  // that could not be read, a turn already holding six tables.
+  // that could not be read, a turn already holding eight tables.
   unknown_result: { status: "failed", reason: "invalid_arguments" },
   result_unavailable: { status: "failed", reason: "retrieval_failed" },
   result_limit: { status: "failed" },
@@ -170,7 +184,8 @@ function tableSummaryCount(data: Record<string, unknown>): number | undefined {
 /**
  * How many readings or rows a present result covered, when the result says
  * so in a field the server counted:
- * - a metric series: the aggregate's coverage count;
+ * - a metric series: the aggregate's coverage count, else the readings the
+ *   snapshot counted for it;
  * - a metric table: the readings its periods fold;
  * - workouts: the sessions in the window;
  * - labs: the biomarkers returned (one row each).
@@ -183,9 +198,17 @@ function presentCount(tool: CoachToolName, data: unknown): number | undefined {
       return tableSummaryCount(data);
     case "get_metric_series": {
       const section = data.section;
-      if (!isRecord(section) || !isRecord(section.aggregate)) return undefined;
-      const coverage = section.aggregate.coverage;
-      return isRecord(coverage) ? asCount(coverage.count) : undefined;
+      const coverage =
+        isRecord(section) && isRecord(section.aggregate)
+          ? section.aggregate.coverage
+          : undefined;
+      // The aggregate's count where the block has one; a series without an
+      // aggregate (body composition, the synced series) carries the readings
+      // the snapshot counted beside the section.
+      return (
+        (isRecord(coverage) ? asCount(coverage.count) : undefined) ??
+        asCount(data.readings)
+      );
     }
     case "get_workouts":
       return asCount(data.totalInWindow);
@@ -240,6 +263,9 @@ export function toStep(args: {
   if (call.name === SHOW_RESULT_TOOL_NAME) {
     return reuseStep({ index, result, locale });
   }
+  if (call.name === COMPARE_SERIES_TOOL_NAME) {
+    return compareStep({ ...args, index });
+  }
   if (!isCoachToolName(call.name)) return null;
   const tool = call.name;
 
@@ -273,6 +299,14 @@ export function toStep(args: {
 
   const settled = settle(tool, result);
   const resultRef = producedRef(result);
+  // The date a day read named, held to a real calendar date like every
+  // other field here.
+  const day =
+    tool === "get_day" &&
+    typeof parsedArgs?.date === "string" &&
+    isCalendarDateKey(parsedArgs.date)
+      ? parsedArgs.date
+      : undefined;
   return {
     id: `s${index + 1}`,
     tool,
@@ -285,6 +319,7 @@ export function toStep(args: {
     ...(settled.count !== undefined ? { count: settled.count } : {}),
     ...(settled.reason ? { reason: settled.reason } : {}),
     ...(resultRef ? { resultRef } : {}),
+    ...(day ? { day } : {}),
   };
 }
 
@@ -403,6 +438,56 @@ function settle(
     status: miss.status,
     ...(count !== undefined ? { count } : {}),
     ...(miss.reason ? { reason: miss.reason } : {}),
+  };
+}
+
+/**
+ * v1.41 — a `compare_series` call: two series of the metric table, shown as
+ * the metric table's step for the first metric. Its count is the readings
+ * the first series folded; the second series rides the same table.
+ */
+function compareStep(args: {
+  index: number;
+  parsedArgs: Record<string, unknown> | undefined;
+  result?: CoachToolResult;
+  locale: Locale;
+  fallbackWindow?: CoachScopeWindow;
+}): CoachStep | null {
+  const { index, parsedArgs, result, locale } = args;
+  const domain = pick<CoachStepDomain>(SCOPE_SOURCES, parsedArgs?.metric);
+  if (!domain) return null;
+  const window =
+    pick<CoachScopeWindow>(WINDOWS, parsedArgs?.window) ??
+    pick<CoachScopeWindow>(WINDOWS, args.fallbackWindow);
+  const granularity = pick<CoachResultGranularity>(
+    GRANULARITIES,
+    parsedArgs?.granularity,
+  );
+  const base = {
+    id: `s${index + 1}`,
+    tool: "get_metric_table" as const,
+    ...render(locale, domain, window),
+    domain,
+    ...(window ? { window } : {}),
+    ...(granularity ? { granularity } : {}),
+  };
+  if (!result) return { ...base, status: "running" };
+  if (!result.present) {
+    const miss = missFor(result.reason);
+    return {
+      ...base,
+      status: miss.status,
+      ...(miss.reason ? { reason: miss.reason } : {}),
+    };
+  }
+  const sideA = isRecord(result.data) ? result.data.a : undefined;
+  const count = isRecord(sideA) ? tableSummaryCount(sideA) : undefined;
+  const resultRef = producedRef(result);
+  return {
+    ...base,
+    status: "done",
+    ...(count !== undefined ? { count } : {}),
+    ...(resultRef ? { resultRef } : {}),
   };
 }
 

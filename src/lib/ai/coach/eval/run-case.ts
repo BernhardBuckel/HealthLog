@@ -25,6 +25,8 @@
  * This mirrors the route exactly (`coach-prose-grounding-no-tools.test.ts`).
  */
 import type { Locale } from "@/lib/i18n/config";
+import { UNBOUNDED_REACH } from "@/lib/ai/coach/history-reach";
+import { TURN_LIMITS } from "@/lib/ai/coach/tools/turn-budget";
 import type {
   AiMessage,
   AiToolCall,
@@ -33,6 +35,7 @@ import type {
 } from "@/lib/ai/types";
 import type { CoachEvalCase } from "./golden-cases";
 import type { CoachScenario, CoachScenarioObservation } from "./scenarios";
+import type { ClarifyToolCall } from "@/lib/ai/coach/clarify";
 
 /** The capture both grader layers consume. */
 export interface CoachCaseCapture {
@@ -113,6 +116,8 @@ export async function runRealCase(args: {
     // folded into the system prompt by the judge so a no-tools provider still
     // has the context. The loop tolerates an empty toolCalls (no-tools path).
     tools: [],
+    // An eval case is a fixed transcript, not a person with a setting.
+    reach: UNBOUNDED_REACH,
     temperature,
     maxTokens,
   });
@@ -137,8 +142,11 @@ export interface ScenarioProvider {
   generateCompletion(params: CompletionParams): Promise<CompletionResult>;
 }
 
-/** How many tool rounds a live scenario may take, as in the chat turn. */
-const SCENARIO_MAX_ROUNDS = 3;
+/**
+ * How many rounds a live scenario may take: the round cap of the person's
+ * own plan (v1.41), the forced answer included.
+ */
+const SCENARIO_MAX_ROUNDS = TURN_LIMITS.user.maxRounds;
 
 function parseArgs(raw: string): Record<string, unknown> {
   try {
@@ -164,6 +172,25 @@ async function stubToolResult(
   ref: string,
 ): Promise<Record<string, unknown>> {
   const { resolvePriorResultRef } = await import("@/lib/ai/coach/results/refs");
+  if (call.name === "compare_series") {
+    const metrics = [args.metric, args.metricB].filter(
+      (m): m is string => typeof m === "string",
+    );
+    const held = metrics.every(
+      (metric) =>
+        scenario.inventory.find((entry) => entry.metric === metric)?.present,
+    );
+    return held
+      ? {
+          present: true,
+          resultRef: ref,
+          data: {
+            note: "figures withheld in this evaluation",
+            mode: args.mode,
+          },
+        }
+      : { present: false, reason: "no_data" };
+  }
   if (call.name === "show_result") {
     const target = resolvePriorResultRef(
       String(args.ref ?? ""),
@@ -209,7 +236,8 @@ function priorResultTurns(scenario: CoachScenario) {
  * LIVE scenario run: the scenario's question, record and earlier tables in
  * the chat turn's own context (system prompt, tool-mode and dialog
  * addenda, DATA INVENTORY, EARLIER TABLES, transcript), put to a real
- * model over the real tool catalogue for up to three rounds. Every call is
+ * model over the real tool catalogue, comparisons and the dialog tools
+ * for as many rounds as a turn on the person's own plan (v1.41), a question ending the run. Every call is
  * captured with its arguments and answered with a stand-in result; the
  * reply goes through the clarification and chip parsers the turn uses.
  *
@@ -230,9 +258,11 @@ export async function runScenarioLive(args: {
     tools,
     { buildDialogAddenda },
     { localeLanguageNames },
-    { parseClarifySentinel },
+    { parseClarifySentinel, buildClarificationFromTool },
     { parseFollowUpsSentinel },
     { stripResultRefs },
+    { COMPARE_SERIES_TOOL_DEF },
+    { DIALOG_TOOL_DEFS },
   ] = await Promise.all([
     import("@/lib/ai/coach/refusal"),
     import("@/lib/ai/coach/system-prompt"),
@@ -243,6 +273,8 @@ export async function runScenarioLive(args: {
     import("@/lib/ai/coach/clarify"),
     import("@/lib/ai/coach/follow-ups/parse-sentinel"),
     import("@/lib/ai/coach/results/refs"),
+    import("@/lib/ai/coach/tools/compare-series"),
+    import("@/lib/ai/coach/tools/dialog-tools"),
   ]);
 
   const empty: CoachScenarioObservation = {
@@ -295,8 +327,20 @@ export async function runScenarioLive(args: {
   let providerCalls = 0;
   let refs = 0;
   let prose = "";
-  for (let round = 1; round <= SCENARIO_MAX_ROUNDS + 1; round += 1) {
-    const offer = round <= SCENARIO_MAX_ROUNDS;
+  // v1.41 — the turn offers comparisons and the dialog tools too; a
+  // clarifying question ends the run with the question as the reply.
+  const offered = [
+    ...tools.COACH_TOOL_DEFS,
+    COMPARE_SERIES_TOOL_DEF,
+    ...DIALOG_TOOL_DEFS,
+  ];
+  let asked: CoachScenarioObservation["clarification"] = null;
+  let rounds = 0;
+  const seen = new Set<string>();
+  let repeats = 0;
+  for (let round = 1; round <= SCENARIO_MAX_ROUNDS; round += 1) {
+    const offer = round < SCENARIO_MAX_ROUNDS;
+    rounds = round;
     providerCalls += 1;
     const result = await provider.generateCompletion({
       system: request.system,
@@ -304,7 +348,7 @@ export async function runScenarioLive(args: {
       temperature: 0.2,
       maxTokens: 600,
       ...(offer
-        ? { tools: tools.COACH_TOOL_DEFS, toolChoice: "auto" as const }
+        ? { tools: offered, toolChoice: "auto" as const }
         : { toolChoice: "none" as const }),
     });
     const calls = offer ? (result.toolCalls ?? []) : [];
@@ -322,6 +366,38 @@ export async function runScenarioLive(args: {
         tools.parseCoachToolArgs(call.name, call.arguments) ??
         parseArgs(call.arguments);
       toolCalls.push({ name: call.name, args: callArgs });
+      const signature = `${call.name}:${JSON.stringify(callArgs)}`;
+      if (seen.has(signature)) repeats += 1;
+      seen.add(signature);
+      if (call.name === "ask_clarification") {
+        const built = buildClarificationFromTool({
+          call: callArgs as unknown as ClarifyToolCall,
+          inventory: scenario.inventory,
+          locale,
+        });
+        if (built.ok && round <= 2) {
+          asked = built.clarification;
+          prose = built.question;
+        }
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          content: JSON.stringify(
+            built.ok && round <= 2
+              ? { asked: true }
+              : { declined: "invalid", assume: callArgs.assumption ?? null },
+          ),
+        });
+        continue;
+      }
+      if (call.name === "remember_fact" || call.name === "propose_plan") {
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          content: JSON.stringify({ declined: "unavailable" }),
+        });
+        continue;
+      }
       refs += 1;
       messages.push({
         role: "tool",
@@ -331,13 +407,16 @@ export async function runScenarioLive(args: {
         ),
       });
     }
+    if (asked) break;
   }
 
-  const clarified = parseClarifySentinel({
-    prose,
-    inventory: scenario.inventory,
-    locale,
-  });
+  const clarified = asked
+    ? { prose, clarification: asked }
+    : parseClarifySentinel({
+        prose,
+        inventory: scenario.inventory,
+        locale,
+      });
   const visible = stripResultRefs(
     parseFollowUpsSentinel(clarified.prose).prose,
   ).prose;
@@ -353,5 +432,7 @@ export async function runScenarioLive(args: {
     readDomains: toolCalls.flatMap((c) =>
       typeof c.args.metric === "string" ? [c.args.metric] : [],
     ),
+    toolRounds: rounds - (asked ? 0 : 1),
+    repeatedCalls: repeats,
   };
 }

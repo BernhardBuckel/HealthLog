@@ -9,12 +9,16 @@
  *     us add per-day analytics ("avg replies per active user") later
  *     without further migrations.
  *
- * `dateKey` is a UTC `YYYY-MM-DD` string. UTC, not Europe/Berlin: the
- * job runner that may seed off-hour tasks (planned v1.5) needs a
- * boundary that does not jump on DST. Display layers can format with
- * the user's timezone.
+ * `dateKey` is a `YYYY-MM-DD` string: the calendar day in the account's own
+ * time zone (`buildDateKey`), the same boundary as the daily briefing and
+ * every other per-day surface.
  */
 import { prisma } from "@/lib/db";
+import { isValidTimezone, shiftDateKey, userDayKey } from "@/lib/tz/format";
+import {
+  resolveServerDefaultTimezone,
+  resolveUserTimezone,
+} from "@/lib/tz/resolver";
 import type { ProviderChainType } from "@/lib/ai/provider-chain";
 
 /**
@@ -215,8 +219,9 @@ export interface DailySpend {
 
 export async function readDailySpend(
   userId: string,
-  dateKey: string = buildDateKey(),
+  dateKey?: string,
 ): Promise<DailySpend> {
+  dateKey ??= await buildDateKey(userId);
   const row = await prisma.coachUsage.findUnique({
     where: { userId_dateKey: { userId, dateKey } },
     select: { totalTokens: true, operatorTokens: true },
@@ -227,16 +232,84 @@ export async function readDailySpend(
   };
 }
 
+/** The day's spend across every account, for the operator's readout. */
+export interface InstanceDailySpend extends DailySpend {
+  /** Accounts with a spend row on their own current day. */
+  accounts: number;
+}
+
 /**
- * Build the UTC day-key for a given clock. Defaults to "now".
+ * Every account's spend on that account's own current day, summed.
  *
- * UTC choice: the budget guards spend against the operator's LLM
- * bill — the bill cycles at the provider's UTC midnight, so aligning
- * the local meter to the same boundary keeps reasoning trivial.
+ * Since the budget day turned local, one date key no longer names "today"
+ * for everybody: at 23:30 in Berlin a row keyed with the Berlin date belongs
+ * to a Berlin account's today, while an account in New York is still on the
+ * day before. Each ceiling is enforced on the account's own day, so the
+ * operator's figure is the sum of exactly those rows, one per account: the
+ * spend that counts against the ceilings right now.
+ *
+ * Every zone's today lies within one day of the UTC date, so the read
+ * fetches those three keys only and keeps the rows whose key is their
+ * account's current day, resolved the way `buildDateKey` resolves it (the
+ * account's zone when valid, otherwise the server default).
  */
-export function buildDateKey(at: Date = new Date()): string {
-  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the spend meter follows the provider's UTC billing day (see the doc comment)
-  return at.toISOString().slice(0, 10);
+export async function readInstanceSpendToday(
+  at: Date = new Date(),
+): Promise<InstanceDailySpend> {
+  const utcKey = userDayKey(at, "UTC");
+  const rows = await prisma.coachUsage.findMany({
+    where: {
+      dateKey: {
+        in: [shiftDateKey(utcKey, -1), utcKey, shiftDateKey(utcKey, 1)],
+      },
+    },
+    select: {
+      dateKey: true,
+      totalTokens: true,
+      operatorTokens: true,
+      user: { select: { timezone: true } },
+    },
+  });
+  const serverTz = await resolveServerDefaultTimezone();
+  const todayByZone = new Map<string, string>();
+  const spend: InstanceDailySpend = { total: 0, operator: 0, accounts: 0 };
+  for (const row of rows) {
+    const zone =
+      row.user.timezone && isValidTimezone(row.user.timezone)
+        ? row.user.timezone
+        : serverTz;
+    let today = todayByZone.get(zone);
+    if (today === undefined) {
+      today = userDayKey(at, zone);
+      todayByZone.set(zone, today);
+    }
+    if (row.dateKey !== today) continue;
+    spend.total += row.totalTokens;
+    spend.operator += row.operatorTokens;
+    spend.accounts += 1;
+  }
+  return spend;
+}
+
+/**
+ * The budget day of one account at `at` (default now): the calendar day in
+ * the account's own time zone.
+ *
+ * Up to v1.42.1 this was the UTC day. The daily briefing and the other
+ * per-day generations run on the account's local day, so in a zone east of
+ * UTC the first ones of a new local day still counted against the old UTC
+ * day, whose ceiling the evening had used up: a burst of refusals right
+ * after local midnight. The day now turns where the person's day turns.
+ *
+ * A caller resolves the key once per request or job and hands the same key
+ * to the reservation and the reconcile, so both land on one row even when
+ * the call spans midnight.
+ */
+export async function buildDateKey(
+  userId: string,
+  at: Date = new Date(),
+): Promise<string> {
+  return userDayKey(at, await resolveUserTimezone(userId));
 }
 
 /**
@@ -295,11 +368,18 @@ export async function reserveBudget(
   owner: BudgetCostOwner,
   surface: BudgetSurface,
   db: BudgetExecutor = prisma,
+  /**
+   * v1.41 — `false` for a further reservation inside a request that already
+   * counted its message: a Coach turn reserves round by round, and each
+   * round is not a message of its own.
+   */
+  opts: { countMessage?: boolean } = {},
 ): Promise<ReserveBudgetResult> {
   const reserved =
     Number.isFinite(estimatedTokens) && estimatedTokens > 0
       ? Math.floor(estimatedTokens)
       : 0;
+  const messageBump = opts.countMessage === false ? 0 : 1;
   // v1.38.19 — a reservation is booked to `operator_tokens` only when
   // the chain's primary is operator-funded. The counter moves inside the SAME
   // statement as the total, so two concurrent requests can never observe one
@@ -314,12 +394,12 @@ export async function reserveBudget(
     { total_tokens: number; operator_tokens: number }[]
   >`
     INSERT INTO coach_usage (id, user_id, date_key, total_tokens, operator_tokens, message_count, created_at, updated_at)
-    VALUES (gen_random_uuid()::text, ${userId}, ${dateKey}, ${reserved}, ${operatorReserved}, 1, NOW(), NOW())
+    VALUES (gen_random_uuid()::text, ${userId}, ${dateKey}, ${reserved}, ${operatorReserved}, ${messageBump}, (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC'))
     ON CONFLICT (user_id, date_key) DO UPDATE SET
       total_tokens = coach_usage.total_tokens + ${reserved},
       operator_tokens = coach_usage.operator_tokens + ${operatorReserved},
-      message_count = coach_usage.message_count + 1,
-      updated_at = NOW()
+      message_count = coach_usage.message_count + ${messageBump},
+      updated_at = (NOW() AT TIME ZONE 'UTC')
     RETURNING total_tokens, operator_tokens
   `;
   const totalAfter = Number(rows[0]?.total_tokens ?? reserved);
@@ -349,7 +429,14 @@ export async function reserveBudget(
   if (limit !== null) {
     // Already over before this request — refund the reservation + the
     // message-count bump and refuse.
-    await refundReservation(userId, reserved, operatorReserved, dateKey, db);
+    await refundReservation(
+      userId,
+      reserved,
+      operatorReserved,
+      dateKey,
+      db,
+      messageBump,
+    );
     return {
       allowed: false,
       reserved,
@@ -439,7 +526,7 @@ export async function reconcileSpend(
     UPDATE coach_usage
     SET total_tokens = GREATEST(0, total_tokens + ${delta}),
         operator_tokens = GREATEST(0, operator_tokens + ${operatorDelta}),
-        updated_at = NOW()
+        updated_at = (NOW() AT TIME ZONE 'UTC')
     WHERE user_id = ${userId} AND date_key = ${dateKey}
   `;
 }
@@ -451,13 +538,14 @@ async function refundReservation(
   operatorReserved: number,
   dateKey: string,
   db: BudgetExecutor = prisma,
+  messageBump = 1,
 ): Promise<void> {
   await db.$executeRaw`
     UPDATE coach_usage
     SET total_tokens = GREATEST(0, total_tokens - ${reserved}),
         operator_tokens = GREATEST(0, operator_tokens - ${operatorReserved}),
-        message_count = GREATEST(0, message_count - 1),
-        updated_at = NOW()
+        message_count = GREATEST(0, message_count - ${messageBump}),
+        updated_at = (NOW() AT TIME ZONE 'UTC')
     WHERE user_id = ${userId} AND date_key = ${dateKey}
   `;
 }

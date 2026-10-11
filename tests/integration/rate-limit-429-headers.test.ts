@@ -185,7 +185,7 @@ describe("429 rate-limit headers (real Postgres)", () => {
     await getPrismaClient().coachUsage.create({
       data: {
         userId: TEST_USER_ID,
-        dateKey: buildDateKey(),
+        dateKey: await buildDateKey(TEST_USER_ID),
         totalTokens: USER_PLAN_CAP,
         messageCount: 1,
       },

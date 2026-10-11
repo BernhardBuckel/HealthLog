@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "./reasoning-effort";
+import type { ReasoningLevel } from "./reasoning/levels";
 import { z } from "zod/v4";
 
 // ─── Insight Result Schema ─────────────────────────────────
@@ -123,6 +125,13 @@ export interface AIProvider {
    * `null` / absent → the surface's `timeoutMs`, else the 60 s default.
    */
   responseTimeoutSeconds?: number | null;
+  /**
+   * #1126 — the `reasoning_effort` the record owner chose for this provider's
+   * chain entry, stamped by the resolver (`bindReasoningEffort`). Only the
+   * Local client and the OpenAI-compatible gateway read it, and only they are
+   * ever stamped with a value. `null` / absent → Default: the key is not sent.
+   */
+  reasoningEffort?: ReasoningEffort | null;
   generateCompletion(params: CompletionParams): Promise<CompletionResult>;
   /**
    * v1.22 (#89) — optional true-streaming variant. A provider that can emit
@@ -244,6 +253,37 @@ export interface AiMessage {
    * A no-op on every other provider (their prefix caching is automatic).
    */
   cacheBreakpoint?: boolean;
+  /**
+   * v1.41 — opaque provider state carried from one tool round to the next on
+   * an assistant turn: the reasoning items a provider requires back verbatim
+   * (encrypted reasoning items, thinking blocks with their signatures,
+   * reasoning details). Only the client whose `providerType` and `model` match
+   * re-inserts it; every other client drops it. Lives in memory for one turn:
+   * never persisted, never logged, never passed to `annotate()`.
+   */
+  providerState?: AiProviderState;
+}
+
+/**
+ * v1.41 — provider state threaded between the rounds of one turn. `items` is
+ * whatever the producing client needs back, unchanged; nothing outside that
+ * client reads it.
+ */
+export interface AiProviderState {
+  providerType: ProviderType;
+  model: string;
+  items: unknown[];
+}
+
+/**
+ * v1.41 — one live reasoning event a client reports while a call runs.
+ * `title` is the first bold line of a summary once it has closed, `text` a
+ * finished summary, `done` the end of the reasoning for this call. Model
+ * text: the receiver screens it before anything reaches a person.
+ */
+export interface AiReasoningEvent {
+  kind: "title" | "text" | "done";
+  text: string;
 }
 
 export interface CompletionParams {
@@ -326,6 +366,30 @@ export interface CompletionParams {
    * `ai-call-timeout-guard.test.ts`.
    */
   timeoutPolicy?: "surface-ceiling";
+  /**
+   * v1.41 — the reasoning this call asks for, already resolved against the
+   * person's level, the operator's cap and what the provider supports
+   * (`src/lib/ai/reasoning/resolve.ts`). `summaries` asks for reasoning
+   * summaries where the provider offers them. Absent → today's behaviour: the
+   * client sends exactly what it sent before the field existed.
+   */
+  reasoning?: { effort: ReasoningLevel; summaries: boolean };
+  /**
+   * v1.41.2 — a stable key for calls that resend the same prompt prefix (the
+   * rounds of one Coach turn, the turns of one conversation). Providers that
+   * route a request to a prompt cache by key read it: Codex as
+   * `prompt_cache_key` and its session headers, `api.openai.com` as
+   * `prompt_cache_key`. Without it a Codex call is routed afresh every time
+   * and a later round pays for its whole prefix again. An opaque value: the
+   * caller hashes whatever it derives the key from. Absent → nothing is sent.
+   */
+  cacheKey?: string;
+  /**
+   * v1.41 — live reasoning events, called as they arrive on clients that read
+   * the provider's stream, or once after the reply on clients that do not.
+   * Never called when `reasoning` is absent.
+   */
+  onReasoning?: (event: AiReasoningEvent) => void;
 }
 
 export interface CompletionResult {
@@ -336,6 +400,12 @@ export interface CompletionResult {
    * from the provider's cache, where the provider reports it (Anthropic
    * `cache_read_input_tokens`, OpenAI/Codex `cached_tokens`). Null / absent
    * when the provider does not report it or the prefix did not hit.
+   *
+   * v1.41.2 — always a share of `tokensUsed`, never beside it: the turn
+   * budget and the daily ledger charge `tokensUsed - cachedInputTokens` at
+   * full weight and the cached share at a tenth. A client whose provider
+   * reports cached input outside its input count (Anthropic) adds it to
+   * `tokensUsed`.
    */
   cachedInputTokens?: number | null;
   model: string;
@@ -350,6 +420,22 @@ export interface CompletionResult {
    * `"tool_calls"`. Absent when the provider does not surface it.
    */
   finishReason?: "stop" | "tool_calls" | "length";
+  /**
+   * v1.41 — what the call reasoned, when it reasoned. `summary` holds the
+   * finished summaries (model text, unscreened), `tokens` the reasoning tokens
+   * the provider billed where it reports them, `downgradedTo` the level the
+   * client fell back to after the provider refused the requested one.
+   */
+  reasoning?: {
+    summary: string[];
+    tokens: number | null;
+    downgradedTo?: ReasoningLevel;
+  };
+  /**
+   * v1.41 — the state the next round of the same turn hands back on its
+   * assistant message (see {@link AiMessage.providerState}).
+   */
+  providerState?: AiProviderState;
 }
 
 /**

@@ -1,5 +1,6 @@
 "use client";
 
+import { DayLinkAt } from "@/components/day/day-link";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
@@ -91,6 +92,8 @@ export interface IntakeEvent {
   takenAt: string | null;
   skipped: boolean;
   source: IntakeSourceValue;
+  /** v1.42.2 — recorded by the server (`autoMarkTaken`), not the person. */
+  autoRecorded?: boolean;
   createdAt: string;
 }
 
@@ -385,7 +388,10 @@ export function IntakeHistoryListV2({
                               "(planned)" suffix so the chronological
                               order stays clean and no `—` row floats. */}
                           {event.takenAt ? (
-                            formatters.dateTime(event.takenAt)
+                            // v1.42 — a taken dose's date opens its day.
+                            <DayLinkAt at={event.takenAt}>
+                              {formatters.dateTime(event.takenAt)}
+                            </DayLinkAt>
                           ) : (
                             <>
                               {formatters.dateTime(event.scheduledFor)}{" "}
@@ -426,10 +432,12 @@ export function IntakeHistoryListV2({
                             variant="outline"
                             className="text-muted-foreground text-xs font-normal"
                           >
-                            {t("medications.intakeSourceVia", {
-                              origin:
-                                sourceLabels[event.source] ?? event.source,
-                            })}
+                            {event.autoRecorded
+                              ? t("medications.intakeRecordedAutomatically")
+                              : t("medications.intakeSourceVia", {
+                                  origin:
+                                    sourceLabels[event.source] ?? event.source,
+                                })}
                           </Badge>
                         </TableCell>
                         {showRowActions && (
@@ -483,7 +491,9 @@ export function IntakeHistoryListV2({
                           <div className="min-w-0 space-y-1">
                             <p className="text-sm font-medium">
                               {event.takenAt ? (
-                                formatters.dateTime(event.takenAt)
+                                <DayLinkAt at={event.takenAt}>
+                                  {formatters.dateTime(event.takenAt)}
+                                </DayLinkAt>
                               ) : (
                                 <>
                                   {formatters.dateTime(event.scheduledFor)}{" "}
@@ -529,10 +539,13 @@ export function IntakeHistoryListV2({
                                 variant="outline"
                                 className="text-muted-foreground text-xs font-normal"
                               >
-                                {t("medications.intakeSourceVia", {
-                                  origin:
-                                    sourceLabels[event.source] ?? event.source,
-                                })}
+                                {event.autoRecorded
+                                  ? t("medications.intakeRecordedAutomatically")
+                                  : t("medications.intakeSourceVia", {
+                                      origin:
+                                        sourceLabels[event.source] ??
+                                        event.source,
+                                    })}
                               </Badge>
                             </div>
                           </div>

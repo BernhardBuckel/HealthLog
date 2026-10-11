@@ -18,6 +18,8 @@
  * the write endpoint's `apiSuccess()` return. No `await` overhead.
  */
 
+import { forgetCoverageProbe } from "@/lib/rollups/coverage-inflight";
+
 import { caches } from "./server-cache";
 
 /**
@@ -63,11 +65,20 @@ export function invalidateUserDashboardSnapshot(userId: string): void {
  * posture. Background batch syncs (Apple Health, Withings, workouts)
  * keep the default mark-stale so a high-frequency sync never busts the
  * bucket into inline cold-rebuild storms.
+ *
+ * v1.42 — the same split now covers `insightsTargets`, and the Apple Health
+ * batch route follows it: it evicts only for a `foreground` or `manual`
+ * sync or a batch that wrote a hand-entered (`MANUAL`) reading, and marks
+ * stale otherwise. The achievements and workouts buckets still evict on
+ * every call.
  */
 export function invalidateUserMeasurements(
   userId: string,
   opts?: { evict?: boolean },
 ): void {
+  // A coverage probe already running read the set before this write; the
+  // next reader must not join it.
+  forgetCoverageProbe(userId);
   // The `${userId}|` prefix covers the slim / thick analytics cells, the
   // iOS summary cell, AND the v1.7.0 dashboard snapshot
   // (`${userId}|dashboard-snapshot`) in one pass.
@@ -89,9 +100,17 @@ export function invalidateUserMeasurements(
   caches.workouts.deleteByPrefix(`${userId}|`);
   // v1.4.36 W1 — measurement writes change the per-target consistency
   // strips, the in-range rates and the streak counters that
-  // `/api/insights/targets` computes. Evict the user's bucket so the
-  // next mount paints fresh data.
-  caches.insightsTargets.deleteByPrefix(userId);
+  // `/api/insights/targets` computes.
+  //
+  // v1.42 — same split as the analytics bucket. The route reads through
+  // `cachedSwr`, so a background sync marks the bucket stale (the next read
+  // serves the prior strips once while one rebuild runs) instead of
+  // throwing it away on every batch; an interactive write still evicts.
+  if (opts?.evict) {
+    caches.insightsTargets.deleteByPrefix(userId);
+  } else {
+    caches.insightsTargets.markStaleByPrefix(userId);
+  }
   // v1.16.8 — the batched derived-wellness payload computes over the
   // same measurement rollups. Same split as the analytics bucket:
   // interactive writes evict (the user's own entry must reflect on the

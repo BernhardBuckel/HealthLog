@@ -334,7 +334,9 @@ export async function handleInsightPregenerateJob(
       // GERMAN, so a forced warm produced German prose for a French reader.
       const locale = normalizeLocale(job.data.locale);
       try {
-        const summary = await forceWarmUser(getWorkerPrisma(), userId, locale);
+        const summary = await forceWarmUser(getWorkerPrisma(), userId, locale, {
+          today: job.data.today === true,
+        });
         evt.addMeta(
           "force_warm",
           `${summary.comprehensive}:${summary.assessmentsWarmed}+${summary.metricAssessmentsWarmed}`,
@@ -379,6 +381,9 @@ export async function handleInsightPregenerateJob(
         failed: summary.failed,
         budget_blocked: summary.budgetBlocked,
         stopped_early: summary.stoppedEarly,
+        // v1.42 — read back by `readConsecutiveRunFailures`, so a night that
+        // completed with nothing generated counts toward the failure streak.
+        all_failed: summary.allFailed,
         assessments_warmed: summary.assessmentsWarmed,
         metric_assessments_warmed: summary.metricAssessmentsWarmed,
       });

@@ -11,6 +11,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { metricFractionDigits } from "@/lib/measurements/value-domain";
 import { apiGet } from "@/lib/api/api-fetch";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TileHeader } from "@/components/insights/tile-header";
 import type { CoachReadStripData } from "@/lib/insights/derived/coach-read-shape";
 
@@ -20,7 +21,9 @@ import type { CoachReadStripData } from "@/lib/insights/derived/coach-read-shape
  * A compact two-line read rendered ABOVE the chart on each metric sub-page:
  *
  *   1. own-baseline — "Your usual range is X–Y; today's Z sits within /
- *      above / below". Below the engine's 7-day history floor it reads
+ *      above / below", or "your latest reading, <date>, was Z" when the
+ *      newest reading is not from today in the reader's zone. For a glucose day still in progress the range is the
+ *      one for this time of day and Z today's mean so far. Below the engine's 7-day history floor it reads
  *      "still learning your range" — never a fabricated band.
  *   2. one lagged association — the single strongest discovered driver whose
  *      outcome is this metric, stated in the engine's own never-causal voice.
@@ -76,7 +79,7 @@ export function CoachReadStrip({
   const transformed = unitDisplay.isTransformed(metricType);
   const resolvedUnit = transformed ? unitDisplay.unitFor(metricType) : unit;
 
-  const { data } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: queryKeys.insightsCoachRead(metricType, locale),
     queryFn: () =>
       apiGet<CoachReadStripData>(
@@ -86,10 +89,34 @@ export function CoachReadStrip({
     staleTime: 5 * 60 * 1000,
   });
 
-  // Match the rest of the query-dependent insights chrome: don't paint a
-  // branch during SSR / hydration (React #418) and don't paint until the
-  // read lands.
-  if (!mounted || !data) return null;
+  // Don't paint a data branch during SSR / hydration (React #418). While the
+  // read is on its way the strip holds its place with a card of the same
+  // shape: it lands above the chart, and popping in later pushed the chart
+  // and everything under it down the page. A landed read always paints (the
+  // baseline line degrades to the "learning" copy), so the placeholder only
+  // ever gives way to a card of its own height; a failed read drops it.
+  if (!mounted || !data) {
+    if (!isAuthenticated || isError) return null;
+    return (
+      <Card
+        data-slot="coach-read-strip"
+        data-state="loading"
+        aria-busy="true"
+        className="gap-2 py-3 md:py-4"
+      >
+        <CardHeader>
+          <TileHeader
+            icon={Sparkles}
+            title={t("insights.coach.readStrip.label")}
+            titleAs="h2"
+          />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-5.5 w-3/4" />
+        </CardContent>
+      </Card>
+    );
+  }
 
   const fmt = (value: number): string =>
     new Intl.NumberFormat(locale, {
@@ -101,22 +128,70 @@ export function CoachReadStrip({
         : value * valueScale,
     );
 
+  // `YYYY-MM-DD` is already the reader's calendar day; formatting it at UTC
+  // midnight in UTC keeps a second zone conversion from shifting it.
+  const fmtDay = (day: string | undefined): string => {
+    const m = day ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(day) : null;
+    if (!m) return "";
+    return new Intl.DateTimeFormat(locale, {
+      day: "numeric",
+      month: "long",
+      timeZone: "UTC",
+    }).format(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])));
+  };
+
   const baselineLine = ((): string | null => {
     if (data.learning || !data.baseline) {
       return t("insights.coach.readStrip.insufficient");
     }
-    const { low, high, latest, placement } = data.baseline;
+    const { low, high, latest, placement, basis, latestIsToday } =
+      data.baseline;
+    // A band whose ends format to the same figure ("61–61 bpm") is a steady
+    // value, not a range; say it as one.
+    const steady = fmt(low) === fmt(high);
+    // A glucose day still in progress is held against the same hours of the
+    // earlier days, so the range is the one for this time of day and today's
+    // figure is its mean so far; the sentence says both.
+    // A latest reading from an earlier day is not today's: the sentence names
+    // its date instead (`latestIsToday`, resolved server-side). The same-hours
+    // basis only exists for a day in progress, so it is always today.
+    const dated = basis !== "sameHours" && latestIsToday === false;
     const key =
-      placement === "above"
-        ? "insights.coach.readStrip.baselineAbove"
-        : placement === "below"
-          ? "insights.coach.readStrip.baselineBelow"
-          : "insights.coach.readStrip.baselineWithin";
+      basis === "sameHours"
+        ? placement === "above"
+          ? "insights.coach.readStrip.sameHoursAbove"
+          : placement === "below"
+            ? "insights.coach.readStrip.sameHoursBelow"
+            : "insights.coach.readStrip.sameHoursWithin"
+        : dated
+          ? steady
+            ? placement === "above"
+              ? "insights.coach.readStrip.steadyLatestAbove"
+              : placement === "below"
+                ? "insights.coach.readStrip.steadyLatestBelow"
+                : "insights.coach.readStrip.steadyLatestWithin"
+            : placement === "above"
+              ? "insights.coach.readStrip.latestAbove"
+              : placement === "below"
+                ? "insights.coach.readStrip.latestBelow"
+                : "insights.coach.readStrip.latestWithin"
+          : steady
+            ? placement === "above"
+              ? "insights.coach.readStrip.steadyAbove"
+              : placement === "below"
+                ? "insights.coach.readStrip.steadyBelow"
+                : "insights.coach.readStrip.steadyWithin"
+            : placement === "above"
+              ? "insights.coach.readStrip.baselineAbove"
+              : placement === "below"
+                ? "insights.coach.readStrip.baselineBelow"
+                : "insights.coach.readStrip.baselineWithin";
     return t(key, {
       low: fmt(low),
       high: fmt(high),
       value: fmt(latest),
       unit: resolvedUnit,
+      date: fmtDay(data.baseline.latestDate),
     });
   })();
 

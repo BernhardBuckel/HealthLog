@@ -34,6 +34,12 @@
  * interpretation string — so the Coach states the observed linkage without
  * inventing a relationship.
  */
+import {
+  UNBOUNDED_REACH,
+  capDays,
+  isBounded,
+  type CoachHistoryReach,
+} from "@/lib/ai/coach/history-reach";
 import { prisma } from "@/lib/db";
 import { ENVIRONMENT_FIELDS } from "@/lib/environment/fields";
 import type { Locale } from "@/lib/i18n/config";
@@ -62,13 +68,19 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Trailing window for the discovery scan — mirrors the insight route. */
 const WINDOW_DAYS = 180;
 
+/** The coincident-deviation flag's own default window. */
+const COINCIDENT_WINDOW_DAYS = 30;
+
 /** One discovered driver pair, descriptive — never causal. */
 export interface CoachCorrelationDriver {
   behaviour: string;
   outcome: string;
-  /** "higher" / "lower" — sign of the next-day association. */
+  /** "higher" / "lower" — sign of the association. */
   direction: "higher" | "lower";
-  /** Lag in days (always 1 today). */
+  /**
+   * Lag in days: 1 = next day; 0 = an environmental exposure averaged over
+   * the day before and the day itself, against the same day's outcome.
+   */
   lagDays: number;
   /** Paired-day sample count after the lag join. */
   n: number;
@@ -180,7 +192,18 @@ export async function readCoachCorrelations(
    * German page in English.
    */
   locale: Locale,
+  options?: {
+    /**
+     * The Coach's lookback limit: the scan, the early-detection pass and the
+     * coincident flag read no further back than it. Absent (MCP, the metric
+     * page strip): the fixed 180-day scan as before.
+     */
+    reach?: CoachHistoryReach;
+  },
 ): Promise<CoachCorrelationsResult> {
+  const reach = options?.reach ?? UNBOUNDED_REACH;
+  const windowDays = capDays(WINDOW_DAYS, reach);
+  const earlyDays = capDays(EARLY_WINDOW_DAYS, reach);
   // v1.30.22 — the `insights` gate lives HERE, at the read, not at each
   // caller. This reader is reached from four places (the Coach
   // `get_correlations` tool, the MCP `get_correlation` rich read, the
@@ -211,7 +234,7 @@ export async function readCoachCorrelations(
       select: { timezone: true },
     });
     const tz = userRow?.timezone ?? DEFAULT_TIMEZONE;
-    const since = new Date(Date.now() - WINDOW_DAYS * MS_PER_DAY);
+    const since = new Date(Date.now() - windowDays * MS_PER_DAY);
 
     // The channel set is the shared one, so the Coach scans exactly what the
     // correlations page scans. The measurement read stays `"raw"` (the route's
@@ -228,7 +251,12 @@ export async function readCoachCorrelations(
       // baseline hiccup never sinks the whole correlations read. D2-8: pass the
       // user's tz so the "today" grouping matches the user's calendar day, not
       // UTC's, before the fired flag is narrated as "out of band TODAY".
-      computeCoincidentDeviation(userId, profile, { tz }).catch(() => null),
+      computeCoincidentDeviation(userId, profile, {
+        tz,
+        ...(isBounded(reach)
+          ? { windowDays: capDays(COINCIDENT_WINDOW_DAYS, reach) }
+          : {}),
+      }).catch(() => null),
       isSurfaceVisible("correlation:LAB_DRAWS", modules)
         ? fetchLabDraws(userId, tz, since)
         : Promise.resolve([]),
@@ -268,7 +296,7 @@ export async function readCoachCorrelations(
     // scan already established, so the Coach never narrates the same pattern as
     // both "established" and "emerging".
     const recentFromDayKey = tzDayKey(
-      new Date(Date.now() - EARLY_WINDOW_DAYS * MS_PER_DAY),
+      new Date(Date.now() - earlyDays * MS_PER_DAY),
       tz,
     );
     const emergingResult = discoverEmergingCorrelations(series, discovery, {
@@ -323,7 +351,7 @@ export async function readCoachCorrelations(
       ...(labDrivers.length > 0 ? { labDrivers } : {}),
       ...(coincident ? { coincident } : {}),
       pairsTested: discovery.pairsTested,
-      windowDays: WINDOW_DAYS,
+      windowDays,
     };
   } catch {
     return { present: false, reason: "retrieval_failed" };

@@ -36,6 +36,7 @@
  */
 import type { PrismaClient } from "@/generated/prisma/client";
 import { projectTodayIntakesAndRecompute } from "@/lib/medications/scheduling/project-today-intakes";
+import { loadAutoTakeRollingAnchors } from "@/lib/medications/auto-take";
 import {
   computeDisplayDue,
   OVERDUE_LOOKBACK_MS,
@@ -104,10 +105,11 @@ export async function buildMedsTodayBlock(
 ): Promise<MedsTodayBlock> {
   const { start: todayStart, end: todayEnd } = getUserTodayBounds(now, userTz);
   // The projector + tally read use an exclusive upper bound (`lt`),
-  // matching the summary route's window convention.
-  const todayEndExclusive = new Date(
-    todayStart.getTime() + 24 * 60 * 60 * 1000,
-  );
+  // matching the summary route's window convention. `todayEnd` is the
+  // inclusive last millisecond of the real local day, so +1 ms is the next
+  // day's start: 23 or 25 hours on a DST day, where a fixed 24 h missed the
+  // last hour of the 25-hour day.
+  const todayEndExclusive = new Date(todayEnd.getTime() + 1);
 
   // Projection FIRST so the tally read below sees the freshly minted
   // pending rows. Idempotent — `skipDuplicates` + the
@@ -202,6 +204,16 @@ export async function buildMedsTodayBlock(
   // The live era start per medication (see `live-era.ts`).
   const eraStartByMedId = liveEraStartsByMedication(eraFloors);
 
+  // v1.42.2 — under auto-take a rolling cadence stands where the job will
+  // record next (see `auto-take.ts`).
+  const engineLastIntakeAt = await loadAutoTakeRollingAnchors(prisma, {
+    userId,
+    medicationIds: medications.filter((m) => m.autoMarkTaken).map((m) => m.id),
+    now,
+    userTz,
+    lastIntakeAt: (id) => lastTakenAtByMedId.get(id) ?? null,
+  });
+
   const dueCandidates: MedsTodayDueCandidate[] = [];
   for (const m of medications) {
     const display = computeDisplayDue({
@@ -215,7 +227,7 @@ export async function buildMedsTodayBlock(
       schedules: m.schedules,
       now,
       userTz,
-      lastIntakeAt: lastTakenAtByMedId.get(m.id) ?? null,
+      lastIntakeAt: engineLastIntakeAt(m.id),
       resolvedSlots: resolvedSlotsByMedId.get(m.id) ?? [],
       eraStart: eraStartByMedId.get(m.id) ?? null,
     });
