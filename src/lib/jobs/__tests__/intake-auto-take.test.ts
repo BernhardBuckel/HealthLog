@@ -51,7 +51,6 @@ import {
 import { autoTakeOwnedFrom } from "../intake-auto-skip";
 
 const TZ = "Europe/Berlin";
-const DAY = 24 * 60 * 60 * 1000;
 
 interface ScheduleInput {
   id?: string;
