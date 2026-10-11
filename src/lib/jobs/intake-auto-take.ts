@@ -55,6 +55,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 
 import { invalidateUserMedications } from "@/lib/cache/invalidate";
+import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
 import {
   autoTakeEligibleWhere,
   autoTakeFloor,
@@ -265,7 +266,7 @@ export async function runIntakeAutoTakePass(
   const medications = (await prisma.medication.findMany({
     // Opted in, active, not paused, not as-needed, intake tracked (a
     // record-only medication expects no dose, so none is recorded).
-    where: autoTakeEligibleWhere(now),
+    where: { ...autoTakeEligibleWhere(now), ...TRACKED_INTAKE_WHERE },
     select: {
       id: true,
       userId: true,

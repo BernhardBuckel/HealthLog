@@ -245,7 +245,11 @@ export function autoTakeRowWindow(floor: Date, now: Date) {
   };
 }
 
-/** The medications the auto-take job works on (see `intake-auto-take.ts`). */
+/**
+ * The medications the auto-take job works on (see `intake-auto-take.ts`),
+ * apart from the intake-tracking switch, which each caller spreads itself
+ * (`TRACKED_INTAKE_WHERE`) so the structural guard sees every reader ask.
+ */
 export function autoTakeEligibleWhere(now: Date) {
   return {
     autoMarkTaken: true,
@@ -253,7 +257,6 @@ export function autoTakeEligibleWhere(now: Date) {
     active: true,
     pausedAt: null,
     asNeeded: false,
-    ...TRACKED_INTAKE_WHERE,
   };
 }
 
@@ -353,6 +356,7 @@ export async function loadAutoTakeRollingAnchors(
       userId: input.userId,
       id: { in: [...input.medicationIds] },
       ...autoTakeEligibleWhere(now),
+      ...TRACKED_INTAKE_WHERE,
       schedules: { some: { rollingIntervalDays: { not: null } } },
     },
     select: {
