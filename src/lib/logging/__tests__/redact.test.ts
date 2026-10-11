@@ -288,3 +288,20 @@ describe("redactOptional", () => {
     expect(redactOptional("Bearer x")).toBe("Bearer [REDACTED]");
   });
 });
+
+describe("notification quick-answer token in the path", () => {
+  it("scrubs the signed action token from the path and a full URL", () => {
+    const token = "na1.user_1.mood-good.1760000000000.bm9uY2U.c2lnbmF0dXJl";
+    expect(redactSecrets(`/api/notifications/action/${token}`)).toBe(
+      "/api/notifications/action/[REDACTED]",
+    );
+    expect(
+      redactSecrets(
+        `POST https://health.example/api/notifications/action/${token}`,
+      ),
+    ).toBe("POST https://health.example/api/notifications/action/[REDACTED]");
+    expect(PATH_SECRET_PATHS.map((p) => p.prefix)).toContain(
+      "/api/notifications/action/",
+    );
+  });
+});

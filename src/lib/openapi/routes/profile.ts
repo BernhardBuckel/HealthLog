@@ -335,6 +335,13 @@ const notificationPrefsResolved = z
         .enum(["weekly", "biweekly"])
         .describe("Nudge frequency cap: one per 7 or per 14 days."),
     }),
+    content: z.object({
+      detail: z
+        .enum(["generic", "detailed"])
+        .describe(
+          'What a notification may show. "generic" (default) names what it is about with no health figure; "detailed" adds figures such as the morning score. Tap targets and quick answers are the same in both.',
+        ),
+    }),
   })
   .meta({
     id: "NotificationPrefs",

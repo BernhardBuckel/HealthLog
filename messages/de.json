@@ -1229,7 +1229,8 @@
       "bodyLogged": "Im Krankheitstagebuch erfasst: {count} Symptome",
       "bodyNotLogged": "Für diesen Tag ist im Krankheitstagebuch nichts erfasst",
       "openIllness": "Öffnen"
-    }
+    },
+    "sourceNotification": "Benachrichtigung"
   },
   "medications": {
     "title": "Medikamente",
@@ -5325,7 +5326,8 @@
         "subtitle": "Wähle, welche Erinnerungen du erhältst und wohin sie zugestellt werden.",
         "remindersHeading": "Erinnerungen",
         "matrixLink": "Benachrichtigungen je Kanal",
-        "channelsLink": "Zustellkanäle"
+        "channelsLink": "Zustellkanäle",
+        "displayHeading": "Auf dem Handy"
       },
       "layout": {
         "title": "Layout",
@@ -8459,6 +8461,25 @@
         "changedRead": "Du kannst die Gesundheitsakte der Person, die du betreut hast, jetzt ansehen, aber nicht ändern.",
         "changedManage": "Du kannst die Gesundheitsakte der Person, die du betreut hast, verwalten."
       }
+    },
+    "links": {
+      "open": "In HealthLog öffnen"
+    },
+    "quickActions": {
+      "moodGood": "Gut",
+      "moodOkay": "Okay",
+      "moodBad": "Schlecht"
+    },
+    "content": {
+      "title": "Gesundheitswerte in Benachrichtigungen",
+      "description": "Ob eine Benachrichtigung Werte wie deinen Morgenscore zeigen darf.",
+      "detail": "Aus: Eine Benachrichtigung sagt nur, worum es geht, der Sperrbildschirm zeigt keine Gesundheitswerte. An: Sie nennt auch die Werte, etwa den Morgenscore im Überblick. Ein Tipp auf die Benachrichtigung öffnet in beiden Fällen die passende Stelle in der App.",
+      "toggleAria": "Gesundheitswerte in Benachrichtigungen zeigen",
+      "statusDetailed": "Mit Werten",
+      "statusGeneric": "Ohne Werte",
+      "detailedToast": "Benachrichtigungen zeigen jetzt Gesundheitswerte.",
+      "genericToast": "Benachrichtigungen zeigen keine Gesundheitswerte mehr.",
+      "saveError": "Speichern fehlgeschlagen. Bitte später erneut versuchen."
     }
   },
   "i18n": {
@@ -11261,7 +11282,13 @@
     },
     "push": {
       "title": "Dein Morgenüberblick",
-      "bodyProvisional": "{line}\nDer Schlaf von letzter Nacht fehlt noch."
+      "bodyProvisional": "{line}\nDer Schlaf von letzter Nacht fehlt noch.",
+      "titleScore": "Morgenscore {score}",
+      "band": {
+        "green": "Heute sieht es stabil aus.",
+        "yellow": "Heute lohnt sich ein Blick auf ein paar Dinge.",
+        "red": "Heute brauchen einige Bereiche Aufmerksamkeit."
+      }
     },
     "item": {
       "doseWindow": {

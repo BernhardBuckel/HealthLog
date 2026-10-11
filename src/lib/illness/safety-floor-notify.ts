@@ -133,6 +133,8 @@ export async function notifySafetyFloor(input: {
       eventType: "SYSTEM_ALERT",
       managedFanoutEvent: "SAFETY_FLOOR_ALERT",
       urgent: true,
+      // Tap target: the readings the alert is about.
+      metadata: { url: "/measurements" },
     });
 
     getEvent()?.addMeta("safety_floor_notified", decision.reason);

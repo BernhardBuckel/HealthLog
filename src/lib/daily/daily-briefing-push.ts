@@ -16,7 +16,8 @@
  * `ok` ledger row; the frequency-cap check suppresses the second — one push per
  * user per local day, no "you haven't opened the app" second push, ever.
  *
- * Privacy + calm posture (load-bearing): the body is `digest.line`, which
+ * Privacy + calm posture (load-bearing): the title carries the score only
+ * when the user chose detailed notifications; the body is `digest.line`, which
  * carries no number by construction (a briefing lead sentence or the top
  * signal's headline without a figure in it, "your score is ready", or the
  * honest all-clear — never a reading, a dose or the score itself, since the
@@ -39,6 +40,8 @@ import { dispatchNotification } from "@/lib/notifications/dispatcher";
 import { loadDailyDigest } from "@/lib/daily/load-digest";
 import type { DailyDigest } from "@/lib/daily/digest";
 import { PRIORITY_ITEM_KINDS } from "@/lib/daily/priority-item";
+import { SCORE_BANDS } from "@/lib/analytics/score/record";
+import { notificationsShowFigures } from "@/lib/validations/notification-prefs";
 
 /**
  * The local-morning window this nudge may fire in, [earliest, latest). Both the
@@ -115,14 +118,37 @@ export function digestHasSubstance(digest: DailyDigest): boolean {
  * still provisional (last night's sleep not yet in), the honest sleep-pending
  * wording is appended so the read is never silently presented as final.
  */
+function isScoreBand(band: string): band is (typeof SCORE_BANDS)[number] {
+  return (SCORE_BANDS as readonly string[]).includes(band);
+}
+
 export function buildDailyBriefingPush(
   digest: DailyDigest,
   t: ServerTranslator["t"],
+  options: { showFigures?: boolean } = {},
 ): { title: string; body: string } {
-  const title = t("daily.push.title");
+  // The score rides the title only when the user chose detailed
+  // notifications (`notificationPrefs.content.detail`); the default keeps the
+  // lock screen free of figures. The body stays `digest.line`, number-free by
+  // construction, so it reads as the one-line label under the score.
+  const title =
+    options.showFigures && digest.score
+      ? t("daily.push.titleScore", {
+          score: String(Math.round(digest.score.value)),
+        })
+      : t("daily.push.title");
+  // With the score in the title, the floor line "your score is ready" only
+  // repeats it; the band says something instead.
+  const line =
+    options.showFigures &&
+    digest.score &&
+    isScoreBand(digest.score.band) &&
+    digest.line === t("daily.line.scoreReady")
+      ? t(`daily.push.band.${digest.score.band}`)
+      : digest.line;
   const body = digest.sleepPending
-    ? t("daily.push.bodyProvisional", { line: digest.line })
-    : digest.line;
+    ? t("daily.push.bodyProvisional", { line })
+    : line;
   return { title, body };
 }
 
@@ -217,7 +243,9 @@ export async function maybeDispatchDailyBriefing(
     }
 
     const { t } = getServerTranslator(locale);
-    const { title, body } = buildDailyBriefingPush(digest, t);
+    const { title, body } = buildDailyBriefingPush(digest, t, {
+      showFigures: notificationsShowFigures(user.notificationPrefs),
+    });
 
     const outcome = await dispatch({
       // NON-URGENT by construction: no `urgent` flag, and DAILY_BRIEFING is not

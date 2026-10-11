@@ -11,6 +11,7 @@ import { safeFetch } from "@/lib/safe-fetch";
 import { plainPushText } from "@/lib/notifications/strip-emoji";
 import { stripHtml } from "@/lib/notifications/strip-html";
 import { isManagedGuardianDelivery } from "@/lib/notifications/managed-delivery";
+import { isSafeAppPath } from "@/lib/notifications/tap-target";
 
 /**
  * Send Web Push notification to all subscribed devices of a user.
@@ -115,12 +116,12 @@ export async function sendViaWebPush(
       // `/coach`); everything else keeps the legacy "/" click
       // target. Only relative paths are honoured so a poisoned metadata
       // value can never point the SW at a foreign origin.
-      url:
-        !managedDelivery &&
-        typeof payload.metadata?.url === "string" &&
-        payload.metadata.url.startsWith("/")
-          ? payload.metadata.url
-          : "/",
+      // The dispatcher's resolved tap target (`tap-target.ts`) wins; a payload
+      // that did not pass through the dispatcher keeps the metadata path.
+      url: managedDelivery
+        ? "/"
+        : (payload.tap?.path ??
+          (isSafeAppPath(payload.metadata?.url) ? payload.metadata.url : "/")),
       // v1.18.4 — urgent events ask the service worker to keep the
       // notification on screen until the user acts on it (where the
       // browser honours `requireInteraction`).

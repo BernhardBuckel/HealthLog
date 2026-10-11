@@ -1229,7 +1229,8 @@
       "bodyLogged": "Registrato nel diario di malattia: {count} sintomi",
       "bodyNotLogged": "Per questa giornata non c'è nulla nel diario di malattia",
       "openIllness": "Apri"
-    }
+    },
+    "sourceNotification": "Notifica"
   },
   "medications": {
     "title": "Farmaci",
@@ -5325,7 +5326,8 @@
         "subtitle": "Scegli quali promemoria ricevere e dove vengono recapitati.",
         "remindersHeading": "Promemoria",
         "matrixLink": "Notifiche per canale",
-        "channelsLink": "Canali di recapito"
+        "channelsLink": "Canali di recapito",
+        "displayHeading": "Sul telefono"
       },
       "layout": {
         "title": "Layout",
@@ -8459,6 +8461,25 @@
         "changedRead": "Ora puoi consultare la cartella sanitaria della persona di cui ti occupavi, ma non modificarla.",
         "changedManage": "Puoi gestire la cartella sanitaria della persona di cui ti occupavi."
       }
+    },
+    "links": {
+      "open": "Apri in HealthLog"
+    },
+    "quickActions": {
+      "moodGood": "Bene",
+      "moodOkay": "Così così",
+      "moodBad": "Male"
+    },
+    "content": {
+      "title": "Valori di salute nelle notifiche",
+      "description": "Se una notifica può mostrare valori come il tuo punteggio del mattino.",
+      "detail": "Disattivato, una notifica dice solo di cosa si tratta, quindi la schermata di blocco non mostra valori di salute. Attivato, aggiunge i valori, per esempio il punteggio del mattino nel riepilogo. Toccando una notifica si apre il punto giusto dell'app in entrambi i casi.",
+      "toggleAria": "Mostra i valori di salute nelle notifiche",
+      "statusDetailed": "Con valori",
+      "statusGeneric": "Senza valori",
+      "detailedToast": "Le notifiche ora includono valori di salute.",
+      "genericToast": "Le notifiche non includono più valori di salute.",
+      "saveError": "Impossibile salvare. Riprova più tardi."
     }
   },
   "i18n": {
@@ -11261,7 +11282,13 @@
     },
     "push": {
       "title": "Il tuo riepilogo mattutino",
-      "bodyProvisional": "{line}\nIl sonno della scorsa notte non è ancora disponibile."
+      "bodyProvisional": "{line}\nIl sonno della scorsa notte non è ancora disponibile.",
+      "titleScore": "Punteggio del mattino {score}",
+      "band": {
+        "green": "Oggi tutto sembra stabile.",
+        "yellow": "Oggi vale la pena dare un'occhiata ad alcune cose.",
+        "red": "Oggi alcune aree richiedono attenzione."
+      }
     },
     "item": {
       "doseWindow": {

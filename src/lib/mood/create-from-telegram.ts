@@ -7,8 +7,9 @@
  * write so the two entry points agree on the canonical shape: the same
  * `getScoreForMood` / `moodDateKey` derivation, the same per-user `tz`
  * anchoring, the same cache invalidation + DAY-rollup recompute the route
- * fires. `source` is pinned to "TELEGRAM"
- * (already an accepted free-text source value, no enum migration needed).
+ * fires. `source` is "TELEGRAM" by default; a notification quick answer
+ * (`/api/notifications/action/<token>`) writes the same shape under
+ * "NOTIFICATION". Both are free-text source values, no enum migration.
  *
  * The `userId` is NEVER taken from the Telegram payload — the caller
  * passes the id it resolved from the stored `telegramChatId` binding.
@@ -24,6 +25,9 @@ import { encryptNote } from "@/lib/crypto/note-cipher";
 import { invalidateUserMood } from "@/lib/cache/invalidate";
 import { recomputeMoodBucketsForEntry } from "@/lib/rollups/mood-rollups";
 import { getEvent } from "@/lib/logging/context";
+
+/** The quick-write sources that share this helper. */
+export type QuickMoodSource = "TELEGRAM" | "NOTIFICATION";
 
 export interface TelegramMoodResult {
   /** True when a new row was written; false when the idempotency key already had one. */
@@ -47,8 +51,11 @@ export async function logTelegramMood(input: {
   /** Stable per-tap id for Telegram redelivery dedup. */
   externalId: string;
   note?: string | null;
+  /** Provenance of the quick write. Default "TELEGRAM". */
+  source?: QuickMoodSource;
   client?: PrismaClient | Prisma.TransactionClient;
 }): Promise<TelegramMoodResult> {
+  const source = input.source ?? "TELEGRAM";
   const prisma = (input.client ?? defaultPrisma) as PrismaClient;
   const mood = MOOD_ENUM_BY_SCORE[input.score];
   if (!mood) {
@@ -63,7 +70,7 @@ export async function logTelegramMood(input: {
     where: {
       userId_source_externalId: {
         userId: input.userId,
-        source: "TELEGRAM",
+        source,
         externalId: input.externalId,
       },
     },
@@ -88,7 +95,7 @@ export async function logTelegramMood(input: {
       // v1.23 — encrypt the note at rest; legacy plaintext column nulled.
       note: null,
       noteEncrypted: encryptNote(input.note ?? null),
-      source: "TELEGRAM",
+      source,
       externalId: input.externalId,
       moodLoggedAt,
     },

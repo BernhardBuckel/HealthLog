@@ -566,3 +566,32 @@ describe("sendViaWebhook — Gotify format (#947)", () => {
     expect(JSON.parse(sentBody()).priority).toBe("default");
   });
 });
+
+describe("buildWebhookBody — tap target", () => {
+  const tap = {
+    path: "/checkups",
+    url: "https://health.example/checkups",
+    label: "Open in HealthLog",
+  };
+
+  it("adds the absolute tap URL to the generic body", () => {
+    const body = JSON.parse(buildWebhookBody({}, payload({ tap })));
+    expect(body.url).toBe("https://health.example/checkups");
+  });
+
+  it("leaves the generic body without `url` when no public origin is set", () => {
+    const body = JSON.parse(
+      buildWebhookBody({}, payload({ tap: { ...tap, url: null } })),
+    );
+    expect(body).not.toHaveProperty("url");
+  });
+
+  it("gives Gotify a click URL in its notification extras", () => {
+    const body = JSON.parse(
+      buildWebhookBody({ format: "gotify" }, payload({ tap })),
+    );
+    expect(body.extras["client::notification"]).toEqual({
+      click: { url: "https://health.example/checkups" },
+    });
+  });
+});

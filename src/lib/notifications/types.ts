@@ -1,4 +1,5 @@
 import type { Locale } from "@/lib/i18n/config";
+import type { NotificationQuickAction } from "@/lib/notifications/action-token";
 
 /**
  * Notification system type definitions.
@@ -355,6 +356,29 @@ export interface NotificationPayload {
    * removes is the OFFER to act on it.
    */
   suppressActions?: boolean;
+  /**
+   * Where tapping the notification leads, resolved once per delivery by the
+   * dispatcher from `NOTIFICATION_TAP_PATHS` (`tap-target.ts`). Producers
+   * never set it; a producer that knows a more precise path says so in
+   * `metadata.url`. `path` is a same-origin path (Web Push, APNs), `url` the
+   * same target as an absolute URL on the operator's public origin (ntfy,
+   * Telegram, webhook, email), `null` when no public origin is configured.
+   * `label` is the localised text of a link button.
+   */
+  tap?: NotificationTap;
+  /**
+   * One-tap answers the channel can offer inside the notification (ntfy
+   * `http` actions). Minted by the dispatcher for a self-delivered mood
+   * reminder; each URL carries a signed single-use token
+   * (`action-token.ts`).
+   */
+  quickActions?: NotificationQuickAction[];
+}
+
+export interface NotificationTap {
+  path: string | null;
+  url: string | null;
+  label: string;
 }
 
 /**

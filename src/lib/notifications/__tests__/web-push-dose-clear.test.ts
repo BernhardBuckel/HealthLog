@@ -190,6 +190,39 @@ describe("web-push reminder push — stable tag + badge", () => {
   });
 });
 
+describe("web-push tap target", () => {
+  async function sentBody(payload: Parameters<typeof sendViaWebPush>[1]) {
+    findManyMock.mockResolvedValue([SUB]);
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(null, { status: 201 }),
+    );
+    await sendViaWebPush("user-1", payload);
+    return JSON.parse(generateRequestDetailsMock.mock.calls[0][1] as string);
+  }
+
+  it("carries the dispatcher's resolved tap path as data url", async () => {
+    const body = await sentBody({
+      eventType: "MOOD_REMINDER",
+      userId: "user-1",
+      title: "Log your mood",
+      message: "How are you feeling today?",
+      tap: { path: "/mood?add=1", url: null, label: "Open" },
+    });
+    expect(body.url).toBe("/mood?add=1");
+  });
+
+  it("refuses a protocol-relative metadata url when no tap was resolved", async () => {
+    const body = await sentBody({
+      eventType: "SYSTEM_ALERT",
+      userId: "user-1",
+      title: "t",
+      message: "m",
+      metadata: { url: "//evil.example/x" },
+    });
+    expect(body.url).toBe("/");
+  });
+});
+
 describe("clear-on-taken push", () => {
   it("emits type:clear with the SAME slot tag as the reminder + badge", async () => {
     findManyMock.mockResolvedValue([SUB]);

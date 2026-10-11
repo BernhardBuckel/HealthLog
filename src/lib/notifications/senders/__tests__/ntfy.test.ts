@@ -268,3 +268,88 @@ describe("sendViaNtfy — what the server said (#947)", () => {
     expect((await sendViaNtfy(config, payload())).failureCode).toBe("timeout");
   });
 });
+
+describe("sendViaNtfy — tap target and quick actions", () => {
+  function headersOfFirstCall(): Record<string, string> {
+    const [, init] = safeFetchMock.mock.calls[0] as [
+      string,
+      { headers: Record<string, string> },
+    ];
+    return init.headers;
+  }
+
+  it("sets Click to the resolved absolute tap URL", async () => {
+    safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
+    await sendViaNtfy(
+      config,
+      payload({
+        eventType: "DAILY_BRIEFING",
+        tap: {
+          path: "/",
+          url: "https://health.example/",
+          label: "Open in HealthLog",
+        },
+      }),
+    );
+    expect(headersOfFirstCall().Click).toBe("https://health.example/");
+    expect(headersOfFirstCall().Actions).toBeUndefined();
+  });
+
+  it("omits Click when no public origin produced a URL", async () => {
+    safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
+    await sendViaNtfy(
+      config,
+      payload({ tap: { path: "/", url: null, label: "Open" } }),
+    );
+    expect(headersOfFirstCall().Click).toBeUndefined();
+  });
+
+  it("sends the quick answers as three POST http actions that clear the notification", async () => {
+    safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
+    await sendViaNtfy(
+      config,
+      payload({
+        eventType: "MOOD_REMINDER",
+        quickActions: [
+          { id: "mood-good", label: "Good", url: "https://h.example/a/1" },
+          { id: "mood-okay", label: "Okay", url: "https://h.example/a/2" },
+          { id: "mood-bad", label: "Bad", url: "https://h.example/a/3" },
+        ],
+      }),
+    );
+    expect(headersOfFirstCall().Actions).toBe(
+      "http, Good, https://h.example/a/1, method=POST, clear=true; " +
+        "http, Okay, https://h.example/a/2, method=POST, clear=true; " +
+        "http, Bad, https://h.example/a/3, method=POST, clear=true",
+    );
+  });
+});
+
+describe("ntfy header helpers", () => {
+  it("caps the actions at three and strips separators from labels", async () => {
+    const { buildNtfyActionsHeader } = await import("../ntfy");
+    const header = buildNtfyActionsHeader({
+      quickActions: [
+        { id: "mood-good", label: 'Go;od, "yes"', url: "https://h/1" },
+        { id: "mood-okay", label: "B", url: "https://h/2" },
+        { id: "mood-bad", label: "C", url: "https://h/3" },
+        { id: "mood-bad", label: "D", url: "https://h/4" },
+      ],
+    });
+    expect(header?.split("; ")).toHaveLength(3);
+    expect(header).toContain("http, Go od   yes, https://h/1");
+    expect(header).not.toContain("https://h/4");
+    expect(buildNtfyActionsHeader({ quickActions: [] })).toBeNull();
+  });
+
+  it("RFC 2047-encodes a non-ASCII header value and leaves ASCII alone", async () => {
+    const { ntfyHeaderValue } = await import("../ntfy");
+    expect(ntfyHeaderValue("Morning score 78")).toBe("Morning score 78");
+    const encoded = ntfyHeaderValue("아침 점수 78");
+    expect(encoded).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+    const inner = encoded.slice("=?UTF-8?B?".length, -2);
+    expect(Buffer.from(inner, "base64").toString("utf8")).toBe("아침 점수 78");
+    // `ü` is Latin-1, which fetch would send as one invalid UTF-8 byte.
+    expect(ntfyHeaderValue("Morgenüberblick")).toMatch(/^=\?UTF-8\?B\?/);
+  });
+});

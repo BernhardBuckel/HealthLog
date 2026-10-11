@@ -195,6 +195,7 @@ async function notifyAdminsOfFailure(event: NormalizedEvent): Promise<void> {
       },
       metadata: {
         source: "deploy-webhook",
+        url: "/admin/system-status",
         applicationName: event.applicationName,
         applicationUuid: event.applicationUuid,
         deploymentUuid: event.deploymentUuid,

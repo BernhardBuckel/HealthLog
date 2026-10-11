@@ -15,7 +15,7 @@ import { PageAuthGate } from "@/components/ui/page-auth-gate";
 import { PullToRefreshIndicator } from "@/components/ui/pull-to-refresh-indicator";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { ArrowRight, Plus, Wrench } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { useTranslations } from "@/lib/i18n/context";
 
@@ -27,7 +27,21 @@ export default function MoodPageClient() {
   const mounted = useMounted();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const searchParams = useSearchParams();
+  // `?add=1` opens the entry sheet on the first paint: the mood reminder's
+  // tap target (`tap-target.ts`). Read in the lazy initialiser so SSR and the
+  // hydration render agree; the effect below strips the one-shot param so the
+  // back button does not reopen the sheet. A later client-side navigation
+  // back onto `?add=1` is handled render-side, the measurements-page pattern.
+  const addParam = searchParams.get("add") === "1";
+  const [dialogOpen, setDialogOpen] = useState(() => addParam);
+  const [consumedAdd, setConsumedAdd] = useState(() => addParam);
+  if (!addParam && consumedAdd) {
+    setConsumedAdd(false);
+  } else if (addParam && !consumedAdd) {
+    setConsumedAdd(true);
+    setDialogOpen(true);
+  }
   // The list's empty state carries the add action while there is nothing
   // to list, so the header drops its own then.
   const [listEmpty, setListEmpty] = useState(false);
@@ -56,6 +70,14 @@ export default function MoodPageClient() {
     onRefresh: refreshVisible,
     disabled: dialogOpen,
   });
+
+  useEffect(() => {
+    if (!searchParams.has("add")) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("add");
+    const search = next.toString();
+    router.replace(search ? `/mood?${search}` : "/mood");
+  }, [searchParams, router]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -127,7 +149,7 @@ export default function MoodPageClient() {
       />
 
       <ResponsiveSheet
-        open={dialogOpen}
+        open={dialogOpen && canAddMood}
         onOpenChange={setDialogOpen}
         title={t("dashboard.quickAddMood")}
         footer={<div ref={setFooterEl} className="flex w-full" />}

@@ -123,6 +123,69 @@ describe("buildDailyBriefingPush", () => {
   });
 });
 
+describe("buildDailyBriefingPush — content detail", () => {
+  const { t } = getServerTranslator("en");
+
+  it("generic (the default) keeps the score off the lock screen", () => {
+    const { title, body } = buildDailyBriefingPush(makeDigest(), t);
+    expect(title).toBe("Your morning briefing");
+    expect(`${title} ${body}`).not.toMatch(/\d/);
+  });
+
+  it("detailed puts the score in the title and keeps the line as the label", () => {
+    const { title, body } = buildDailyBriefingPush(makeDigest(), t, {
+      showFigures: true,
+    });
+    expect(title).toBe("Morning score 82");
+    expect(body).toBe("Sleep looked solid last night.");
+  });
+
+  it("detailed swaps the 'score is ready' floor for the band label", () => {
+    const digest = makeDigest({
+      briefingLead: null,
+      score: { value: 64.6, band: "yellow", delta: null },
+      line: t("daily.line.scoreReady"),
+    });
+    const { title, body } = buildDailyBriefingPush(digest, t, {
+      showFigures: true,
+    });
+    expect(title).toBe("Morning score 65");
+    expect(body).toBe(t("daily.push.band.yellow"));
+  });
+
+  it("detailed without a score falls back to the plain title", () => {
+    const { title } = buildDailyBriefingPush(makeDigest({ score: null }), t, {
+      showFigures: true,
+    });
+    expect(title).toBe("Your morning briefing");
+  });
+
+  it("reads the choice from the user's notification preferences", async () => {
+    const detailed = makeDeps();
+    await maybeDispatchDailyBriefing(
+      makePrisma({
+        user: {
+          id: "u1",
+          timezone: "Europe/Berlin",
+          locale: "en",
+          morningDigestRefreshedOn: null,
+          notificationPrefs: { content: { detail: "detailed" } },
+        },
+      }),
+      "u1",
+      IN_WINDOW,
+      detailed,
+    );
+    expect(detailed.dispatch.mock.calls[0][0].title).toBe("Morning score 82");
+
+    const generic = makeDeps();
+    await maybeDispatchDailyBriefing(makePrisma({}), "u1", IN_WINDOW, generic);
+    expect(generic.dispatch.mock.calls[0][0].title).toBe(
+      "Your morning briefing",
+    );
+  });
+});
+
 describe("digestHasSubstance", () => {
   it("is false for an empty account (score/lead/signal all null, no items)", () => {
     expect(

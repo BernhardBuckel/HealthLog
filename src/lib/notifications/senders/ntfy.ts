@@ -58,7 +58,7 @@ export async function sendViaNtfy(
       ? "reminder"
       : payload.eventType.toLowerCase().replace(/_/g, "-");
     const headers: Record<string, string> = {
-      Title: plainPushText(payload.title, payload.eventType),
+      Title: ntfyHeaderValue(plainPushText(payload.title, payload.eventType)),
       Priority: priority,
       // Discreet mode (cycle privacy): the X-Tags header is visible on the
       // lock screen, so collapse it to a generic tag instead of leaking the
@@ -69,6 +69,16 @@ export async function sendViaNtfy(
 
     if (config.authToken) {
       headers["Authorization"] = `Bearer ${config.authToken}`;
+    }
+
+    // Tapping the notification opens this URL (ntfy `Click`). Absent when
+    // the operator has not configured a public origin.
+    if (payload.tap?.url) {
+      headers["Click"] = payload.tap.url;
+    }
+    const actions = buildNtfyActionsHeader(payload);
+    if (actions) {
+      headers["Actions"] = ntfyHeaderValue(actions);
     }
 
     // Strip HTML tags for ntfy (plain text only) + emoji on routine reminders
@@ -186,4 +196,52 @@ export async function sendViaNtfy(
       ...(failureCode ? { failureCode } : {}),
     };
   }
+}
+
+/** ntfy shows at most three actions per notification. */
+const NTFY_MAX_ACTIONS = 3;
+
+/**
+ * A label safe inside the `Actions` header's short format: `,` and `;`
+ * separate fields and actions there, and a quote would open a quoted value.
+ */
+function ntfyActionLabel(label: string): string {
+  return label.replace(/[,;"'\r\n]/g, " ").trim() || "?";
+}
+
+/**
+ * The `Actions` header for the payload's quick answers, in ntfy's short
+ * format (https://docs.ntfy.sh/publish/#action-buttons):
+ *
+ *   http, <label>, <url>, method=POST, clear=true; …
+ *
+ * `clear=true` dismisses the notification once the request succeeded, so a
+ * reminder answered from the shade does not linger. The token in the URL is
+ * the request's only credential (see `action-token.ts`).
+ */
+export function buildNtfyActionsHeader(
+  payload: Pick<NotificationPayload, "quickActions">,
+): string | null {
+  const actions = (payload.quickActions ?? []).slice(0, NTFY_MAX_ACTIONS);
+  if (actions.length === 0) return null;
+  return actions
+    .map(
+      (action) =>
+        `http, ${ntfyActionLabel(action.label)}, ${action.url}, method=POST, clear=true`,
+    )
+    .join("; ");
+}
+
+/**
+ * A header value fetch can send and ntfy reads as UTF-8.
+ *
+ * `fetch` refuses any header character above U+00FF outright (a Korean
+ * title or action label would fail the whole send), and a Latin-1 byte such
+ * as `ü` reaches ntfy as invalid UTF-8. ntfy decodes RFC 2047 encoded words
+ * in every header, so a value with anything beyond printable ASCII travels as
+ * one `=?UTF-8?B?…?=` word; plain ASCII stays readable on the wire.
+ */
+export function ntfyHeaderValue(value: string): string {
+  if (/^[\x20-\x7e]*$/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }

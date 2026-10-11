@@ -209,6 +209,8 @@ describe("recordSyncFailure — at threshold", () => {
       affectedUserId: "u1",
       consecutiveFailures: 3,
       errorCode: "503",
+      // The affected user is not the admin, so the tap opens the admin page.
+      url: "/admin/integrations",
     });
 
     // alertedAt is stamped to gate re-alerting for 24h.

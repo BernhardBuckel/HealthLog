@@ -1229,7 +1229,8 @@
       "bodyLogged": "Zapisano w dzienniku choroby: {count} objawów",
       "bodyNotLogged": "Na ten dzień nic nie zapisano w dzienniku choroby",
       "openIllness": "Otwórz"
-    }
+    },
+    "sourceNotification": "Powiadomienie"
   },
   "medications": {
     "title": "Leki",
@@ -5325,7 +5326,8 @@
         "subtitle": "Wybierz, które przypomnienia otrzymujesz i gdzie są dostarczane.",
         "remindersHeading": "Przypomnienia",
         "matrixLink": "Powiadomienia wg kanału",
-        "channelsLink": "Kanały dostarczania"
+        "channelsLink": "Kanały dostarczania",
+        "displayHeading": "Na telefonie"
       },
       "layout": {
         "title": "Układ",
@@ -8459,6 +8461,25 @@
         "changedRead": "Możesz teraz przeglądać dokumentację zdrowotną osoby pod Twoją opieką, ale nie możesz jej zmieniać.",
         "changedManage": "Możesz zarządzać dokumentacją zdrowotną osoby pod Twoją opieką."
       }
+    },
+    "links": {
+      "open": "Otwórz w HealthLog"
+    },
+    "quickActions": {
+      "moodGood": "Dobrze",
+      "moodOkay": "W porządku",
+      "moodBad": "Źle"
+    },
+    "content": {
+      "title": "Wartości zdrowotne w powiadomieniach",
+      "description": "Czy powiadomienie może pokazywać wartości, takie jak poranny wynik.",
+      "detail": "Wyłączone: powiadomienie mówi tylko, czego dotyczy, więc ekran blokady nie pokazuje wartości zdrowotnych. Włączone: dodaje wartości, na przykład poranny wynik w podsumowaniu. Dotknięcie powiadomienia w obu przypadkach otwiera właściwe miejsce w aplikacji.",
+      "toggleAria": "Pokazuj wartości zdrowotne w powiadomieniach",
+      "statusDetailed": "Z wartościami",
+      "statusGeneric": "Bez wartości",
+      "detailedToast": "Powiadomienia zawierają teraz wartości zdrowotne.",
+      "genericToast": "Powiadomienia nie zawierają już wartości zdrowotnych.",
+      "saveError": "Nie udało się zapisać. Spróbuj ponownie później."
     }
   },
   "i18n": {
@@ -11261,7 +11282,13 @@
     },
     "push": {
       "title": "Twoje poranne podsumowanie",
-      "bodyProvisional": "{line}\nBrakuje jeszcze snu z zeszłej nocy."
+      "bodyProvisional": "{line}\nBrakuje jeszcze snu z zeszłej nocy.",
+      "titleScore": "Poranny wynik {score}",
+      "band": {
+        "green": "Dziś wszystko wygląda stabilnie.",
+        "yellow": "Dziś warto przyjrzeć się kilku rzeczom.",
+        "red": "Dziś niektóre obszary wymagają uwagi."
+      }
     },
     "item": {
       "doseWindow": {

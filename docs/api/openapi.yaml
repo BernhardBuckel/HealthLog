@@ -13103,6 +13103,7 @@ paths:
               - WEB
               - TELEGRAM
               - DAYLIO
+              - NOTIFICATION
         - in: query
           name: from
           schema:
@@ -21632,6 +21633,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /api/notifications/action/{token}:
+    post:
+      tags:
+        - Notifications
+      summary: Log a quick answer tapped inside a notification
+      description: "Called by a notification app (ntfy `http` action), never by a signed-in client: the signed path token is
+        the only credential. The token is bound to one user and one answer, expires six hours after the reminder was
+        sent, and is single-use across all answers offered on that reminder. Rate-limited per client address before the
+        token is read. Writes a mood entry with source `NOTIFICATION`; refused with 403 when the mood module is off."
+      parameters:
+        - in: path
+          name: token
+          schema:
+            type: string
+            description: Signed action token from the notification's URL.
+          required: true
+          description: Signed action token from the notification's URL.
+      responses:
+        "200":
+          description: The answer was logged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationActionResponse"
+        "401":
+          description: Invalid token (forged, altered, or unknown user).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: The mood module is turned off for this account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: This reminder was already answered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "410":
+          description: The answer expired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422": *a4
+        "429": *a5
   /api/notifications/preferences:
     get:
       tags:
@@ -27417,6 +27468,14 @@ components:
           properties:
             clientManaged:
               type: boolean
+        content:
+          type: object
+          properties:
+            detail:
+              type: string
+              enum:
+                - generic
+                - detailed
         baseUpdatedAt:
           description: "Optimistic-concurrency base token: the `updatedAt` the client last read for this resource. Omit it for the
             legacy unconditional write (older clients are unaffected). When present, the write is guarded on the stored
@@ -28816,6 +28875,7 @@ components:
             - WEB
             - TELEGRAM
             - DAYLIO
+            - NOTIFICATION
         externalId:
           description: "iOS-side source-stable id for idempotent dedup on the `(userId, source, externalId)` key. Must be stable
             across app restarts — an object description or memory address (`<Class: 0x…>`, `0x12ab34cd`) is a new value
@@ -29336,6 +29396,7 @@ components:
             - WEB
             - TELEGRAM
             - DAYLIO
+            - NOTIFICATION
         externalId:
           type: string
           minLength: 1
@@ -34373,35 +34434,36 @@ components:
                 mood.create.external_id_not_delegable, mood.create.invalid, mood.duplicate_timestamp,
                 mood.linkedContext.invalid, mood.list.invalid, mood.not_found, mood.ratedFactor.out_of_range,
                 mood.restore.invalid, mood.update.invalid; notification-prefs — notification-prefs.body.invalid_json;
-                nutrient — nutrient.batch.invalid, nutrient.batch.too_large, nutrient.daily.invalid,
-                nutrient.read.invalid, nutrient.water.invalid, nutrient.water.invalid_day; onboarding —
-                onboarding.answers.invalid, onboarding.answers.rateLimited, onboarding.complete.invalid,
-                onboarding.complete.recordNotFound, onboarding.complete.recordTargetMismatch,
-                onboarding.disclaimer.invalid, onboarding.restart.invalid, onboarding.restart.rateLimited,
-                onboarding.tour.invalid; passkey — passkey.challenge.expired, passkey.response.invalid, passkey.unknown,
-                passkey.verification.failed; personal_records — personal_records.invalid_query; practitioner —
-                practitioner.invalid; profile — profile.update.emailInUse, profile.update.emailRateLimited,
-                profile.update.emailSecondFactorRequired, profile.update.invalidBody, profile.update.nothingSaved;
-                profile_claim — profile_claim.invalid, profile_claim.oidc_only_unsupported, profile_claim.taken;
-                record_write — record_write.rate_limited; report-selection — report-selection.body.invalid_json,
-                report-selection.body.invalid_shape, report-selection.leaves.unknown; route — route.retired; share-link
-                — share-link.document.decryptFailed, share-link.document.notFound, share-link.document.rateLimited,
-                share-link.documents.invalid, share-link.report.notFound, share-link.report.rateLimited,
-                share-link.selection.forbidden_leaf, share-link.selection.unknown_leaf; sharing —
-                sharing.accept.expired, sharing.accept.not_found, sharing.accept.not_pending, sharing.accept.revoked,
-                sharing.access.denied, sharing.invite.duplicate, sharing.invite.invalid, sharing.invite.invalid_scope,
-                sharing.invite.manage_browser_only, sharing.invite.refused, sharing.invite.self, sharing.not_permitted,
-                sharing.renounce.already_ended, sharing.renounce.not_found, sharing.revoke.already_ended,
-                sharing.revoke.not_found, sharing.session.changed, sharing.switch.invalid,
-                sharing.switch.wrong_transport; source-priority — source-priority.body.invalid_json,
-                source-priority.body.invalid_shape; symptoms — symptoms.definition.limitReached,
-                symptoms.definition.notFound, symptoms.episode.notOpen, symptoms.event.notFound, symptoms.invalid;
-                timeline — timeline.invalid; tokens — tokens.documents.ceiling_reached,
-                tokens.measurements.ceiling_reached, tokens.workouts.ceiling_reached; vaccination —
-                vaccination.booster-invalid, vaccination.booster-no-antigen, vaccination.booster-out-of-scope,
-                vaccination.custom-vaccine-not-found, vaccination.custom.invalid, vaccination.custom.name-taken,
-                vaccination.custom.not-found, vaccination.encounter-not-found, vaccination.identity-required,
-                vaccination.invalid, vaccination.link.invalid, vaccination.not-found,
+                notification — notification.action.already_used, notification.action.expired,
+                notification.action.invalid, notification.action.module_disabled; nutrient — nutrient.batch.invalid,
+                nutrient.batch.too_large, nutrient.daily.invalid, nutrient.read.invalid, nutrient.water.invalid,
+                nutrient.water.invalid_day; onboarding — onboarding.answers.invalid, onboarding.answers.rateLimited,
+                onboarding.complete.invalid, onboarding.complete.recordNotFound,
+                onboarding.complete.recordTargetMismatch, onboarding.disclaimer.invalid, onboarding.restart.invalid,
+                onboarding.restart.rateLimited, onboarding.tour.invalid; passkey — passkey.challenge.expired,
+                passkey.response.invalid, passkey.unknown, passkey.verification.failed; personal_records —
+                personal_records.invalid_query; practitioner — practitioner.invalid; profile —
+                profile.update.emailInUse, profile.update.emailRateLimited, profile.update.emailSecondFactorRequired,
+                profile.update.invalidBody, profile.update.nothingSaved; profile_claim — profile_claim.invalid,
+                profile_claim.oidc_only_unsupported, profile_claim.taken; record_write — record_write.rate_limited;
+                report-selection — report-selection.body.invalid_json, report-selection.body.invalid_shape,
+                report-selection.leaves.unknown; route — route.retired; share-link — share-link.document.decryptFailed,
+                share-link.document.notFound, share-link.document.rateLimited, share-link.documents.invalid,
+                share-link.report.notFound, share-link.report.rateLimited, share-link.selection.forbidden_leaf,
+                share-link.selection.unknown_leaf; sharing — sharing.accept.expired, sharing.accept.not_found,
+                sharing.accept.not_pending, sharing.accept.revoked, sharing.access.denied, sharing.invite.duplicate,
+                sharing.invite.invalid, sharing.invite.invalid_scope, sharing.invite.manage_browser_only,
+                sharing.invite.refused, sharing.invite.self, sharing.not_permitted, sharing.renounce.already_ended,
+                sharing.renounce.not_found, sharing.revoke.already_ended, sharing.revoke.not_found,
+                sharing.session.changed, sharing.switch.invalid, sharing.switch.wrong_transport; source-priority —
+                source-priority.body.invalid_json, source-priority.body.invalid_shape; symptoms —
+                symptoms.definition.limitReached, symptoms.definition.notFound, symptoms.episode.notOpen,
+                symptoms.event.notFound, symptoms.invalid; timeline — timeline.invalid; tokens —
+                tokens.documents.ceiling_reached, tokens.measurements.ceiling_reached, tokens.workouts.ceiling_reached;
+                vaccination — vaccination.booster-invalid, vaccination.booster-no-antigen,
+                vaccination.booster-out-of-scope, vaccination.custom-vaccine-not-found, vaccination.custom.invalid,
+                vaccination.custom.name-taken, vaccination.custom.not-found, vaccination.encounter-not-found,
+                vaccination.identity-required, vaccination.invalid, vaccination.link.invalid, vaccination.not-found,
                 vaccination.practitioner-not-found; workout — workout.batch.invalid, workout.batch.payload_too_large,
                 workout.batch.source_not_permitted, workout.batch.too_large, workout.delete.synced_source; (unprefixed)
                 — about_me_conflict, ai_response_truncated, coach_prefs_conflict, dashboard_layout_conflict, empty_file,
@@ -52677,6 +52739,19 @@ components:
             - nudgeRoutine
             - nudgeFrequency
           additionalProperties: false
+        content:
+          type: object
+          properties:
+            detail:
+              type: string
+              enum:
+                - generic
+                - detailed
+              description: What a notification may show. "generic" (default) names what it is about with no health figure; "detailed"
+                adds figures such as the morning score. Tap targets and quick answers are the same in both.
+          required:
+            - detail
+          additionalProperties: false
         updatedAt:
           description: "Optimistic-concurrency token: the stored row's `updatedAt` at read/write time. Echo it back as
             `baseUpdatedAt` on the next write. Opaque — only ever echo a server-returned value, never parse or
@@ -52689,6 +52764,7 @@ components:
         - mood
         - cycle
         - coach
+        - content
       additionalProperties: false
     PatchNotificationPrefsResponse:
       type: object
@@ -65116,6 +65192,7 @@ components:
             - WEB
             - TELEGRAM
             - DAYLIO
+            - NOTIFICATION
         externalId:
           anyOf:
             - type: string
@@ -78271,6 +78348,42 @@ components:
       required:
         - ok
       additionalProperties: false
+    NotificationActionResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/NotificationActionResult"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    NotificationActionResult:
+      type: object
+      properties:
+        logged:
+          type: boolean
+          const: true
+        action:
+          type: string
+          enum:
+            - mood-good
+            - mood-okay
+            - mood-bad
+          description: "The answer that was logged: mood-good = 4 (GUT), mood-okay = 3 (OKAY), mood-bad = 2 (SCHLECHT) on the
+            five-point mood scale."
+      required:
+        - logged
+        - action
+      additionalProperties: false
+      description: A quick answer from a notification, logged as a mood entry.
     GetNotificationPreferences:
       type: object
       properties:
