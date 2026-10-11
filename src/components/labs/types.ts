@@ -60,6 +60,11 @@ export interface BiomarkerDto {
   lowerBound: number | null;
   upperBound: number | null;
   panel: string | null;
+  /**
+   * Which analyte the marker is, for converting a reading in another unit
+   * (the unit-conversion registry's key), or null when it is none that is known.
+   */
+  analyteKey: string | null;
   hasContext: boolean;
   context: string | null;
   /** v1.22 — a hidden marker drops from the active list + lab-entry pickers. */

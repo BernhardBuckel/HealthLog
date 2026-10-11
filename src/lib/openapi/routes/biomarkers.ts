@@ -53,6 +53,7 @@ const biomarkerRow = z
     lowerBound: z.number().nullable(),
     upperBound: z.number().nullable(),
     panel: z.string().nullable(),
+    analyteKey: z.string().nullable(),
     hasContext: z.boolean(),
     context: z.string().nullable(),
     hidden: z.boolean(),
@@ -62,7 +63,7 @@ const biomarkerRow = z
   .meta({
     id: "Biomarker",
     description:
-      "A user-scoped catalog marker. `context` is the decrypted per-marker note (or null); `hasContext` flags its presence. `hidden` drops the marker from the active catalog list and the lab-entry pickers without deleting it (its readings and unit/range survive). A `LabResult` linking this marker resolves its unit + reference bounds from here.",
+      "A user-scoped catalog marker. `context` is the decrypted per-marker note (or null); `hasContext` flags its presence. `analyteKey` is the analyte the marker was recognised as (the unit-conversion registry's key, e.g. `fasting-glucose`), or null when its name matches none; a reading in another unit is converted only for a marker that has one. `hidden` drops the marker from the active catalog list and the lab-entry pickers without deleting it (its readings and unit/range survive). A `LabResult` linking this marker resolves its unit + reference bounds from here.",
   });
 
 const listResponse = z

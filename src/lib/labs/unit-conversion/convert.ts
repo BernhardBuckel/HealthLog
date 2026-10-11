@@ -165,3 +165,19 @@ export function conversionsFor(input: {
   found.delete(to);
   return [...found].filter((unit) => normaliseLabUnit(unit) !== to);
 }
+
+/**
+ * Whether the analyte's entry reaches `unit`: the unit is one it lists, or
+ * differs from one only by a power of ten. A marker is linked to an analyte only
+ * when its own unit passes this, so a marker called "Glucose" tracked in some
+ * unit the registry cannot reach is not given a conversion it cannot make.
+ */
+export function analyteAcceptsUnit(
+  analyteKey: string | null | undefined,
+  unit: string,
+): boolean {
+  const entry = analyteConversionFor(analyteKey);
+  return (
+    entry !== null && intoEntryUnit(entry, normaliseLabUnit(unit)) !== null
+  );
+}

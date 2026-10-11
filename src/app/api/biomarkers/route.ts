@@ -17,6 +17,7 @@ import {
   decryptContextSoft,
   encryptContextToBytes,
 } from "@/lib/labs/biomarker-store";
+import { matchAnalyteKey } from "@/lib/labs/analyte-match";
 import { annotate } from "@/lib/logging/context";
 import { createBiomarkerSchema } from "@/lib/validations/biomarkers";
 
@@ -51,6 +52,7 @@ function serialiseBiomarker(row: {
   lowerBound: number | null;
   upperBound: number | null;
   panel: string | null;
+  analyteKey: string | null;
   hidden: boolean;
   contextEncrypted: Uint8Array | null;
   createdAt: Date;
@@ -63,6 +65,7 @@ function serialiseBiomarker(row: {
     lowerBound: row.lowerBound,
     upperBound: row.upperBound,
     panel: row.panel,
+    analyteKey: row.analyteKey,
     hasContext: row.contextEncrypted !== null,
     context: decryptContextSoft(row.contextEncrypted),
     hidden: row.hidden,
@@ -158,6 +161,9 @@ async function postBiomarker(request: NextRequest) {
       lowerBound: lowerBound ?? null,
       upperBound: upperBound ?? null,
       panel: panel ?? null,
+      // Which analyte it is, for the unit conversion; null when the name is no
+      // analyte the registry knows.
+      analyteKey: matchAnalyteKey({ name, unit }),
       contextEncrypted: context ? encryptContextToBytes(context) : null,
     },
   });

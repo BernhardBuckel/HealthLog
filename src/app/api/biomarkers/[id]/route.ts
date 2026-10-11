@@ -41,6 +41,7 @@ function serialiseBiomarker(row: {
   lowerBound: number | null;
   upperBound: number | null;
   panel: string | null;
+  analyteKey: string | null;
   hidden: boolean;
   contextEncrypted: Uint8Array | null;
   createdAt: Date;
@@ -53,6 +54,7 @@ function serialiseBiomarker(row: {
     lowerBound: row.lowerBound,
     upperBound: row.upperBound,
     panel: row.panel,
+    analyteKey: row.analyteKey,
     hasContext: row.contextEncrypted !== null,
     context: row.contextEncrypted
       ? decryptContextFromBytes(row.contextEncrypted)

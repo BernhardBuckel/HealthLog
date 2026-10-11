@@ -28,6 +28,7 @@ import { prisma } from "@/lib/db";
 import { invalidateUserHealthScore } from "@/lib/cache/invalidate";
 import { getGlobalBoss } from "@/lib/jobs/boss-instance";
 import { integrationBackfillSourceOptions } from "@/lib/jobs/integration-backfill-admission";
+import { matchAnalyteKey } from "@/lib/labs/analyte-match";
 import { annotate } from "@/lib/logging/context";
 
 export const LAB_BIOMARKER_BACKFILL_QUEUE = "lab-biomarker-backfill";
@@ -161,6 +162,7 @@ export async function runLabBiomarkerBackfillForUser(
         lowerBound: group.referenceLow,
         upperBound: group.referenceHigh,
         panel: group.panel,
+        analyteKey: matchAnalyteKey({ name: group.name, unit: group.unit }),
       },
     });
     markers += 1;

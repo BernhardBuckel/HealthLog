@@ -276,3 +276,150 @@ export const BIOMARKER_PANELS = [
   "electrolytes",
   "bloodCount",
 ] as const;
+
+/**
+ * Names a marker may carry for an analyte the unit-conversion registry knows
+ * (`src/lib/labs/unit-conversion/registry.ts`), keyed by the registry's key.
+ *
+ * A `Biomarker` row keeps only its name, not the seed it came from, so this is
+ * how a marker is told which analyte it is: its folded name equals one of these,
+ * or one of the localised names of a seed the registry knows (`ldl`, `hba1c`,
+ * `fasting-glucose`, ...). The match is the WHOLE name, never a part of it, so
+ * "Calcium (ionisiert)" is not "Calcium" and "Urea nitrogen" is not "Urea". A
+ * name that two analytes claim is left out of the match, and a marker named in
+ * some other way stays unlinked, which is the safe default.
+ *
+ * Names are compared folded (lower case, no accents, hyphens and slashes as
+ * spaces), so "Harnsäure" is written "harnsaure" here and "Nüchtern-Glukose"
+ * needs no entry of its own. The registry-only keys (urea, blood urea
+ * nitrogen, uric acid, total calcium, total bilirubin) have no seed, so their
+ * names live only here.
+ */
+export interface AnalyteAliases {
+  /** The registry key of the analyte. */
+  key: string;
+  names: readonly string[];
+}
+
+export const ANALYTE_ALIASES: readonly AnalyteAliases[] = [
+  {
+    key: "fasting-glucose",
+    names: [
+      "glucose",
+      "blood glucose",
+      "blood sugar",
+      "plasma glucose",
+      "fasting blood glucose",
+      "fasting blood sugar",
+      "fasting plasma glucose",
+      "glukose",
+      "blutglukose",
+      "blutzucker",
+      "nuchternblutzucker",
+      "glucosa",
+      "glicemia",
+      "glycemie",
+      "glucosio",
+      "glukoza",
+      "glikemia",
+    ],
+  },
+  {
+    key: "hba1c",
+    names: [
+      "hb a1c",
+      "a1c",
+      "hemoglobin a1c",
+      "glycated hemoglobin",
+      "glycosylated hemoglobin",
+      "glykohamoglobin",
+      "hamoglobin a1c",
+    ],
+  },
+  {
+    key: "total-cholesterol",
+    names: [
+      "cholesterol",
+      "cholesterin",
+      "cholesterol total",
+      "cholesterin gesamt",
+      "cholesterol gesamt",
+      "colesterol",
+      "colesterolo",
+      "cholesterol calkowity",
+    ],
+  },
+  { key: "ldl", names: ["ldl", "ldl c", "ldl chol", "ldl cholesterin"] },
+  { key: "hdl", names: ["hdl", "hdl c", "hdl chol", "hdl cholesterin"] },
+  {
+    key: "creatinine",
+    names: [
+      "serum creatinine",
+      "serumkreatinin",
+      "kreatinin im serum",
+      "creatinine serique",
+    ],
+  },
+  {
+    key: "vitamin-d",
+    names: [
+      "25 oh vitamin d",
+      "25 hydroxy vitamin d",
+      "25 hydroxyvitamin d",
+      "25 oh d",
+      "calcidiol",
+      "vitamin d 25 oh",
+    ],
+  },
+  { key: "urea", names: ["urea", "harnstoff", "uree", "urea serum"] },
+  {
+    key: "blood-urea-nitrogen",
+    names: [
+      "bun",
+      "blood urea nitrogen",
+      "urea nitrogen",
+      "harnstoff stickstoff",
+      "stickstoff harnstoff",
+      "azote ureique",
+    ],
+  },
+  {
+    key: "uric-acid",
+    names: [
+      "uric acid",
+      "urate",
+      "harnsaure",
+      "acide urique",
+      "acido urico",
+      "kwas moczowy",
+    ],
+  },
+  {
+    key: "calcium-total",
+    names: [
+      "calcium",
+      "total calcium",
+      "calcium total",
+      "calcium gesamt",
+      "gesamtcalcium",
+      "kalzium",
+      "kalzium gesamt",
+      "gesamtkalzium",
+      "calcio",
+      "wapn",
+    ],
+  },
+  {
+    key: "bilirubin-total",
+    names: [
+      "bilirubin",
+      "total bilirubin",
+      "bilirubin total",
+      "bilirubin gesamt",
+      "gesamtbilirubin",
+      "bilirrubina",
+      "bilirubine",
+      "bilirubina",
+    ],
+  },
+];
