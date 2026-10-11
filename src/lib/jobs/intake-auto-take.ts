@@ -201,8 +201,7 @@ export function isInPauseEra(
   const t = at.getTime();
   return eras.some(
     (era) =>
-      t >= era.pausedAt.getTime() &&
-      t < (era.resumedAt ?? now).getTime(),
+      t >= era.pausedAt.getTime() && t < (era.resumedAt ?? now).getTime(),
   );
 }
 

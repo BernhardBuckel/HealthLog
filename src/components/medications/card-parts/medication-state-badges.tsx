@@ -92,10 +92,10 @@ export function MedicationStateBadges({
         !autoMarkTaken &&
         !recordOnly &&
         !courseEnded && (
-        <Badge variant="secondary" className="text-xs">
-          {t("medications.withoutNotification")}
-        </Badge>
-      )}
+          <Badge variant="secondary" className="text-xs">
+            {t("medications.withoutNotification")}
+          </Badge>
+        )}
       {!active && (
         <Badge variant="secondary" className="text-xs">
           {pausedAt

@@ -576,7 +576,7 @@ export const medicationIntakeEventResource = z
     autoRecorded: z
       .boolean()
       .describe(
-        "v1.42.2 — true when the server recorded this dose because the medication has `autoMarkTaken` on, not the person. It counts as taken everywhere (adherence, history, Coach) and consumed inventory like a manual take. Any take or skip the person records on the row clears it. Clients label such a dose \"recorded automatically\".",
+        'v1.42.2 — true when the server recorded this dose because the medication has `autoMarkTaken` on, not the person. It counts as taken everywhere (adherence, history, Coach) and consumed inventory like a manual take. Any take or skip the person records on the row clears it. Clients label such a dose "recorded automatically".',
       ),
     attributionSource: z
       .enum(["AUTO", "USER_PIN"])

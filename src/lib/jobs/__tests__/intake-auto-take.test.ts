@@ -486,10 +486,7 @@ interface FakeRow {
   syncVersion: number;
 }
 
-function fakeClient(
-  meds: ReturnType<typeof medication>[],
-  rows: FakeRow[],
-) {
+function fakeClient(meds: ReturnType<typeof medication>[], rows: FakeRow[]) {
   let seq = 0;
   const inRange = (d: Date | null, r?: { gte?: Date; lte?: Date }) =>
     !!d &&
@@ -550,7 +547,10 @@ function fakeClient(
       ),
       create: vi.fn(
         async (args: {
-          data: Omit<FakeRow, "id" | "deletedAt" | "syncVersion" | "autoMissed">;
+          data: Omit<
+            FakeRow,
+            "id" | "deletedAt" | "syncVersion" | "autoMissed"
+          >;
         }) => {
           const row: FakeRow = {
             id: `new-${++seq}`,

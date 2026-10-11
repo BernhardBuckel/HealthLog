@@ -435,7 +435,8 @@ export function IntakeHistoryListV2({
                             {event.autoRecorded
                               ? t("medications.intakeRecordedAutomatically")
                               : t("medications.intakeSourceVia", {
-                                  origin: sourceLabels[event.source] ?? event.source,
+                                  origin:
+                                    sourceLabels[event.source] ?? event.source,
                                 })}
                           </Badge>
                         </TableCell>
@@ -541,7 +542,9 @@ export function IntakeHistoryListV2({
                                 {event.autoRecorded
                                   ? t("medications.intakeRecordedAutomatically")
                                   : t("medications.intakeSourceVia", {
-                                      origin: sourceLabels[event.source] ?? event.source,
+                                      origin:
+                                        sourceLabels[event.source] ??
+                                        event.source,
                                     })}
                               </Badge>
                             </div>
