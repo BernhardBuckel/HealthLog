@@ -28,6 +28,7 @@ const MARKER: BiomarkerDto = {
   lowerBound: 70,
   upperBound: 99,
   panel: null,
+  analyteKey: null,
   hasContext: false,
   context: null,
   hidden: false,
