@@ -79,6 +79,57 @@ test("opens on three months when the URL names no zoom", async ({ page }) => {
   await setTimelineModule(page, false);
 });
 
+test("only old data opens on everything, and an empty window offers it", async ({
+  page,
+}) => {
+  await setTimelineModuleOn(page);
+  const log = await mockTimeline(page, "full", TODAY, { onlyOld: true });
+  await page.goto("/timeline");
+  // The default three months hold nothing: the page opens on everything,
+  // without writing it into the URL.
+  await expect(
+    page.locator('[data-slot="timeline-zoom"] [data-value="all"]'),
+  ).toHaveAttribute("aria-checked", "true", { timeout: 20_000 });
+  await expect(page.locator('[data-slot="timeline-chart"]')).toBeVisible();
+  await expect(page).toHaveURL(/\/timeline$/);
+  expect(log.timelineQueries.map((q) => q.get("zoom"))).toEqual(
+    expect.arrayContaining(["quarter", "all"]),
+  );
+
+  // Three months asked for by name stay three months, and offer the rest.
+  await page.goto("/timeline?zoom=quarter");
+  const empty = page.locator('[data-slot="timeline-window-empty"]');
+  await expect(empty).toBeVisible({ timeout: 20_000 });
+  await page.locator('[data-slot="timeline-show-everything"]').click();
+  await expect(page).toHaveURL(/zoom=all/);
+  await expect(page.locator('[data-slot="timeline-chart"]')).toBeVisible();
+
+  // The next test starts from the module switched off.
+  await setTimelineModule(page, false);
+});
+
+test("a young record opens on three months starting at its first entry", async ({
+  page,
+}) => {
+  await setTimelineModuleOn(page);
+  // The record starts ten days ago: the window spans the four-week minimum.
+  const day = (offset: number) => {
+    const [y, m, d] = TODAY.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + offset)).toISOString().slice(0, 10);
+  };
+  await mockTimeline(page, "full", TODAY, { dataFrom: day(-10) });
+  await page.goto("/timeline");
+  await expect(
+    page.locator('[data-slot="timeline-zoom"] [data-value="quarter"]'),
+  ).toHaveAttribute("aria-checked", "true", { timeout: 20_000 });
+  await expect(page.locator('[data-slot="timeline-chart"]')).toHaveAttribute(
+    "data-window-from",
+    day(-27),
+  );
+  // The next test starts from the module switched off.
+  await setTimelineModule(page, false);
+});
+
 test("switching it on opens the readiness inventory, which leads to the timeline", async ({
   page,
 }) => {
@@ -507,12 +558,13 @@ test("a chosen range lives in the URL: reload keeps it, Back returns to it", asy
   await popover.locator('[data-slot="timeline-range-apply"]').click();
   await expect(page).toHaveURL(new RegExp(`from=${later}&to=${TODAY}`));
 
-  // A parameter it cannot read opens the whole record.
+  // A parameter it cannot read opens the same default as no zoom: this
+  // record has entries in the last three months, so three months.
   await page.goto("/timeline?zoom=range&from=nonsense&to=2026-01-01");
-  await expect(zoom("all")).toHaveAttribute("aria-checked", "true", {
+  await expect(zoom("quarter")).toHaveAttribute("aria-checked", "true", {
     timeout: 20_000,
   });
-  await expect(desktop).toHaveAttribute("data-zoom", "all");
+  await expect(desktop).toHaveAttribute("data-zoom", "quarter");
 });
 
 async function setTimelineModuleOn(page: Page) {
@@ -934,7 +986,8 @@ test("the day's strip stays at the right edge, opens and closes the day, and nev
     await expect(strip).toHaveAttribute("data-state", "closed");
     await expect(toggle).toBeFocused();
     expect(await where()).toEqual(closed);
-    await expect(page).toHaveURL(/\/timeline$/);
+    // Closing the day takes `?day=` out and leaves the zoom it opened with.
+    await expect(page).toHaveURL(/\/timeline\?zoom=all$/);
   }
 
   // Both themes, open at 1440.

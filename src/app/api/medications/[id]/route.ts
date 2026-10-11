@@ -33,6 +33,10 @@ import {
 } from "@/lib/medications/scheduling/schedule-eras";
 import type { Prisma } from "@/generated/prisma/client";
 import {
+  loadAutoTakeRollingAnchors,
+  moveAutoTakeFloorToNow,
+} from "@/lib/medications/auto-take";
+import {
   computeDisplayDue,
   OVERDUE_LOOKBACK_MS,
   toResolvedSlotMark,
@@ -179,6 +183,16 @@ export const GET = apiHandler(
     // v1.39.1 (#1033) — intake tracking off: nothing is due from the
     // stored rows, and no runway derives from them.
     const liveSchedules = dueSchedules(medication);
+    const userTz = user.timezone || DEFAULT_TIMEZONE;
+    // v1.42.2 — under auto-take a rolling cadence stands where the job will
+    // record next (see `auto-take.ts`).
+    const engineLastIntakeAt = await loadAutoTakeRollingAnchors(prisma, {
+      userId: user.id,
+      medicationIds: medication.autoMarkTaken ? [id] : [],
+      now,
+      userTz,
+      lastIntakeAt: () => lastIntake?.takenAt ?? null,
+    });
     const display = computeDisplayDue({
       medication: {
         id: medication.id,
@@ -189,8 +203,8 @@ export const GET = apiHandler(
       },
       schedules: liveSchedules,
       now,
-      userTz: user.timezone || DEFAULT_TIMEZONE,
-      lastIntakeAt: lastIntake?.takenAt ?? null,
+      userTz,
+      lastIntakeAt: engineLastIntakeAt(id),
       resolvedSlots: resolvedRows.map(toResolvedSlotMark),
       eraStart: latestRevision?.validUntil ?? null,
     });
@@ -266,7 +280,10 @@ export const GET = apiHandler(
       ...courseFields,
       nextDueAt: display ? display.at.toISOString() : null,
       // v1.42.2 — the server's own reminder decision, published resolved.
-      remindersActive: sendsMedicationReminders(medication),
+      remindersActive: sendsMedicationReminders(medication, {
+        now,
+        timeZone: userTz,
+      }),
       nextDueOverdue: display?.overdue ?? false,
       // v1.39.4 (#1040) — see `resolveIntakeActionability`.
       ...resolveIntakeActionability(
@@ -1011,6 +1028,9 @@ export const PUT = apiHandler(
             where: { medicationId: id, userId: user.id, resumedAt: null },
             data: { resumedAt: new Date() },
           });
+          // v1.42.2 — made active again: the auto-take pass starts from
+          // now, never filling the inactive days as taken.
+          await moveAutoTakeFloorToNow(tx, id);
         }
 
         // v1.40 (#1024) — write the window onto the latest course and
@@ -1117,6 +1137,9 @@ export const PUT = apiHandler(
             active: existing.active,
             asNeeded: existing.asNeeded,
             trackIntake: existing.trackIntake,
+            // v1.42.2 — switching automatic recording on or off is a change
+            // to how doses are recorded, so the row names it.
+            autoMarkTaken: existing.autoMarkTaken,
             endsOn: existing.endsOn,
           },
           after: {
@@ -1125,6 +1148,7 @@ export const PUT = apiHandler(
             active: medication.active,
             asNeeded: medication.asNeeded,
             trackIntake: medication.trackIntake,
+            autoMarkTaken: medication.autoMarkTaken,
             endsOn: medication.endsOn,
           },
         }),

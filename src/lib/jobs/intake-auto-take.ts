@@ -17,6 +17,14 @@
  *   3. Records each remaining slot as taken AT its scheduled instant, marked
  *      `autoRecorded`, unless the person already acted on it.
  *
+ * A rolling cadence ("every N days from the last dose") yields only its next
+ * slot, so a slot this pass never records would hold it still for good. Under
+ * auto-take the cadence therefore steps forward by N, keeping its rhythm,
+ * past every slot before the floor, inside a pause era, or already handled
+ * by the person (skipped, auto-missed, removed); see `autoTakeRollingAnchor`
+ * in `src/lib/medications/auto-take.ts`, which the medication card's next
+ * due applies too, so the card shows the slot this pass will record.
+ *
  * The floor is the latest of `autoMarkTakenSince` (the option is never
  * applied to history before it was switched on), the medication's creation,
  * and a 7-day catch-up window (a worker that was down for a weekend still
@@ -48,6 +56,16 @@ import type { PrismaClient } from "@/generated/prisma/client";
 
 import { invalidateUserMedications } from "@/lib/cache/invalidate";
 import { TRACKED_INTAKE_WHERE } from "@/lib/medications/intake-tracking";
+import {
+  autoTakeEligibleWhere,
+  autoTakeFloor,
+  autoTakeRollingAnchor,
+  autoTakeRowWindow,
+  decideSlot,
+  isInPauseEra,
+  type SlotDecision,
+  type SlotRow,
+} from "@/lib/medications/auto-take";
 import { consumeForIntake } from "@/lib/medications/inventory/consumption";
 import { reconcileOneShotState } from "@/lib/medications/lifecycle";
 import {
@@ -69,7 +87,16 @@ import {
   dayKeyForScheduledFor,
   recomputeMedicationComplianceForEvent,
 } from "@/lib/rollups/medication-compliance-rollups";
-import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import { DEFAULT_TIMEZONE, validTimezoneOr } from "@/lib/tz/format";
+import { getEvent } from "@/lib/logging/context";
+
+export {
+  autoTakeFloor,
+  decideSlot,
+  INTAKE_AUTO_TAKE_LOOKBACK_MS,
+  isInPauseEra,
+  type SlotDecision,
+} from "@/lib/medications/auto-take";
 
 export const INTAKE_AUTO_TAKE_QUEUE = "intake-auto-take";
 
@@ -82,9 +109,6 @@ export const INTAKE_AUTO_TAKE_CRON = "10,25,40,55 * * * *";
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
-
-/** How far back one pass catches up on slots it has not filled yet. */
-export const INTAKE_AUTO_TAKE_LOOKBACK_MS = 7 * DAY_MS;
 
 /**
  * A rolling cadence produces its next slot only once the previous one is
@@ -104,6 +128,8 @@ export interface IntakeAutoTakeResult {
   recordedCount: number;
   /** Of those, pending placeholders converted in place. */
   convertedCount: number;
+  /** Medications whose share of the pass failed and was skipped. */
+  failedCount: number;
   /** Users whose caches were dropped because a dose was recorded. */
   userIds: string[];
 }
@@ -130,95 +156,6 @@ const SCHEDULE_SELECT = {
   cyclicOffWeeks: true,
   doseWindows: true,
 } as const;
-
-/** One slot row as the occupancy check reads it. */
-interface SlotRow {
-  id: string;
-  scheduledFor: Date;
-  takenAt: Date | null;
-  skipped: boolean;
-  autoMissed: boolean;
-  deletedAt: Date | null;
-}
-
-export type SlotDecision =
-  | { kind: "create" }
-  | { kind: "convert"; rowId: string }
-  | {
-      kind: "leave";
-      reason: "actioned" | "removed" | "taken_nearby";
-    };
-
-/**
- * Decide what the pass does with one slot, given every row of the
- * medication around it (live and tombstoned). Pure, so the precedence rules
- * are tested without a database.
- *
- * `band` is the slot's attribution band when the cadence has one (a take
- * anywhere inside it belongs to this slot); `null` for a rolling slot, whose
- * next occurrence is by definition later than every taken dose.
- */
-export function decideSlot(
-  slotAt: Date,
-  rows: readonly SlotRow[],
-  band: Pick<SlotBand, "earlyStart" | "overdueEnd"> | null,
-): SlotDecision {
-  const t = slotAt.getTime();
-  const onSlot = rows.filter((r) => r.scheduledFor.getTime() === t);
-  const liveOnSlot = onSlot.filter((r) => r.deletedAt === null);
-
-  if (liveOnSlot.some((r) => r.takenAt !== null || r.skipped || r.autoMissed)) {
-    return { kind: "leave", reason: "actioned" };
-  }
-  if (liveOnSlot.length === 0 && onSlot.length > 0) {
-    return { kind: "leave", reason: "removed" };
-  }
-  if (band) {
-    const from = band.earlyStart.getTime();
-    const to = band.overdueEnd.getTime();
-    const takenNearby = rows.some(
-      (r) =>
-        r.deletedAt === null &&
-        !r.skipped &&
-        r.takenAt !== null &&
-        r.takenAt.getTime() >= from &&
-        r.takenAt.getTime() <= to,
-    );
-    if (takenNearby) return { kind: "leave", reason: "taken_nearby" };
-  }
-  const pending = [...liveOnSlot].sort(
-    (a, b) => a.id.localeCompare(b.id), // deterministic pick on duplicates
-  )[0];
-  return pending ? { kind: "convert", rowId: pending.id } : { kind: "create" };
-}
-
-/** True when `at` falls inside a `[pausedAt, resumedAt ?? now)` pause era. */
-export function isInPauseEra(
-  at: Date,
-  eras: readonly { pausedAt: Date; resumedAt: Date | null }[],
-  now: Date,
-): boolean {
-  const t = at.getTime();
-  return eras.some(
-    (era) =>
-      t >= era.pausedAt.getTime() && t < (era.resumedAt ?? now).getTime(),
-  );
-}
-
-/** The slot floor for one medication: see the module comment. */
-export function autoTakeFloor(input: {
-  autoMarkTakenSince: Date;
-  createdAt: Date;
-  now: Date;
-}): Date {
-  return new Date(
-    Math.max(
-      input.autoMarkTakenSince.getTime(),
-      input.createdAt.getTime(),
-      input.now.getTime() - INTAKE_AUTO_TAKE_LOOKBACK_MS,
-    ),
-  );
-}
 
 interface AutoTakeMedication {
   id: string;
@@ -327,15 +264,9 @@ export async function runIntakeAutoTakePass(
   const now = new Date(options.nowMs ?? Date.now());
 
   const medications = (await prisma.medication.findMany({
-    where: {
-      autoMarkTaken: true,
-      autoMarkTakenSince: { not: null, lte: now },
-      active: true,
-      pausedAt: null,
-      asNeeded: false,
-      // A record-only medication expects no dose, so none is recorded.
-      ...TRACKED_INTAKE_WHERE,
-    },
+    // Opted in, active, not paused, not as-needed, intake tracked (a
+    // record-only medication expects no dose, so none is recorded).
+    where: { ...autoTakeEligibleWhere(now), ...TRACKED_INTAKE_WHERE },
     select: {
       id: true,
       userId: true,
@@ -362,56 +293,27 @@ export async function runIntakeAutoTakePass(
 
   let recordedCount = 0;
   let convertedCount = 0;
+  let failedCount = 0;
   const touchedUsers = new Set<string>();
 
   for (const medication of medications) {
     if (!medication.autoMarkTakenSince || medication.schedules.length === 0) {
       continue;
     }
-    const userTz = medication.user.timezone || DEFAULT_TIMEZONE;
-    const floor = autoTakeFloor({
-      autoMarkTakenSince: medication.autoMarkTakenSince,
-      createdAt: medication.createdAt,
-      now,
-    });
-    const rolling = medication.schedules.some(
-      (s) => s.rollingIntervalDays !== null,
-    );
-
-    const outcome = await autoTakeMedication(prisma, {
-      medication,
-      userTz,
-      floor,
-      now,
-      rolling,
-    });
-    recordedCount += outcome.recorded.length;
-    convertedCount += outcome.converted;
-    if (outcome.recorded.length === 0) continue;
-
-    touchedUsers.add(medication.userId);
-    // The same follow-ups the intake routes run after a manual take.
-    const days = new Set<string>();
-    for (const slot of outcome.recorded) {
-      await consumeForIntake({
-        client: prisma,
-        userId: medication.userId,
-        medicationId: medication.id,
-        eventId: slot.eventId,
-        intakeAt: slot.at,
-      });
-      const dayKey = dayKeyForScheduledFor(slot.at, userTz);
-      if (days.has(dayKey)) continue;
-      days.add(dayKey);
-      await recomputeMedicationComplianceForEvent({
-        userId: medication.userId,
-        medicationId: medication.id,
-        scheduledFor: slot.at,
-        tz: userTz,
-      });
-    }
-    if (medication.oneShot) {
-      await reconcileOneShotState(prisma, medication.id, medication.userId);
+    // One bad row never stops the pass for everyone else: it is named in a
+    // warning and the next medication runs.
+    try {
+      const outcome = await autoTakeOne(prisma, medication, now);
+      recordedCount += outcome.recorded;
+      convertedCount += outcome.converted;
+      if (outcome.recorded > 0) touchedUsers.add(medication.userId);
+    } catch (err) {
+      failedCount += 1;
+      getEvent()?.addWarning(
+        `intake-auto-take failed for medication ${medication.id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
   }
 
@@ -426,8 +328,64 @@ export async function runIntakeAutoTakePass(
     medicationCount: medications.length,
     recordedCount,
     convertedCount,
+    failedCount,
     userIds: [...touchedUsers],
   };
+}
+
+/** One medication's share of a pass: record its due slots, then follow up. */
+async function autoTakeOne(
+  prisma: AutoTakeClient,
+  medication: AutoTakeMedication,
+  now: Date,
+): Promise<{ recorded: number; converted: number }> {
+  // A stored zone the runtime refuses (or a bare offset) falls back to the
+  // default, as in every other job, rather than throwing mid-pass.
+  const userTz = validTimezoneOr(medication.user.timezone, DEFAULT_TIMEZONE);
+  const floor = autoTakeFloor({
+    autoMarkTakenSince: medication.autoMarkTakenSince!,
+    createdAt: medication.createdAt,
+    now,
+  });
+  const rolling = medication.schedules.some(
+    (s) => s.rollingIntervalDays !== null,
+  );
+
+  const outcome = await autoTakeMedication(prisma, {
+    medication,
+    userTz,
+    floor,
+    now,
+    rolling,
+  });
+  if (outcome.recorded.length === 0) {
+    return { recorded: 0, converted: outcome.converted };
+  }
+
+  // The same follow-ups the intake routes run after a manual take.
+  const days = new Set<string>();
+  for (const slot of outcome.recorded) {
+    await consumeForIntake({
+      client: prisma,
+      userId: medication.userId,
+      medicationId: medication.id,
+      eventId: slot.eventId,
+      intakeAt: slot.at,
+    });
+    const dayKey = dayKeyForScheduledFor(slot.at, userTz);
+    if (days.has(dayKey)) continue;
+    days.add(dayKey);
+    await recomputeMedicationComplianceForEvent({
+      userId: medication.userId,
+      medicationId: medication.id,
+      scheduledFor: slot.at,
+      tz: userTz,
+    });
+  }
+  if (medication.oneShot) {
+    await reconcileOneShotState(prisma, medication.id, medication.userId);
+  }
+  return { recorded: outcome.recorded.length, converted: outcome.converted };
 }
 
 async function autoTakeMedication(
@@ -451,20 +409,7 @@ async function autoTakeMedication(
     where: {
       userId: medication.userId,
       medicationId: medication.id,
-      OR: [
-        {
-          scheduledFor: {
-            gte: new Date(floor.getTime() - DAY_MS),
-            lte: new Date(now.getTime() + DAY_MS),
-          },
-        },
-        {
-          takenAt: {
-            gte: new Date(floor.getTime() - DAY_MS),
-            lte: new Date(now.getTime() + DAY_MS),
-          },
-        },
-      ],
+      ...autoTakeRowWindow(floor, now),
     },
     select: {
       id: true,
@@ -473,6 +418,7 @@ async function autoTakeMedication(
       skipped: true,
       autoMissed: true,
       deletedAt: true,
+      attributionSource: true,
     },
   });
 
@@ -492,12 +438,25 @@ async function autoTakeMedication(
   }
 
   for (let round = 0; round < MAX_EXPANSION_ROUNDS; round++) {
+    // A rolling cadence steps past the slots this pass will never record
+    // (before the floor, paused, skipped, removed), so it cannot stall on
+    // one; the card's next due reads the same anchor.
+    const anchor = rolling
+      ? autoTakeRollingAnchor({
+          medication,
+          userTz,
+          floor,
+          now,
+          lastIntakeAt,
+          rows,
+        })
+      : lastIntakeAt;
     const slots = dueAutoTakeSlots({
       medication,
       userTz,
       floor,
       now,
-      lastIntakeAt,
+      lastIntakeAt: anchor,
     }).filter((slot) => !handled.has(slot.at.getTime()));
     if (slots.length === 0) break;
     const bands = bandsByAnchor({
@@ -505,9 +464,10 @@ async function autoTakeMedication(
       userTz,
       floor,
       now,
-      lastIntakeAt,
+      lastIntakeAt: anchor,
     });
 
+    const expectedSlots = new Set(bands.keys());
     let recordedRolling = false;
     for (const slot of slots) {
       handled.add(slot.at.getTime());
@@ -518,6 +478,9 @@ async function autoTakeMedication(
         slot.at,
         rows,
         isRollingSlot ? null : (bands.get(slot.at.getTime()) ?? null),
+        // Every expected slot around the window: a take sitting on one of
+        // them is that slot's dose, never a nearby take of this one.
+        expectedSlots,
       );
       const written = await applyDecision(prisma, {
         decision,

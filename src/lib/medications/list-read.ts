@@ -13,6 +13,7 @@
  * readers. Mirrors `src/lib/dashboard/snapshot-read.ts` for the dashboard.
  */
 import { sendsMedicationReminders } from "@/lib/medications/auto-mark-taken";
+import { loadAutoTakeRollingAnchors } from "@/lib/medications/auto-take";
 import { prisma } from "@/lib/db";
 import { annotate, getEvent } from "@/lib/logging/context";
 import { resolveCourseFields } from "@/lib/medications/courses";
@@ -220,6 +221,15 @@ export async function buildMedicationsList(
   const now = new Date();
   // v1.40 (#1024) — every medication's courses, two queries for the list.
   const courseFieldsByMed = await resolveCourseFields(medications, now, userTz);
+  // v1.42.2 — a rolling cadence under auto-take stands where the auto-take
+  // job will record next, so the card shows that slot (see `auto-take.ts`).
+  const engineLastIntakeAt = await loadAutoTakeRollingAnchors(prisma, {
+    userId,
+    medicationIds: medications.filter((m) => m.autoMarkTaken).map((m) => m.id),
+    now,
+    userTz,
+    lastIntakeAt: (id) => lastTakenAtDateByMedicationId[id] ?? null,
+  });
 
   return medications.map((m) => {
     // v1.39.1 (#1033) — intake tracking off: the stored rows are a record,
@@ -241,7 +251,7 @@ export async function buildMedicationsList(
       schedules: liveSchedules,
       now,
       userTz,
-      lastIntakeAt: lastTakenAtDateByMedicationId[m.id] ?? null,
+      lastIntakeAt: engineLastIntakeAt(m.id),
       resolvedSlots: resolvedSlotsByMedId.get(m.id) ?? [],
       eraStart: eraStartByMedId.get(m.id) ?? null,
     });
@@ -328,7 +338,7 @@ export async function buildMedicationsList(
         (carriesPriorRollingOccurrence ? 1 : 0),
       nextDueAt: display ? display.at.toISOString() : null,
       // v1.42.2 — the server's own reminder decision, published resolved.
-      remindersActive: sendsMedicationReminders(m),
+      remindersActive: sendsMedicationReminders(m, { now, timeZone: userTz }),
       nextDueOverdue: display?.overdue ?? false,
       nextDueScheduleId: display?.scheduleId ?? null,
       // v1.39.4 (#1040) — whether the card offers taken / skip today, and

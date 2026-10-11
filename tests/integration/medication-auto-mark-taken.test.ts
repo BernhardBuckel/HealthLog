@@ -377,6 +377,196 @@ describe("auto-mark-taken pass", () => {
       select: { autoMarkTaken: true, autoMarkTakenSince: true },
     });
     expect(off).toEqual({ autoMarkTaken: false, autoMarkTakenSince: null });
+
+    // Each flip is named in the audit row with what it was before; the
+    // re-save that left it on names no change to it.
+    const audits = await prisma.auditLog.findMany({
+      where: { userId, action: "medication.update" },
+      orderBy: { createdAt: "asc" },
+      select: { details: true },
+    });
+    const details = audits.map(
+      (a) =>
+        JSON.parse(a.details ?? "{}") as {
+          fields: string[];
+          previous: Record<string, unknown>;
+        },
+    );
+    expect(details).toHaveLength(3);
+    // Two of the same timestamp: matched by content, not order.
+    const flips = details
+      .filter((d) => d.fields.includes("autoMarkTaken"))
+      .map((d) => d.previous.autoMarkTaken)
+      .sort();
+    expect(flips).toEqual([false, true]);
+    const resave = details.find((d) => d.fields.includes("name"));
+    expect(resave?.fields).not.toContain("autoMarkTaken");
+  });
+
+  it("the create audit row says whether doses are recorded automatically", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const route = await import("@/app/api/medications/route");
+    at("2026-06-10T10:00:00.000Z");
+    const res = await (route.POST as Handler)(
+      new NextRequest("http://localhost/api/medications", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Vitamin D",
+          dose: "1 capsule",
+          autoMarkTaken: true,
+          schedules: [{ windowStart: "19:00", windowEnd: "19:00" }],
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({}) },
+    );
+    expect(res.status).toBe(201);
+    const audit = await prisma.auditLog.findFirstOrThrow({
+      where: { userId, action: "medication.create" },
+      select: { details: true },
+    });
+    expect(JSON.parse(audit.details ?? "{}")).toMatchObject({
+      autoMarkTaken: true,
+    });
+  });
+});
+
+describe("reopening past days never backfills them", () => {
+  it("a later end date or a re-activation moves the floor to now", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const medicationId = await seedEvening(userId, "Course", {
+      autoMarkTakenSince: new Date("2026-06-01T00:00:00.000Z"),
+    });
+    const route = await import("@/app/api/medications/[id]/route");
+    const put = (body: unknown) =>
+      (route.PUT as Handler)(
+        new NextRequest(`http://localhost/api/medications/${medicationId}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        }),
+        { params: Promise.resolve({ id: medicationId }) },
+      );
+    const since = async () =>
+      (
+        await prisma.medication.findUniqueOrThrow({
+          where: { id: medicationId },
+          select: { autoMarkTakenSince: true },
+        })
+      ).autoMarkTakenSince?.toISOString();
+
+    // The course ended on 06-05; the pass filled up to then.
+    at("2026-06-03T10:00:00.000Z");
+    expect(
+      (await put({ startsOn: "2026-06-01", endsOn: "2026-06-05" })).status,
+    ).toBe(200);
+    expect(await since()).toBe("2026-06-01T00:00:00.000Z");
+    at("2026-06-10T10:00:00.000Z");
+    await runIntakeAutoTakePass(prisma, { nowMs: Date.now() });
+    const filled = (await liveRows(medicationId)).length;
+
+    // Extended on 06-10 to the end of the month: 06-06..06-09 reopen, but
+    // the person never had them as due.
+    expect((await put({ endsOn: "2026-06-30" })).status).toBe(200);
+    expect(await since()).toBe("2026-06-10T10:00:00.000Z");
+    await runIntakeAutoTakePass(prisma, { nowMs: Date.now() });
+    expect((await liveRows(medicationId)).length).toBe(filled);
+
+    // Paused, then active again a week later: nothing in between is filled.
+    expect((await put({ active: false })).status).toBe(200);
+    at("2026-06-17T10:00:00.000Z");
+    expect((await put({ active: true })).status).toBe(200);
+    expect(await since()).toBe("2026-06-17T10:00:00.000Z");
+    await runIntakeAutoTakePass(prisma, { nowMs: Date.now() });
+    expect((await liveRows(medicationId)).length).toBe(filled);
+  });
+});
+
+describe("rolling cadence under auto-take", () => {
+  it("never stalls on a removed dose, and the card shows the slot the pass records", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    // Weekly at 09:00 local. Last taken Mon 06-01; the 06-08 dose the pass
+    // recorded was removed by the person (not taken that week).
+    const medication = await prisma.medication.create({
+      data: {
+        userId,
+        name: "Weekly injection",
+        dose: "1 pen",
+        createdAt: new Date("2026-05-01T00:00:00.000Z"),
+        autoMarkTaken: true,
+        autoMarkTakenSince: new Date("2026-05-01T00:00:00.000Z"),
+        schedules: {
+          create: {
+            windowStart: "09:00",
+            windowEnd: "09:00",
+            timesOfDay: ["09:00"],
+            rollingIntervalDays: 7,
+            scheduleType: "SCHEDULED",
+          },
+        },
+      },
+      select: { id: true },
+    });
+    await prisma.medicationIntakeEvent.createMany({
+      data: [
+        {
+          userId,
+          medicationId: medication.id,
+          scheduledFor: new Date("2026-06-01T07:00:00.000Z"),
+          takenAt: new Date("2026-06-01T07:00:00.000Z"),
+          source: "WEB",
+        },
+        {
+          userId,
+          medicationId: medication.id,
+          scheduledFor: new Date("2026-06-08T07:00:00.000Z"),
+          takenAt: new Date("2026-06-08T07:00:00.000Z"),
+          autoRecorded: true,
+          source: "REMINDER",
+          deletedAt: new Date("2026-06-08T12:00:00.000Z"),
+        },
+      ],
+    });
+
+    const detail = await import("@/app/api/medications/[id]/route");
+    const list = await import("@/app/api/medications/route");
+    const nextDue = async () => {
+      const res = await (detail.GET as Handler)(
+        new NextRequest(`http://localhost/api/medications/${medication.id}`),
+        { params: Promise.resolve({ id: medication.id }) },
+      );
+      const listRes = await (list.GET as Handler)(
+        new NextRequest("http://localhost/api/medications"),
+        { params: Promise.resolve({}) },
+      );
+      const listed = (
+        (await listRes.json()) as {
+          data: Array<{ id: string; nextDueAt: string | null }>;
+        }
+      ).data.find((m) => m.id === medication.id);
+      const own = ((await res.json()) as { data: { nextDueAt: string | null } })
+        .data.nextDueAt;
+      expect(listed?.nextDueAt).toBe(own);
+      return own;
+    };
+
+    at("2026-06-10T08:00:00.000Z");
+    expect(await nextDue()).toBe("2026-06-15T07:00:00.000Z");
+
+    at("2026-06-15T07:20:00.000Z");
+    const result = await runIntakeAutoTakePass(prisma, {
+      nowMs: Date.now(),
+    });
+    expect(result.recordedCount).toBe(1);
+    const recorded = (await liveRows(medication.id)).filter(
+      (r) => r.autoRecorded,
+    );
+    expect(recorded.map((r) => r.scheduledFor.toISOString())).toEqual([
+      "2026-06-15T07:00:00.000Z",
+    ]);
   });
 });
 
@@ -394,14 +584,17 @@ describe("remindersActive — the published value is the gate", () => {
       active: boolean;
       trackIntake: boolean;
       asNeeded: boolean;
+      endsOn: Date | null;
     }> = [];
-    for (let bits = 0; bits < 32; bits++) {
+    for (let bits = 0; bits < 64; bits++) {
       combos.push({
         notificationsEnabled: (bits & 1) !== 0,
         autoMarkTaken: (bits & 2) !== 0,
         active: (bits & 4) !== 0,
         trackIntake: (bits & 8) !== 0,
         asNeeded: (bits & 16) !== 0,
+        // A course that ended the day before.
+        endsOn: (bits & 32) !== 0 ? new Date("2026-06-09T00:00:00.000Z") : null,
       });
     }
     const ids: string[] = [];
@@ -446,7 +639,10 @@ describe("remindersActive — the published value is the gate", () => {
     const detail = await import("@/app/api/medications/[id]/route");
     let trueCount = 0;
     for (const [i, id] of ids.entries()) {
-      const expected = sendsMedicationReminders(combos[i]);
+      const expected = sendsMedicationReminders(combos[i], {
+        now: new Date(),
+        timeZone: TZ,
+      });
       if (expected) trueCount++;
       expect(listed.get(id), `list combo ${i}`).toBe(expected);
       const res = await (detail.GET as Handler)(
@@ -456,7 +652,56 @@ describe("remindersActive — the published value is the gate", () => {
       const body = (await res.json()) as { data: { remindersActive: boolean } };
       expect(body.data.remindersActive, `detail combo ${i}`).toBe(expected);
     }
-    // Exactly one combination reminds: on, not auto, active, tracked, scheduled.
+    // Exactly one combination reminds: on, not auto, active, tracked,
+    // scheduled, course not ended.
     expect(trueCount).toBe(1);
+  });
+
+  it("a course that has ended reads as not reminding, and the worker sends nothing for it", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const ended = await seedEvening(userId, "Antibiotic", {
+      autoMarkTakenSince: null,
+    });
+    const running = await seedEvening(userId, "Iron", {
+      autoMarkTakenSince: null,
+    });
+    await prisma.medication.update({
+      where: { id: ended },
+      data: { endsOn: new Date("2026-06-09T00:00:00.000Z") },
+    });
+    for (const tick of [
+      "2026-06-10T17:30:00.000Z",
+      "2026-06-10T19:00:00.000Z",
+      "2026-06-10T22:00:00.000Z",
+    ]) {
+      at(tick);
+      await handleReminderCheck([]);
+    }
+    const dispatchedFor = (medicationId: string) =>
+      vi
+        .mocked(dispatchNotification)
+        .mock.calls.filter(
+          ([arg]) =>
+            (arg as { metadata?: { medicationId?: string } }).metadata
+              ?.medicationId === medicationId,
+        ).length;
+    expect(dispatchedFor(running)).toBeGreaterThan(0);
+    expect(dispatchedFor(ended)).toBe(0);
+
+    const list = await import("@/app/api/medications/route");
+    const res = await (list.GET as Handler)(
+      new NextRequest("http://localhost/api/medications"),
+      { params: Promise.resolve({}) },
+    );
+    const published = new Map(
+      (
+        (await res.json()) as {
+          data: Array<{ id: string; remindersActive: boolean }>;
+        }
+      ).data.map((m) => [m.id, m.remindersActive] as const),
+    );
+    expect(published.get(running)).toBe(true);
+    expect(published.get(ended)).toBe(false);
   });
 });

@@ -90,7 +90,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
     });
   }
 
-  const slot = beginSearch(actor.id);
+  const slot = beginSearch(actor.id, user.id);
   try {
     const [modules, domainVisible, timezone] = await Promise.all([
       resolveModuleMap(user.id),

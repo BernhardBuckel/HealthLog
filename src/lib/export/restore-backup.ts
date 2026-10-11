@@ -1232,14 +1232,21 @@ export async function restoreBackup(
               oneShot: m.oneShot ?? false,
               asNeeded: m.asNeeded ?? false,
               trackIntake: m.trackIntake ?? true,
-              // v1.42.2 — an option that is on always carries its floor; a
-              // file that has the flag without one starts it at the restore,
-              // so the auto-take pass never fills history it did not own.
+              // v1.42.2 — an option that is on always carries its floor, and
+              // a restored floor is never before the restore: a portable file
+              // carries no removed doses, so a dose the person deleted in the
+              // days before the export would otherwise be filled again as
+              // taken by the next auto-take pass.
               autoMarkTaken: m.autoMarkTaken ?? false,
               autoMarkTakenSince: m.autoMarkTaken
-                ? m.autoMarkTakenSince
-                  ? new Date(m.autoMarkTakenSince)
-                  : new Date()
+                ? new Date(
+                    Math.max(
+                      m.autoMarkTakenSince
+                        ? Date.parse(m.autoMarkTakenSince)
+                        : 0,
+                      restoreStartedAt.getTime(),
+                    ),
+                  )
                 : null,
               deliveryForm: m.deliveryForm ?? "ORAL",
               trackInjectionSites: m.trackInjectionSites ?? false,

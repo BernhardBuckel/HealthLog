@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import { TIMELINE_RANGE_MAX_DAYS } from "@/lib/day/contract";
 
 import { dayKey, dayNumber } from "../timeline-dates";
-import { clampRange, parseTimelineUrl, timelineSearch } from "../timeline-url";
+import {
+  clampRange,
+  hasDataBeforeWindow,
+  parseTimelineUrl,
+  resolveDefaultWindow,
+  timelineSearch,
+} from "../timeline-url";
 
 const TODAY = "2026-10-07";
 const parse = (search: string) =>
@@ -26,7 +32,7 @@ describe("timeline URL", () => {
     });
   });
 
-  it("falls back to all, without a word, on anything it cannot read", () => {
+  it("reads anything it cannot read as no zoom, the same default as none", () => {
     for (const search of [
       "zoom=decade",
       "zoom=range",
@@ -36,8 +42,43 @@ describe("timeline URL", () => {
       "zoom=range&from=2027-01-01&to=2027-02-01",
       "zoom=range&from=yesterday&to=today",
     ]) {
-      expect(parse(search), search).toEqual({ zoom: "all", range: null });
+      expect(parse(search), search).toEqual(parse(""));
     }
+  });
+
+  it("knows when a window misses the record's older entries", () => {
+    const quarter = { from: "2026-08-01" };
+    expect(hasDataBeforeWindow("2025-02-11", quarter)).toBe(true);
+    expect(hasDataBeforeWindow("2026-08-01", quarter)).toBe(false);
+    expect(hasDataBeforeWindow("2026-09-15", quarter)).toBe(false);
+    expect(hasDataBeforeWindow(null, quarter)).toBe(false);
+    expect(hasDataBeforeWindow("2025-02-11", null)).toBe(false);
+  });
+
+  it("adapts the default window to the record", () => {
+    // The default three months up to 2026-10-07.
+    const window = { from: "2026-08-01", to: "2026-10-31" };
+    const decide = (dataFrom: string | null, windowHasData: boolean) =>
+      resolveDefaultWindow({ dataFrom, window, windowHasData, today: TODAY });
+
+    // 1. A young record starts at its first entry...
+    expect(decide("2026-09-01", true)).toEqual({
+      zoom: "quarter",
+      from: "2026-09-01",
+    });
+    // ...but spans at least four weeks up to today.
+    expect(decide("2026-10-05", true)).toEqual({
+      zoom: "quarter",
+      from: "2026-09-10",
+    });
+    // A first entry on the window's first day is the plain three months.
+    expect(decide("2026-08-01", true)).toEqual({ zoom: "quarter", from: null });
+    // 2. An older record with entries in the three months: three months.
+    expect(decide("2019-01-01", true)).toEqual({ zoom: "quarter", from: null });
+    // 3. An older record with none there: everything.
+    expect(decide("2019-01-01", false)).toEqual({ zoom: "all" });
+    // 4. No data at all: the plain empty state.
+    expect(decide(null, false)).toBeNull();
   });
 
   it("pulls a range's end back to today and its span under the cap", () => {

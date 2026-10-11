@@ -663,7 +663,7 @@ export async function handleReminderCheck(
               }),
             });
 
-            if (sendsMedicationReminders(med)) {
+            if (sendsMedicationReminders(med, { now, timeZone: userTz })) {
               const claimed = await claimNotificationEvent(prisma, {
                 recordUserId: med.user.id,
                 eventType: "MEDICATION_REMINDER",
@@ -727,7 +727,7 @@ export async function handleReminderCheck(
             // banner, every other channel the user configured still delivers
             // — so the gate lives in the dispatcher's APNs branch, which is
             // the only place that knows whether an APNs send was on the table.
-            if (sendsMedicationReminders(med)) {
+            if (sendsMedicationReminders(med, { now, timeZone: userTz })) {
               const recipientLocale = await resolveJobLocale(med.user.locale);
               const { title, message } = getPhaseMessage(
                 currentPhase,

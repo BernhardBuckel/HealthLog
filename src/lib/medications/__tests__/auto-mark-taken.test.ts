@@ -10,23 +10,60 @@ import { describe, expect, it } from "vitest";
 import { sendsMedicationReminders } from "../auto-mark-taken";
 
 describe("sendsMedicationReminders", () => {
-  it("reminds only for an active, tracked, scheduled medication with reminders on and no auto-recording", () => {
-    for (let bits = 0; bits < 32; bits++) {
+  const at = {
+    now: new Date("2026-06-10T10:00:00.000Z"),
+    timeZone: "Europe/Berlin",
+  };
+
+  it("reminds only for an active, tracked, scheduled medication with reminders on, no auto-recording and a course not ended", () => {
+    for (let bits = 0; bits < 64; bits++) {
+      const ended = (bits & 32) !== 0;
       const med = {
         notificationsEnabled: (bits & 1) !== 0,
         autoMarkTaken: (bits & 2) !== 0,
         active: (bits & 4) !== 0,
         trackIntake: (bits & 8) !== 0,
         asNeeded: (bits & 16) !== 0,
+        endsOn: ended ? new Date("2026-06-09T00:00:00.000Z") : null,
       };
-      expect(sendsMedicationReminders(med), JSON.stringify(med)).toBe(
+      expect(sendsMedicationReminders(med, at), JSON.stringify(med)).toBe(
         med.notificationsEnabled &&
           !med.autoMarkTaken &&
           med.active &&
           med.trackIntake &&
-          !med.asNeeded,
+          !med.asNeeded &&
+          !ended,
       );
     }
+  });
+
+  it("a course ending today still reminds; one that ended yesterday does not", () => {
+    const base = {
+      notificationsEnabled: true,
+      autoMarkTaken: false,
+      active: true,
+      trackIntake: true,
+      asNeeded: false,
+    };
+    expect(
+      sendsMedicationReminders(
+        { ...base, endsOn: new Date("2026-06-10T00:00:00.000Z") },
+        at,
+      ),
+    ).toBe(true);
+    expect(
+      sendsMedicationReminders(
+        { ...base, endsOn: new Date("2026-06-09T00:00:00.000Z") },
+        at,
+      ),
+    ).toBe(false);
+    // Late on the 10th in Berlin is already the 11th there.
+    expect(
+      sendsMedicationReminders(
+        { ...base, endsOn: new Date("2026-06-10T00:00:00.000Z") },
+        { ...at, now: new Date("2026-06-10T22:30:00.000Z") },
+      ),
+    ).toBe(false);
   });
 
   it("is the decision at every gate and on every published DTO", () => {
@@ -36,7 +73,9 @@ describe("sendsMedicationReminders", () => {
       "lib/jobs/reminder/medication-reminder-check.ts",
       "app/api/admin/notifications/reminder-check/route.ts",
     ]) {
-      expect(src(gate), gate).toMatch(/sendsMedicationReminders\(med\)/);
+      expect(src(gate), gate).toMatch(
+        /sendsMedicationReminders\(med, \{ now, timeZone: userTz \}\)/,
+      );
       // No send site falls back to the raw preference.
       expect(src(gate), gate).not.toMatch(
         /if \([^)]*med\.notificationsEnabled\)/,

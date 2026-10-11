@@ -49,6 +49,8 @@ import {
   runIntakeAutoTakePass,
 } from "../intake-auto-take";
 import { autoTakeOwnedFrom } from "../intake-auto-skip";
+import { autoTakeRollingAnchor } from "@/lib/medications/auto-take";
+import { computeDisplayDue } from "@/lib/medications/scheduling/next-due";
 
 const TZ = "Europe/Berlin";
 
@@ -483,6 +485,7 @@ interface FakeRow {
   deletedAt: Date | null;
   source: string;
   syncVersion: number;
+  attributionSource?: "AUTO" | "USER_PIN";
 }
 
 function fakeClient(meds: ReturnType<typeof medication>[], rows: FakeRow[]) {
@@ -708,5 +711,321 @@ describe("runIntakeAutoTakePass — over a fake client", () => {
         .map((r) => r.scheduledFor.toISOString())
         .sort(),
     ).toEqual(["2026-06-03T07:00:00.000Z", "2026-06-05T07:00:00.000Z"]);
+  });
+});
+
+// ── a rolling cadence under auto-take never stalls ────────────────────
+
+describe("runIntakeAutoTakePass — rolling cadence keeps moving", () => {
+  const weekly = () =>
+    schedule({ rollingIntervalDays: 7, timesOfDay: ["09:00"] });
+  const autoRecordedSlots = (rows: FakeRow[]) =>
+    rows
+      .filter((r) => r.autoRecorded && r.deletedAt === null)
+      .map((r) => r.scheduledFor.toISOString())
+      .sort();
+
+  it("a first dose before the floor is passed over, the next one recorded", async () => {
+    // Created at 12:00 CEST, after that day's 09:00 slot, no start date:
+    // the first rolling dose lies before the floor.
+    const med = medication({
+      createdAt: new Date("2026-06-10T10:00:00Z"),
+      autoMarkTakenSince: new Date("2026-06-10T10:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [];
+    const client = fakeClient([med], rows);
+
+    const early = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-12T08:00:00Z"),
+    });
+    expect(early.recordedCount).toBe(0);
+
+    const due = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-17T07:20:00Z"),
+    });
+    expect(due.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-17T07:00:00.000Z"]);
+  });
+
+  it("switched on while the weekly dose is overdue: the overdue dose stays, the cadence moves on", async () => {
+    const med = medication({
+      autoMarkTakenSince: new Date("2026-06-10T12:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [
+      row({
+        id: "t0",
+        scheduledFor: new Date("2026-06-01T07:00:00Z"),
+        takenAt: new Date("2026-06-01T07:00:00Z"),
+        source: "WEB",
+      }),
+    ];
+    const client = fakeClient([med], rows);
+    const result = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-15T08:00:00Z"),
+    });
+    // 06-08 lies before the switch-on and is never backfilled.
+    expect(result.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-15T07:00:00.000Z"]);
+  });
+
+  it("a skipped rolling auto dose counts as handled: the next one is recorded", async () => {
+    const med = medication({
+      autoMarkTakenSince: new Date("2026-06-01T00:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [
+      row({
+        id: "t0",
+        scheduledFor: new Date("2026-06-01T07:00:00Z"),
+        takenAt: new Date("2026-06-01T07:00:00Z"),
+        source: "WEB",
+      }),
+      row({
+        id: "s1",
+        scheduledFor: new Date("2026-06-08T07:00:00Z"),
+        skipped: true,
+        source: "WEB",
+      }),
+    ];
+    const client = fakeClient([med], rows);
+    const result = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-15T08:00:00Z"),
+    });
+    expect(result.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-15T07:00:00.000Z"]);
+    expect(rows.find((r) => r.id === "s1")).toMatchObject({
+      skipped: true,
+      takenAt: null,
+    });
+  });
+
+  it("a removed rolling auto dose stays removed and the next one is recorded", async () => {
+    const med = medication({
+      autoMarkTakenSince: new Date("2026-06-01T00:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [
+      row({
+        id: "t0",
+        scheduledFor: new Date("2026-06-01T07:00:00Z"),
+        takenAt: new Date("2026-06-01T07:00:00Z"),
+        source: "WEB",
+      }),
+      row({
+        id: "gone",
+        scheduledFor: new Date("2026-06-08T07:00:00Z"),
+        takenAt: new Date("2026-06-08T07:00:00Z"),
+        autoRecorded: true,
+        deletedAt: new Date("2026-06-08T09:00:00Z"),
+      }),
+    ];
+    const client = fakeClient([med], rows);
+    const result = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-15T08:00:00Z"),
+    });
+    expect(result.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-15T07:00:00.000Z"]);
+    expect(
+      rows.filter(
+        (r) => r.scheduledFor.toISOString() === "2026-06-08T07:00:00.000Z",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("a worker down for more than a week catches up on the rhythm, not the stale slot", async () => {
+    const med = medication({
+      autoMarkTakenSince: new Date("2026-05-01T00:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [
+      row({
+        id: "t0",
+        scheduledFor: new Date("2026-05-25T07:00:00Z"),
+        takenAt: new Date("2026-05-25T07:00:00Z"),
+        source: "WEB",
+      }),
+    ];
+    const client = fakeClient([med], rows);
+    // Ten days after the 06-01 dose fell due: it is outside the catch-up
+    // window, 06-08 is inside it.
+    const result = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-11T08:00:00Z"),
+    });
+    expect(result.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-08T07:00:00.000Z"]);
+  });
+
+  it("the card's next due is the slot the job records", async () => {
+    const med = medication({
+      createdAt: new Date("2026-06-10T10:00:00Z"),
+      autoMarkTakenSince: new Date("2026-06-10T10:00:00Z"),
+      schedules: [weekly()],
+    });
+    const now = new Date("2026-06-12T08:00:00Z");
+    const anchor = autoTakeRollingAnchor({
+      medication: med,
+      userTz: TZ,
+      floor: autoTakeFloor({
+        autoMarkTakenSince: med.autoMarkTakenSince!,
+        createdAt: med.createdAt,
+        now,
+      }),
+      now,
+      lastIntakeAt: null,
+      rows: [],
+    });
+    const display = computeDisplayDue({
+      medication: med,
+      schedules: med.schedules,
+      now,
+      userTz: TZ,
+      lastIntakeAt: anchor,
+      resolvedSlots: [],
+    });
+    expect(display?.at.toISOString()).toBe("2026-06-17T07:00:00.000Z");
+
+    const rows: FakeRow[] = [];
+    await runIntakeAutoTakePass(fakeClient([med], rows), {
+      nowMs: Date.parse("2026-06-17T07:20:00Z"),
+    });
+    expect(autoRecordedSlots(rows)).toEqual([display!.at.toISOString()]);
+  });
+});
+
+// ── a take bound to another slot never claims this one ───────────────
+
+describe("runIntakeAutoTakePass — nearby takes of another slot", () => {
+  const twiceDaily = () =>
+    medication({
+      autoMarkTakenSince: new Date("2026-06-10T00:00:00Z"),
+      schedules: [schedule({ timesOfDay: ["08:00", "20:00"] })],
+    });
+  // 2026-06-10 (CEST): 08:00 = 06:00Z, 20:00 = 18:00Z; 19:00 = 17:00Z.
+  const MORNING = new Date("2026-06-10T06:00:00Z");
+  const EVENING = "2026-06-10T18:00:00.000Z";
+  const autoSlots = (rows: FakeRow[]) =>
+    rows.filter((r) => r.autoRecorded).map((r) => r.scheduledFor.toISOString());
+
+  it("the morning dose pinned and taken at 19:00 leaves the evening dose due", async () => {
+    const rows: FakeRow[] = [
+      row({
+        id: "pin",
+        scheduledFor: MORNING,
+        takenAt: new Date("2026-06-10T17:00:00Z"),
+        attributionSource: "USER_PIN",
+        source: "WEB",
+      }),
+    ];
+    await runIntakeAutoTakePass(fakeClient([twiceDaily()], rows), {
+      nowMs: Date.parse("2026-06-10T18:20:00Z"),
+    });
+    expect(autoSlots(rows)).toEqual([EVENING]);
+  });
+
+  it("the same without a pin: a take on the morning slot is the morning's", async () => {
+    const rows: FakeRow[] = [
+      row({
+        id: "late",
+        scheduledFor: MORNING,
+        takenAt: new Date("2026-06-10T17:00:00Z"),
+        source: "WEB",
+      }),
+    ];
+    await runIntakeAutoTakePass(fakeClient([twiceDaily()], rows), {
+      nowMs: Date.parse("2026-06-10T18:20:00Z"),
+    });
+    expect(autoSlots(rows)).toEqual([EVENING]);
+  });
+
+  it("an ad-hoc take at 19:00 still claims the evening dose", async () => {
+    const at19 = new Date("2026-06-10T17:00:00Z");
+    const rows: FakeRow[] = [
+      // The morning dose, taken on time.
+      row({
+        id: "am",
+        scheduledFor: MORNING,
+        takenAt: MORNING,
+        source: "WEB",
+      }),
+      row({ id: "adhoc", scheduledFor: at19, takenAt: at19, source: "WEB" }),
+    ];
+    await runIntakeAutoTakePass(fakeClient([twiceDaily()], rows), {
+      nowMs: Date.parse("2026-06-10T18:20:00Z"),
+    });
+    expect(autoSlots(rows)).toEqual([]);
+  });
+
+  it("decideSlot: a pinned row elsewhere is not nearby, an ad-hoc one is", () => {
+    const band = {
+      earlyStart: new Date("2026-06-10T15:00:00Z"),
+      overdueEnd: new Date("2026-06-10T21:00:00Z"),
+    };
+    const evening = new Date(EVENING);
+    const taken = new Date("2026-06-10T17:00:00Z");
+    const base = {
+      takenAt: taken,
+      skipped: false,
+      autoMissed: false,
+      deletedAt: null,
+    };
+    expect(
+      decideSlot(
+        evening,
+        [
+          {
+            ...base,
+            id: "p",
+            scheduledFor: new Date("2026-06-09T12:00:00Z"),
+            attributionSource: "USER_PIN",
+          },
+        ],
+        band,
+      ),
+    ).toEqual({ kind: "create" });
+    expect(
+      decideSlot(evening, [{ ...base, id: "a", scheduledFor: taken }], band),
+    ).toEqual({ kind: "leave", reason: "taken_nearby" });
+  });
+});
+
+// ── one bad row never stops the pass ──────────────────────────────────
+
+describe("runIntakeAutoTakePass — per-medication isolation", () => {
+  it("a medication whose follow-up throws is skipped, the next one still runs", async () => {
+    const broken = medication({
+      id: "m-broken",
+      autoMarkTakenSince: new Date("2026-06-10T00:00:00Z"),
+    });
+    const fine = medication({
+      id: "m-fine",
+      autoMarkTakenSince: new Date("2026-06-10T00:00:00Z"),
+    });
+    const rows: FakeRow[] = [];
+    vi.mocked(consumeForIntake).mockImplementationOnce(async () => {
+      throw new Error("inventory unavailable");
+    });
+    const result = await runIntakeAutoTakePass(
+      fakeClient([broken, fine], rows),
+      { nowMs: Date.parse("2026-06-10T17:20:00Z") },
+    );
+    expect(result.failedCount).toBe(1);
+    expect(
+      rows.filter((r) => r.medicationId === "m-fine" && r.autoRecorded),
+    ).toHaveLength(1);
+  });
+
+  it("a stored zone the runtime refuses falls back instead of throwing", async () => {
+    const med = {
+      ...medication({ autoMarkTakenSince: new Date("2026-06-10T00:00:00Z") }),
+      user: { timezone: "Mars/Olympus_Mons" },
+    };
+    const rows: FakeRow[] = [];
+    const result = await runIntakeAutoTakePass(fakeClient([med], rows), {
+      nowMs: Date.parse("2026-06-10T20:00:00Z"),
+    });
+    expect(result.failedCount).toBe(0);
+    expect(result.recordedCount).toBe(1);
   });
 });
