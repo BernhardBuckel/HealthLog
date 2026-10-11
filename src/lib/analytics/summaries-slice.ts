@@ -174,10 +174,14 @@ function windowedMean(filter: string): string {
     filter,
   });
 }
-const AVG7_SQL = windowedMean(`m."measured_at" >= NOW() - INTERVAL '7 days'`);
-const AVG30_SQL = windowedMean(`m."measured_at" >= NOW() - INTERVAL '30 days'`);
+const AVG7_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days'`,
+);
+const AVG30_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'`,
+);
 const AVG30_LAST_MONTH_SQL = windowedMean(
-  `m."measured_at" >= NOW() - INTERVAL '60 days' AND m."measured_at" <  NOW() - INTERVAL '30 days'`,
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '60 days' AND m."measured_at" <  (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'`,
 );
 
 interface NarrowAggregateRow {
@@ -566,7 +570,7 @@ async function computeFromRollups(userId: string): Promise<SummariesSlice> {
         PERCENTILE_CONT(0.5) WITHIN GROUP (
           ORDER BY m."value"
         ) FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '90 days'
+          WHERE m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days'
         )::double precision                                           AS median
       FROM ${dayWeightedRows("cm", SESSION_DAY_FRAME)} m
       GROUP BY m."type"
@@ -1041,17 +1045,16 @@ async function computeFromLiveAggregate(
         PERCENTILE_CONT(0.5) WITHIN GROUP (
           ORDER BY m."value"
         ) FILTER (
-          WHERE m."measured_at" >= NOW() - INTERVAL '90 days'
+          WHERE m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days'
         )::double precision                                           AS median,
         -- A2-M2 — anchor the regression windows on the UTC-midnight day
         -- boundary so this cold-fallback path returns the SAME boundary-day
         -- membership the warm computeFromRollups composes via
         -- startOfUtcDay(now - N days) + composeWindowedRegression. The
         -- expression date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL
-        -- 'N days' is the SQL twin of startOfUtcDay; the trailing AT TIME
-        -- ZONE 'UTC' re-materialises the naive truncation as a UTC instant
-        -- so the measured_at (timestamptz) comparison lands on the same wall
-        -- the rollup bucketStart sits on. The wall-clock NOW() - INTERVAL
+        -- 'N days' is the SQL twin of startOfUtcDay. It stays a naive UTC
+        -- timestamp, like measured_at itself, so the comparison never
+        -- passes through the session time zone. The wall-clock NOW() - INTERVAL
         -- bound let the boundary day flip in/out of the slope window across
         -- a warm-to-cold coverage transition (cache-dependent slope on the
         -- same request); the avg7/30/median windows above stay wall-clock
@@ -1060,25 +1063,25 @@ async function computeFromLiveAggregate(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
         )::double precision                                           AS slope7,
         REGR_R2(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
         )::double precision                                           AS r2_7,
         REGR_SLOPE(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days')
         )::double precision                                           AS slope30,
         REGR_R2(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days')
         )::double precision                                           AS r2_30
       FROM ${dayWeightedRows("cm", SESSION_DAY_FRAME)} m
       GROUP BY m."type"

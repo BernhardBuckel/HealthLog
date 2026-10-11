@@ -73,11 +73,13 @@ interface ProviderHealthSummary {
 const CENTRAL_TYPES = [...OPERATOR_HELD_PROVIDER_TYPES];
 
 export const GET = apiHandler(async () => {
-  await requireAdmin();
+  const { user } = await requireAdmin();
   annotate({ action: { name: "admin.provider-health.get" } });
 
-  // The UTC day the ledger buckets by — the same key every reservation writes.
-  const dateKey = buildDateKey();
+  // The ledger buckets each account by its own local day; the operator's
+  // "today" is the day in the operator's own zone, which on a single-zone
+  // instance is everyone's.
+  const dateKey = await buildDateKey(user.id);
 
   const groups = await prisma.providerHealth.groupBy({
     // `lastStatus` joins the grouping key rather than an aggregate: the

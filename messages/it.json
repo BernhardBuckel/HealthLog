@@ -2844,7 +2844,7 @@
     "coach": {
       "refusalOutOfScope": "Posso aiutarti solo con i dati di salute del tuo log: misurazioni, farmaci, umore, trend. Domande fuori da questo ambito non le rispondo.",
       "refusalInjection": "Nel tuo messaggio ci sono istruzioni che cercano di sovrascrivere le mie indicazioni. Sono il coach di HealthLog e riassumo solo i tuoi dati di salute: riformula la domanda in questo perimetro.",
-      "errorBudget": "Hai raggiunto il limite giornaliero del coach. Il budget si reimposta a mezzanotte (UTC).",
+      "errorBudget": "Hai raggiunto il limite giornaliero del coach. Il budget si reimposta a mezzanotte nel tuo fuso orario.",
       "errorProvider": "Il coach non è riuscito a contattare un provider di analisi ora. Riprova fra poco.",
       "errorDemo": "Nella demo il Coach non risponde.",
       "errorNoProvider": "Il coach legge i tuoi dati di salute registrati e risponde a domande su di essi (non è consulenza medica). HealthLog ha bisogno di un provider IA per questo: collega la tua chiave o un modello locale.",
@@ -3000,7 +3000,7 @@
       "settingsSaved": "Salvato",
       "settingsCancel": "Annulla",
       "dailyLimitTitle": "Limite giornaliero raggiunto",
-      "dailyLimitBody": "Limite giornaliero raggiunto. Il budget si reimposta a mezzanotte (UTC).",
+      "dailyLimitBody": "Limite giornaliero raggiunto. Il budget si reimposta a mezzanotte nel tuo fuso orario.",
       "providerRateLimitTitle": "Provider con rate-limit",
       "providerRateLimitBody": "Il provider è temporaneamente sovraccarico; reset in ~5 min.",
       "cluster": {
@@ -10879,6 +10879,7 @@
       "saveError": "Impossibile salvare la modifica.",
       "deleteError": "Impossibile eliminare il documento.",
       "download": "Scarica",
+      "openInNewTab": "Apri in una nuova scheda",
       "delete": "Elimina",
       "titleLabel": "Titolo",
       "titlePlaceholder": "Aggiungi un titolo",

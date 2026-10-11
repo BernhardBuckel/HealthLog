@@ -2844,7 +2844,7 @@
     "coach": {
       "refusalOutOfScope": "I can only help with the health metrics in your log: measurements, medications, mood, trends. I cannot answer questions outside that scope.",
       "refusalInjection": "I noticed wording that tries to override my instructions. I am the HealthLog Coach and only summarise your own health data. Please rephrase your question in those terms.",
-      "errorBudget": "You've reached today's Coach usage limit. The budget refreshes at midnight UTC.",
+      "errorBudget": "You've reached today's Coach usage limit. The budget refreshes at midnight in your time zone.",
       "errorProvider": "The Coach could not reach an Insights provider just now. Please try again in a moment.",
       "errorDemo": "The Coach doesn't answer in the demo.",
       "errorNoProvider": "The Coach reads your logged health data and answers questions about it (not medical advice). HealthLog needs an AI provider for that. Connect your own key or a local model.",
@@ -3000,7 +3000,7 @@
       "settingsSaved": "Saved",
       "settingsCancel": "Cancel",
       "dailyLimitTitle": "Daily limit reached",
-      "dailyLimitBody": "Daily limit reached. The budget refreshes at midnight UTC.",
+      "dailyLimitBody": "Daily limit reached. The budget refreshes at midnight in your time zone.",
       "providerRateLimitTitle": "Provider rate-limited",
       "providerRateLimitBody": "Provider temporarily rate-limited; retry in ~5 min.",
       "cluster": {
@@ -10879,6 +10879,7 @@
       "saveError": "Couldn't save the change.",
       "deleteError": "Couldn't delete the document.",
       "download": "Download",
+      "openInNewTab": "Open in new tab",
       "delete": "Delete",
       "titleLabel": "Title",
       "titlePlaceholder": "Add a title",

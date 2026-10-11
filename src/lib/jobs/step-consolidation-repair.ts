@@ -274,7 +274,7 @@ export async function enqueueBootTimeStepConsolidationRepair(
       FROM measurements t
       WHERE t."type" = 'ACTIVITY_STEPS'
         AND t."deleted_at" IS NOT NULL
-        AND t."deleted_at" >= now() - make_interval(days => ${TOMBSTONE_RETENTION_DAYS})
+        AND t."deleted_at" >= (NOW() AT TIME ZONE 'UTC') - make_interval(days => ${TOMBSTONE_RETENTION_DAYS})
         AND t."source" IN ('GOOGLE_HEALTH', 'FITBIT')
         AND t."external_id" LIKE 'stats:%'
         AND NOT EXISTS (

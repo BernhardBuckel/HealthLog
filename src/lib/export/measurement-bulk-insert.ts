@@ -123,7 +123,7 @@ function selectExpression(
     const cast = `${ref}::timestamp(3)`;
     // Prisma fills both on create when the row does not carry them.
     return field === "createdAt" || field === "updatedAt"
-      ? `COALESCE(${cast}, CURRENT_TIMESTAMP)`
+      ? `COALESCE(${cast}, CURRENT_TIMESTAMP AT TIME ZONE 'UTC')`
       : cast;
   }
   if (kind === "bytea") return `decode(${ref}, 'hex')`;

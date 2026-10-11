@@ -560,7 +560,7 @@ function ChatBubbleImpl({
 
   // v1.4.25 W5 — map server-emitted error codes to specific Coach
   // i18n keys. Distinct user-quota and provider-rate-limit copy so the
-  // user understands daily-cap (resets at UTC midnight) vs. transient
+  // user understands daily-cap (resets at their local midnight) vs. transient
   // provider load (retry in ~5 min). Codes that have no dedicated
   // translation fall back to the generic provider-unavailable copy.
   const errorKey = errorCode ? errorCodeToI18nKey(errorCode) : null;

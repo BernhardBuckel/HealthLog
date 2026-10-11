@@ -2844,7 +2844,7 @@
     "coach": {
       "refusalOutOfScope": "Mogę pomóc tylko w sprawach danych zdrowotnych z twojego logu: pomiarów, leków, nastroju, trendów. Pytań spoza tego zakresu nie podejmuję.",
       "refusalInjection": "Twoja wiadomość zawiera instrukcje, które próbują nadpisać moje wytyczne. Jestem coachem HealthLog i podsumowuję wyłącznie twoje własne dane zdrowotne. Przeformułuj pytanie w tych ramach.",
-      "errorBudget": "Osiągnięto dzienny limit coacha. Limit resetuje się o północy (UTC).",
+      "errorBudget": "Osiągnięto dzienny limit coacha. Limit resetuje się o północy w Twojej strefie czasowej.",
       "errorProvider": "Coach nie mógł teraz skontaktować się z dostawcą analizy. Spróbuj za chwilę.",
       "errorDemo": "W wersji demo Coach nie odpowiada.",
       "errorNoProvider": "Coach czyta Twoje zapisane dane zdrowotne i odpowiada na pytania o nie (to nie porada medyczna). HealthLog potrzebuje do tego dostawcy AI: połącz własny klucz lub model lokalny.",
@@ -3000,7 +3000,7 @@
       "settingsSaved": "Zapisano",
       "settingsCancel": "Anuluj",
       "dailyLimitTitle": "Osiągnięto dzienny limit",
-      "dailyLimitBody": "Osiągnięto dzienny limit. Limit resetuje się o północy (UTC).",
+      "dailyLimitBody": "Osiągnięto dzienny limit. Limit resetuje się o północy w Twojej strefie czasowej.",
       "providerRateLimitTitle": "Dostawca z ograniczeniem",
       "providerRateLimitBody": "Dostawca jest tymczasowo przeciążony; reset za ~5 min.",
       "cluster": {
@@ -10879,6 +10879,7 @@
       "saveError": "Nie udało się zapisać zmiany.",
       "deleteError": "Nie udało się usunąć dokumentu.",
       "download": "Pobierz",
+      "openInNewTab": "Otwórz w nowej karcie",
       "delete": "Usuń",
       "titleLabel": "Tytuł",
       "titlePlaceholder": "Dodaj tytuł",

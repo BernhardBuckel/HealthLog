@@ -188,13 +188,16 @@ already`. Either raise `max_connections` on the Postgres side, lower
 `DATABASE_POOL_MAX`, or front the database with PgBouncer in
 transaction-pooling mode.
 
-The app sets its statement timeout and `work_mem` on every connection
-through the libpq `options` startup parameter. PgBouncer refuses that
+The app sets its statement timeout, `work_mem` and `TimeZone=UTC` on every
+connection through the libpq `options` startup parameter. PgBouncer refuses that
 parameter (`unsupported startup parameter: options`) unless it is listed
 in `ignore_startup_parameters`. Either list it there, or set
 `DATABASE_SESSION_OPTIONS_DISABLED=1` so the app sends no session
 settings; set the timeout and `work_mem` on the database role instead
 (`ALTER ROLE healthlog SET work_mem = '16MB'`) if you still want them.
+The time zone is the exception: with the options off the app pins it with
+`SET TIME ZONE 'UTC'` on each new connection, which PgBouncer tracks per
+client, and warns at startup if a connection still reports another zone.
 The measurement maintenance job (Admin, System status) then applies its own
 settings with `SET` after connecting. Its concurrent index rebuild needs a
 session, so run it through a session-mode pool or a direct connection.

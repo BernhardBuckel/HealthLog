@@ -699,7 +699,7 @@ describe("<MessageThread>", () => {
       />,
     );
     expect(html).toContain(
-      "Daily limit reached. The budget refreshes at midnight UTC.",
+      "Daily limit reached. The budget refreshes at midnight in your time zone.",
     );
     // v1.4.33 IW7 — fallback copy rewritten ("AI provider" -> "Insights
     // provider"). Both old and new strings should be absent here when

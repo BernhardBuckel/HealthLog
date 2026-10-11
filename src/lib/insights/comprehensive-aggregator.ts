@@ -145,10 +145,14 @@ function windowedMean(filter: string): string {
     filter,
   });
 }
-const AVG7_SQL = windowedMean(`m."measured_at" >= NOW() - INTERVAL '7 days'`);
-const AVG30_SQL = windowedMean(`m."measured_at" >= NOW() - INTERVAL '30 days'`);
+const AVG7_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days'`,
+);
+const AVG30_SQL = windowedMean(
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'`,
+);
 const AVG30_LAST_MONTH_SQL = windowedMean(
-  `m."measured_at" >= NOW() - INTERVAL '60 days' AND m."measured_at" <  NOW() - INTERVAL '30 days'`,
+  `m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '60 days' AND m."measured_at" <  (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'`,
 );
 
 /**
@@ -488,7 +492,7 @@ async function buildFromRollups(
         m."measured_at" AS measured_at
       FROM measurements m
       WHERE m."user_id" = $1
-        AND m."measured_at" >= NOW() - INTERVAL '90 days'
+        AND m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days'
         AND m."deleted_at" IS NULL
       ORDER BY m."type", date_trunc('day', m."measured_at") DESC, (${rankM}), m."measured_at" DESC
     `,
@@ -718,10 +722,9 @@ async function buildFromLiveAggregate(
         -- composes from (startOfUtcDay(now - N days) +
         -- composeWindowedRegression). The expression
         -- date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL 'N days'
-        -- is the SQL twin of startOfUtcDay; the trailing AT TIME ZONE 'UTC'
-        -- re-materialises the naive truncation as a UTC instant so the
-        -- measured_at (timestamptz) comparison is on the same wall the
-        -- rollup bucketStart sits on. Without this anchor an account that
+        -- is the SQL twin of startOfUtcDay. It stays a naive UTC timestamp,
+        -- like measured_at itself, so the comparison never passes through
+        -- the session time zone. Without this anchor an account that
         -- crosses a coverage boundary (warm to cold) saw the boundary day
         -- flip in/out of the slope window, giving a cache-dependent answer
         -- to the same request.
@@ -729,25 +732,25 @@ async function buildFromLiveAggregate(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
         )::double precision                                           AS slope7,
         REGR_R2(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '7 days')
         )::double precision                                           AS r2_7,
         REGR_SLOPE(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days')
         )::double precision                                           AS slope30,
         REGR_R2(
           m."value",
           EXTRACT(EPOCH FROM m."measured_at") / 86400.0
         ) FILTER (
-          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days') AT TIME ZONE 'UTC'
+          WHERE m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days')
         )::double precision                                           AS r2_30
       FROM ${dayWeightedRows("cm", SESSION_DAY_FRAME)} m
       JOIN window_stats ws ON ws."type" = m."type"
@@ -765,7 +768,7 @@ async function buildFromLiveAggregate(
         m."measured_at" AS measured_at
       FROM measurements m
       WHERE m."user_id" = $1
-        AND m."measured_at" >= NOW() - INTERVAL '90 days'
+        AND m."measured_at" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days'
         AND m."deleted_at" IS NULL
       ORDER BY m."type", date_trunc('day', m."measured_at") DESC, (${rankM}), m."measured_at" DESC
     `,

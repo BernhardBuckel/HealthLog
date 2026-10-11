@@ -211,7 +211,7 @@ export const composeNudgeWithAI: ComposeNudgeWithAI = async (params) => {
     const maxTokens = budget.maxTokens ?? 160;
     // v1.38.19 — a background surface: half the day's ceiling.
     const dailyCap = resolveDailyCapFor("job", chain);
-    const dateKey = buildDateKey();
+    const dateKey = await buildDateKey(params.userId);
 
     // Per-user budget gate (atomic reserve; refunds itself on refusal).
     const reservation = await reserveBudget(

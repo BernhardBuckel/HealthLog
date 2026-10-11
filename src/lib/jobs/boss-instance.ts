@@ -8,6 +8,7 @@
 import { PgBoss } from "pg-boss";
 
 import { getPgBossPoolMax, getPoolConnectionTimeoutMs } from "@/lib/db";
+import { timeZoneSessionOptions } from "@/lib/db-session";
 
 const BOSS_KEY = "__healthlog_pgboss__" as const;
 const BOSS_START_KEY = "__healthlog_pgboss_start__" as const;
@@ -76,6 +77,9 @@ function databaseOptions(connectionString: string) {
     connectionString,
     max: getPgBossPoolMax(),
     connectionTimeoutMillis: getPoolConnectionTimeoutMs(),
+    // pg-boss keeps its own tables in `timestamptz`, so its queue math does
+    // not depend on the zone; the pin keeps every HealthLog session alike.
+    options: timeZoneSessionOptions(),
   } as const;
 }
 

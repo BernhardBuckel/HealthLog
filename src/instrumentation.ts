@@ -28,6 +28,17 @@ export async function register() {
       console.error("[instrumentation] Encryption key check crashed:", err);
     }
 
+    // Every connection is pinned to UTC; say clearly if one is not.
+    try {
+      const [{ runBootTimeZoneCheck }, { prisma }] = await Promise.all([
+        import("@/lib/boot/time-zone-check"),
+        import("@/lib/db"),
+      ]);
+      await runBootTimeZoneCheck(prisma);
+    } catch {
+      // A diagnostic must never break boot.
+    }
+
     // Every Node process watches its own event loop — web-only
     // containers included; a stall report from the process serving
     // requests is the whole point.

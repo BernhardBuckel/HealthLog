@@ -275,6 +275,25 @@ test.describe("the day view", () => {
         ),
       )
       .toBe(true);
+    // On a phone the calendar is a sheet over the day's own sheet. Focus
+    // arrives before Radix has handed it the Escape key: in between, the day
+    // underneath still holds it. The handover shows as the day's layer
+    // turning inert (`pointer-events: none`) once the calendar is the top
+    // layer; wait for that, not for a fixed time. The docked column is no
+    // dialog and has no such handover.
+    if (!desktop)
+      await expect
+        .poll(() =>
+          panel(page).evaluate(
+            (el) =>
+              new Promise<string>((resolve) =>
+                requestAnimationFrame(() =>
+                  setTimeout(() => resolve(getComputedStyle(el).pointerEvents)),
+                ),
+              ),
+          ),
+        )
+        .toBe("none");
     await page.keyboard.press("Escape");
     await expect(picker).toHaveCount(0);
     await expect(panel(page)).toBeVisible();

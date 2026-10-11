@@ -168,6 +168,20 @@ vi.mock("@/lib/safe-fetch", async (importOriginal) => {
   };
 });
 
+/** The follow-up slices a progressing backfill queues, recorded. */
+const sent = vi.hoisted(() => ({
+  jobs: [] as Array<{ queue: string; data: unknown; options: unknown }>,
+}));
+vi.mock("@/lib/jobs/boss-instance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/jobs/boss-instance")>()),
+  getGlobalBoss: () => ({
+    send: async (queue: string, data: unknown, options: unknown) => {
+      sent.jobs.push({ queue, data, options });
+      return `job-${sent.jobs.length}`;
+    },
+  }),
+}));
+
 vi.mock("@/lib/db-compat", () => ({
   ensureDbCompatibility: vi.fn().mockResolvedValue(undefined),
 }));
@@ -212,6 +226,7 @@ beforeEach(async () => {
   fake.requestsByPath = new Map();
   fake.status429 = 0;
   fake.status401 = 0;
+  sent.jobs = [];
   await seed();
 }, 120_000);
 
@@ -353,9 +368,19 @@ describe("Google Health backfill under rate limits and token expiry (#1194)", ()
         fake.requestsByPath.get("heart-rate/dataPoints") ?? 0;
       return heartRatePagesSeen >= 3;
     };
+    // It finished four collections, so it is progressing, not failing: it
+    // ends quietly and queues the next slice of the import.
     await expect(
       runGoogleHealthBackfillForUser(USER, stopAfterThreeHeartRatePages),
-    ).rejects.toThrow(/incomplete/);
+    ).resolves.toMatchObject({ continued: true });
+    expect(sent.jobs).toHaveLength(1);
+    expect(sent.jobs[0]).toMatchObject({
+      queue: "integration-backfill-admission",
+      data: {
+        kind: "google-health-backfill",
+        data: { userId: USER, slice: 1 },
+      },
+    });
 
     const afterFirst =
       await getPrismaClient().googleHealthConnection.findUnique({
@@ -373,9 +398,10 @@ describe("Google Health backfill under rate limits and token expiry (#1194)", ()
     );
     expect(done).not.toContain("fetchHeartRate");
 
-    // Second attempt: the finished collections are not read again.
+    // Second attempt, the queued slice: the finished collections are not
+    // read again.
     fake.requestsByPath = new Map();
-    await runGoogleHealthBackfillForUser(USER);
+    await runGoogleHealthBackfillForUser(USER, undefined, 1);
 
     expect(fake.requestsByPath.get("exercise/dataPoints")).toBeUndefined();
     expect(fake.requestsByPath.get("sleep/dataPoints")).toBeUndefined();
@@ -390,6 +416,29 @@ describe("Google Health backfill under rate limits and token expiry (#1194)", ()
       });
     expect(afterSecond?.backfillCompletedAt).toBeInstanceOf(Date);
     expect(afterSecond?.backfillProgress).toBeNull();
+  });
+
+  it("keeps failing a backfill whose slice finished nothing new", async () => {
+    const { runGoogleHealthBackfillForUser } =
+      await import("@/lib/jobs/google-health-backfill");
+
+    // A first slice finishes everything but the heart-rate stream.
+    const stopAtThirdPage = () =>
+      (fake.requestsByPath.get("heart-rate/dataPoints") ?? 0) >= 3;
+    await runGoogleHealthBackfillForUser(USER, stopAtThirdPage);
+    expect(sent.jobs).toHaveLength(1);
+
+    // The next slice cannot get through the heart-rate stream either: no
+    // collection finishes, so this one is stuck and says so.
+    fake.requestsByPath = new Map();
+    await expect(
+      runGoogleHealthBackfillForUser(USER, stopAtThirdPage, 1),
+    ).rejects.toThrow(/incomplete/);
+    expect(sent.jobs).toHaveLength(1);
+    const row = await getPrismaClient().googleHealthConnection.findUnique({
+      where: { userId: USER },
+    });
+    expect(row?.backfillCompletedAt).toBeNull();
   });
 
   it("never runs the hourly poll or a manual sync beside a running backfill", async () => {

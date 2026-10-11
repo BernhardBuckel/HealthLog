@@ -186,7 +186,7 @@ export async function consumeRegistrationChallenge(input: {
     WHERE id = ${input.challengeId}
       AND user_id = ${input.userId}
       AND type = ${expectedType}
-      AND expires_at > NOW()
+      AND expires_at > (NOW() AT TIME ZONE 'UTC')
     RETURNING challenge, created_at
   `;
 
@@ -225,7 +225,7 @@ export async function claimAuthChallenge(input: {
         WHERE id = ${input.challengeId}
           AND type = ${input.type}
           AND user_id = ${input.userId}
-          AND expires_at > NOW()
+          AND expires_at > (NOW() AT TIME ZONE 'UTC')
         RETURNING challenge, user_id
       `
     : await prisma.$queryRaw<
@@ -234,7 +234,7 @@ export async function claimAuthChallenge(input: {
         DELETE FROM auth_challenges
         WHERE id = ${input.challengeId}
           AND type = ${input.type}
-          AND expires_at > NOW()
+          AND expires_at > (NOW() AT TIME ZONE 'UTC')
         RETURNING challenge, user_id
       `;
   if (rows.length !== 1) return null;

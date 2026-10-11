@@ -290,7 +290,7 @@ export async function maybeAutoStageLabFacts(
   // ceiling under the cost owner the auto-index resolved.
   // v1.38.19 — auto-staging runs off the upload, with no one waiting
   // on it: a background surface, so half the day's ceiling.
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(userId);
   const reservation = await reserveBudget(
     userId,
     AI_BUDGETS.ocrExtractText.maxTokens,

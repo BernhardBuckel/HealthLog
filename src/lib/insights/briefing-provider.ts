@@ -93,7 +93,7 @@ export interface RunBriefingCompletionArgs {
    * a pinned seed would reproduce the phrasing the re-roll exists to vary.
    */
   seed?: number;
-  /** UTC day-key override; defaults to today. Tests pin it. */
+  /** Budget day-key override; defaults to the account's today. Tests pin it. */
   dateKey?: string;
   /**
    * v1.41 — `daily_briefing` on the calls that may reason (the generation and
@@ -122,7 +122,7 @@ export interface RunBriefingCompletionArgs {
 export async function runBriefingCompletion(
   args: RunBriefingCompletionArgs,
 ): Promise<RunRawWithFallbackResult> {
-  const dateKey = args.dateKey ?? buildDateKey();
+  const dateKey = args.dateKey ?? (await buildDateKey(args.userId));
 
   // v1.41 — one resolution per call: the operator's switch and cap, the payer
   // from the chain's primary. `undefined` is today's wire.

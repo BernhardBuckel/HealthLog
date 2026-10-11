@@ -592,7 +592,7 @@ export async function runReactionLine(
         generationClaimId,
         job.userId,
         revision,
-        buildDateKey(),
+        await buildDateKey(job.userId),
         // v1.38.19 — a background surface: half the day's ceiling.
         resolveDailyCapFor("job", chain),
         resolveCostOwner(chain),
