@@ -44340,6 +44340,9 @@ components:
           type: boolean
         source:
           type: string
+        autoRecorded:
+          type: boolean
+          description: v1.42.2 — the server recorded this dose because the medication has `autoMarkTaken` on. Counts as taken.
         syncVersion:
           type: integer
           minimum: 0
@@ -44356,6 +44359,7 @@ components:
         - takenAt
         - skipped
         - source
+        - autoRecorded
         - syncVersion
         - updatedAt
       additionalProperties: false
