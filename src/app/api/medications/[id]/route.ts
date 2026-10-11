@@ -280,7 +280,10 @@ export const GET = apiHandler(
       ...courseFields,
       nextDueAt: display ? display.at.toISOString() : null,
       // v1.42.2 — the server's own reminder decision, published resolved.
-      remindersActive: sendsMedicationReminders(medication),
+      remindersActive: sendsMedicationReminders(medication, {
+        now,
+        timeZone: userTz,
+      }),
       nextDueOverdue: display?.overdue ?? false,
       // v1.39.4 (#1040) — see `resolveIntakeActionability`.
       ...resolveIntakeActionability(

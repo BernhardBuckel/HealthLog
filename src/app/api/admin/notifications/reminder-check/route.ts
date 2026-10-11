@@ -185,7 +185,11 @@ export const POST = apiHandler(async (request: NextRequest) => {
 
       // v1.42.2 — a medication whose doses are recorded automatically
       // is never reminded, here or in the worker.
-      if (isOverdue && !hasEvent && sendsMedicationReminders(med)) {
+      if (
+        isOverdue &&
+        !hasEvent &&
+        sendsMedicationReminders(med, { now, timeZone: userTz })
+      ) {
         const doseInfo = schedule.dose ?? med.dose;
         const timeWindow = `${schedule.windowStart}–${schedule.windowEnd}`;
 

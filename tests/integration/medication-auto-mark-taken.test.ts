@@ -584,14 +584,17 @@ describe("remindersActive — the published value is the gate", () => {
       active: boolean;
       trackIntake: boolean;
       asNeeded: boolean;
+      endsOn: Date | null;
     }> = [];
-    for (let bits = 0; bits < 32; bits++) {
+    for (let bits = 0; bits < 64; bits++) {
       combos.push({
         notificationsEnabled: (bits & 1) !== 0,
         autoMarkTaken: (bits & 2) !== 0,
         active: (bits & 4) !== 0,
         trackIntake: (bits & 8) !== 0,
         asNeeded: (bits & 16) !== 0,
+        // A course that ended the day before.
+        endsOn: (bits & 32) !== 0 ? new Date("2026-06-09T00:00:00.000Z") : null,
       });
     }
     const ids: string[] = [];
@@ -636,7 +639,10 @@ describe("remindersActive — the published value is the gate", () => {
     const detail = await import("@/app/api/medications/[id]/route");
     let trueCount = 0;
     for (const [i, id] of ids.entries()) {
-      const expected = sendsMedicationReminders(combos[i]);
+      const expected = sendsMedicationReminders(combos[i], {
+        now: new Date(),
+        timeZone: TZ,
+      });
       if (expected) trueCount++;
       expect(listed.get(id), `list combo ${i}`).toBe(expected);
       const res = await (detail.GET as Handler)(
@@ -646,7 +652,56 @@ describe("remindersActive — the published value is the gate", () => {
       const body = (await res.json()) as { data: { remindersActive: boolean } };
       expect(body.data.remindersActive, `detail combo ${i}`).toBe(expected);
     }
-    // Exactly one combination reminds: on, not auto, active, tracked, scheduled.
+    // Exactly one combination reminds: on, not auto, active, tracked,
+    // scheduled, course not ended.
     expect(trueCount).toBe(1);
+  });
+
+  it("a course that has ended reads as not reminding, and the worker sends nothing for it", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const ended = await seedEvening(userId, "Antibiotic", {
+      autoMarkTakenSince: null,
+    });
+    const running = await seedEvening(userId, "Iron", {
+      autoMarkTakenSince: null,
+    });
+    await prisma.medication.update({
+      where: { id: ended },
+      data: { endsOn: new Date("2026-06-09T00:00:00.000Z") },
+    });
+    for (const tick of [
+      "2026-06-10T17:30:00.000Z",
+      "2026-06-10T19:00:00.000Z",
+      "2026-06-10T22:00:00.000Z",
+    ]) {
+      at(tick);
+      await handleReminderCheck([]);
+    }
+    const dispatchedFor = (medicationId: string) =>
+      vi
+        .mocked(dispatchNotification)
+        .mock.calls.filter(
+          ([arg]) =>
+            (arg as { metadata?: { medicationId?: string } }).metadata
+              ?.medicationId === medicationId,
+        ).length;
+    expect(dispatchedFor(running)).toBeGreaterThan(0);
+    expect(dispatchedFor(ended)).toBe(0);
+
+    const list = await import("@/app/api/medications/route");
+    const res = await (list.GET as Handler)(
+      new NextRequest("http://localhost/api/medications"),
+      { params: Promise.resolve({}) },
+    );
+    const published = new Map(
+      (
+        (await res.json()) as {
+          data: Array<{ id: string; remindersActive: boolean }>;
+        }
+      ).data.map((m) => [m.id, m.remindersActive] as const),
+    );
+    expect(published.get(running)).toBe(true);
+    expect(published.get(ended)).toBe(false);
   });
 });

@@ -282,7 +282,7 @@ export const medicationResource = z
       .boolean()
       .optional()
       .describe(
-        "Present on the READ paths only (list and single GET). v1.42.2 — whether the server sends dose reminders for this medication: true only when `notificationsEnabled` is on, the medication is `active`, its intake is tracked (`trackIntake`), it is not `asNeeded`, and `autoMarkTaken` is off. The same decision gates every server-side reminder send. A client that arms local reminders arms them from this, not from `notificationsEnabled`. Read-only — computed, not stored.",
+        "Present on the READ paths only (list and single GET). v1.42.2 — whether the server sends dose reminders for this medication: true only when `notificationsEnabled` is on, the medication is `active`, its course has not ended (`endsOn` is today or later on the person's clock, or unset), its intake is tracked (`trackIntake`), it is not `asNeeded`, and `autoMarkTaken` is off. The same decision gates every server-side reminder send. A client that arms local reminders arms them from this, not from `notificationsEnabled`. Read-only — computed, not stored.",
       ),
     nextDueAt: z.iso
       .datetime({ offset: true })
@@ -375,7 +375,7 @@ export const medicationListEntry = medicationResource
     remindersActive: z
       .boolean()
       .describe(
-        "v1.42.2 — whether the server sends dose reminders for this medication: true only when `notificationsEnabled` is on, the medication is `active`, its intake is tracked (`trackIntake`), it is not `asNeeded`, and `autoMarkTaken` is off. The same decision gates every server-side reminder send. A client that arms local reminders arms them from this, not from `notificationsEnabled`. Read-only — computed, not stored.",
+        "v1.42.2 — whether the server sends dose reminders for this medication: true only when `notificationsEnabled` is on, the medication is `active`, its course has not ended (`endsOn` is today or later on the person's clock, or unset), its intake is tracked (`trackIntake`), it is not `asNeeded`, and `autoMarkTaken` is off. The same decision gates every server-side reminder send. A client that arms local reminders arms them from this, not from `notificationsEnabled`. Read-only — computed, not stored.",
       ),
     courseStatus: z
       .enum(["UPCOMING", "CURRENT", "ENDED"])

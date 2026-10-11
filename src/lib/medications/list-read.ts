@@ -338,7 +338,7 @@ export async function buildMedicationsList(
         (carriesPriorRollingOccurrence ? 1 : 0),
       nextDueAt: display ? display.at.toISOString() : null,
       // v1.42.2 — the server's own reminder decision, published resolved.
-      remindersActive: sendsMedicationReminders(m),
+      remindersActive: sendsMedicationReminders(m, { now, timeZone: userTz }),
       nextDueOverdue: display?.overdue ?? false,
       nextDueScheduleId: display?.scheduleId ?? null,
       // v1.39.4 (#1040) — whether the card offers taken / skip today, and
