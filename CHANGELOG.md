@@ -1,5 +1,82 @@
 # Changelog
 
+## [1.42.2] — 2026-10-11
+
+Actionable notifications, record search in the command palette, automatic
+intake recording, and fixes for Oura, non-UTC databases, documents and
+Google Health backfills.
+
+### Added
+
+- **Notification tap targets (#1203).** One map resolves a target path per
+  event type; ntfy carries it as `Click`, Telegram as an "Open in HealthLog"
+  button on public https (text link on plain http), web push as `url`,
+  webhook and Gotify as a URL field, email as a link line, APNs as `url`.
+  No target for guardian deliveries, discreet cycle mode or the silent sync
+  push. ntfy titles and action labels outside ASCII are sent RFC 2047
+  encoded.
+- **Notification content preference.** `notificationPrefs.content.detail`
+  (`generic` default, `detailed`) on `PATCH /api/auth/me/notification-prefs`;
+  with `detailed` the morning briefing title carries the score.
+- **Mood quick answers on ntfy.** Three actions post to
+  `POST /api/notifications/action/[token]`: an HMAC token bound to user and
+  answer, valid six hours, single use per reminder, rate limited before
+  verification, recorded once in the idempotency table so a purged entry
+  cannot be answered again. Mood entries record source `NOTIFICATION`. A
+  reminder tapped while acting in another record opens the mood page
+  without the entry sheet. ntfy messages are published as JSON.
+- **Record search (#1117).** `POST /api/search` (query in the body, so it
+  never appears in a URL or proxy log; read-level access, one search at a
+  time per account, 20 a minute) searches visits and
+  procedures, conditions, documents, vaccinations, lab results, medications,
+  symptoms, workouts and notes, decrypting encrypted text in bounded batches
+  with a shared time budget, and reports `truncated` when a bound stopped a
+  source. Matching is case-, accent- and umlaut-spelling-blind and shared
+  with the MCP `search` tool. The palette lists hits under "In your records";
+  each hit deep-links to its entry. Migration 0397 adds a partial index on
+  live readings that carry a note.
+- **Open in new tab (#1202)** for PDF and image originals in the document
+  vault.
+- **Record doses automatically.** `Medication.autoMarkTaken` (with
+  `autoMarkTakenSince`, migration 0395): a job every 15 minutes records each
+  due dose as taken from the moment the option is switched on, through the
+  schedule engine, never over a dose taken, skipped or deleted by hand, with
+  the same stock and rollup follow-ups as a manual take. Intakes carry
+  `autoRecorded`; no reminders are sent for such a medication. List and
+  detail responses carry the resolved `remindersActive`.
+
+### Fixed
+
+- **Oura token exchange (#1204).** Codes are exchanged at
+  `moi.ouraring.com/oauth/v2/ext/oauth-token`; a code issued by that server is
+  never sent to the legacy endpoint. Refresh falls back to
+  `api.ouraring.com/oauth/token` once. The callback validates `iss` (RFC 9207).
+- **Non-UTC database time zone (#1200).** Every connection (Prisma, pg-boss,
+  lock and maintenance clients) runs with `TimeZone=UTC`, with a `SET`
+  fallback when session options are disabled; raw SQL reads the clock as
+  `NOW() AT TIME ZONE 'UTC'`; boot warns when the session zone is not UTC.
+- **Google Health backfill (#1194).** A slice that saved progress enqueues
+  the next slice and ends without `job.run.failed`; a slice without saved
+  progress still fails, and the chain stops after collections + 2 slices.
+- **Admin AI spend card** sums today's spend on each account's local day.
+- **Daily AI budget** is keyed on the account's local day.
+- **Day view:** Escape inside the date picker no longer closes the day.
+
+### Changed
+
+- Docked strips run the full height, the header search is a magnifier icon,
+  `g p` toggles the day panel.
+- The timeline opens on three months unless the URL names a zoom.
+- The explanatory line under day-linked charts is gone.
+
+### API
+
+- New: `POST /api/search`, `POST /api/notifications/action/{token}`.
+- Medication: `autoMarkTaken`, `autoMarkTakenSince`, `remindersActive`;
+  intakes and sync intake upserts: `autoRecorded`.
+- `notificationPrefs.content.detail` on the notification preferences.
+- APNs payloads carry `url` on every visible push.
+
 ## [1.42.1] — 2026-10-10
 
 Fixes for Google Health syncing and the measurement maintenance run.
