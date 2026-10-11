@@ -43,7 +43,9 @@ Google Health backfills.
   schedule engine, never over a dose taken, skipped or deleted by hand, with
   the same stock and rollup follow-ups as a manual take. Intakes carry
   `autoRecorded`; no reminders are sent for such a medication. List and
-  detail responses carry the resolved `remindersActive`.
+  detail responses carry the resolved `remindersActive`
+  (false also once a course has ended). Rolling cadences step past slots the
+  job will not record, and the card shows the same next slot.
 
 ### Fixed
 
@@ -66,7 +68,10 @@ Google Health backfills.
 
 - Docked strips run the full height, the header search is a magnifier icon,
   `g p` toggles the day panel.
-- The timeline opens on three months unless the URL names a zoom.
+- Without a zoom in the URL the timeline fits its window to the record: three
+  months, clamped to the first entry (at least 28 days) for a young record,
+  and everything when the last three months are empty. An empty window offers
+  "Show everything" when older entries exist.
 - The explanatory line under day-linked charts is gone.
 
 ### API
