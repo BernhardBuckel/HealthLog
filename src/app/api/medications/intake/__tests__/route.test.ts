@@ -438,7 +438,12 @@ describe("POST /api/medications/intake", () => {
     // v1.7.0 sync — the skip toggle bumps syncVersion.
     expect(prisma.medicationIntakeEvent.update).toHaveBeenCalledWith({
       where: { id: "e1" },
-      data: { takenAt: null, skipped: true, syncVersion: { increment: 1 } },
+      data: {
+        takenAt: null,
+        skipped: true,
+        autoRecorded: false,
+        syncVersion: { increment: 1 },
+      },
     });
     // v1.16.10 — a row toggled out of taken refunds its consumption
     // stamp (no-op for a never-consumed row) and never consumes.

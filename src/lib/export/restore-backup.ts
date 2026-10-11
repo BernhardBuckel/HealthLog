@@ -1232,6 +1232,15 @@ export async function restoreBackup(
               oneShot: m.oneShot ?? false,
               asNeeded: m.asNeeded ?? false,
               trackIntake: m.trackIntake ?? true,
+              // v1.42.2 — an option that is on always carries its floor; a
+              // file that has the flag without one starts it at the restore,
+              // so the auto-take pass never fills history it did not own.
+              autoMarkTaken: m.autoMarkTaken ?? false,
+              autoMarkTakenSince: m.autoMarkTaken
+                ? m.autoMarkTakenSince
+                  ? new Date(m.autoMarkTakenSince)
+                  : new Date()
+                : null,
               deliveryForm: m.deliveryForm ?? "ORAL",
               trackInjectionSites: m.trackInjectionSites ?? false,
               allowedInjectionSites: m.allowedInjectionSites ?? [],
@@ -1603,6 +1612,7 @@ export async function restoreBackup(
                 takenAt: e.takenAt ? new Date(e.takenAt) : null,
                 skipped: e.skipped ?? false,
                 autoMissed: e.autoMissed ?? false,
+                autoRecorded: e.autoRecorded ?? false,
                 attributionSource: e.attributionSource ?? "AUTO",
                 source: e.source ?? "WEB",
                 idempotencyKey: e.idempotencyKey ?? null,

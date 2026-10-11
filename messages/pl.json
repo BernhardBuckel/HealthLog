@@ -1323,6 +1323,14 @@
       "disabledToast": "Rejestrowanie przyjęć wyłączone",
       "toggleFailed": "Nie udało się zmienić rejestrowania przyjęć."
     },
+    "autoMarkTaken": {
+      "label": "Zapisuj przyjęcia automatycznie",
+      "helper": "HealthLog zapisuje każdą zaplanowaną dawkę jako przyjętą o jej porze. Nadal możesz ręcznie zmienić lub pominąć dawkę. Przypomnienia nie są wysyłane.",
+      "cardHint": "Zapisywane automatycznie",
+      "enabledToast": "Przyjęcia są teraz zapisywane automatycznie",
+      "disabledToast": "Przyjęcia nie są już zapisywane automatycznie",
+      "toggleFailed": "Nie udało się zmienić automatycznego zapisu."
+    },
     "withoutNotification": "Bez powiadomienia",
     "pausedSince": "Wstrzymane od",
     "takeNow": "Przyjmij teraz",
@@ -1779,6 +1787,7 @@
     "sourceImport": "Import",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "przez {origin}",
+    "intakeRecordedAutomatically": "Zapisano automatycznie",
     "intakeHistoryEmptyTitle": "Brak przyjęć",
     "intakeHistoryEmptyDescription": "Gdy tylko zarejestrujesz przyjęcie, pojawi się tu wraz z godziną i źródłem.",
     "intakeHistoryEmptyAction": "Zarejestruj przyjęcie",

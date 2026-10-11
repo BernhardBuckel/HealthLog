@@ -197,6 +197,33 @@ export function Step8Summary({
         </div>
       )}
 
+      {/* v1.42.2 — auto-mark-taken. Only meaningful while doses are due:
+          hidden for as-needed and record-only medications. */}
+      {payload.mode !== "asNeeded" && payload.trackIntake && (
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <Label
+              htmlFor="wizard-auto-mark-taken"
+              className="text-sm font-medium"
+            >
+              {t("medications.autoMarkTaken.label")}
+            </Label>
+            <p className="text-muted-foreground text-xs">
+              {t("medications.autoMarkTaken.helper")}
+            </p>
+          </div>
+          <Switch
+            id="wizard-auto-mark-taken"
+            checked={payload.autoMarkTaken}
+            onCheckedChange={(checked) =>
+              applyPartial({ autoMarkTaken: checked })
+            }
+            data-slot="wizard-auto-mark-taken-toggle"
+            aria-label={t("medications.autoMarkTaken.label")}
+          />
+        </div>
+      )}
+
       {/* v1.16.11 — an as-needed medication never reminds (no slots),
           so the reminders toggle is hidden alongside the schedules. */}
       {payload.mode !== "asNeeded" && payload.trackIntake && (

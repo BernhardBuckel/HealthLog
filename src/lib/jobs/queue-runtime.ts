@@ -332,6 +332,9 @@ export const QUEUE_RUNTIME: Readonly<Record<string, QueueRuntime>> = {
   },
   "medication-inventory-expire": short("One updateMany."),
   "intake-auto-skip": short("One updateMany."),
+  "intake-auto-take": short(
+    "At most seven days of slots per opted-in medication, a few rows each.",
+  ),
   "apple-health-import-v2": {
     runtime: "long",
     expireInSeconds: APPLE_HEALTH_IMPORT_SEND_OPTIONS.expireInSeconds,

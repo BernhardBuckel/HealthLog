@@ -1,5 +1,6 @@
 /**
- * Medication maintenance: inventory expiry and intake auto-skip handlers.
+ * Medication maintenance: inventory expiry, intake auto-skip and auto-take
+ * handlers.
  *
  * Extracted from reminder-worker.ts, which owns the queue names, cron
  * schedules, and boss.work registrations.
@@ -10,6 +11,10 @@ import {
   type IntakeAutoSkipPayload,
   runIntakeAutoSkipPass,
 } from "@/lib/jobs/intake-auto-skip";
+import {
+  type IntakeAutoTakePayload,
+  runIntakeAutoTakePass,
+} from "@/lib/jobs/intake-auto-take";
 import { jobDone, jobFailed, type JobOutcome } from "@/lib/jobs/job-outcome";
 import { withBackgroundEvent } from "@/lib/logging/background";
 import { expireStaleInUseItems } from "@/lib/medications/inventory/service";
@@ -72,6 +77,39 @@ export async function handleIntakeAutoSkip(
         }`,
       );
       return jobFailed("intake auto-skip pass failed", err);
+    }
+  });
+}
+
+/**
+ * v1.42.2 — records the scheduled doses of every medication with
+ * auto-mark-taken on once their time has passed. The pass lives in
+ * `@/lib/jobs/intake-auto-take`; this wrapper threads the worker plumbing.
+ */
+export async function handleIntakeAutoTake(
+  jobs: Job<IntakeAutoTakePayload>[],
+): Promise<JobOutcome> {
+  void jobs;
+  return withBackgroundEvent("job.intake_auto_take", async (evt) => {
+    const prisma = getWorkerPrisma();
+    try {
+      const result = await runIntakeAutoTakePass(prisma, {
+        nowMs: Date.now(),
+      });
+      evt.addMeta("intake_auto_take_medications", result.medicationCount);
+      evt.addMeta("intake_auto_take_recorded", result.recordedCount);
+      evt.addMeta("intake_auto_take_converted", result.convertedCount);
+      return jobDone({
+        intake_auto_take_medications: result.medicationCount,
+        intake_auto_take_recorded: result.recordedCount,
+      });
+    } catch (err) {
+      evt.addWarning(
+        `intake-auto-take failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return jobFailed("intake auto-take pass failed", err);
     }
   });
 }

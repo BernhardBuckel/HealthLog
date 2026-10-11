@@ -158,6 +158,11 @@ const syncIntakeUpsert = z
     takenAt: z.iso.datetime({ offset: true }).nullable(),
     skipped: z.boolean(),
     source: z.string(),
+    autoRecorded: z
+      .boolean()
+      .describe(
+        "v1.42.2 — the server recorded this dose because the medication has `autoMarkTaken` on. Counts as taken.",
+      ),
     syncVersion: z
       .number()
       .int()

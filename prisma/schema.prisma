@@ -2800,6 +2800,20 @@ model Medication {
   /// (the stretch in between archives with an empty payload), so the rate
   /// paths never count the untracked stretch as missed.
   trackIntake                   Boolean                @default(true) @map("track_intake")
+  /// v1.42.2 — record every scheduled dose as taken without a tap. For a
+  /// person who takes a fixed dose reliably (evening supplements) and does not
+  /// want to confirm it each day. The `intake-auto-take` job writes a taken
+  /// intake for each slot of a tracked, active, unpaused medication once the
+  /// slot's time has passed, marked `autoRecorded`; a slot the person already
+  /// took, skipped or removed is never touched, and no slot before
+  /// `autoMarkTakenSince` is ever filled. While on, no medication reminder is
+  /// sent for it on any channel, and the hourly auto-miss pass leaves the
+  /// slots this job owns alone.
+  autoMarkTaken                 Boolean                @default(false) @map("auto_mark_taken")
+  /// v1.42.2 — when `autoMarkTaken` was last switched on. The auto-take job
+  /// never fills a slot anchored before it, so switching the option on does
+  /// not rewrite the history before that moment. NULL while the option is off.
+  autoMarkTakenSince            DateTime?              @map("auto_mark_taken_since") @db.Timestamptz(6)
   /// v1.6.0 — route of administration. Decoupled from `treatmentClass`
   /// so the injection-site picker can surface for any INJECTION dose.
   /// A one-time injection is `oneShot = true` + `deliveryForm =
@@ -3305,6 +3319,12 @@ model MedicationIntakeEvent {
   /// legacy row defaults to false (a user skip or a live pending row,
   /// neither of which is an auto-miss).
   autoMissed           Boolean                 @default(false) @map("auto_missed")
+  /// v1.42.2 — true when the `intake-auto-take` job recorded this dose
+  /// because the medication has `autoMarkTaken` on, not the person. It counts
+  /// as taken everywhere (compliance, history, Coach); history lists label it
+  /// "recorded automatically". Any explicit take or skip of the slot by the
+  /// person clears it.
+  autoRecorded         Boolean                 @default(false) @map("auto_recorded")
   /// v1.15.20 — how this row's `scheduledFor` slot binding came to be.
   /// `AUTO` (default) = the write path attributed the take by window-band
   /// membership (or the row is a skip / pending mint anchored on its slot).

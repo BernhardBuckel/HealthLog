@@ -26341,6 +26341,15 @@ components:
             does not know the field cannot have seen the stored schedule, which is served in `recordedSchedules`). Name
             `trackIntake` to change the schedule of such a medication."
           type: boolean
+        autoMarkTaken:
+          description: "v1.42.2 — record each scheduled dose as taken automatically. Default false. When true the server records a
+            taken intake (`autoRecorded: true`) for every scheduled slot once its time has passed, from the moment the
+            option was switched on (`autoMarkTakenSince`); slots before that are never filled. A slot the person already
+            took, skipped or removed is left alone, and the person can still change or skip any dose by hand. While on,
+            no medication reminder is sent for this medication on any channel; a client that arms local reminders should
+            not arm them either. Has no effect on an as-needed medication or one whose intake tracking is off. Omitted
+            on update leaves the current value."
+          type: boolean
         schedules:
           type: array
           items:
@@ -26743,6 +26752,15 @@ components:
             stored schedule alone: `schedules`, `asNeeded` and `oneShot` in such a request are ignored (a client that
             does not know the field cannot have seen the stored schedule, which is served in `recordedSchedules`). Name
             `trackIntake` to change the schedule of such a medication."
+          type: boolean
+        autoMarkTaken:
+          description: "v1.42.2 — record each scheduled dose as taken automatically. Default false. When true the server records a
+            taken intake (`autoRecorded: true`) for every scheduled slot once its time has passed, from the moment the
+            option was switched on (`autoMarkTakenSince`); slots before that are never filled. A slot the person already
+            took, skipped or removed is left alone, and the person can still change or skip any dose by hand. While on,
+            no medication reminder is sent for this medication on any channel; a client that arms local reminders should
+            not arm them either. Has no effect on an as-needed medication or one whose intake tracking is off. Omitted
+            on update leaves the current value."
           type: boolean
         schedules:
           type: array
@@ -37247,6 +37265,13 @@ components:
                 type: boolean
               trackIntake:
                 type: boolean
+              autoMarkTaken:
+                type: boolean
+              autoMarkTakenSince:
+                anyOf:
+                  - type: string
+                    minLength: 1
+                  - type: "null"
               category:
                 type: string
                 maxLength: 64
@@ -37903,6 +37928,8 @@ components:
               skipped:
                 type: boolean
               autoMissed:
+                type: boolean
+              autoRecorded:
                 type: boolean
               attributionSource:
                 type: string
@@ -44314,6 +44341,9 @@ components:
           type: boolean
         source:
           type: string
+        autoRecorded:
+          type: boolean
+          description: v1.42.2 — the server recorded this dose because the medication has `autoMarkTaken` on. Counts as taken.
         syncVersion:
           type: integer
           minimum: 0
@@ -44330,6 +44360,7 @@ components:
         - takenAt
         - skipped
         - source
+        - autoRecorded
         - syncVersion
         - updatedAt
       additionalProperties: false
@@ -46729,6 +46760,12 @@ components:
           type: boolean
           description: True when the nightly cron closed the slot as missed (no user action). Auto-missed rows count against
             adherence but never consume inventory.
+        autoRecorded:
+          type: boolean
+          description: v1.42.2 — true when the server recorded this dose because the medication has `autoMarkTaken` on, not the
+            person. It counts as taken everywhere (adherence, history, Coach) and consumed inventory like a manual take.
+            Any take or skip the person records on the row clears it. Clients label such a dose "recorded
+            automatically".
         attributionSource:
           type: string
           enum:
@@ -46810,6 +46847,7 @@ components:
         - takenAt
         - skipped
         - autoMissed
+        - autoRecorded
         - attributionSource
         - source
         - idempotencyKey
@@ -47673,6 +47711,13 @@ components:
               format: date-time
               pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
             - type: "null"
+        remindersActive:
+          type: boolean
+          description: "v1.42.2 — whether the server sends dose reminders for this medication: true only when
+            `notificationsEnabled` is on, the medication is `active`, its intake is tracked (`trackIntake`), it is not
+            `asNeeded`, and `autoMarkTaken` is off. The same decision gates every server-side reminder send. A client
+            that arms local reminders arms them from this, not from `notificationsEnabled`. Read-only — computed, not
+            stored."
         nextDueAt:
           anyOf:
             - type: string
@@ -47713,6 +47758,23 @@ components:
             any channel, and it is excluded from every adherence figure. Its stored schedule then travels in
             `recordedSchedules` while `schedules` is served empty, so a client that arms reminders from `schedules`
             stays silent without an update."
+        autoMarkTaken:
+          type: boolean
+          description: "v1.42.2 — doses are recorded automatically. False (the default) for every medication that existed before
+            the field. When true the server records each scheduled dose as taken (an intake with `autoRecorded: true`,
+            `takenAt` = the slot time) shortly after its time passes, from `autoMarkTakenSince` on. A slot the person
+            took, skipped or removed is never touched, and they can still change or skip any dose. No medication
+            reminder is sent for it on any channel while it is on; a client that arms local reminders should not arm
+            them for it either. `notificationsEnabled` keeps the person's own setting and applies again once this is
+            switched off."
+        autoMarkTakenSince:
+          anyOf:
+            - type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            - type: "null"
+          description: v1.42.2 — when `autoMarkTaken` was last switched on. No slot anchored before it is ever recorded
+            automatically. NULL while the option is off. Read-only — set by the server on the switch.
         createdAt:
           type: string
           format: date-time
@@ -47844,6 +47906,7 @@ components:
         - rxNormCode
         - pausedAt
         - snoozedUntil
+        - remindersActive
         - nextDueAt
         - nextDueOverdue
         - startsOn
@@ -47851,6 +47914,8 @@ components:
         - oneShot
         - asNeeded
         - trackIntake
+        - autoMarkTaken
+        - autoMarkTakenSince
         - createdAt
         - updatedAt
         - schedules
@@ -48015,6 +48080,9 @@ components:
               format: date-time
               pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
             - type: "null"
+        remindersActive:
+          type: boolean
+          description: v1.42.2 — whether the server sends dose reminders for this medication. See the `Medication` component.
         nextDueAt:
           description: "Present on the READ paths only — the list and single GET compute it; the create / update responses return
             the stored row and omit it. v1.7.0 server-computed next due instant across all the medication's schedules
@@ -48066,6 +48134,23 @@ components:
             any channel, and it is excluded from every adherence figure. Its stored schedule then travels in
             `recordedSchedules` while `schedules` is served empty, so a client that arms reminders from `schedules`
             stays silent without an update."
+        autoMarkTaken:
+          type: boolean
+          description: "v1.42.2 — doses are recorded automatically. False (the default) for every medication that existed before
+            the field. When true the server records each scheduled dose as taken (an intake with `autoRecorded: true`,
+            `takenAt` = the slot time) shortly after its time passes, from `autoMarkTakenSince` on. A slot the person
+            took, skipped or removed is never touched, and they can still change or skip any dose. No medication
+            reminder is sent for it on any channel while it is on; a client that arms local reminders should not arm
+            them for it either. `notificationsEnabled` keeps the person's own setting and applies again once this is
+            switched off."
+        autoMarkTakenSince:
+          anyOf:
+            - type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            - type: "null"
+          description: v1.42.2 — when `autoMarkTaken` was last switched on. No slot anchored before it is ever recorded
+            automatically. NULL while the option is off. Read-only — set by the server on the switch.
         createdAt:
           type: string
           format: date-time
@@ -48167,11 +48252,14 @@ components:
         - rxNormCode
         - pausedAt
         - snoozedUntil
+        - remindersActive
         - startsOn
         - endsOn
         - oneShot
         - asNeeded
         - trackIntake
+        - autoMarkTaken
+        - autoMarkTakenSince
         - createdAt
         - updatedAt
         - schedules
@@ -50097,6 +50185,9 @@ components:
                   type: boolean
                 autoMissed:
                   type: boolean
+                autoRecorded:
+                  type: boolean
+                  description: v1.42.2 — the dose was recorded automatically (`autoMarkTaken`), not by the person.
                 doseTaken:
                   anyOf:
                     - type: string
@@ -50122,6 +50213,7 @@ components:
                 - takenAt
                 - skipped
                 - autoMissed
+                - autoRecorded
                 - doseTaken
                 - source
               additionalProperties: false
@@ -82937,6 +83029,13 @@ components:
               format: date-time
               pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
             - type: "null"
+        remindersActive:
+          description: "Present on the READ paths only (list and single GET). v1.42.2 — whether the server sends dose reminders
+            for this medication: true only when `notificationsEnabled` is on, the medication is `active`, its intake is
+            tracked (`trackIntake`), it is not `asNeeded`, and `autoMarkTaken` is off. The same decision gates every
+            server-side reminder send. A client that arms local reminders arms them from this, not from
+            `notificationsEnabled`. Read-only — computed, not stored."
+          type: boolean
         nextDueAt:
           description: "Present on the READ paths only — the list and single GET compute it; the create / update responses return
             the stored row and omit it. v1.7.0 server-computed next due instant across all the medication's schedules
@@ -82988,6 +83087,23 @@ components:
             any channel, and it is excluded from every adherence figure. Its stored schedule then travels in
             `recordedSchedules` while `schedules` is served empty, so a client that arms reminders from `schedules`
             stays silent without an update."
+        autoMarkTaken:
+          type: boolean
+          description: "v1.42.2 — doses are recorded automatically. False (the default) for every medication that existed before
+            the field. When true the server records each scheduled dose as taken (an intake with `autoRecorded: true`,
+            `takenAt` = the slot time) shortly after its time passes, from `autoMarkTakenSince` on. A slot the person
+            took, skipped or removed is never touched, and they can still change or skip any dose. No medication
+            reminder is sent for it on any channel while it is on; a client that arms local reminders should not arm
+            them for it either. `notificationsEnabled` keeps the person's own setting and applies again once this is
+            switched off."
+        autoMarkTakenSince:
+          anyOf:
+            - type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            - type: "null"
+          description: v1.42.2 — when `autoMarkTaken` was last switched on. No slot anchored before it is ever recorded
+            automatically. NULL while the option is off. Read-only — set by the server on the switch.
         createdAt:
           type: string
           format: date-time
@@ -83029,6 +83145,8 @@ components:
         - oneShot
         - asNeeded
         - trackIntake
+        - autoMarkTaken
+        - autoMarkTakenSince
         - createdAt
         - updatedAt
         - schedules

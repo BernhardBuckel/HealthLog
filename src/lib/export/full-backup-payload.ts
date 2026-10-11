@@ -471,6 +471,10 @@ function serialiseIntakeEvent(e: BackupIntakeEvent, disasterRecovery: boolean) {
     takenAt: e.takenAt?.toISOString() ?? null,
     skipped: e.skipped,
     source: e.source,
+    // v1.42.2 — both purposes: the history labels the dose "recorded
+    // automatically", and a restore that dropped the marker would relabel
+    // it as one the person confirmed.
+    autoRecorded: e.autoRecorded,
   };
 }
 
@@ -1081,6 +1085,11 @@ export async function buildFullBackupPayload(
       // record only. Both purposes carry it: a restore that dropped it would
       // start reminding them about a medication they chose not to track.
       trackIntake: m.trackIntake,
+      // v1.42.2 — the person's choice to have doses recorded for them, and
+      // the floor before which none is. Both purposes: a restore without
+      // them would start reminding again, or fill history it never owned.
+      autoMarkTaken: m.autoMarkTaken,
+      autoMarkTakenSince: m.autoMarkTakenSince?.toISOString() ?? null,
       // Both purposes: the category is something the person chose.
       category: categoryByMedication[m.id] ?? "OTHER",
       // Both purposes carry the creation instant: it is the floor of the

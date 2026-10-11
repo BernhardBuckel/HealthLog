@@ -12,6 +12,7 @@
  * write-invalidation semantics (`invalidateUserMedications`) cover both
  * readers. Mirrors `src/lib/dashboard/snapshot-read.ts` for the dashboard.
  */
+import { sendsMedicationReminders } from "@/lib/medications/auto-mark-taken";
 import { prisma } from "@/lib/db";
 import { annotate, getEvent } from "@/lib/logging/context";
 import { resolveCourseFields } from "@/lib/medications/courses";
@@ -326,6 +327,8 @@ export async function buildMedicationsList(
         (todayEventCountByMedId[m.id] ?? 0) +
         (carriesPriorRollingOccurrence ? 1 : 0),
       nextDueAt: display ? display.at.toISOString() : null,
+      // v1.42.2 — the server's own reminder decision, published resolved.
+      remindersActive: sendsMedicationReminders(m),
       nextDueOverdue: display?.overdue ?? false,
       nextDueScheduleId: display?.scheduleId ?? null,
       // v1.39.4 (#1040) — whether the card offers taken / skip today, and

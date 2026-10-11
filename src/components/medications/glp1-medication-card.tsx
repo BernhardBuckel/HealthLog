@@ -141,6 +141,8 @@ export interface Glp1Medication {
    * compliance bars and the take / skip actions and shows a badge instead.
    */
   trackIntake?: boolean;
+  /** v1.42.2 — doses recorded automatically. */
+  autoMarkTaken?: boolean;
   /**
    * v1.39.4 (#1040) — server-resolved: taken / skip are offered today only
    * when true (active, tracked, and the course includes today).
@@ -464,6 +466,7 @@ export function Glp1MedicationCard({
       active={medication.active}
       pausedAt={medication.pausedAt}
       recordOnly={medication.trackIntake === false}
+      autoMarkTaken={medication.autoMarkTaken === true}
       courseEnded={medication.courseStatus === "ENDED"}
       lastCourseEndedOn={medication.previousCourseEndedOn ?? null}
       courseNumber={currentCourseNumber(medication)}

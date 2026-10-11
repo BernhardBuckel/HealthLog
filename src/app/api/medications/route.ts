@@ -189,6 +189,7 @@ async function postMedication(request: NextRequest): Promise<Response> {
     oneShot,
     asNeeded,
     trackIntake,
+    autoMarkTaken,
   } = parsed.data;
 
   // v1.40 (#1041) — a custom category must be one of this record's own.
@@ -378,6 +379,12 @@ async function postMedication(request: NextRequest): Promise<Response> {
         // the schedule is stored as a record from the start; the column
         // default (true) covers every caller that does not send it.
         ...(trackIntake !== undefined && { trackIntake }),
+        // v1.42.2 — auto-mark-taken, field-by-field. Created on, the
+        // auto-take job fills slots from this moment only.
+        ...(autoMarkTaken !== undefined && {
+          autoMarkTaken,
+          autoMarkTakenSince: autoMarkTaken ? new Date() : null,
+        }),
         schedules: {
           create: scheduleInputs.map((s) => {
             // Invariant 2 — default to FREQ=DAILY when nothing else is set.

@@ -1323,6 +1323,14 @@
       "disabledToast": "Registro de tomas desactivado",
       "toggleFailed": "No se pudo cambiar el registro de tomas."
     },
+    "autoMarkTaken": {
+      "label": "Registrar las tomas automáticamente",
+      "helper": "HealthLog registra cada dosis programada como tomada a su hora. Puedes seguir cambiando u omitiendo una dosis a mano. No se envían recordatorios.",
+      "cardHint": "Se registra automáticamente",
+      "enabledToast": "Las tomas se registran ahora automáticamente",
+      "disabledToast": "Las tomas ya no se registran automáticamente",
+      "toggleFailed": "No se pudo cambiar el registro automático."
+    },
     "withoutNotification": "Sin notificación",
     "pausedSince": "En pausa desde",
     "takeNow": "Tomar ahora",
@@ -1779,6 +1787,7 @@
     "sourceImport": "Importación",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "vía {origin}",
+    "intakeRecordedAutomatically": "Registrada automáticamente",
     "intakeHistoryEmptyTitle": "Aún no hay tomas",
     "intakeHistoryEmptyDescription": "En cuanto registres una toma, aparecerá aquí con la hora y la fuente.",
     "intakeHistoryEmptyAction": "Registrar toma",

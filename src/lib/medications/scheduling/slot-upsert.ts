@@ -431,6 +431,9 @@ async function applyToExisting(
       // must reset or the compliance engine keeps counting the now-taken
       // dose as a miss.
       ...(takenAt !== null && { autoMissed: false }),
+      // v1.42.2 — a take or skip the person records is theirs, not the
+      // auto-take pass's: the "recorded automatically" label goes.
+      ...((isExplicitTaken || isExplicitSkip) && { autoRecorded: false }),
       syncVersion: { increment: 1 },
       idempotencyKey: idempotencyKey ?? existing.idempotencyKey ?? null,
       // v1.8.5 — write the site only when this write carries a resolved

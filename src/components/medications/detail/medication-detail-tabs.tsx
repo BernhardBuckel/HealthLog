@@ -93,6 +93,7 @@ import { useTranslations, useFormatters } from "@/lib/i18n/context";
 import { formatDose } from "@/lib/medications/format-dose";
 import type { MedicationPayload } from "@/components/medications/wizard/wizard-payload";
 import type { ComplianceDisplay } from "@/lib/analytics/compliance";
+import { AutoMarkTakenBody } from "@/components/medications/sections/auto-mark-taken-section";
 import { IntakeTrackingBody } from "@/components/medications/sections/intake-tracking-section";
 
 // v1.15.20 — Recharts stays out of the detail page's initial bundle:
@@ -174,6 +175,8 @@ export interface MedicationDetailSnapshot {
    * `recordedSchedules`; the page shows (and edits) the stored rows.
    */
   trackIntake?: boolean;
+  /** v1.42.2 — doses recorded automatically. */
+  autoMarkTaken?: boolean;
   /** v1.39.4 (#1040) — where today sits in the course (server-resolved). */
   courseStatus?: "UPCOMING" | "CURRENT" | "ENDED";
   /** v1.40 (#1024) — the server-resolved courses. */
@@ -253,6 +256,7 @@ function snapshotToWizardPayload(
     oneShot: med.oneShot ?? false,
     asNeeded: med.asNeeded ?? false,
     trackIntake: med.trackIntake !== false,
+    autoMarkTaken: med.autoMarkTaken === true,
     schedules: med.schedules.map((s) => ({
       id: s.id,
       windowStart: s.windowStart,
@@ -731,6 +735,15 @@ export function MedicationDetailTabs({
               dataSlot="medication-zeitplan-reminder"
             >
               <div className="space-y-4">
+                {/* v1.42.2 — leads the reminder card: with it on, the doses
+                    are recorded and no reminder is sent. */}
+                {medication.asNeeded !== true && (
+                  <AutoMarkTakenBody
+                    key={medication.autoMarkTaken ? "on" : "off"}
+                    medicationId={id}
+                    autoMarkTaken={medication.autoMarkTaken === true}
+                  />
+                )}
                 <NotificationsBody
                   medicationId={id}
                   notificationsEnabled={medication.notificationsEnabled}

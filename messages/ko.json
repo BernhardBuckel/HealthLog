@@ -1323,6 +1323,14 @@
       "disabledToast": "복용 기록 꺼짐",
       "toggleFailed": "복용 기록 설정을 바꾸지 못했어요."
     },
+    "autoMarkTaken": {
+      "label": "복용 자동 기록",
+      "helper": "HealthLog가 예정된 각 복용을 해당 시간에 복용한 것으로 기록합니다. 복용은 언제든 직접 변경하거나 건너뛸 수 있습니다. 알림은 보내지 않습니다.",
+      "cardHint": "자동으로 기록됨",
+      "enabledToast": "이제 복용이 자동으로 기록됩니다",
+      "disabledToast": "더 이상 복용이 자동으로 기록되지 않습니다",
+      "toggleFailed": "자동 기록을 변경하지 못했습니다."
+    },
     "withoutNotification": "알림 없음",
     "pausedSince": "일시중지 시작",
     "takeNow": "지금 복용",
@@ -1779,6 +1787,7 @@
     "sourceImport": "불러오기",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "{origin} 경유",
+    "intakeRecordedAutomatically": "자동으로 기록됨",
     "intakeHistoryEmptyTitle": "아직 복용 기록이 없어요",
     "intakeHistoryEmptyDescription": "일일 복용 페이지에서 용량을 기록하면 이력이 쌓여요.",
     "intakeHistoryEmptyAction": "일일 복용 열기",

@@ -71,6 +71,7 @@ import {
   LIVE_ERA_REVISION_ARGS,
   liveEraStart,
 } from "@/lib/medications/scheduling/live-era";
+import { INTAKE_AUTO_TAKE_LOOKBACK_MS } from "@/lib/jobs/intake-auto-take";
 
 export const INTAKE_AUTO_SKIP_QUEUE = "intake-auto-skip";
 
@@ -190,6 +191,39 @@ export function medicationAutoMissDelayMs(
 }
 
 /**
+ * v1.42.2 — the instant from which the auto-take pass owns a medication's
+ * slots, or null when it owns none. It does while the option is on and the
+ * medication is active and unpaused, for slots from `autoMarkTakenSince` on
+ * and inside its catch-up window: a slot older than that window can no
+ * longer be recorded by it, so this pass resolves it as before rather than
+ * leaving it open forever.
+ */
+export function autoTakeOwnedFrom(
+  medication: {
+    active: boolean;
+    pausedAt: Date | null;
+    autoMarkTaken: boolean;
+    autoMarkTakenSince: Date | null;
+  },
+  nowMs: number,
+): Date | null {
+  if (
+    !medication.autoMarkTaken ||
+    !medication.autoMarkTakenSince ||
+    !medication.active ||
+    medication.pausedAt !== null
+  ) {
+    return null;
+  }
+  return new Date(
+    Math.max(
+      medication.autoMarkTakenSince.getTime(),
+      nowMs - INTAKE_AUTO_TAKE_LOOKBACK_MS,
+    ),
+  );
+}
+
+/**
  * Run one auto-skip pass. Returns the flipped row count + the base cutoff
  * the pass used. Pure function over the injected Prisma client so
  * unit tests can drive it with an in-memory fake.
@@ -250,6 +284,10 @@ export async function runIntakeAutoSkipPass(
     select: {
       id: true,
       createdAt: true,
+      active: true,
+      pausedAt: true,
+      autoMarkTaken: true,
+      autoMarkTakenSince: true,
       schedules: {
         select: { rrule: true, rollingIntervalDays: true, doseWindows: true },
       },
@@ -261,7 +299,12 @@ export async function runIntakeAutoSkipPass(
   // each distinct cutoff instead of one query per medication.
   const medsByDelay = new Map<
     number,
-    Array<{ id: string; createdAt: Date; eraStart: Date | null }>
+    Array<{
+      id: string;
+      createdAt: Date;
+      eraStart: Date | null;
+      autoTakeFrom: Date | null;
+    }>
   >();
   for (const medication of medications) {
     const delayMs = medicationAutoMissDelayMs(medication.schedules);
@@ -270,6 +313,7 @@ export async function runIntakeAutoSkipPass(
       id: medication.id,
       createdAt: medication.createdAt,
       eraStart: liveEraStart(medication.scheduleRevisions),
+      autoTakeFrom: autoTakeOwnedFrom(medication, nowMs),
     });
     medsByDelay.set(delayMs, group);
   }
@@ -299,6 +343,12 @@ export async function runIntakeAutoSkipPass(
               scheduledFor: { lt: m.eraStart },
               createdAt: { gte: m.eraStart },
             },
+          }),
+          // v1.42.2 — the slots the auto-take pass owns are its to record
+          // as taken; flipping one to a miss first would make the two
+          // passes write the same slot. See `autoTakeOwnedFrom`.
+          ...(m.autoTakeFrom && {
+            AND: [{ scheduledFor: { lt: m.autoTakeFrom } }],
           }),
         })),
       },

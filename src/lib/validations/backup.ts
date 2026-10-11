@@ -393,6 +393,10 @@ const medicationSchema = z
     // v1.39.1 (#1033) — absent in a backup written before the field existed;
     // the restore defaults it to tracking on, the behaviour those had.
     trackIntake: z.boolean().optional(),
+    // v1.42.2 — absent in a backup written before the option existed; the
+    // restore defaults it off, the behaviour those had.
+    autoMarkTaken: z.boolean().optional(),
+    autoMarkTakenSince: isoDateTime.nullable().optional(),
     // v1.39.4 — the clinical category. Absent in older files. A string, not
     // the enum: a file from a newer server may name a category this one does
     // not know, and the restore reads that as OTHER rather than refusing the
@@ -448,6 +452,8 @@ const intakeEventSchema = z
     takenAt: isoDateTime.nullable().optional(),
     skipped: z.boolean().optional(),
     autoMissed: z.boolean().optional(),
+    // v1.42.2 — absent in older files: every dose there was confirmed.
+    autoRecorded: z.boolean().optional(),
     attributionSource: z.enum(IntakeAttributionSource).optional(),
     source: z.enum(IntakeSource).optional(),
     idempotencyKey: z.string().nullable().optional(),

@@ -1323,6 +1323,14 @@
       "disabledToast": "Einnahmen werden nicht erfasst",
       "toggleFailed": "Einnahme-Erfassung konnte nicht geändert werden."
     },
+    "autoMarkTaken": {
+      "label": "Einnahmen automatisch erfassen",
+      "helper": "HealthLog erfasst jede geplante Dosis zu ihrer Uhrzeit als eingenommen. Du kannst eine Dosis weiterhin selbst ändern oder überspringen. Erinnerungen entfallen.",
+      "cardHint": "Wird automatisch erfasst",
+      "enabledToast": "Einnahmen werden jetzt automatisch erfasst",
+      "disabledToast": "Einnahmen werden nicht mehr automatisch erfasst",
+      "toggleFailed": "Automatische Erfassung konnte nicht geändert werden."
+    },
     "withoutNotification": "Ohne Benachrichtigung",
     "pausedSince": "Pausiert seit",
     "takeNow": "Jetzt einnehmen",
@@ -1779,6 +1787,7 @@
     "sourceImport": "Import",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "über {origin}",
+    "intakeRecordedAutomatically": "Automatisch erfasst",
     "intakeHistoryEmptyTitle": "Noch keine Einnahmen erfasst",
     "intakeHistoryEmptyDescription": "Trage eine Einnahme auf der Tagesübersicht ein, um den Verlauf aufzubauen.",
     "intakeHistoryEmptyAction": "Zur Tagesübersicht",

@@ -125,6 +125,8 @@ interface Medication {
    * and left out of the take-all and log-dose flows.
    */
   trackIntake?: boolean;
+  /** v1.42.2 — doses recorded automatically. */
+  autoMarkTaken?: boolean;
   /** v1.39.4 (#1040) — server-resolved: taken / skip are offered today. */
   intakeActionable?: boolean;
   /** v1.39.4 (#1040) — where today sits in the course. */
