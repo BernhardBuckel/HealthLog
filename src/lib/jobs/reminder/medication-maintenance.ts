@@ -99,6 +99,7 @@ export async function handleIntakeAutoTake(
       evt.addMeta("intake_auto_take_medications", result.medicationCount);
       evt.addMeta("intake_auto_take_recorded", result.recordedCount);
       evt.addMeta("intake_auto_take_converted", result.convertedCount);
+      evt.addMeta("intake_auto_take_failed", result.failedCount);
       return jobDone({
         intake_auto_take_medications: result.medicationCount,
         intake_auto_take_recorded: result.recordedCount,

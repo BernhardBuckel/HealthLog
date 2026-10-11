@@ -86,7 +86,8 @@ import {
   dayKeyForScheduledFor,
   recomputeMedicationComplianceForEvent,
 } from "@/lib/rollups/medication-compliance-rollups";
-import { DEFAULT_TIMEZONE } from "@/lib/tz/format";
+import { DEFAULT_TIMEZONE, validTimezoneOr } from "@/lib/tz/format";
+import { getEvent } from "@/lib/logging/context";
 
 export {
   autoTakeFloor,
@@ -126,6 +127,8 @@ export interface IntakeAutoTakeResult {
   recordedCount: number;
   /** Of those, pending placeholders converted in place. */
   convertedCount: number;
+  /** Medications whose share of the pass failed and was skipped. */
+  failedCount: number;
   /** Users whose caches were dropped because a dose was recorded. */
   userIds: string[];
 }
@@ -289,56 +292,27 @@ export async function runIntakeAutoTakePass(
 
   let recordedCount = 0;
   let convertedCount = 0;
+  let failedCount = 0;
   const touchedUsers = new Set<string>();
 
   for (const medication of medications) {
     if (!medication.autoMarkTakenSince || medication.schedules.length === 0) {
       continue;
     }
-    const userTz = medication.user.timezone || DEFAULT_TIMEZONE;
-    const floor = autoTakeFloor({
-      autoMarkTakenSince: medication.autoMarkTakenSince,
-      createdAt: medication.createdAt,
-      now,
-    });
-    const rolling = medication.schedules.some(
-      (s) => s.rollingIntervalDays !== null,
-    );
-
-    const outcome = await autoTakeMedication(prisma, {
-      medication,
-      userTz,
-      floor,
-      now,
-      rolling,
-    });
-    recordedCount += outcome.recorded.length;
-    convertedCount += outcome.converted;
-    if (outcome.recorded.length === 0) continue;
-
-    touchedUsers.add(medication.userId);
-    // The same follow-ups the intake routes run after a manual take.
-    const days = new Set<string>();
-    for (const slot of outcome.recorded) {
-      await consumeForIntake({
-        client: prisma,
-        userId: medication.userId,
-        medicationId: medication.id,
-        eventId: slot.eventId,
-        intakeAt: slot.at,
-      });
-      const dayKey = dayKeyForScheduledFor(slot.at, userTz);
-      if (days.has(dayKey)) continue;
-      days.add(dayKey);
-      await recomputeMedicationComplianceForEvent({
-        userId: medication.userId,
-        medicationId: medication.id,
-        scheduledFor: slot.at,
-        tz: userTz,
-      });
-    }
-    if (medication.oneShot) {
-      await reconcileOneShotState(prisma, medication.id, medication.userId);
+    // One bad row never stops the pass for everyone else: it is named in a
+    // warning and the next medication runs.
+    try {
+      const outcome = await autoTakeOne(prisma, medication, now);
+      recordedCount += outcome.recorded;
+      convertedCount += outcome.converted;
+      if (outcome.recorded > 0) touchedUsers.add(medication.userId);
+    } catch (err) {
+      failedCount += 1;
+      getEvent()?.addWarning(
+        `intake-auto-take failed for medication ${medication.id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
   }
 
@@ -353,8 +327,64 @@ export async function runIntakeAutoTakePass(
     medicationCount: medications.length,
     recordedCount,
     convertedCount,
+    failedCount,
     userIds: [...touchedUsers],
   };
+}
+
+/** One medication's share of a pass: record its due slots, then follow up. */
+async function autoTakeOne(
+  prisma: AutoTakeClient,
+  medication: AutoTakeMedication,
+  now: Date,
+): Promise<{ recorded: number; converted: number }> {
+  // A stored zone the runtime refuses (or a bare offset) falls back to the
+  // default, as in every other job, rather than throwing mid-pass.
+  const userTz = validTimezoneOr(medication.user.timezone, DEFAULT_TIMEZONE);
+  const floor = autoTakeFloor({
+    autoMarkTakenSince: medication.autoMarkTakenSince!,
+    createdAt: medication.createdAt,
+    now,
+  });
+  const rolling = medication.schedules.some(
+    (s) => s.rollingIntervalDays !== null,
+  );
+
+  const outcome = await autoTakeMedication(prisma, {
+    medication,
+    userTz,
+    floor,
+    now,
+    rolling,
+  });
+  if (outcome.recorded.length === 0) {
+    return { recorded: 0, converted: outcome.converted };
+  }
+
+  // The same follow-ups the intake routes run after a manual take.
+  const days = new Set<string>();
+  for (const slot of outcome.recorded) {
+    await consumeForIntake({
+      client: prisma,
+      userId: medication.userId,
+      medicationId: medication.id,
+      eventId: slot.eventId,
+      intakeAt: slot.at,
+    });
+    const dayKey = dayKeyForScheduledFor(slot.at, userTz);
+    if (days.has(dayKey)) continue;
+    days.add(dayKey);
+    await recomputeMedicationComplianceForEvent({
+      userId: medication.userId,
+      medicationId: medication.id,
+      scheduledFor: slot.at,
+      tz: userTz,
+    });
+  }
+  if (medication.oneShot) {
+    await reconcileOneShotState(prisma, medication.id, medication.userId);
+  }
+  return { recorded: outcome.recorded.length, converted: outcome.converted };
 }
 
 async function autoTakeMedication(

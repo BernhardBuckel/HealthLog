@@ -989,3 +989,43 @@ describe("runIntakeAutoTakePass — nearby takes of another slot", () => {
     ).toEqual({ kind: "leave", reason: "taken_nearby" });
   });
 });
+
+// ── one bad row never stops the pass ──────────────────────────────────
+
+describe("runIntakeAutoTakePass — per-medication isolation", () => {
+  it("a medication whose follow-up throws is skipped, the next one still runs", async () => {
+    const broken = medication({
+      id: "m-broken",
+      autoMarkTakenSince: new Date("2026-06-10T00:00:00Z"),
+    });
+    const fine = medication({
+      id: "m-fine",
+      autoMarkTakenSince: new Date("2026-06-10T00:00:00Z"),
+    });
+    const rows: FakeRow[] = [];
+    vi.mocked(consumeForIntake).mockImplementationOnce(async () => {
+      throw new Error("inventory unavailable");
+    });
+    const result = await runIntakeAutoTakePass(
+      fakeClient([broken, fine], rows),
+      { nowMs: Date.parse("2026-06-10T17:20:00Z") },
+    );
+    expect(result.failedCount).toBe(1);
+    expect(
+      rows.filter((r) => r.medicationId === "m-fine" && r.autoRecorded),
+    ).toHaveLength(1);
+  });
+
+  it("a stored zone the runtime refuses falls back instead of throwing", async () => {
+    const med = {
+      ...medication({ autoMarkTakenSince: new Date("2026-06-10T00:00:00Z") }),
+      user: { timezone: "Mars/Olympus_Mons" },
+    };
+    const rows: FakeRow[] = [];
+    const result = await runIntakeAutoTakePass(fakeClient([med], rows), {
+      nowMs: Date.parse("2026-06-10T20:00:00Z"),
+    });
+    expect(result.failedCount).toBe(0);
+    expect(result.recordedCount).toBe(1);
+  });
+});
