@@ -1134,6 +1134,9 @@ export const PUT = apiHandler(
             active: existing.active,
             asNeeded: existing.asNeeded,
             trackIntake: existing.trackIntake,
+            // v1.42.2 — switching automatic recording on or off is a change
+            // to how doses are recorded, so the row names it.
+            autoMarkTaken: existing.autoMarkTaken,
             endsOn: existing.endsOn,
           },
           after: {
@@ -1142,6 +1145,7 @@ export const PUT = apiHandler(
             active: medication.active,
             asNeeded: medication.asNeeded,
             trackIntake: medication.trackIntake,
+            autoMarkTaken: medication.autoMarkTaken,
             endsOn: medication.endsOn,
           },
         }),

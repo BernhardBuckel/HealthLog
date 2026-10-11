@@ -491,7 +491,13 @@ async function postMedication(request: NextRequest): Promise<Response> {
   await auditLog("medication.create", {
     userId: user.id,
     ipAddress: getClientIp(request),
-    details: { medicationId: medication.id, name },
+    details: {
+      medicationId: medication.id,
+      name,
+      // v1.42.2 — a medication created with its doses recorded
+      // automatically says so in its audit row.
+      autoMarkTaken: medication.autoMarkTaken,
+    },
   });
 
   annotate({

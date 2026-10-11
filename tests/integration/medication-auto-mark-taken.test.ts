@@ -377,6 +377,58 @@ describe("auto-mark-taken pass", () => {
       select: { autoMarkTaken: true, autoMarkTakenSince: true },
     });
     expect(off).toEqual({ autoMarkTaken: false, autoMarkTakenSince: null });
+
+    // Each flip is named in the audit row with what it was before; the
+    // re-save that left it on names no change to it.
+    const audits = await prisma.auditLog.findMany({
+      where: { userId, action: "medication.update" },
+      orderBy: { createdAt: "asc" },
+      select: { details: true },
+    });
+    const details = audits.map(
+      (a) =>
+        JSON.parse(a.details ?? "{}") as {
+          fields: string[];
+          previous: Record<string, unknown>;
+        },
+    );
+    expect(details).toHaveLength(3);
+    // Two of the same timestamp: matched by content, not order.
+    const flips = details
+      .filter((d) => d.fields.includes("autoMarkTaken"))
+      .map((d) => d.previous.autoMarkTaken)
+      .sort();
+    expect(flips).toEqual([false, true]);
+    const resave = details.find((d) => d.fields.includes("name"));
+    expect(resave?.fields).not.toContain("autoMarkTaken");
+  });
+
+  it("the create audit row says whether doses are recorded automatically", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const route = await import("@/app/api/medications/route");
+    at("2026-06-10T10:00:00.000Z");
+    const res = await (route.POST as Handler)(
+      new NextRequest("http://localhost/api/medications", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Vitamin D",
+          dose: "1 capsule",
+          autoMarkTaken: true,
+          schedules: [{ windowStart: "19:00", windowEnd: "19:00" }],
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({}) },
+    );
+    expect(res.status).toBe(201);
+    const audit = await prisma.auditLog.findFirstOrThrow({
+      where: { userId, action: "medication.create" },
+      select: { details: true },
+    });
+    expect(JSON.parse(audit.details ?? "{}")).toMatchObject({
+      autoMarkTaken: true,
+    });
   });
 });
 
