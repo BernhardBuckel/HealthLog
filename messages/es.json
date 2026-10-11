@@ -6832,6 +6832,7 @@
       "nocreds": "Oura no está configurado en este servidor. Pide a tu administrador que añada las credenciales OAuth de Oura.",
       "token": "El intercambio de token con Oura falló. Inicia la conexión de nuevo.",
       "rate_limited": "Demasiados intentos de conexión. Espera un momento e inténtalo de nuevo.",
+      "issuer": "La respuesta de inicio de sesión no procedía del servidor de autorización de Oura, así que la conexión se detuvo por tu seguridad. Vuelve a iniciar la conexión. Si sigue ocurriendo, avisa a tu administrador.",
       "generic": "Error desconocido al conectar. Inicia la conexión de nuevo."
     },
     "integrationSetupGuide": "Guía de configuración",

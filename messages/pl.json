@@ -6832,6 +6832,7 @@
       "nocreds": "Oura nie jest skonfigurowana na tym serwerze. Poproś administratora o dodanie danych OAuth Oura.",
       "token": "Wymiana tokena z Oura nie powiodła się. Rozpocznij połączenie ponownie.",
       "rate_limited": "Zbyt wiele prób połączenia. Poczekaj chwilę i spróbuj ponownie.",
+      "issuer": "Odpowiedź logowania nie pochodziła z serwera autoryzacji Oura, więc połączenie zostało przerwane dla Twojego bezpieczeństwa. Rozpocznij połączenie ponownie. Jeśli to się powtarza, powiadom administratora.",
       "generic": "Nieznany błąd podczas łączenia. Rozpocznij połączenie ponownie."
     },
     "integrationSetupGuide": "Przewodnik konfiguracji",

@@ -6832,6 +6832,7 @@
       "nocreds": "Oura ist auf diesem Server nicht konfiguriert. Bitte deinen Administrator, die Oura-OAuth-Zugangsdaten zu hinterlegen.",
       "token": "Der Token-Austausch mit Oura ist fehlgeschlagen. Bitte starte die Verbindung erneut.",
       "rate_limited": "Zu viele Verbindungsversuche. Warte einen Moment und versuche es erneut.",
+      "issuer": "Die Anmeldeantwort kam nicht vom Autorisierungsserver von Oura, deshalb wurde die Verbindung zu deiner Sicherheit abgebrochen. Bitte starte die Verbindung erneut. Wenn das wieder passiert, sag deinem Administrator Bescheid.",
       "generic": "Unbekannter Fehler bei der Verbindung. Bitte starte die Verbindung erneut."
     },
     "integrationSetupGuide": "Einrichtungsanleitung",

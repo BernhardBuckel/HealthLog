@@ -127,6 +127,17 @@ const OAUTH_OUTCOME_REASONS = new Set([
   "expired",
 ]);
 
+/**
+ * Reason tags only one provider's callback emits, with copy under that
+ * provider's subtree alone. Oura's `issuer`: the authorization response named
+ * an issuer that is not Oura's (RFC 9207), so the callback refused the code.
+ */
+const PROVIDER_ONLY_REASONS: Partial<
+  Record<OAuthOutcomeProvider, ReadonlySet<string>>
+> = {
+  oura: new Set(["issuer"]),
+};
+
 type OAuthOutcome =
   | { provider: OAuthOutcomeProvider; kind: "connected" }
   | { provider: OAuthOutcomeProvider; kind: "error"; reason: string };
@@ -162,7 +173,8 @@ export function oauthReasonKey(
   reason: string,
 ): string {
   const base = OAUTH_ERROR_KEY_BASE[provider];
-  return OAUTH_OUTCOME_REASONS.has(reason)
+  return OAUTH_OUTCOME_REASONS.has(reason) ||
+    PROVIDER_ONLY_REASONS[provider]?.has(reason)
     ? `${base}.${reason}`
     : `${base}.generic`;
 }

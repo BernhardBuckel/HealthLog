@@ -6832,6 +6832,7 @@
       "nocreds": "Oura is not configured on this server. Ask your administrator to add the Oura OAuth credentials.",
       "token": "The token exchange with Oura failed. Please start the connection again.",
       "rate_limited": "Too many connection attempts. Wait a moment and try again.",
+      "issuer": "The sign-in answer did not come from Oura's own authorization server, so the connection was stopped for your safety. Please start the connection again. If this keeps happening, tell your administrator.",
       "generic": "Unknown error while connecting. Please start the connection again."
     },
     "integrationSetupGuide": "Setup guide",
