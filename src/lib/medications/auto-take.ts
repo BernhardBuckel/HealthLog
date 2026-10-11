@@ -236,6 +236,60 @@ export function autoTakeEligibleWhere(now: Date) {
   };
 }
 
+/**
+ * True when an edit to a medication's window reopens time before now: the
+ * start moves earlier (or goes), or the end moves later (or goes). Dates are
+ * calendar days, compared as stored.
+ */
+export function windowWidens(
+  before: { startsOn: Date | null; endsOn: Date | null },
+  after: { startsOn: Date | null; endsOn: Date | null },
+): boolean {
+  const startsEarlier =
+    before.startsOn !== null &&
+    (after.startsOn === null ||
+      after.startsOn.getTime() < before.startsOn.getTime());
+  const endsLater =
+    before.endsOn !== null &&
+    (after.endsOn === null || after.endsOn.getTime() > before.endsOn.getTime());
+  return startsEarlier || endsLater;
+}
+
+/**
+ * Move an auto-taken medication's floor to now when it lies before now.
+ * Called wherever an edit reopens past slots (a wider window, a medication
+ * made active again): the option was on, but the person never had those
+ * days as due, so the pass must not fill them as taken. A no-op on a
+ * medication without the option.
+ */
+export interface AutoTakeFloorClient {
+  medication: {
+    updateMany(args: {
+      where: {
+        id: string;
+        autoMarkTaken: true;
+        autoMarkTakenSince: { lt: Date };
+      };
+      data: { autoMarkTakenSince: Date };
+    }): Promise<{ count: number }>;
+  };
+}
+
+export async function moveAutoTakeFloorToNow(
+  client: AutoTakeFloorClient,
+  medicationId: string,
+  now: Date = new Date(),
+): Promise<void> {
+  await client.medication.updateMany({
+    where: {
+      id: medicationId,
+      autoMarkTaken: true,
+      autoMarkTakenSince: { lt: now },
+    },
+    data: { autoMarkTakenSince: now },
+  });
+}
+
 const ROLLING_SCHEDULE_SELECT = {
   id: true,
   windowStart: true,

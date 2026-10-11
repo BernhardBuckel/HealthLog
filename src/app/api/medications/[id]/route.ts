@@ -32,7 +32,10 @@ import {
   toRevisionPayloadEntry,
 } from "@/lib/medications/scheduling/schedule-eras";
 import type { Prisma } from "@/generated/prisma/client";
-import { loadAutoTakeRollingAnchors } from "@/lib/medications/auto-take";
+import {
+  loadAutoTakeRollingAnchors,
+  moveAutoTakeFloorToNow,
+} from "@/lib/medications/auto-take";
 import {
   computeDisplayDue,
   OVERDUE_LOOKBACK_MS,
@@ -1022,6 +1025,9 @@ export const PUT = apiHandler(
             where: { medicationId: id, userId: user.id, resumedAt: null },
             data: { resumedAt: new Date() },
           });
+          // v1.42.2 — made active again: the auto-take pass starts from
+          // now, never filling the inactive days as taken.
+          await moveAutoTakeFloorToNow(tx, id);
         }
 
         // v1.40 (#1024) — write the window onto the latest course and

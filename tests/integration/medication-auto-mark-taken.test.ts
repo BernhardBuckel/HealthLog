@@ -380,6 +380,58 @@ describe("auto-mark-taken pass", () => {
   });
 });
 
+describe("reopening past days never backfills them", () => {
+  it("a later end date or a re-activation moves the floor to now", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const medicationId = await seedEvening(userId, "Course", {
+      autoMarkTakenSince: new Date("2026-06-01T00:00:00.000Z"),
+    });
+    const route = await import("@/app/api/medications/[id]/route");
+    const put = (body: unknown) =>
+      (route.PUT as Handler)(
+        new NextRequest(`http://localhost/api/medications/${medicationId}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        }),
+        { params: Promise.resolve({ id: medicationId }) },
+      );
+    const since = async () =>
+      (
+        await prisma.medication.findUniqueOrThrow({
+          where: { id: medicationId },
+          select: { autoMarkTakenSince: true },
+        })
+      ).autoMarkTakenSince?.toISOString();
+
+    // The course ended on 06-05; the pass filled up to then.
+    at("2026-06-03T10:00:00.000Z");
+    expect(
+      (await put({ startsOn: "2026-06-01", endsOn: "2026-06-05" })).status,
+    ).toBe(200);
+    expect(await since()).toBe("2026-06-01T00:00:00.000Z");
+    at("2026-06-10T10:00:00.000Z");
+    await runIntakeAutoTakePass(prisma, { nowMs: Date.now() });
+    const filled = (await liveRows(medicationId)).length;
+
+    // Extended on 06-10 to the end of the month: 06-06..06-09 reopen, but
+    // the person never had them as due.
+    expect((await put({ endsOn: "2026-06-30" })).status).toBe(200);
+    expect(await since()).toBe("2026-06-10T10:00:00.000Z");
+    await runIntakeAutoTakePass(prisma, { nowMs: Date.now() });
+    expect((await liveRows(medicationId)).length).toBe(filled);
+
+    // Paused, then active again a week later: nothing in between is filled.
+    expect((await put({ active: false })).status).toBe(200);
+    at("2026-06-17T10:00:00.000Z");
+    expect((await put({ active: true })).status).toBe(200);
+    expect(await since()).toBe("2026-06-17T10:00:00.000Z");
+    await runIntakeAutoTakePass(prisma, { nowMs: Date.now() });
+    expect((await liveRows(medicationId)).length).toBe(filled);
+  });
+});
+
 describe("rolling cadence under auto-take", () => {
   it("never stalls on a removed dose, and the card shows the slot the pass records", async () => {
     const prisma = getPrismaClient();
