@@ -6,12 +6,10 @@ import type { DateKey } from "@/lib/day/contract";
 import { prefersReducedMotion } from "@/lib/charts/reduced-motion";
 
 import {
-  ChartDayCaption,
   DayRug,
   TooltipDayAction,
   useCoarsePointer,
   type ChartDayAxis,
-  type ChartDayMark,
 } from "./chart-day";
 import { openDay, useOpenDay, type DayFocus } from "./day-layer-controller";
 import { isOpenableDay } from "./day-url";
@@ -35,7 +33,7 @@ import { useTodayKey } from "./use-today-key";
  *     days by accident;
  *   - the open day is marked with `OPEN_DAY_LINE` (a dashed vertical line)
  *     at `openIndex`;
- *   - `ChartDayFooter` draws the row of day dots and the one-line caption.
+ *   - `ChartDayFooter` draws the row of day dots.
  *
  * The caller says, per drawn point and in data order, which calendar day the
  * point stands for, or `null` when it stands for none (a week or month
@@ -190,7 +188,7 @@ export function useChartDayLinks({
 }
 
 /**
- * The row of day dots and the caption under a day-linked chart. Nothing when
+ * The row of day dots under a day-linked chart. Nothing when
  * the chart is not day-linked or draws no points.
  */
 export function ChartDayFooter({
@@ -199,7 +197,6 @@ export function ChartDayFooter({
   axis = "index",
   insetLeft,
   insetRight,
-  mark = "point",
 }: {
   links: Pick<ChartDayLinks, "active" | "coarse"> &
     Partial<Pick<ChartDayLinks, "days">>;
@@ -208,20 +205,16 @@ export function ChartDayFooter({
   axis?: ChartDayAxis;
   insetLeft: number;
   insetRight: number;
-  mark?: ChartDayMark;
 }) {
   if (!links.active || points.length === 0) return null;
   return (
-    <>
-      <DayRug
-        points={points}
-        pointDays={links.days}
-        axis={axis}
-        insetLeft={insetLeft}
-        insetRight={insetRight}
-      />
-      <ChartDayCaption coarse={links.coarse} mark={mark} />
-    </>
+    <DayRug
+      points={points}
+      pointDays={links.days}
+      axis={axis}
+      insetLeft={insetLeft}
+      insetRight={insetRight}
+    />
   );
 }
 
