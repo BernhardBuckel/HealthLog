@@ -22,6 +22,7 @@ import {
 import { UNREADABLE_EXPORT_MARKER } from "@/lib/export/unreadable-marker";
 import { openLocation, sealLocation } from "@/lib/environment/location-cipher";
 import { reasoningEffortFor } from "@/lib/ai/reasoning-effort";
+import { notificationsShowFigures } from "@/lib/validations/notification-prefs";
 import {
   coachReasoningLevel,
   parseCoachPrefs,
@@ -249,6 +250,24 @@ describe("admitAccountSettings", () => {
     ).data.coachPrefsJson;
     expect(restored).toEqual(prefs);
     expect(coachReasoningLevel(parseCoachPrefs(restored))).toBe("high");
+  });
+
+  it("carries the notification content detail through a round trip", async () => {
+    const prefs = {
+      mood: { reminderHour: 21 },
+      content: { detail: "detailed" },
+    };
+    const { accountSettings } = await buildAccountSettingsBackupSection(
+      prismaReturning(rowWith({ notificationPrefs: prefs })),
+      "u1",
+      { purpose: "portable-export" },
+    );
+    const restored = admitAccountSettings(
+      JSON.parse(JSON.stringify(accountSettings)),
+      ctx,
+    ).data.notificationPrefs;
+    expect(restored).toEqual(prefs);
+    expect(notificationsShowFigures(restored)).toBe(true);
   });
 
   it("restores a hidden dashboard top card with the rest of the layout", () => {

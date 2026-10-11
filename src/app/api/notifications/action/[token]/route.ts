@@ -81,10 +81,10 @@ export const POST = apiHandler(
       });
       return verdict.reason === "expired"
         ? apiError("This answer has expired", 410, {
-            errorCode: "notification_action.expired",
+            errorCode: "notification.action.expired",
           })
         : apiError("Invalid action", 401, {
-            errorCode: "notification_action.invalid",
+            errorCode: "notification.action.invalid",
           });
     }
 
@@ -98,7 +98,7 @@ export const POST = apiHandler(
         meta: { reason: "unknown_user" },
       });
       return apiError("Invalid action", 401, {
-        errorCode: "notification_action.invalid",
+        errorCode: "notification.action.invalid",
       });
     }
     getEvent()?.setAuth({
@@ -112,7 +112,7 @@ export const POST = apiHandler(
         meta: { reason: "module_disabled" },
       });
       return apiError("Mood tracking is turned off", 403, {
-        errorCode: "notification_action.module_disabled",
+        errorCode: "notification.action.module_disabled",
       });
     }
 
@@ -139,7 +139,7 @@ export const POST = apiHandler(
         meta: { reason: "already_used" },
       });
       return apiError("This reminder was already answered", 409, {
-        errorCode: "notification_action.already_used",
+        errorCode: "notification.action.already_used",
       });
     }
 

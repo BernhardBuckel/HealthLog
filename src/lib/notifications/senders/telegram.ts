@@ -212,7 +212,9 @@ export async function sendViaTelegram(
   // Tap target. Telegram has no "tap opens a URL" for a message, so the
   // target rides an inline URL button under it (below any action row), or a
   // text link where Telegram would refuse the button (see `telegramLinkMode`).
-  const linkMode = payload.tap?.url ? telegramLinkMode(payload.tap.url) : "none";
+  const linkMode = payload.tap?.url
+    ? telegramLinkMode(payload.tap.url)
+    : "none";
   const linkedKeyboard =
     linkMode === "button" && payload.tap?.url
       ? {

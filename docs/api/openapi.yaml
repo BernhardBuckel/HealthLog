@@ -34434,35 +34434,36 @@ components:
                 mood.create.external_id_not_delegable, mood.create.invalid, mood.duplicate_timestamp,
                 mood.linkedContext.invalid, mood.list.invalid, mood.not_found, mood.ratedFactor.out_of_range,
                 mood.restore.invalid, mood.update.invalid; notification-prefs — notification-prefs.body.invalid_json;
-                nutrient — nutrient.batch.invalid, nutrient.batch.too_large, nutrient.daily.invalid,
-                nutrient.read.invalid, nutrient.water.invalid, nutrient.water.invalid_day; onboarding —
-                onboarding.answers.invalid, onboarding.answers.rateLimited, onboarding.complete.invalid,
-                onboarding.complete.recordNotFound, onboarding.complete.recordTargetMismatch,
-                onboarding.disclaimer.invalid, onboarding.restart.invalid, onboarding.restart.rateLimited,
-                onboarding.tour.invalid; passkey — passkey.challenge.expired, passkey.response.invalid, passkey.unknown,
-                passkey.verification.failed; personal_records — personal_records.invalid_query; practitioner —
-                practitioner.invalid; profile — profile.update.emailInUse, profile.update.emailRateLimited,
-                profile.update.emailSecondFactorRequired, profile.update.invalidBody, profile.update.nothingSaved;
-                profile_claim — profile_claim.invalid, profile_claim.oidc_only_unsupported, profile_claim.taken;
-                record_write — record_write.rate_limited; report-selection — report-selection.body.invalid_json,
-                report-selection.body.invalid_shape, report-selection.leaves.unknown; route — route.retired; share-link
-                — share-link.document.decryptFailed, share-link.document.notFound, share-link.document.rateLimited,
-                share-link.documents.invalid, share-link.report.notFound, share-link.report.rateLimited,
-                share-link.selection.forbidden_leaf, share-link.selection.unknown_leaf; sharing —
-                sharing.accept.expired, sharing.accept.not_found, sharing.accept.not_pending, sharing.accept.revoked,
-                sharing.access.denied, sharing.invite.duplicate, sharing.invite.invalid, sharing.invite.invalid_scope,
-                sharing.invite.manage_browser_only, sharing.invite.refused, sharing.invite.self, sharing.not_permitted,
-                sharing.renounce.already_ended, sharing.renounce.not_found, sharing.revoke.already_ended,
-                sharing.revoke.not_found, sharing.session.changed, sharing.switch.invalid,
-                sharing.switch.wrong_transport; source-priority — source-priority.body.invalid_json,
-                source-priority.body.invalid_shape; symptoms — symptoms.definition.limitReached,
-                symptoms.definition.notFound, symptoms.episode.notOpen, symptoms.event.notFound, symptoms.invalid;
-                timeline — timeline.invalid; tokens — tokens.documents.ceiling_reached,
-                tokens.measurements.ceiling_reached, tokens.workouts.ceiling_reached; vaccination —
-                vaccination.booster-invalid, vaccination.booster-no-antigen, vaccination.booster-out-of-scope,
-                vaccination.custom-vaccine-not-found, vaccination.custom.invalid, vaccination.custom.name-taken,
-                vaccination.custom.not-found, vaccination.encounter-not-found, vaccination.identity-required,
-                vaccination.invalid, vaccination.link.invalid, vaccination.not-found,
+                notification — notification.action.already_used, notification.action.expired,
+                notification.action.invalid, notification.action.module_disabled; nutrient — nutrient.batch.invalid,
+                nutrient.batch.too_large, nutrient.daily.invalid, nutrient.read.invalid, nutrient.water.invalid,
+                nutrient.water.invalid_day; onboarding — onboarding.answers.invalid, onboarding.answers.rateLimited,
+                onboarding.complete.invalid, onboarding.complete.recordNotFound,
+                onboarding.complete.recordTargetMismatch, onboarding.disclaimer.invalid, onboarding.restart.invalid,
+                onboarding.restart.rateLimited, onboarding.tour.invalid; passkey — passkey.challenge.expired,
+                passkey.response.invalid, passkey.unknown, passkey.verification.failed; personal_records —
+                personal_records.invalid_query; practitioner — practitioner.invalid; profile —
+                profile.update.emailInUse, profile.update.emailRateLimited, profile.update.emailSecondFactorRequired,
+                profile.update.invalidBody, profile.update.nothingSaved; profile_claim — profile_claim.invalid,
+                profile_claim.oidc_only_unsupported, profile_claim.taken; record_write — record_write.rate_limited;
+                report-selection — report-selection.body.invalid_json, report-selection.body.invalid_shape,
+                report-selection.leaves.unknown; route — route.retired; share-link — share-link.document.decryptFailed,
+                share-link.document.notFound, share-link.document.rateLimited, share-link.documents.invalid,
+                share-link.report.notFound, share-link.report.rateLimited, share-link.selection.forbidden_leaf,
+                share-link.selection.unknown_leaf; sharing — sharing.accept.expired, sharing.accept.not_found,
+                sharing.accept.not_pending, sharing.accept.revoked, sharing.access.denied, sharing.invite.duplicate,
+                sharing.invite.invalid, sharing.invite.invalid_scope, sharing.invite.manage_browser_only,
+                sharing.invite.refused, sharing.invite.self, sharing.not_permitted, sharing.renounce.already_ended,
+                sharing.renounce.not_found, sharing.revoke.already_ended, sharing.revoke.not_found,
+                sharing.session.changed, sharing.switch.invalid, sharing.switch.wrong_transport; source-priority —
+                source-priority.body.invalid_json, source-priority.body.invalid_shape; symptoms —
+                symptoms.definition.limitReached, symptoms.definition.notFound, symptoms.episode.notOpen,
+                symptoms.event.notFound, symptoms.invalid; timeline — timeline.invalid; tokens —
+                tokens.documents.ceiling_reached, tokens.measurements.ceiling_reached, tokens.workouts.ceiling_reached;
+                vaccination — vaccination.booster-invalid, vaccination.booster-no-antigen,
+                vaccination.booster-out-of-scope, vaccination.custom-vaccine-not-found, vaccination.custom.invalid,
+                vaccination.custom.name-taken, vaccination.custom.not-found, vaccination.encounter-not-found,
+                vaccination.identity-required, vaccination.invalid, vaccination.link.invalid, vaccination.not-found,
                 vaccination.practitioner-not-found; workout — workout.batch.invalid, workout.batch.payload_too_large,
                 workout.batch.source_not_permitted, workout.batch.too_large, workout.delete.synced_source; (unprefixed)
                 — about_me_conflict, ai_response_truncated, coach_prefs_conflict, dashboard_layout_conflict, empty_file,
