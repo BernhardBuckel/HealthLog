@@ -10,7 +10,10 @@ import { NextRequest } from "next/server";
 const TEST_HMAC_KEY = "test-hmac-key-at-least-32-chars-long-xxxxx";
 
 vi.mock("@/lib/db", () => ({
-  prisma: { user: { findUnique: vi.fn() } },
+  prisma: {
+    user: { findUnique: vi.fn() },
+    idempotencyKey: { create: vi.fn(), deleteMany: vi.fn() },
+  },
 }));
 vi.mock("@/lib/auth/session", () => ({ getSession: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({
@@ -67,6 +70,10 @@ beforeEach(() => {
     timezone: "Europe/Berlin",
   } as never);
   vi.mocked(isModuleEnabled).mockResolvedValue(true);
+  vi.mocked(prisma.idempotencyKey.create).mockResolvedValue({} as never);
+  vi.mocked(prisma.idempotencyKey.deleteMany).mockResolvedValue({
+    count: 1,
+  } as never);
   vi.mocked(logTelegramMood).mockResolvedValue({
     created: true,
     moodEntryId: "m1",
@@ -150,5 +157,43 @@ describe("POST /api/notifications/action/{token}", () => {
     });
     const res = await call(token({ action: "mood-bad" }));
     expect(res.status).toBe(409);
+  });
+
+  it("refuses a spent nonce with 409 before writing anything", async () => {
+    const { Prisma } = await import("@/generated/prisma/client");
+    vi.mocked(prisma.idempotencyKey.create).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("unique", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+    const res = await call(token());
+    expect(res.status).toBe(409);
+    expect(logTelegramMood).not.toHaveBeenCalled();
+  });
+
+  it("claims the nonce until the token expires", async () => {
+    const now = Date.now();
+    await call(token({ now }));
+    expect(prisma.idempotencyKey.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "user-1",
+        key: "notification-action:nonce-1",
+        requestFingerprint: null,
+        expiresAt: new Date(now + ACTION_TOKEN_TTL_MS),
+      }),
+    });
+  });
+
+  it("gives the claim back when the write fails for another reason", async () => {
+    vi.mocked(logTelegramMood).mockRejectedValue(new Error("db down"));
+    const res = await call(token());
+    expect(res.status).toBe(500);
+    expect(prisma.idempotencyKey.deleteMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        userId: "user-1",
+        key: "notification-action:nonce-1",
+      }),
+    });
   });
 });
