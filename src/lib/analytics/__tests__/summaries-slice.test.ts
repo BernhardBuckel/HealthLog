@@ -662,13 +662,17 @@ describe("computeSummariesSlice", () => {
       // left with slope90 in v1.37.19).
       for (const days of ["7 days", "30 days"]) {
         expect(sql).toContain(
-          `(date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '${days}') AT TIME ZONE 'UTC'`,
+          `m."measured_at" >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '${days}')`,
         );
       }
       const anchored = sql.match(
-        /date_trunc\('day', NOW\(\) AT TIME ZONE 'UTC'\) - INTERVAL '(?:7|30) days'\) AT TIME ZONE 'UTC'/g,
+        /date_trunc\('day', NOW\(\) AT TIME ZONE 'UTC'\) - INTERVAL '(?:7|30) days'\)/g,
       );
       expect(anchored?.length).toBe(4);
+      // The bound stays a naive UTC timestamp like measured_at: converting
+      // it to timestamptz would route the comparison through the session
+      // time zone.
+      expect(sql).not.toMatch(/INTERVAL '(?:7|30) days'\) AT TIME ZONE/);
 
       // The regression windows must NOT fall back to the bare wall-clock
       // `NOW() - INTERVAL 'N days'` bound the warm path never uses for the
@@ -676,7 +680,9 @@ describe("computeSummariesSlice", () => {
       // REGR_SLOPE onward) so the avg7/avg30 windows above — which DO stay
       // wall-clock by design — don't trip the assertion.
       const slopeBlock = sql.slice(sql.indexOf("REGR_SLOPE"));
-      expect(slopeBlock).not.toMatch(/WHERE m\."measured_at" >= NOW\(\) -/);
+      expect(slopeBlock).not.toMatch(
+        /WHERE m\."measured_at" >= \(?NOW\(\)( AT TIME ZONE 'UTC'\))? -/,
+      );
     });
   });
 });

@@ -321,12 +321,12 @@ export async function reserveBudget(
     { total_tokens: number; operator_tokens: number }[]
   >`
     INSERT INTO coach_usage (id, user_id, date_key, total_tokens, operator_tokens, message_count, created_at, updated_at)
-    VALUES (gen_random_uuid()::text, ${userId}, ${dateKey}, ${reserved}, ${operatorReserved}, ${messageBump}, NOW(), NOW())
+    VALUES (gen_random_uuid()::text, ${userId}, ${dateKey}, ${reserved}, ${operatorReserved}, ${messageBump}, (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC'))
     ON CONFLICT (user_id, date_key) DO UPDATE SET
       total_tokens = coach_usage.total_tokens + ${reserved},
       operator_tokens = coach_usage.operator_tokens + ${operatorReserved},
       message_count = coach_usage.message_count + ${messageBump},
-      updated_at = NOW()
+      updated_at = (NOW() AT TIME ZONE 'UTC')
     RETURNING total_tokens, operator_tokens
   `;
   const totalAfter = Number(rows[0]?.total_tokens ?? reserved);
@@ -453,7 +453,7 @@ export async function reconcileSpend(
     UPDATE coach_usage
     SET total_tokens = GREATEST(0, total_tokens + ${delta}),
         operator_tokens = GREATEST(0, operator_tokens + ${operatorDelta}),
-        updated_at = NOW()
+        updated_at = (NOW() AT TIME ZONE 'UTC')
     WHERE user_id = ${userId} AND date_key = ${dateKey}
   `;
 }
@@ -472,7 +472,7 @@ async function refundReservation(
     SET total_tokens = GREATEST(0, total_tokens - ${reserved}),
         operator_tokens = GREATEST(0, operator_tokens - ${operatorReserved}),
         message_count = GREATEST(0, message_count - ${messageBump}),
-        updated_at = NOW()
+        updated_at = (NOW() AT TIME ZONE 'UTC')
     WHERE user_id = ${userId} AND date_key = ${dateKey}
   `;
 }

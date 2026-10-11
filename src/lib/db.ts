@@ -1,6 +1,6 @@
 import { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import {
   pinTimeZoneOnConnect,
   sessionOptionsDisabled,
@@ -144,16 +144,32 @@ export function buildSessionOptions(): string | undefined {
   return `${timeouts}-c work_mem=${getWorkMem()} ${TIME_ZONE_OPTION}`;
 }
 
-function createPrismaClient() {
-  const pool = new Pool({
+export function prismaPoolConfig(): PoolConfig {
+  return {
     connectionString: process.env.DATABASE_URL!,
     max: getPrismaPoolMax(),
     connectionTimeoutMillis: getPoolConnectionTimeoutMs(),
     options: buildSessionOptions(),
-  });
+  };
+}
+
+/**
+ * The adapter for the process-wide client. The startup options carry the
+ * UTC pin by default, so the adapter builds its own pool from the config.
+ * With the options off (a pooler) the pool is built here instead, to pin the
+ * zone by statement on connect; the adapter then reuses that one pool for
+ * its whole life, a reconnect included.
+ */
+export function createPrismaAdapter(): PrismaPg {
+  const config = prismaPoolConfig();
+  if (!sessionOptionsDisabled()) return new PrismaPg(config);
+  const pool = new Pool(config);
   pinTimeZoneOnConnect(pool);
-  const adapter = new PrismaPg(pool, { disposeExternalPool: true });
-  return new PrismaClient({ adapter });
+  return new PrismaPg(pool);
+}
+
+function createPrismaClient() {
+  return new PrismaClient({ adapter: createPrismaAdapter() });
 }
 
 // One client per process, in production too. A production build gives every

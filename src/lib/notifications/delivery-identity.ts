@@ -166,7 +166,7 @@ export async function claimManagedGuardianEgressAuthorization(
           ${delivery.recipientUserId},
           ${channel},
           ${eventType},
-          clock_timestamp()
+          (clock_timestamp() AT TIME ZONE 'UTC')
         WHERE EXISTS (
           SELECT 1
           FROM "account_grants"
@@ -177,7 +177,7 @@ export async function claimManagedGuardianEgressAuthorization(
             AND "revoked_at" IS NULL
             AND (
               "expires_at" IS NULL
-              OR "expires_at" > clock_timestamp()
+              OR "expires_at" > (clock_timestamp() AT TIME ZONE 'UTC')
             )
         )
         RETURNING "id"

@@ -147,7 +147,7 @@ async function claimReaction(
             ),
             operator_tokens = GREATEST(0, operator_tokens - ${operatorReserved}),
             message_count = GREATEST(0, message_count - 1),
-            updated_at = NOW()
+            updated_at = (NOW() AT TIME ZONE 'UTC')
         WHERE user_id = ${arrival.userId}
           AND date_key = ${current.generationBudgetDateKey}
       `;

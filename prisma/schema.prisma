@@ -11,7 +11,8 @@
 // round-trip the same instant. The invariant every reader, writer, and
 // raw-SQL query MUST hold is:
 //
-//   * The application server and the Postgres session run in UTC.
+//   * The application server and the Postgres session run in UTC (every
+//     connection pins TimeZone=UTC, see src/lib/db-session.ts).
 //   * Wall-clock / calendar-local anchoring lives in an explicit `tz`
 //     string column (e.g. `MoodEntry.tz`) or the user's `timezone`, NOT
 //     in the column type.

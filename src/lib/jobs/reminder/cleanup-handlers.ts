@@ -294,7 +294,7 @@ export async function handleRateLimitCleanup(
     const p = getWorkerPrisma();
     try {
       const result = await p.$executeRaw`
-        DELETE FROM rate_limits WHERE reset_at < NOW()
+        DELETE FROM rate_limits WHERE reset_at < (NOW() AT TIME ZONE 'UTC')
       `;
       evt.addMeta("rate_limit_cleanup_deleted", result);
       return jobDone({ deleted: result });
