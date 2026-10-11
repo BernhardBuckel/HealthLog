@@ -78,6 +78,11 @@ export interface HistoryIntake {
    * fixtures omit it.
    */
   source?: "WEB" | "API" | "REMINDER" | "IMPORT" | "APPLE_HEALTH";
+  /**
+   * v1.42.2 — recorded by the auto-take pass (`autoMarkTaken`), not the
+   * person. Pure pass-through for the read ledger: it counts as taken.
+   */
+  autoRecorded?: boolean;
 }
 
 export type DoseHistoryStatus =

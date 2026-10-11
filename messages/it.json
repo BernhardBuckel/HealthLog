@@ -1323,6 +1323,14 @@
       "disabledToast": "Registrazione assunzioni disattivata",
       "toggleFailed": "Impossibile modificare la registrazione delle assunzioni."
     },
+    "autoMarkTaken": {
+      "label": "Registra le assunzioni automaticamente",
+      "helper": "HealthLog registra ogni dose programmata come assunta al suo orario. Puoi comunque modificare o saltare una dose a mano. Non vengono inviati promemoria.",
+      "cardHint": "Registrato automaticamente",
+      "enabledToast": "Le assunzioni ora vengono registrate automaticamente",
+      "disabledToast": "Le assunzioni non vengono più registrate automaticamente",
+      "toggleFailed": "Impossibile modificare la registrazione automatica."
+    },
     "withoutNotification": "Senza notifica",
     "pausedSince": "In pausa dal",
     "takeNow": "Assumi ora",
@@ -1779,6 +1787,7 @@
     "sourceImport": "Importazione",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "tramite {origin}",
+    "intakeRecordedAutomatically": "Registrata automaticamente",
     "intakeHistoryEmptyTitle": "Ancora nessuna assunzione",
     "intakeHistoryEmptyDescription": "Appena registrerai un’assunzione, comparirà qui con orario e sorgente.",
     "intakeHistoryEmptyAction": "Registra un’assunzione",

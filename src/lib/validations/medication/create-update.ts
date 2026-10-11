@@ -83,6 +83,16 @@ const courseWindowFields = {
     .describe(
       "v1.39.1 — intake tracking. Default true. When false the medication keeps its dose, dates and schedules as information, but nothing is ever due: no reminder on any channel, no projected slot, no entry on the today list or the doses card, and no adherence figure anywhere. Existing intake history stays stored. Switching it back on resumes from that moment; the time it was off never counts as missed. Omitted on update leaves the current value. On a medication whose tracking is off, an update that does not name `trackIntake` leaves its stored schedule alone: `schedules`, `asNeeded` and `oneShot` in such a request are ignored (a client that does not know the field cannot have seen the stored schedule, which is served in `recordedSchedules`). Name `trackIntake` to change the schedule of such a medication.",
     ),
+  /**
+   * v1.42.2 — record each scheduled dose as taken automatically once its
+   * time has passed. Omitted leaves it as is.
+   */
+  autoMarkTaken: z
+    .boolean()
+    .optional()
+    .describe(
+      "v1.42.2 — record each scheduled dose as taken automatically. Default false. When true the server records a taken intake (`autoRecorded: true`) for every scheduled slot once its time has passed, from the moment the option was switched on (`autoMarkTakenSince`); slots before that are never filled. A slot the person already took, skipped or removed is left alone, and the person can still change or skip any dose by hand. While on, no medication reminder is sent for this medication on any channel; a client that arms local reminders should not arm them either. Has no effect on an as-needed medication or one whose intake tracking is off. Omitted on update leaves the current value.",
+    ),
 };
 
 /**

@@ -1323,6 +1323,14 @@
       "disabledToast": "Suivi des prises désactivé",
       "toggleFailed": "Impossible de modifier le suivi des prises."
     },
+    "autoMarkTaken": {
+      "label": "Enregistrer les prises automatiquement",
+      "helper": "HealthLog enregistre chaque dose prévue comme prise à son heure. Vous pouvez toujours modifier ou sauter une dose à la main. Aucun rappel n'est envoyé.",
+      "cardHint": "Enregistré automatiquement",
+      "enabledToast": "Les prises sont désormais enregistrées automatiquement",
+      "disabledToast": "Les prises ne sont plus enregistrées automatiquement",
+      "toggleFailed": "Impossible de modifier l'enregistrement automatique."
+    },
     "withoutNotification": "Sans notification",
     "pausedSince": "En pause depuis",
     "takeNow": "Prendre maintenant",
@@ -1779,6 +1787,7 @@
     "sourceImport": "Import",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "via {origin}",
+    "intakeRecordedAutomatically": "Enregistrée automatiquement",
     "intakeHistoryEmptyTitle": "Aucune prise pour l’instant",
     "intakeHistoryEmptyDescription": "Dès que tu enregistreras une prise, elle apparaîtra ici avec l’heure et la source.",
     "intakeHistoryEmptyAction": "Enregistrer une prise",

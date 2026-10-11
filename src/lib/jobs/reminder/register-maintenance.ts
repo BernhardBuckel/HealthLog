@@ -51,6 +51,11 @@ import {
   type IntakeAutoSkipPayload,
 } from "@/lib/jobs/intake-auto-skip";
 import {
+  INTAKE_AUTO_TAKE_QUEUE,
+  INTAKE_AUTO_TAKE_CRON,
+  type IntakeAutoTakePayload,
+} from "@/lib/jobs/intake-auto-take";
+import {
   APPLE_HEALTH_IMPORT_V2_QUEUE,
   APPLE_HEALTH_IMPORT_LEGACY_QUEUE,
   APPLE_HEALTH_IMPORT_CONCURRENCY,
@@ -263,6 +268,7 @@ import {
 import {
   handleMedicationInventoryExpire,
   handleIntakeAutoSkip,
+  handleIntakeAutoTake,
 } from "./medication-maintenance";
 import {
   DOCUMENT_PURGE_QUEUE,
@@ -463,6 +469,10 @@ const allQueues = [
   // this entry the schedule silently no-ops and pending rows older than
   // 24 h pile up unflipped.
   INTAKE_AUTO_SKIP_QUEUE,
+  // v1.42.2 — records the doses of a medication with auto-mark-taken on.
+  // Without this entry the schedule silently no-ops and those doses stay
+  // open.
+  INTAKE_AUTO_TAKE_QUEUE,
   APPLE_HEALTH_IMPORT_V2_QUEUE,
   APPLE_HEALTH_IMPORT_LEGACY_QUEUE,
   // v1.32.1 (issue #588) — periodic sweep for ImportJob rows orphaned by a
@@ -671,6 +681,10 @@ const schedules: ScheduleEntry[] = [
   // reminder-check (:00) so the hourly ticks don't pile up on the same
   // boss poll.
   [INTAKE_AUTO_SKIP_QUEUE, INTAKE_AUTO_SKIP_CRON, cronIsTheRetry],
+  // v1.42.2 — every 15 minutes, off the reminder tick and the auto-miss
+  // pass, so a dose of an auto-mark-taken medication reads taken within
+  // minutes of its time.
+  [INTAKE_AUTO_TAKE_QUEUE, INTAKE_AUTO_TAKE_CRON, cronIsTheRetry],
   // v0.5.4 ios-coord — daily mood-reminder dispatch-ledger retention sweep.
   [MOOD_REMINDER_CLEANUP_QUEUE, MOOD_REMINDER_CLEANUP_CRON, cronIsTheRetry],
   // v1.15.19 — daily 03:28 Europe/Berlin duplicate dose-slot dedup
@@ -1137,6 +1151,14 @@ export async function registerMaintenanceQueues(
     INTAKE_AUTO_SKIP_QUEUE,
     { localConcurrency: 1 },
     handleIntakeAutoSkip,
+  );
+  // v1.42.2 — auto-mark-taken pass. Single-flight: two passes racing over
+  // the same slots would only collide on the conditional convert.
+  await createAndWork<IntakeAutoTakePayload>(
+    boss,
+    INTAKE_AUTO_TAKE_QUEUE,
+    { localConcurrency: 1 },
+    handleIntakeAutoTake,
   );
   // v1.4.34 — Apple Health export.zip ingest worker. localConcurrency
   // caps at 1 because the parse loop is CPU-bound and a concurrent

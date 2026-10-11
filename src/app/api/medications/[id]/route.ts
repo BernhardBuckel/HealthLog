@@ -310,6 +310,8 @@ export const PUT = apiHandler(
         asNeeded: true,
         // v1.39.1 (#1033) — the tracking transition below needs the before.
         trackIntake: true,
+        // v1.42.2 — `autoMarkTakenSince` is stamped only on an off→on flip.
+        autoMarkTaken: true,
         // v1.37.0 — the pre-image the audit row carries (C4).
         name: true,
         dose: true,
@@ -407,6 +409,7 @@ export const PUT = apiHandler(
       oneShot,
       asNeeded,
       trackIntake,
+      autoMarkTaken,
       reminderGraceMinutes: topLevelGraceMinutes,
     } = input;
 
@@ -962,6 +965,15 @@ export const PUT = apiHandler(
           ...(asNeeded !== undefined && { asNeeded }),
           // v1.39.1 (#1033) — intake tracking, field-by-field.
           ...(trackIntake !== undefined && { trackIntake }),
+          // v1.42.2 — auto-mark-taken, field-by-field. Only an off→on flip
+          // stamps `autoMarkTakenSince`, so re-saving the form with the
+          // option already on never moves the floor; switching it off
+          // clears the stamp.
+          ...(autoMarkTaken !== undefined &&
+            autoMarkTaken !== existing.autoMarkTaken && {
+              autoMarkTaken,
+              autoMarkTakenSince: autoMarkTaken ? new Date() : null,
+            }),
           ...(normalisedSchedules && {
             schedules: {
               create: normalisedSchedules.map((n) => n.createData),

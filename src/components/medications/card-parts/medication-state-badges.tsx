@@ -18,6 +18,8 @@ interface MedicationStateBadgesProps {
   lastCourseEndedOn?: string | null;
   /** v1.40 (#1024) — the running course's number, when there are several. */
   courseNumber?: number | null;
+  /** v1.42.2 — doses are recorded automatically (`autoMarkTaken`). */
+  autoMarkTaken?: boolean;
 }
 
 /**
@@ -34,6 +36,7 @@ export function MedicationStateBadges({
   courseEnded = false,
   lastCourseEndedOn = null,
   courseNumber = null,
+  autoMarkTaken = false,
 }: MedicationStateBadgesProps) {
   const { t, locale } = useTranslations();
   const dateFormatPref = useDateFormatPreference();
@@ -75,7 +78,20 @@ export function MedicationStateBadges({
           {t("medications.course.nth", { n: courseNumber })}
         </Badge>
       )}
-      {!notificationsEnabled && !recordOnly && !courseEnded && (
+      {/* v1.42.2 — a quiet meta line, not a status badge: the doses are
+          recorded for the person, and no reminder is sent for them. */}
+      {autoMarkTaken && active && !recordOnly && !courseEnded && (
+        <span
+          className="text-muted-foreground text-xs"
+          data-slot="medication-auto-mark-taken-hint"
+        >
+          {t("medications.autoMarkTaken.cardHint")}
+        </span>
+      )}
+      {!notificationsEnabled &&
+        !autoMarkTaken &&
+        !recordOnly &&
+        !courseEnded && (
         <Badge variant="secondary" className="text-xs">
           {t("medications.withoutNotification")}
         </Badge>

@@ -92,6 +92,8 @@ interface SerializedDoseHistoryRow {
     takenAt: string | null;
     skipped: boolean;
     autoMissed: boolean;
+    /** v1.42.2 — recorded automatically (`autoMarkTaken`). */
+    autoRecorded: boolean;
     /** v1.16.4 — per-intake dose override; null = configured dose. */
     doseTaken: string | null;
     /** v1.32.8 (iOS #64) — how the dose was recorded; null on legacy rows. */
@@ -179,6 +181,8 @@ export const GET = apiHandler(
         // v1.32.8 (iOS #64) — write provenance so the client can label how
         // each dose was recorded (Web / API / Reminder / Import / AppleHealth).
         source: true,
+        // v1.42.2 — the history labels an automatically recorded dose.
+        autoRecorded: true,
       },
     });
 
@@ -191,6 +195,7 @@ export const GET = apiHandler(
       pinned: e.attributionSource === "USER_PIN",
       doseTaken: e.doseTaken,
       source: e.source,
+      autoRecorded: e.autoRecorded,
     }));
 
     const lastIntakeAt = lastNonSkippedTakenAt(mapped);
@@ -296,6 +301,7 @@ export const GET = apiHandler(
         pinned: e.pinned,
         doseTaken: e.doseTaken,
         source: e.source,
+        autoRecorded: e.autoRecorded,
       }));
 
     const rows = reconstructDoseHistory(
@@ -327,6 +333,7 @@ export const GET = apiHandler(
             autoMissed: row.intake.autoMissed ?? false,
             doseTaken: row.intake.doseTaken ?? null,
             source: row.intake.source ?? null,
+            autoRecorded: row.intake.autoRecorded ?? false,
           }
         : null,
     }));

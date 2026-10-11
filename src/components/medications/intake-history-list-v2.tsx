@@ -92,6 +92,8 @@ export interface IntakeEvent {
   takenAt: string | null;
   skipped: boolean;
   source: IntakeSourceValue;
+  /** v1.42.2 — recorded by the server (`autoMarkTaken`), not the person. */
+  autoRecorded?: boolean;
   createdAt: string;
 }
 
@@ -430,10 +432,11 @@ export function IntakeHistoryListV2({
                             variant="outline"
                             className="text-muted-foreground text-xs font-normal"
                           >
-                            {t("medications.intakeSourceVia", {
-                              origin:
-                                sourceLabels[event.source] ?? event.source,
-                            })}
+                            {event.autoRecorded
+                              ? t("medications.intakeRecordedAutomatically")
+                              : t("medications.intakeSourceVia", {
+                                  origin: sourceLabels[event.source] ?? event.source,
+                                })}
                           </Badge>
                         </TableCell>
                         {showRowActions && (
@@ -535,10 +538,11 @@ export function IntakeHistoryListV2({
                                 variant="outline"
                                 className="text-muted-foreground text-xs font-normal"
                               >
-                                {t("medications.intakeSourceVia", {
-                                  origin:
-                                    sourceLabels[event.source] ?? event.source,
-                                })}
+                                {event.autoRecorded
+                                  ? t("medications.intakeRecordedAutomatically")
+                                  : t("medications.intakeSourceVia", {
+                                      origin: sourceLabels[event.source] ?? event.source,
+                                    })}
                               </Badge>
                             </div>
                           </div>

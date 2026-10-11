@@ -1323,6 +1323,14 @@
       "disabledToast": "Intake tracking off",
       "toggleFailed": "Could not change intake tracking."
     },
+    "autoMarkTaken": {
+      "label": "Record doses automatically",
+      "helper": "HealthLog records each scheduled dose as taken at its time. You can still change or skip a dose by hand. No reminders are sent.",
+      "cardHint": "Recorded automatically",
+      "enabledToast": "Doses are now recorded automatically",
+      "disabledToast": "Doses are no longer recorded automatically",
+      "toggleFailed": "Could not change automatic recording."
+    },
     "withoutNotification": "Without notification",
     "pausedSince": "Paused since",
     "takeNow": "Take now",
@@ -1779,6 +1787,7 @@
     "sourceImport": "Import",
     "sourceAppleHealth": "Apple Health",
     "intakeSourceVia": "via {origin}",
+    "intakeRecordedAutomatically": "Recorded automatically",
     "intakeHistoryEmptyTitle": "No intakes recorded yet",
     "intakeHistoryEmptyDescription": "Log a dose on the daily intake page to start building the history.",
     "intakeHistoryEmptyAction": "Open daily intake",

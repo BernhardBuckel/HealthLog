@@ -318,6 +318,17 @@ export const medicationResource = z
       .describe(
         "v1.39.1 — intake tracking. True (the default) for every medication that existed before the field. When false the medication is kept as a record: nothing is ever due (`nextDueAt` stays null), nothing reminds on any channel, and it is excluded from every adherence figure. Its stored schedule then travels in `recordedSchedules` while `schedules` is served empty, so a client that arms reminders from `schedules` stays silent without an update.",
       ),
+    autoMarkTaken: z
+      .boolean()
+      .describe(
+        "v1.42.2 — doses are recorded automatically. False (the default) for every medication that existed before the field. When true the server records each scheduled dose as taken (an intake with `autoRecorded: true`, `takenAt` = the slot time) shortly after its time passes, from `autoMarkTakenSince` on. A slot the person took, skipped or removed is never touched, and they can still change or skip any dose. No medication reminder is sent for it on any channel while it is on; a client that arms local reminders should not arm them for it either. `notificationsEnabled` keeps the person's own setting and applies again once this is switched off.",
+      ),
+    autoMarkTakenSince: z.iso
+      .datetime({ offset: true })
+      .nullable()
+      .describe(
+        "v1.42.2 — when `autoMarkTaken` was last switched on. No slot anchored before it is ever recorded automatically. NULL while the option is off. Read-only — set by the server on the switch.",
+      ),
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
     schedules: z
@@ -561,6 +572,11 @@ export const medicationIntakeEventResource = z
       .boolean()
       .describe(
         "True when the nightly cron closed the slot as missed (no user action). Auto-missed rows count against adherence but never consume inventory.",
+      ),
+    autoRecorded: z
+      .boolean()
+      .describe(
+        "v1.42.2 — true when the server recorded this dose because the medication has `autoMarkTaken` on, not the person. It counts as taken everywhere (adherence, history, Coach) and consumed inventory like a manual take. Any take or skip the person records on the row clears it. Clients label such a dose \"recorded automatically\".",
       ),
     attributionSource: z
       .enum(["AUTO", "USER_PIN"])
@@ -1110,6 +1126,11 @@ const doseHistoryRow = z
         takenAt: z.iso.datetime({ offset: true }).nullable(),
         skipped: z.boolean(),
         autoMissed: z.boolean(),
+        autoRecorded: z
+          .boolean()
+          .describe(
+            "v1.42.2 — the dose was recorded automatically (`autoMarkTaken`), not by the person.",
+          ),
         doseTaken: z
           .string()
           .nullable()
