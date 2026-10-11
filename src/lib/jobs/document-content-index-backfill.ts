@@ -268,7 +268,7 @@ export async function runContentIndexBackfillForUser(
         break outer;
       }
 
-      const dateKey = buildDateKey();
+      const dateKey = await buildDateKey(userId);
       const reservation = await reserveBudget(
         userId,
         AI_BUDGETS.documentTranscribe.maxTokens,

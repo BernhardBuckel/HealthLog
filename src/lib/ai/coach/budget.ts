@@ -9,12 +9,13 @@
  *     us add per-day analytics ("avg replies per active user") later
  *     without further migrations.
  *
- * `dateKey` is a UTC `YYYY-MM-DD` string. UTC, not Europe/Berlin: the
- * job runner that may seed off-hour tasks (planned v1.5) needs a
- * boundary that does not jump on DST. Display layers can format with
- * the user's timezone.
+ * `dateKey` is a `YYYY-MM-DD` string: the calendar day in the account's own
+ * time zone (`buildDateKey`), the same boundary as the daily briefing and
+ * every other per-day surface.
  */
 import { prisma } from "@/lib/db";
+import { userDayKey } from "@/lib/tz/format";
+import { resolveUserTimezone } from "@/lib/tz/resolver";
 import type { ProviderChainType } from "@/lib/ai/provider-chain";
 
 /**
@@ -215,8 +216,9 @@ export interface DailySpend {
 
 export async function readDailySpend(
   userId: string,
-  dateKey: string = buildDateKey(),
+  dateKey?: string,
 ): Promise<DailySpend> {
+  dateKey ??= await buildDateKey(userId);
   const row = await prisma.coachUsage.findUnique({
     where: { userId_dateKey: { userId, dateKey } },
     select: { totalTokens: true, operatorTokens: true },
@@ -228,15 +230,24 @@ export async function readDailySpend(
 }
 
 /**
- * Build the UTC day-key for a given clock. Defaults to "now".
+ * The budget day of one account at `at` (default now): the calendar day in
+ * the account's own time zone.
  *
- * UTC choice: the budget guards spend against the operator's LLM
- * bill — the bill cycles at the provider's UTC midnight, so aligning
- * the local meter to the same boundary keeps reasoning trivial.
+ * Up to v1.42.1 this was the UTC day. The daily briefing and the other
+ * per-day generations run on the account's local day, so in a zone east of
+ * UTC the first ones of a new local day still counted against the old UTC
+ * day, whose ceiling the evening had used up: a burst of refusals right
+ * after local midnight. The day now turns where the person's day turns.
+ *
+ * A caller resolves the key once per request or job and hands the same key
+ * to the reservation and the reconcile, so both land on one row even when
+ * the call spans midnight.
  */
-export function buildDateKey(at: Date = new Date()): string {
-  // eslint-disable-next-line healthlog/no-utc-day-key -- UTC by design: the spend meter follows the provider's UTC billing day (see the doc comment)
-  return at.toISOString().slice(0, 10);
+export async function buildDateKey(
+  userId: string,
+  at: Date = new Date(),
+): Promise<string> {
+  return userDayKey(at, await resolveUserTimezone(userId));
 }
 
 /**

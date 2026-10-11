@@ -223,7 +223,7 @@ export async function runDocumentSummaryJob(
     return;
   }
 
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(userId);
   const reservation = await reserveBudget(
     userId,
     AI_BUDGETS.documentSummary.maxTokens,

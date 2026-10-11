@@ -240,7 +240,7 @@ export async function deriveClarifyingQuestions(
     // serialises them on the row's unique key instead. The cap follows the
     // chain's cost owner, so a user on their own plan is not held to the
     // operator-cost ceiling.
-    const dateKey = buildDateKey();
+    const dateKey = await buildDateKey(userId);
     const reservation = await reserveBudget(
       userId,
       QUESTIONS_MAX_TOKENS,

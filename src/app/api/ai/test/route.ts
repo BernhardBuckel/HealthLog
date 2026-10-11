@@ -145,7 +145,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
   // `admin-key` is the operator's own credential and draws the operator
   // ceiling; an override names the caller's own key, and every other resolved
   // type is the user's own egress, so those draw the user-plan ceiling.
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(user.id);
   const reservation = await reserveBudget(
     user.id,
     AI_TEST_MAX_TOKENS,

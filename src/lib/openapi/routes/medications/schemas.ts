@@ -1036,7 +1036,7 @@ export const medicationExtractRequest = z
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional()
       .describe(
-        'Optional override of the reference date used to resolve relative phrases ("tomorrow", "next Monday"). Format: `YYYY-MM-DD`. Defaults to the server\'s UTC day.',
+        'Optional override of the reference date used to resolve relative phrases ("tomorrow", "next Monday"). Format: `YYYY-MM-DD`. Defaults to the account\'s own day in its time zone.',
       ),
   })
   .meta({

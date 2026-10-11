@@ -68,7 +68,7 @@ export async function reserveTurnBudget(args: {
   // egresses through the operator's own key or account; a chain on the
   // person's own plan or key gets the generous user-plan ceiling.
   const dailyCap = resolveDailyCap(chain);
-  const reqDateKey = buildDateKey();
+  const reqDateKey = await buildDateKey(userId);
   const firstRound = toolMode
     ? Math.max(1, Math.floor(args.firstRound ?? AI_BUDGETS.coach.maxTokens))
     : AI_BUDGETS.coach.maxTokens;

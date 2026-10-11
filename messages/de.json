@@ -2843,7 +2843,7 @@
     "coach": {
       "refusalOutOfScope": "Ich kann nur bei den Gesundheitsdaten in deinem Log helfen: Messwerte, Medikamente, Stimmung, Trends. Fragen außerhalb dieses Themas beantworte ich nicht.",
       "refusalInjection": "In deiner Nachricht stehen Anweisungen, die meine Vorgaben überschreiben sollen. Ich bin der HealthLog-Coach und fasse ausschließlich deine eigenen Gesundheitsdaten zusammen. Formuliere deine Frage bitte in diesem Rahmen neu.",
-      "errorBudget": "Du hast das heutige Coach-Limit erreicht. Das Budget setzt sich um Mitternacht (UTC) zurück.",
+      "errorBudget": "Du hast das heutige Coach-Limit erreicht. Das Budget setzt sich um Mitternacht in deiner Zeitzone zurück.",
       "errorProvider": "Der Coach konnte gerade keinen Auswertungs-Anbieter erreichen. Bitte versuche es in einem Moment erneut.",
       "errorDemo": "In der Demo antwortet der Coach nicht.",
       "errorNoProvider": "Der Coach liest deine erfassten Gesundheitsdaten und beantwortet Fragen dazu (keine medizinische Beratung). Dafür braucht HealthLog einen KI-Anbieter. Verbinde deinen eigenen Schlüssel oder ein lokales Modell.",
@@ -2999,7 +2999,7 @@
       "settingsSaved": "Gespeichert",
       "settingsCancel": "Abbrechen",
       "dailyLimitTitle": "Heute-Limit erreicht",
-      "dailyLimitBody": "Tageslimit erreicht. Das Budget setzt sich um Mitternacht (UTC) zurück.",
+      "dailyLimitBody": "Tageslimit erreicht. Das Budget setzt sich um Mitternacht in deiner Zeitzone zurück.",
       "providerRateLimitTitle": "Provider rate-limited",
       "providerRateLimitBody": "Provider ist temporär überlastet; Reset in ~5 min.",
       "cluster": {

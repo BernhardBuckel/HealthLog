@@ -157,7 +157,7 @@ async function handleTextExtract(
   // v1.21.0 (F1) — the operator-cost cap applies only when the picked provider
   // egresses on the operator's own key; a BYOK / Codex / local pick runs on the
   // user's own plan and gets the generous user-plan ceiling.
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(userId);
   const reservation = await reserveBudget(
     userId,
     OCR_RESERVE_TOKENS.text,
@@ -218,7 +218,7 @@ async function handleVisionExtract(
   // v1.21.0 (F1) — the operator-cost cap applies only when the picked vision
   // provider egresses on the operator's own key; a BYOK / Codex pick runs on
   // the user's own plan and gets the generous user-plan ceiling.
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(userId);
   const reservation = await reserveBudget(
     userId,
     OCR_RESERVE_TOKENS.vision,

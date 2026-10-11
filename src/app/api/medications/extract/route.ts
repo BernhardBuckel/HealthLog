@@ -225,7 +225,10 @@ async function handleExtract(request: NextRequest): Promise<Response> {
     chain.map((entry) => entry.providerType),
   );
 
-  const today = todayOverride ?? buildDateKey();
+  // The account's own today: "tomorrow" in a description means the
+  // person's tomorrow, and the same key is the budget day below.
+  const accountToday = await buildDateKey(userId);
+  const today = todayOverride ?? accountToday;
   const { systemPrompt, userPrompt } = buildMedicationExtractionPrompt({
     text,
     today,
@@ -239,7 +242,7 @@ async function handleExtract(request: NextRequest): Promise<Response> {
   // paying for their own key by the operator's ceiling. `resolveDailyCap`
   // charges the operator ceiling only when the chain's primary is the
   // operator's own credential; every other chain gets the user-plan ceiling.
-  const dateKey = buildDateKey();
+  const dateKey = accountToday;
   const estimatedTokens =
     MAX_OUTPUT_TOKENS +
     Math.ceil((systemPrompt.length + userPrompt.length) / 4);

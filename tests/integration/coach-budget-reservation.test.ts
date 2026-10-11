@@ -9,7 +9,7 @@
  * prove both contracts against a real Postgres; a mocked client could not
  * detect a missing atomic increment.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getPrismaClient, truncateAllTables } from "./setup";
 
@@ -178,5 +178,66 @@ describe("reserveBudget (real Postgres)", () => {
     });
     expect(row?.totalTokens).toBe(450);
     expect(row?.totalTokens).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The budget day turns at the account's own midnight, the boundary the daily
+ * briefing uses. On the UTC day a Berlin account's first generations after
+ * local midnight still counted against the previous day's spent ceiling.
+ */
+describe("the budget day is the account's local day", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("opens a fresh day at local midnight while the UTC day is still running", async () => {
+    const { buildDateKey, reserveBudget } =
+      await import("@/lib/ai/coach/budget");
+    const user = await getPrismaClient().user.create({
+      data: {
+        username: "budget-berlin",
+        email: "budget-berlin@example.test",
+        role: "USER",
+        timezone: "Europe/Berlin",
+      },
+    });
+    // 22:30 UTC on 2026-06-19 is 00:30 on 2026-06-20 in Berlin (CEST).
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: new Date("2026-06-19T22:30:00.000Z"),
+    });
+
+    // The evening used the whole ceiling, booked to the day that just ended.
+    await getPrismaClient().coachUsage.create({
+      data: {
+        userId: user.id,
+        dateKey: "2026-06-19",
+        totalTokens: 1000,
+        operatorTokens: 1000,
+        messageCount: 3,
+      },
+    });
+
+    const dateKey = await buildDateKey(user.id);
+    expect(dateKey).toBe("2026-06-20");
+    const first = await reserveBudget(
+      user.id,
+      200,
+      dateKey,
+      1000,
+      "operator",
+      "job",
+    );
+    expect(first.allowed).toBe(true);
+    const rows = await getPrismaClient().coachUsage.findMany({
+      where: { userId: user.id },
+      orderBy: { dateKey: "asc" },
+      select: { dateKey: true, totalTokens: true },
+    });
+    expect(rows).toEqual([
+      { dateKey: "2026-06-19", totalTokens: 1000 },
+      { dateKey: "2026-06-20", totalTokens: 200 },
+    ]);
   });
 });

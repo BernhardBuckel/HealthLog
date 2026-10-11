@@ -200,7 +200,7 @@ async function handleVisionIndex(
   const rl = await checkDocumentAiRateLimit(userId);
   if (!rl.allowed) return documentAiRateLimited(rl);
 
-  const dateKey = buildDateKey();
+  const dateKey = await buildDateKey(userId);
   const reservation = await reserveBudget(
     userId,
     DOCUMENT_INDEX_RESERVE_TOKENS,
