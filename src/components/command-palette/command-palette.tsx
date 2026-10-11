@@ -569,7 +569,7 @@ function RecordSection({
             }}
             onClick={() => onOpen(hit.path)}
             className={cn(
-              "flex min-h-11 cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-sm",
+              "group flex min-h-11 cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-sm",
               selected && "bg-accent text-accent-foreground",
             )}
           >

@@ -15,7 +15,11 @@ import { expect, test } from "./setup/test";
  *   - the top bar carries a magnifier at every width, named "Search",
  *     with a tooltip that gives the shortcut; on a phone it opens a
  *     full-height sheet with the field focused;
- *   - the open palette passes axe.
+ *   - the open palette passes axe;
+ *   - a hit from the record search ("In your records", answered by a route
+ *     mock so the shared account's records never move) lists after the local
+ *     results, Enter on it opens its page, and a visit lands on the visits
+ *     tab; on a phone the hit fits the width.
  *
  * Stable hooks only: `command-palette` (+ `data-variant`),
  * `command-palette-input`, `command-palette-trigger`,
@@ -26,6 +30,49 @@ import { expect, test } from "./setup/test";
 test.use({ storageState: STORAGE_STATE_PATH });
 
 const palette = (page: Page) => page.locator('[data-slot="command-palette"]');
+
+/** Answer `GET /api/search` with one visit hit, and count the requests. */
+async function mockRecordSearch(page: Page): Promise<string[]> {
+  const queries: string[] = [];
+  await page.route("**/api/search?*", async (route) => {
+    queries.push(new URL(route.request().url()).searchParams.get("q") ?? "");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          groups: [
+            {
+              kind: "visit",
+              more: false,
+              hits: [
+                {
+                  id: "visit:e2e-visit",
+                  kind: "visit",
+                  title: { text: "Arthroscopy", marks: [] },
+                  context: [
+                    { text: "Shoulder (left)", marks: [[0, 8]] },
+                    { text: "A practitioner with a long name", marks: [] },
+                  ],
+                  snippet: {
+                    text: "Follow-up for the shoulder after the operation, physiotherapy twice a week",
+                    marks: [[18, 26]],
+                  },
+                  day: "2026-03-02",
+                  path: "/checkups?visit=e2e-visit",
+                  source: null,
+                },
+              ],
+            },
+          ],
+          truncated: false,
+        },
+        error: null,
+      }),
+    });
+  });
+  return queries;
+}
 const input = (page: Page) =>
   page.locator('[data-slot="command-palette-input"]');
 
@@ -110,6 +157,47 @@ test.describe("command palette", () => {
     await expect(input(page)).toHaveValue("timeline");
   });
 
+  test("a hit from the record opens its page", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const queries = await mockRecordSearch(page);
+    // Start on the page the hit opens, on another tab: the link has to move
+    // the open page, not only a fresh one.
+    await page.goto("/checkups");
+    await shellReady(page);
+    await expect(
+      page.locator('[data-testid="checkups-tab-visits"]'),
+    ).toHaveAttribute("aria-selected", "false");
+    await page.keyboard.press("ControlOrMeta+k");
+    await input(page).fill("shoulder");
+    const hit = page.locator('[data-entry="record:visit:e2e-visit"]');
+    await expect(hit).toBeVisible();
+    // Asked once the typing paused, not once per letter.
+    expect(queries).toEqual(["shoulder"]);
+    await expect(
+      page.locator('[data-group="records"] mark').first(),
+    ).toHaveText("Shoulder");
+
+    const axe = await new AxeBuilder({ page })
+      .include('[data-slot="command-palette"]')
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    expect(axe.violations).toEqual([]);
+
+    // The arrows reach it after the local options, and Enter opens it.
+    for (let i = 0; i < 40; i++) {
+      const active = await input(page).getAttribute("aria-activedescendant");
+      if (active && (await hit.getAttribute("id")) === active) break;
+      await page.keyboard.press("ArrowDown");
+    }
+    await expect(hit).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/checkups\?visit=e2e-visit$/);
+    await expect(palette(page)).toHaveCount(0);
+    await expect(
+      page.locator('[data-testid="checkups-tab-visits"]'),
+    ).toHaveAttribute("aria-selected", "true");
+  });
+
   test("the top bar: a magnifier on a wide desktop, with the shortcut in its tooltip", async ({
     page,
   }) => {
@@ -160,5 +248,24 @@ test.describe("command palette", () => {
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(844 - 1);
     await input(page).fill("weight");
     await expect(page.locator('[data-entry="insights:weight"]')).toBeVisible();
+  });
+
+  test("on a phone: a hit from the record fits the width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockRecordSearch(page);
+    await page.goto("/");
+    await shellReady(page);
+    await page.locator('[data-slot="command-palette-trigger"]').click();
+    await input(page).fill("shoulder");
+    const hit = page.locator('[data-entry="record:visit:e2e-visit"]');
+    await expect(hit).toBeVisible();
+    const box = await hit.boundingBox();
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
+    const overflow = await page
+      .locator('[data-slot="command-palette-results"]')
+      .evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    await hit.click();
+    await expect(page).toHaveURL(/\/checkups\?visit=e2e-visit$/);
   });
 });

@@ -788,6 +788,8 @@ export interface RecordSearchOptions {
    * reading. Only the person's own in-app search sets it; MCP never does.
    */
   includeAiDeferredText?: boolean;
+  /** Newest rows read per kind; defaults to `MAX_ROWS_PER_KIND`. */
+  rowsPerKind?: number;
 }
 
 /**
@@ -802,7 +804,9 @@ export async function loadRecordCandidates(
 ): Promise<SearchCandidate[]> {
   const words = queryWords(query);
   const empty = normalizeSearchText(query).length === 0;
-  const take = empty ? EMPTY_QUERY_PER_KIND : MAX_ROWS_PER_KIND;
+  const take = empty
+    ? EMPTY_QUERY_PER_KIND
+    : (options.rowsPerKind ?? MAX_ROWS_PER_KIND);
   const [kinds, owner] = await Promise.all([
     options.kinds ? Promise.resolve(options.kinds) : readableKinds(userId),
     loadOwner(userId, options.displayLocale),

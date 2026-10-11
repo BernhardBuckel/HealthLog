@@ -82,7 +82,9 @@ export function RecordHitContent({ hit }: { hit: SearchHit }) {
           {hit.title ? <Marked value={hit.title} /> : label}
         </span>
         <span className="block truncate text-xs">
-          <span className="text-muted-foreground">
+          {/* Muted reads too faint on the highlighted row's accent fill, so
+              the highlighted option sets it in the accent's own ink. */}
+          <span className="text-muted-foreground group-aria-selected:text-accent-foreground">
             {hit.title ? label : null}
             {hit.title && hit.day ? " · " : null}
             {hit.day ? fmt.dateShortSmartCalendar(hit.day) : null}

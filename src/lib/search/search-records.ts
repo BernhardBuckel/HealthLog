@@ -43,11 +43,7 @@ import {
 import { normalizeSearchText } from "@/lib/encounters/procedures";
 import type { Locale } from "@/lib/i18n/config";
 import { getServerTranslator } from "@/lib/i18n/server-translator";
-import {
-  loadRecordCandidates,
-  MAX_ROWS_PER_KIND,
-  type RecordKind,
-} from "@/lib/mcp/record-search";
+import { loadRecordCandidates, type RecordKind } from "@/lib/mcp/record-search";
 import { moduleForMeasurementType } from "@/lib/modules/measurement-scope";
 import { isSurfaceVisible, type SurfaceModuleMap } from "@/lib/modules/surface";
 import type { ShareScope } from "@/lib/sharing/scope";
@@ -83,7 +79,13 @@ import {
 /** Rows one batched source reads per round trip. */
 export const SCAN_BATCH = 250;
 /** Rows one batched source reads at most, per search. */
-export const MAX_SCAN_ROWS_PER_SOURCE = 2000;
+export const MAX_SCAN_ROWS_PER_SOURCE = 5000;
+/**
+ * Newest rows of each clinical kind (visits, conditions, documents,
+ * vaccinations) one search reads. Wider than the MCP bound: a person's own
+ * search is asked about the operation of ten years ago.
+ */
+export const RECORD_ROWS_PER_KIND = 2000;
 /** Wall-clock budget one search shares across its sources. */
 export const SEARCH_TIME_BUDGET_MS = 1500;
 /** Sources that read at the same time. */
@@ -452,11 +454,19 @@ async function symptomNoteCandidates(
   });
 }
 
+/** "stairClimber" → "stair climber". */
+function sportWords(sportType: string): string {
+  return sportType
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .toLowerCase();
+}
+
 /** The sport's name in the display language, else its words. */
 function sportLabel(sportType: string, locale: Locale): string {
   const key = `insights.workouts.sport.${sportType}`;
   const label = getServerTranslator(locale).t(key);
-  return label === key ? sportType.toLowerCase().replace(/_/g, " ") : label;
+  return label === key ? sportWords(sportType) : label;
 }
 
 async function workoutCandidates(
@@ -483,7 +493,7 @@ async function workoutCandidates(
             text: [
               sportLabel(sportType, ctx.display),
               sportLabel(sportType, "en"),
-              sportType.toLowerCase().replace(/_/g, " "),
+              sportWords(sportType),
             ].join(" "),
             weight: WEIGHT.primary,
           },
@@ -512,7 +522,7 @@ async function workoutCandidates(
           text: [
             label,
             sportLabel(row.sportType, "en"),
-            row.sportType.toLowerCase().replace(/_/g, " "),
+            sportWords(row.sportType),
           ].join(" "),
           weight: WEIGHT.primary,
         },
@@ -866,18 +876,19 @@ export async function searchRecords(
           kinds: recordKinds,
           displayLocale: args.displayLocale,
           includeAiDeferredText: true,
+          rowsPerKind: RECORD_ROWS_PER_KIND,
         },
       );
       budget.rows += candidates.length;
-      // Each kind reads its newest `MAX_ROWS_PER_KIND`; a kind that filled
-      // the read may have older rows the search did not see.
+      // Each kind reads its newest `RECORD_ROWS_PER_KIND`; a kind that
+      // filled the read may have older rows the search did not see.
       const perKind = new Map<string, number>();
       for (const candidate of candidates) {
         const kind = candidate.hit?.kind ?? "";
         perKind.set(kind, (perKind.get(kind) ?? 0) + 1);
         if (keepIfHit(ctx, candidate)) collected.push(candidate);
       }
-      if ([...perKind.values()].some((n) => n >= MAX_ROWS_PER_KIND)) {
+      if ([...perKind.values()].some((n) => n >= RECORD_ROWS_PER_KIND)) {
         budget.truncated = true;
       }
     });
