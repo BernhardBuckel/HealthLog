@@ -124,11 +124,9 @@ function medicationWithSchedule(
     active: true,
     asNeeded: false,
     notificationsEnabled: true,
-    // v1.42.2 — the reminder gate reads the full row.
+    // The reminder gate reads the full row.
     autoMarkTaken: false,
-    active: true,
     trackIntake: true,
-    asNeeded: false,
     snoozedUntil: null,
     startsOn: new Date("2026-07-01T00:00:00.000Z"),
     endsOn: null,
