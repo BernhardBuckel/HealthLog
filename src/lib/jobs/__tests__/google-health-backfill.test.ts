@@ -69,7 +69,10 @@ vi.mock("@/lib/google-health/sync", () => ({
   syncUserGoogleHealth: (...a: unknown[]) => syncUserGoogleHealthMock(...a),
 }));
 
-import { runGoogleHealthBackfillForUser } from "../google-health-backfill";
+import {
+  GOOGLE_HEALTH_BACKFILL_MAX_SLICE,
+  runGoogleHealthBackfillForUser,
+} from "../google-health-backfill";
 import {
   GOOGLE_HEALTH_DATA_TYPES,
   forEachDataPointPage,
@@ -227,6 +230,39 @@ describe("runGoogleHealthBackfillForUser — slices", () => {
     await expect(runGoogleHealthBackfillForUser("u1")).rejects.toThrow(
       /incomplete/,
     );
+  });
+
+  it("fails a slice past the ceiling without walking or queueing", async () => {
+    syncUserGoogleHealthMock.mockResolvedValue({ imported: 1, failed: true });
+    resumeState.finishes = ["sleep"];
+
+    await expect(
+      runGoogleHealthBackfillForUser(
+        "u1",
+        undefined,
+        GOOGLE_HEALTH_BACKFILL_MAX_SLICE + 1,
+      ),
+    ).rejects.toThrow(/past the ceiling/);
+    expect(syncUserGoogleHealthMock).not.toHaveBeenCalled();
+    expect(bossSend).not.toHaveBeenCalled();
+  });
+
+  it("does not queue a slice past the ceiling even when this one progressed", async () => {
+    resumeState.finishes = ["sleep"];
+    syncUserGoogleHealthMock.mockResolvedValue({ imported: 1, failed: true });
+
+    await expect(
+      runGoogleHealthBackfillForUser(
+        "u1",
+        undefined,
+        GOOGLE_HEALTH_BACKFILL_MAX_SLICE,
+      ),
+    ).rejects.toThrow(/incomplete/);
+    expect(bossSend).not.toHaveBeenCalled();
+  });
+
+  it("caps the chain at the number of collections plus two", () => {
+    expect(GOOGLE_HEALTH_BACKFILL_MAX_SLICE).toBe(17 + 2);
   });
 
   it("stamps the marker on the slice that finishes the history", async () => {

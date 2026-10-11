@@ -21,7 +21,7 @@ vi.mock("@/lib/db", () => ({
       findMany: vi.fn(async () => []),
     },
     coachUsage: {
-      aggregate: vi.fn(),
+      findMany: vi.fn(async () => []),
     },
     // v1.42 — the operator key's model check reads the admin settings.
     appSettings: { findUnique: vi.fn(async () => null) },
@@ -59,7 +59,19 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/api-handler";
 
 const groupBy = vi.mocked(prisma.providerHealth.groupBy);
-const aggregate = vi.mocked(prisma.coachUsage.aggregate);
+const usageRows = vi.mocked(prisma.coachUsage.findMany);
+
+/** A spend row as the reader selects it. */
+function usage(
+  dateKey: string,
+  totalTokens: number,
+  operatorTokens: number,
+  timezone: string | null = "UTC",
+) {
+  return { dateKey, totalTokens, operatorTokens, user: { timezone } };
+}
+
+const utcToday = () => new Date().toISOString().slice(0, 10);
 
 function group(
   providerType: string,
@@ -91,9 +103,7 @@ describe("GET /api/admin/provider-health", () => {
     vi.mocked(requireAdmin).mockResolvedValue({
       user: { id: "admin1" },
     } as never);
-    aggregate.mockResolvedValue({
-      _sum: { totalTokens: 0, operatorTokens: 0 },
-    } as never);
+    usageRows.mockResolvedValue([] as never);
   });
 
   it("is admin-gated before it touches the ledger", async () => {
@@ -231,31 +241,44 @@ describe("GET /api/admin/provider-health", () => {
    */
   it("reports the day's spend split by who paid for it", async () => {
     groupBy.mockResolvedValue([] as never);
-    aggregate.mockResolvedValue({
-      _sum: { totalTokens: 1_240_000, operatorTokens: 151_200 },
-    } as never);
+    usageRows.mockResolvedValue([
+      usage(utcToday(), 1_000_000, 100_000),
+      usage(utcToday(), 240_000, 51_200),
+    ] as never);
 
     const res = await GET();
     const body = await res.json();
 
     expect(body.data.spendToday).toEqual({
-      dateKey: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       totalTokens: 1_240_000,
       operatorTokens: 151_200,
+      accounts: 2,
     });
-    // Today only, across every account — the operator's ceiling is per day.
-    expect(aggregate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { dateKey: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
-      }),
-    );
+  });
+
+  it("counts each account on its own today and nothing from another day", async () => {
+    groupBy.mockResolvedValue([] as never);
+    const yesterday = new Date(Date.now() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    usageRows.mockResolvedValue([
+      usage(utcToday(), 500, 100),
+      // The same UTC account's yesterday: already closed, not today's spend.
+      usage(yesterday, 9_999, 9_999),
+    ] as never);
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.data.spendToday).toEqual({
+      totalTokens: 500,
+      operatorTokens: 100,
+      accounts: 1,
+    });
   });
 
   it("reports a day with no spend as zero, not null", async () => {
     groupBy.mockResolvedValue([] as never);
-    aggregate.mockResolvedValue({
-      _sum: { totalTokens: null, operatorTokens: null },
-    } as never);
+    usageRows.mockResolvedValue([] as never);
 
     const res = await GET();
     const body = await res.json();
@@ -281,9 +304,7 @@ describe("GET /api/admin/provider-health — pause and model check (v1.42)", () 
     vi.mocked(requireAdmin).mockResolvedValue({
       user: { id: "admin" },
     } as never);
-    aggregate.mockResolvedValue({
-      _sum: { totalTokens: 0, operatorTokens: 0 },
-    } as never);
+    usageRows.mockResolvedValue([] as never);
     findMany.mockResolvedValue([] as never);
     settings.mockResolvedValue(null as never);
   });

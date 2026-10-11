@@ -1,8 +1,8 @@
 /**
  * ntfy sender unit tests.
  *
- * Covers the outbound shape (topic appended to the server URL, priority and
- * tag headers, bearer token), the outcome classification, and (#947) the
+ * Covers the outbound shape (a JSON publish to the server root carrying
+ * topic, priority and tags, bearer token), the outcome classification, and (#947) the
  * NOTIFICATION_PRIVATE_ORIGINS grant: a listed server rides the
  * operator-approved pin, an unlisted one keeps the public pin, and a listed
  * origin admits nothing beside itself.
@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 describe("sendViaNtfy", () => {
-  it("POSTs the topic URL through safeFetch under the public pin and returns ok on 200", async () => {
+  it("POSTs a JSON message to the server root through safeFetch under the public pin and returns ok on 200", async () => {
     safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
 
     const result = await sendViaNtfy(config, payload());
@@ -96,10 +96,17 @@ describe("sendViaNtfy", () => {
       { method?: string; headers?: Record<string, string>; body?: string },
       EgressOpts,
     ];
-    expect(url).toBe("https://ntfy.example.com/health");
+    expect(url).toBe("https://ntfy.example.com/");
     expect(init.method).toBe("POST");
     expect(init.headers?.Authorization).toBe("Bearer tk_secret");
-    expect(init.body).toBe("Body");
+    expect(init.headers?.["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body!)).toEqual({
+      topic: "health",
+      title: "Title",
+      message: "Body",
+      priority: 3,
+      tags: ["system-alert"],
+    });
     expect(opts.requirePublicHost).toBe(true);
     expect(opts.operatorApprovedPrivateOrigin).toBeUndefined();
     expect(recordPushAttemptMock).toHaveBeenCalledWith(
@@ -164,7 +171,7 @@ describe("sendViaNtfy", () => {
         unknown,
         EgressOpts,
       ];
-      expect(url).toBe("http://ntfy.lan:8080/health");
+      expect(url).toBe("http://ntfy.lan:8080/");
       expect(opts.requirePublicHost).toBe(false);
       expect(opts.operatorApprovedPrivateOrigin).toBe("http://ntfy.lan:8080");
       expect(annotateMock).toHaveBeenCalledWith({
@@ -270,15 +277,19 @@ describe("sendViaNtfy — what the server said (#947)", () => {
 });
 
 describe("sendViaNtfy — tap target and quick actions", () => {
-  function headersOfFirstCall(): Record<string, string> {
+  function messageOfFirstCall(): Record<string, unknown> {
     const [, init] = safeFetchMock.mock.calls[0] as [
       string,
-      { headers: Record<string, string> },
+      { headers: Record<string, string>; body: string },
     ];
-    return init.headers;
+    // Nothing of the message rides a header any more.
+    expect(Object.keys(init.headers).sort()).toEqual(
+      ["Authorization", "Content-Type"].sort(),
+    );
+    return JSON.parse(init.body) as Record<string, unknown>;
   }
 
-  it("sets Click to the resolved absolute tap URL", async () => {
+  it("sets click to the resolved absolute tap URL", async () => {
     safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
     await sendViaNtfy(
       config,
@@ -291,17 +302,18 @@ describe("sendViaNtfy — tap target and quick actions", () => {
         },
       }),
     );
-    expect(headersOfFirstCall().Click).toBe("https://health.example/");
-    expect(headersOfFirstCall().Actions).toBeUndefined();
+    const message = messageOfFirstCall();
+    expect(message.click).toBe("https://health.example/");
+    expect(message.actions).toBeUndefined();
   });
 
-  it("omits Click when no public origin produced a URL", async () => {
+  it("omits click when no public origin produced a URL", async () => {
     safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
     await sendViaNtfy(
       config,
       payload({ tap: { path: "/", url: null, label: "Open" } }),
     );
-    expect(headersOfFirstCall().Click).toBeUndefined();
+    expect(messageOfFirstCall().click).toBeUndefined();
   });
 
   it("sends the quick answers as three POST http actions that clear the notification", async () => {
@@ -317,18 +329,66 @@ describe("sendViaNtfy — tap target and quick actions", () => {
         ],
       }),
     );
-    expect(headersOfFirstCall().Actions).toBe(
-      "http, Good, https://h.example/a/1, method=POST, clear=true; " +
-        "http, Okay, https://h.example/a/2, method=POST, clear=true; " +
-        "http, Bad, https://h.example/a/3, method=POST, clear=true",
+    expect(messageOfFirstCall().actions).toEqual([
+      {
+        action: "http",
+        label: "Good",
+        url: "https://h.example/a/1",
+        method: "POST",
+        clear: true,
+      },
+      {
+        action: "http",
+        label: "Okay",
+        url: "https://h.example/a/2",
+        method: "POST",
+        clear: true,
+      },
+      {
+        action: "http",
+        label: "Bad",
+        url: "https://h.example/a/3",
+        method: "POST",
+        clear: true,
+      },
+    ]);
+  });
+
+  it("carries non-ASCII titles and labels as plain UTF-8, URLs untouched", async () => {
+    safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
+    await sendViaNtfy(
+      config,
+      payload({
+        eventType: "MOOD_REMINDER",
+        title: "기분은 어떠세요?",
+        quickActions: [
+          { id: "mood-good", label: "Świetnie", url: "https://h.example/a/1" },
+          { id: "mood-okay", label: "보통", url: "https://h.example/a/2" },
+          { id: "mood-bad", label: "Così così", url: "https://h.example/a/3" },
+        ],
+      }),
     );
+    const message = messageOfFirstCall();
+    expect(message.title).toBe("기분은 어떠세요?");
+    const actions = message.actions as { label: string; url: string }[];
+    expect(actions.map((a) => a.label)).toEqual([
+      "Świetnie",
+      "보통",
+      "Così così",
+    ]);
+    expect(actions.map((a) => a.url)).toEqual([
+      "https://h.example/a/1",
+      "https://h.example/a/2",
+      "https://h.example/a/3",
+    ]);
+    expect(JSON.stringify(message)).not.toContain("=?UTF-8?");
   });
 });
 
-describe("ntfy header helpers", () => {
-  it("caps the actions at three and strips separators from labels", async () => {
-    const { buildNtfyActionsHeader } = await import("../ntfy");
-    const header = buildNtfyActionsHeader({
+describe("ntfy message helpers", () => {
+  it("caps the actions at three and keeps labels verbatim", async () => {
+    const { buildNtfyActions } = await import("../ntfy");
+    const actions = buildNtfyActions({
       quickActions: [
         { id: "mood-good", label: 'Go;od, "yes"', url: "https://h/1" },
         { id: "mood-okay", label: "B", url: "https://h/2" },
@@ -336,20 +396,20 @@ describe("ntfy header helpers", () => {
         { id: "mood-bad", label: "D", url: "https://h/4" },
       ],
     });
-    expect(header?.split("; ")).toHaveLength(3);
-    expect(header).toContain("http, Go od   yes, https://h/1");
-    expect(header).not.toContain("https://h/4");
-    expect(buildNtfyActionsHeader({ quickActions: [] })).toBeNull();
+    expect(actions).toHaveLength(3);
+    // JSON needs no separator escaping: the label reaches ntfy as written.
+    expect(actions[0]!.label).toBe('Go;od, "yes"');
+    expect(actions.map((a) => a.url)).not.toContain("https://h/4");
+    expect(buildNtfyActions({ quickActions: [] })).toEqual([]);
   });
 
-  it("RFC 2047-encodes a non-ASCII header value and leaves ASCII alone", async () => {
-    const { ntfyHeaderValue } = await import("../ntfy");
-    expect(ntfyHeaderValue("Morning score 78")).toBe("Morning score 78");
-    const encoded = ntfyHeaderValue("아침 점수 78");
-    expect(encoded).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
-    const inner = encoded.slice("=?UTF-8?B?".length, -2);
-    expect(Buffer.from(inner, "base64").toString("utf8")).toBe("아침 점수 78");
-    // `ü` is Latin-1, which fetch would send as one invalid UTF-8 byte.
-    expect(ntfyHeaderValue("Morgenüberblick")).toMatch(/^=\?UTF-8\?B\?/);
+  it("maps a medication reminder to high priority (4)", async () => {
+    const { buildNtfyMessage } = await import("../ntfy");
+    expect(
+      buildNtfyMessage(
+        "t",
+        payload({ eventType: "MEDICATION_REMINDER" }) as never,
+      ).priority,
+    ).toBe(4);
   });
 });

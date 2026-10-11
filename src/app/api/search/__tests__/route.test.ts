@@ -1,6 +1,6 @@
 /**
- * `GET /api/search` — admission, validation, the rate limit, and what the
- * route hands the search and the log.
+ * `POST /api/search` — admission, validation, the rate limit, one search in
+ * flight per actor, and what the route hands the search and the log.
  *
  * The search itself is `searchRecords`, covered by its own unit tests and by
  * `tests/integration/record-search.test.ts` against Postgres; here it is a
@@ -49,12 +49,27 @@ vi.mock("@/lib/search/search-records", () => ({
   searchRecords: mocks.searchRecords,
 }));
 
-import { GET } from "../route";
+import { POST } from "../route";
+import { searchesInFlight } from "@/lib/search/in-flight";
 
-const handler = GET as unknown as (req: NextRequest) => Promise<Response>;
+const handler = POST as unknown as (req: NextRequest) => Promise<Response>;
 
-function request(query: string): NextRequest {
-  return new NextRequest(`http://localhost/api/search?${query}`);
+/**
+ * A search request. Written as the query string the route used to take, so
+ * every case reads as before; the route receives it as a JSON body.
+ */
+function request(query: string, init: { signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams(query);
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of params) {
+    body[key] = key === "limit" && /^\d+$/.test(value) ? Number(value) : value;
+  }
+  return new NextRequest("http://localhost/api/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: init.signal,
+  });
 }
 
 const OWNER = { id: "owner-1", locale: "de" };
@@ -93,10 +108,13 @@ beforeEach(() => {
   });
 });
 
-describe("GET /api/search", () => {
+describe("POST /api/search", () => {
   it("admits the whole record only, at read", async () => {
     await handler(request("q=schulter"));
-    expect(mocks.requireRecordAuth).toHaveBeenCalledWith("read", "record");
+    // A POST that only reads, declared as such.
+    expect(mocks.requireRecordAuth).toHaveBeenCalledWith("read", "record", {
+      readOverPost: true,
+    });
   });
 
   it("propagates a refused admission without searching", async () => {
@@ -137,6 +155,7 @@ describe("GET /api/search", () => {
     ["a zero limit", "q=knie&limit=0"],
     ["a limit above the cap", "q=knie&limit=21"],
     ["a non-numeric limit", "q=knie&limit=lots"],
+    ["a fractional limit", "q=knie&limit=2.5"],
   ])("refuses %s with 422 and never searches", async (_label, query) => {
     const res = await handler(request(query));
     expect(res.status).toBe(422);
@@ -172,5 +191,109 @@ describe("GET /api/search", () => {
       truncated: false,
       delegated: true,
     });
+  });
+
+  it("keeps the query out of the URL", async () => {
+    const req = request("q=Psychotherapie");
+    expect(req.url).not.toMatch(/psychotherapie/i);
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(mocks.searchRecords.mock.calls[0][0].query).toBe("Psychotherapie");
+  });
+
+  it("refuses a body that is not JSON", async () => {
+    const res = await handler(
+      new NextRequest("http://localhost/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: "q=schulter",
+      }),
+    );
+    expect(res.status).toBe(415);
+    expect(mocks.searchRecords).not.toHaveBeenCalled();
+  });
+
+  it("allows 20 searches a minute per actor", async () => {
+    await handler(request("q=schulter"));
+    expect(mocks.checkRateLimit).toHaveBeenCalledWith(
+      "search:actor-1",
+      20,
+      60_000,
+    );
+  });
+
+  it("hands the search an abort signal that follows the client", async () => {
+    const client = new AbortController();
+    let seen: AbortSignal | undefined;
+    mocks.searchRecords.mockImplementationOnce(async (args) => {
+      seen = args.signal;
+      client.abort();
+      return {
+        groups: [],
+        truncated: true,
+        stats: { sources: 1, rows: 0, candidates: 0, elapsedMs: 1 },
+      };
+    });
+    await handler(request("q=schulter", { signal: client.signal }));
+    expect(seen?.aborted).toBe(true);
+  });
+
+  it("stops an actor's earlier search when a newer one starts", async () => {
+    let release: () => void = () => {};
+    let firstSignal: AbortSignal | undefined;
+    mocks.searchRecords.mockImplementationOnce(
+      (args) =>
+        new Promise((resolve) => {
+          firstSignal = args.signal;
+          release = () =>
+            resolve({
+              groups: [],
+              truncated: true,
+              stats: { sources: 1, rows: 0, candidates: 0, elapsedMs: 1 },
+            });
+        }),
+    );
+    const first = handler(request("q=schul"));
+    await vi.waitFor(() => expect(firstSignal).toBeDefined());
+    expect(firstSignal?.aborted).toBe(false);
+
+    const second = await handler(request("q=schulter"));
+    expect(second.status).toBe(200);
+    expect(firstSignal?.aborted).toBe(true);
+
+    release();
+    const superseded = await first;
+    expect(superseded.status).toBe(409);
+    expect((await superseded.json()).meta?.errorCode).toBe("search.superseded");
+    expect(searchesInFlight()).toBe(0);
+  });
+
+  it("does not stop another actor's search", async () => {
+    let firstSignal: AbortSignal | undefined;
+    let release: () => void = () => {};
+    mocks.searchRecords.mockImplementationOnce(
+      (args) =>
+        new Promise((resolve) => {
+          firstSignal = args.signal;
+          release = () =>
+            resolve({
+              groups: [],
+              truncated: false,
+              stats: { sources: 1, rows: 0, candidates: 0, elapsedMs: 1 },
+            });
+        }),
+    );
+    const first = handler(request("q=schul"));
+    await vi.waitFor(() => expect(firstSignal).toBeDefined());
+
+    mocks.requireRecordAuth.mockResolvedValueOnce({
+      user: { id: "owner-2", locale: "de" },
+      actor: { id: "actor-2", locale: "de" },
+      grantId: null,
+    });
+    await handler(request("q=knie"));
+    expect(firstSignal?.aborted).toBe(false);
+    release();
+    expect((await first).status).toBe(200);
   });
 });

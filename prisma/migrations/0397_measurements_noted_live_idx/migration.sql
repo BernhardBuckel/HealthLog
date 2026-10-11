@@ -8,8 +8,13 @@
 --
 -- Additive only, no table rewrite, no data change. Non-concurrent for the
 -- reason migration 0243 gives: Prisma Migrate runs a migration file in a
--- transaction, and the entrypoint applies migrations before the app serves
--- traffic. The predicate is tiny, so the build is short.
+-- transaction. The build is not short on a large instance: the predicate
+-- only decides which rows land in the index, so Postgres still scans the
+-- whole `measurements` table to find them, and the non-concurrent build
+-- blocks writes to the table while it runs. That is acceptable because the
+-- entrypoint applies migrations before the app serves traffic, so no request
+-- is waiting on those writes; an upgrade on a table with many millions of
+-- readings simply takes longer to come up.
 CREATE INDEX IF NOT EXISTS "measurements_noted_live_idx"
   ON "measurements" ("user_id", "measured_at" DESC, "id" DESC)
   WHERE "deleted_at" IS NULL

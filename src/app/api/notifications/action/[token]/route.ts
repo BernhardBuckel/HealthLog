@@ -13,10 +13,12 @@
  *  2. Verify the signature (constant-time) and the expiry.
  *  3. Re-check what may have changed since the reminder went out: the
  *     account still exists and its mood module is still on.
- *  4. Write the mood entry under the reminder's nonce. The unique
- *     `(userId, source, externalId)` key makes the first answer the only
+ *  4. Claim the reminder's nonce (`action-nonce.ts`), then write the mood
+ *     entry under it. The claim and the entry's unique
+ *     `(userId, source, externalId)` key each make the first answer the only
  *     one: a repeat tap, or a different answer on the same reminder, is
- *     refused with 409 and writes nothing.
+ *     refused with 409 and writes nothing. The claim is what still holds
+ *     after the entry was deleted and purged inside the token's lifetime.
  *
  * The token travels in the path, so it is scrubbed from every log line by
  * the `PATH_SECRET_PATHS` entry for this prefix, and the route sits on the
@@ -31,6 +33,10 @@ import { prisma } from "@/lib/db";
 import { annotate, getEvent } from "@/lib/logging/context";
 import { isModuleEnabled } from "@/lib/modules/gate";
 import { logTelegramMood } from "@/lib/mood/create-from-telegram";
+import {
+  claimActionNonce,
+  releaseActionNonce,
+} from "@/lib/notifications/action-nonce";
 import {
   MOOD_QUICK_ACTIONS,
   quickActionExternalId,
@@ -116,6 +122,23 @@ export const POST = apiHandler(
       });
     }
 
+    const alreadyUsed = () => {
+      annotate({
+        action: { name: "notification.action.refused" },
+        meta: { reason: "already_used" },
+      });
+      return apiError("This reminder was already answered", 409, {
+        errorCode: "notification.action.already_used",
+      });
+    };
+
+    const claimed = await claimActionNonce({
+      userId: user.id,
+      nonce: verdict.nonce,
+      expiry: verdict.expiry,
+    });
+    if (!claimed) return alreadyUsed();
+
     const score = MOOD_QUICK_ACTIONS[verdict.action];
     let created: boolean;
     try {
@@ -129,19 +152,15 @@ export const POST = apiHandler(
       created = result.created;
     } catch (err) {
       // Two taps raced past the existence check; the unique key let one in.
-      if (!isUniqueViolation(err)) throw err;
+      if (!isUniqueViolation(err)) {
+        // Nothing was written: give the answer back so a retry can land.
+        await releaseActionNonce({ userId: user.id, nonce: verdict.nonce });
+        throw err;
+      }
       created = false;
     }
 
-    if (!created) {
-      annotate({
-        action: { name: "notification.action.refused" },
-        meta: { reason: "already_used" },
-      });
-      return apiError("This reminder was already answered", 409, {
-        errorCode: "notification.action.already_used",
-      });
-    }
+    if (!created) return alreadyUsed();
 
     annotate({
       action: { name: "notification.action.mood_logged" },

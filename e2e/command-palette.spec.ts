@@ -31,11 +31,15 @@ test.use({ storageState: STORAGE_STATE_PATH });
 
 const palette = (page: Page) => page.locator('[data-slot="command-palette"]');
 
-/** Answer `GET /api/search` with one visit hit, and count the requests. */
+/** Answer `POST /api/search` with one visit hit, and count the requests. */
 async function mockRecordSearch(page: Page): Promise<string[]> {
   const queries: string[] = [];
-  await page.route("**/api/search?*", async (route) => {
-    queries.push(new URL(route.request().url()).searchParams.get("q") ?? "");
+  await page.route("**/api/search", async (route) => {
+    // The query rides the JSON body, never the URL.
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().url()).not.toContain("?");
+    const body = route.request().postDataJSON() as { q?: string } | null;
+    queries.push(body?.q ?? "");
     await route.fulfill({
       status: 200,
       contentType: "application/json",

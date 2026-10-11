@@ -5,7 +5,7 @@
  * the dispatcher resolves the path once per delivery and every channel
  * carries the same target in its own vocabulary:
  *
- *  - ntfy     → `Click` header (absolute URL)
+ *  - ntfy     → `click` in the JSON publish body (absolute URL)
  *  - Telegram → an inline URL button (absolute `https` URL only, see
  *               `telegramLinkMode`)
  *  - Web Push → `url` in the service-worker payload (same-origin path)
@@ -36,7 +36,10 @@ export const NOTIFICATION_TAP_PATHS: Record<EventType, string | null> = {
   WITHINGS_SYNC_FAILED: "/settings/integrations",
   SYSTEM_ALERT: "/",
   PERSONAL_RECORD: "/achievements",
-  // `?add=1` opens the mood entry sheet on the first paint.
+  // `?add=1` opens the mood entry sheet on the first paint, and only in the
+  // recipient's own record: a session switched into another record opens the
+  // page without the sheet (`src/app/mood/page-client.tsx`). No other target
+  // here opens a write form.
   MOOD_REMINDER: "/mood?add=1",
   CYCLE_PERIOD_SOON: "/cycle",
   CYCLE_PERIOD_CONFIRM: "/cycle",

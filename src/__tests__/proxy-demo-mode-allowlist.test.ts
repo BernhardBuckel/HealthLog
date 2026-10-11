@@ -154,6 +154,13 @@ describe("proxy.ts DEMO_MODE mutation allowlist", () => {
     ).toBe(403);
   });
 
+  it("permits the record search, a read that travels as a POST", () => {
+    // The query rides the body so it stays out of URLs and access logs; the
+    // route writes nothing, so the demo searches like any other instance.
+    expect(proxy(makeRequest("/api/search", "POST")).status).not.toBe(403);
+    expect(proxy(makeRequest("/api/search", "DELETE")).status).toBe(403);
+  });
+
   it("still blocks a health-data mutation (POST /api/measurements)", () => {
     const res = proxy(makeRequest("/api/measurements", "POST"));
     expect(res.status).toBe(403);

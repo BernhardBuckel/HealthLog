@@ -1,5 +1,5 @@
 import { apiHandler, requireAdmin } from "@/lib/api-handler";
-import { buildDateKey } from "@/lib/ai/coach/budget";
+import { readInstanceSpendToday } from "@/lib/ai/coach/budget";
 import { prisma } from "@/lib/db";
 import { apiSuccess } from "@/lib/api-response";
 import { annotate } from "@/lib/logging/context";
@@ -73,13 +73,8 @@ interface ProviderHealthSummary {
 const CENTRAL_TYPES = [...OPERATOR_HELD_PROVIDER_TYPES];
 
 export const GET = apiHandler(async () => {
-  const { user } = await requireAdmin();
+  await requireAdmin();
   annotate({ action: { name: "admin.provider-health.get" } });
-
-  // The ledger buckets each account by its own local day; the operator's
-  // "today" is the day in the operator's own zone, which on a single-zone
-  // instance is everyone's.
-  const dateKey = await buildDateKey(user.id);
 
   const groups = await prisma.providerHealth.groupBy({
     // `lastStatus` joins the grouping key rather than an aggregate: the
@@ -177,17 +172,19 @@ export const GET = apiHandler(async () => {
   // alarming until you see that 151 200 of them were the instance's own key
   // and the rest ran on the users' plans. The operator ceiling is enforced
   // against the second figure, so both belong on screen.
-  const spend = await prisma.coachUsage.aggregate({
-    where: { dateKey },
-    _sum: { totalTokens: true, operatorTokens: true },
-  });
+  //
+  // "Today" is each account's own calendar day, the day its ceilings are
+  // enforced on (`readInstanceSpendToday`), not one date for the instance:
+  // the budget day is per account local day, so a single date key would
+  // count some accounts' yesterday or tomorrow and miss part of their today.
+  const spend = await readInstanceSpendToday();
 
   return apiSuccess({
     providers,
     spendToday: {
-      dateKey,
-      totalTokens: spend._sum.totalTokens ?? 0,
-      operatorTokens: spend._sum.operatorTokens ?? 0,
+      totalTokens: spend.total,
+      operatorTokens: spend.operator,
+      accounts: spend.accounts,
     },
   });
 });

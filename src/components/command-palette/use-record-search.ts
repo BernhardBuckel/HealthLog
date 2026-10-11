@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useRecordCapabilities } from "@/hooks/use-record-capabilities";
-import { apiGet } from "@/lib/api/api-fetch";
+import { apiPost } from "@/lib/api/api-fetch";
 import { queryKeys } from "@/lib/query-keys";
 import {
   SEARCH_QUERY_MAX,
@@ -37,7 +37,8 @@ export interface RecordSearchState {
  * record shared whole. A grant over some sections never opens the search, so
  * it is not asked. The request carries the query's abort signal: when the
  * next keystroke changes the key, the previous query loses its observer and
- * its request is cancelled rather than left to land late.
+ * its request is cancelled rather than left to land late, and the server
+ * stops reading for it as well.
  */
 export function useRecordSearch(rawQuery: string): RecordSearchState {
   const { inSharedRecord, sections } = useRecordCapabilities();
@@ -49,12 +50,12 @@ export function useRecordSearch(rawQuery: string): RecordSearchState {
 
   const result = useQuery({
     queryKey: queryKeys.recordSearch(query, PALETTE_RECORD_LIMIT),
+    // A POST with the query in the body, so it never stands in a URL that a
+    // proxy's access log or the browser history could keep.
     queryFn: ({ signal }) =>
-      apiGet<SearchResponse>(
-        `/api/search?${new URLSearchParams({
-          q: query,
-          limit: String(PALETTE_RECORD_LIMIT),
-        })}`,
+      apiPost<SearchResponse>(
+        "/api/search",
+        { q: query, limit: PALETTE_RECORD_LIMIT },
         { signal },
       ),
     enabled,

@@ -225,6 +225,9 @@ const DEMO_MUTATION_ALLOWLIST: ReadonlyArray<{ path: string; method: string }> =
     // The per-profile routes (`/api/managed-profiles/{id}`, its guardians)
     // are different paths and stay closed too.
     { path: "/api/auth/profile", method: "PUT" },
+    // v1.42.2 — the record search is a read that travels as a POST so the
+    // query stays out of URLs and access logs. It writes nothing.
+    { path: "/api/search", method: "POST" },
   ];
 
 // Legacy route redirects (German → English)

@@ -1,6 +1,6 @@
 /**
  * Matching and ranking for the record search, shared by the MCP `search` tool
- * and the in-app search (`GET /api/search`). Pure: no database, no crypto.
+ * and the in-app search (`POST /api/search`). Pure: no database, no crypto.
  *
  * Folding. A field and a query are compared after the body-sites service's
  * folding (`normalizeSearchText`: Unicode compatibility form, marks stripped,

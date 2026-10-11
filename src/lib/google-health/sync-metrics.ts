@@ -55,6 +55,7 @@ import {
   type GoogleHealthResourceSyncOptions,
 } from "./sync-core";
 import { getEvent } from "@/lib/logging/context";
+import type { GoogleHealthCollectionKey } from "./collection-keys";
 import { prisma } from "@/lib/db";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
 
@@ -65,7 +66,7 @@ interface MetricResource {
     point: Record<string, unknown>,
     tz: string,
   ) => GoogleHealthMappedMeasurement[];
-  verb: string;
+  verb: GoogleHealthCollectionKey;
   /** Page ceiling for the walk; the client default when omitted. */
   maxPages?: number;
   /**

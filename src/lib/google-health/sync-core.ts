@@ -20,6 +20,7 @@ import { prisma } from "@/lib/db";
 import type { MeasurementType } from "@/generated/prisma/client";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { annotate, getEvent } from "@/lib/logging/context";
+import type { GoogleHealthCollectionKey } from "./collection-keys";
 import { userDayKey } from "@/lib/tz/format";
 import { isP2002 } from "@/lib/prisma-errors";
 import {
@@ -464,7 +465,7 @@ export async function runWithGoogleHealthBackfillResume<T>(
  * budget asking it to stop). Anything less is walked again next attempt.
  */
 export async function runGoogleHealthCollection(
-  key: string,
+  key: GoogleHealthCollectionKey,
   fn: () => Promise<number>,
 ): Promise<number> {
   const resume = backfillResumeStorage.getStore();
@@ -483,19 +484,27 @@ export async function runGoogleHealthCollection(
     !truncatedBefore &&
     !googleHealthOutcomeTruncated();
   if (clean) {
-    resume.done.add(key);
-    await prisma.googleHealthConnection
-      .update({
+    // The collection counts as finished only once the note says so. The job
+    // reads the size of `done` as this attempt's progress and sends another
+    // slice on it; a key added before a write that then failed would be
+    // progress nobody can see next attempt, and a chain of slices could keep
+    // "progressing" over the same collection forever.
+    try {
+      await prisma.googleHealthConnection.update({
         where: { userId: resume.userId },
-        data: { backfillProgress: { done: [...resume.done] } },
-      })
-      .catch((err) =>
-        // Losing the note costs a re-walk of this collection next attempt,
-        // nothing more; it must not fail a collection that did complete.
-        getEvent()?.addWarning(
-          `google-health: backfill progress write failed: ${err}`,
-        ),
+        data: { backfillProgress: { done: [...resume.done, key] } },
+      });
+      resume.done.add(key);
+    } catch (err) {
+      // Not finished, then: the collection is walked again next attempt. It
+      // must not fail a collection whose rows are written.
+      getEvent()?.addWarning(
+        `google-health: backfill progress write failed for ${key}: ${err}`,
       );
+      annotate({
+        meta: { "googleHealth.backfill.progressWriteFailed": key },
+      });
+    }
   }
   return imported;
 }

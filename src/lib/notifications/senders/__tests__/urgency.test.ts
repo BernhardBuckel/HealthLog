@@ -104,6 +104,15 @@ beforeEach(() => {
 
 afterEach(() => vi.clearAllMocks());
 
+/** The JSON message the ntfy sender published on call `i`. */
+function ntfyMessage(i: number): {
+  priority: number;
+  tags: string[];
+  actions?: unknown;
+} {
+  return JSON.parse((safeFetchMock.mock.calls[i][1] as { body: string }).body);
+}
+
 describe("ntfy urgent mapping", () => {
   it("urgent → Priority 5 (max) + warning tag", async () => {
     safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
@@ -111,10 +120,8 @@ describe("ntfy urgent mapping", () => {
       { serverUrl: "https://ntfy.example.com", topic: "t" },
       payload({ urgent: true }),
     );
-    const [, init] = safeFetchMock.mock.calls[0];
-    const headers = (init as { headers: Record<string, string> }).headers;
-    expect(headers.Priority).toBe("5");
-    expect(headers.Tags).toContain("warning");
+    expect(ntfyMessage(0).priority).toBe(5);
+    expect(ntfyMessage(0).tags).toContain("warning");
   });
 
   it("non-urgent SYSTEM_ALERT → default priority, no warning tag", async () => {
@@ -123,13 +130,8 @@ describe("ntfy urgent mapping", () => {
       { serverUrl: "https://ntfy.example.com", topic: "t" },
       payload(),
     );
-    const headers = (
-      safeFetchMock.mock.calls[0][1] as {
-        headers: Record<string, string>;
-      }
-    ).headers;
-    expect(headers.Priority).toBe("default");
-    expect(headers.Tags).not.toContain("warning");
+    expect(ntfyMessage(0).priority).toBe(3);
+    expect(ntfyMessage(0).tags).not.toContain("warning");
   });
 
   it("discreet urgent keeps the generic tag (no warning leak)", async () => {
@@ -138,16 +140,11 @@ describe("ntfy urgent mapping", () => {
       { serverUrl: "https://ntfy.example.com", topic: "t" },
       payload({ urgent: true, discreet: true }),
     );
-    const headers = (
-      safeFetchMock.mock.calls[0][1] as {
-        headers: Record<string, string>;
-      }
-    ).headers;
-    expect(headers.Priority).toBe("5");
-    expect(headers.Tags).toBe("reminder");
+    expect(ntfyMessage(0).priority).toBe(5);
+    expect(ntfyMessage(0).tags).toEqual(["reminder"]);
   });
 
-  it("does not send ntfy action headers to a managed Guardian", async () => {
+  it("does not send ntfy actions to a managed Guardian", async () => {
     safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
     await sendViaNtfy(
       { serverUrl: "https://ntfy.example.com", topic: "t" },
@@ -157,12 +154,7 @@ describe("ntfy urgent mapping", () => {
         recipientUserId: "guardian-1",
       }),
     );
-    const headers = (
-      safeFetchMock.mock.calls[0][1] as {
-        headers: Record<string, string>;
-      }
-    ).headers;
-    expect(headers.Actions).toBeUndefined();
+    expect(ntfyMessage(0).actions).toBeUndefined();
   });
 });
 
@@ -245,10 +237,7 @@ describe("APNs-less instance degrades gracefully", () => {
 
     expect(ntfy.ok).toBe(true);
     expect(web.ok).toBe(true);
-    expect(
-      (safeFetchMock.mock.calls[0][1] as { headers: Record<string, string> })
-        .headers.Priority,
-    ).toBe("5");
+    expect(ntfyMessage(0).priority).toBe(5);
     expect(
       (generateRequestDetailsMock.mock.calls[0][2] as { urgency?: string })
         .urgency,

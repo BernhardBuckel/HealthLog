@@ -505,6 +505,29 @@ describe("requireRecordAuth — every way a grant can fail", () => {
     );
   });
 
+  it("reads a POST at read level only where the route declares readOverPost", async () => {
+    signedInCookie(OWNER);
+    liveGrant();
+    const declared = route(() =>
+      requireRecordAuth("read", "record", { readOverPost: true }),
+    );
+    expect((await declared("POST")).status).toBe(200);
+    // The declaration covers POST alone: every other write method still
+    // needs a write grant.
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      expect((await declared(method)).status, method).toBe(403);
+    }
+  });
+
+  it("does not lower a declared write for a readOverPost route", async () => {
+    signedInCookie(OWNER);
+    liveGrant();
+    const response = await route(() =>
+      requireRecordAuth("write", "record", { readOverPost: true }),
+    )("POST");
+    expect(response.status).toBe(403);
+  });
+
   it("refuses a declared write under a read grant", async () => {
     signedInCookie(OWNER);
     liveGrant();

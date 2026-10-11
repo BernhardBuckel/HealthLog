@@ -21,7 +21,12 @@ import { useTranslations } from "@/lib/i18n/context";
 
 export default function MoodPageClient() {
   const { user, isAuthenticated, isLoading } = useAuth();
-  const { canManageDomain, inSharedRecord } = useRecordCapabilities();
+  const {
+    canManageDomain,
+    inSharedRecord,
+    recordSessionPending,
+    accessRefused,
+  } = useRecordCapabilities();
   // A mood entry is created at MANAGE under the mind section.
   const canAddMood = canManageDomain("mind");
   const mounted = useMounted();
@@ -33,15 +38,35 @@ export default function MoodPageClient() {
   // hydration render agree; the effect below strips the one-shot param so the
   // back button does not reopen the sheet. A later client-side navigation
   // back onto `?add=1` is handled render-side, the measurements-page pattern.
+  //
+  // The request is held apart from the sheet's own open state because it is
+  // honoured only in the caller's own record. A reminder is about the person
+  // who receives it; a session that is currently inside a managed profile or
+  // a shared record would otherwise open a write form there, and an entry
+  // saved from it lands on the wrong person. In that case the page opens
+  // without the sheet and the shell's shared-record banner offers the way
+  // back. The answer is read once the account query settled (`isLoading`
+  // gates the content render), so the request is dropped, not deferred: a
+  // later switch back to the own record must not pop a stale sheet.
   const addParam = searchParams.get("add") === "1";
-  const [dialogOpen, setDialogOpen] = useState(() => addParam);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [addRequested, setAddRequested] = useState(() => addParam);
   const [consumedAdd, setConsumedAdd] = useState(() => addParam);
   if (!addParam && consumedAdd) {
     setConsumedAdd(false);
   } else if (addParam && !consumedAdd) {
     setConsumedAdd(true);
-    setDialogOpen(true);
+    setAddRequested(true);
   }
+  const ownRecord = !inSharedRecord && !recordSessionPending && !accessRefused;
+  if (addRequested && mounted && !isLoading && !ownRecord) {
+    setAddRequested(false);
+  }
+  const sheetOpen = (dialogOpen || (addRequested && ownRecord)) && canAddMood;
+  const setSheetOpen = useCallback((open: boolean) => {
+    setDialogOpen(open);
+    if (!open) setAddRequested(false);
+  }, []);
   // The list's empty state carries the add action while there is nothing
   // to list, so the header drops its own then.
   const [listEmpty, setListEmpty] = useState(false);
@@ -68,7 +93,7 @@ export default function MoodPageClient() {
   );
   const pull = usePullToRefresh({
     onRefresh: refreshVisible,
-    disabled: dialogOpen,
+    disabled: sheetOpen,
   });
 
   useEffect(() => {
@@ -149,14 +174,14 @@ export default function MoodPageClient() {
       />
 
       <ResponsiveSheet
-        open={dialogOpen && canAddMood}
-        onOpenChange={setDialogOpen}
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
         title={t("dashboard.quickAddMood")}
         footer={<div ref={setFooterEl} className="flex w-full" />}
       >
         <MoodForm
-          onSuccess={() => setDialogOpen(false)}
-          onCancel={() => setDialogOpen(false)}
+          onSuccess={() => setSheetOpen(false)}
+          onCancel={() => setSheetOpen(false)}
           footerSlot={footerEl}
         />
       </ResponsiveSheet>

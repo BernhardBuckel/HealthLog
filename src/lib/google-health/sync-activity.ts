@@ -46,6 +46,7 @@ import {
   type GoogleHealthResourceSyncOptions,
 } from "./sync-core";
 import { annotate } from "@/lib/logging/context";
+import type { GoogleHealthCollectionKey } from "./collection-keys";
 import { resolveUserTimezone } from "@/lib/tz/resolver";
 
 /** One mappable activity metric: its data-type encoding + the mapper + a verb. */
@@ -55,7 +56,7 @@ interface ActivityResource {
     point: Record<string, unknown>,
     tz: string,
   ) => GoogleHealthMappedMeasurement[];
-  verb: string;
+  verb: GoogleHealthCollectionKey;
 }
 
 /** The four cumulative daily totals — read via `POST :dailyRollUp`. */

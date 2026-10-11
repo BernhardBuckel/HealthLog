@@ -6832,6 +6832,7 @@
       "nocreds": "Oura ist auf diesem Server nicht konfiguriert. Bitte deinen Administrator, die Oura-OAuth-Zugangsdaten zu hinterlegen.",
       "token": "Der Token-Austausch mit Oura ist fehlgeschlagen. Bitte starte die Verbindung erneut.",
       "rate_limited": "Zu viele Verbindungsversuche. Warte einen Moment und versuche es erneut.",
+      "issuer": "Die Anmeldeantwort kam nicht vom Autorisierungsserver von Oura, deshalb wurde die Verbindung zu deiner Sicherheit abgebrochen. Bitte starte die Verbindung erneut. Wenn das wieder passiert, sag deinem Administrator Bescheid.",
       "generic": "Unbekannter Fehler bei der Verbindung. Bitte starte die Verbindung erneut."
     },
     "integrationSetupGuide": "Einrichtungsanleitung",
@@ -7239,7 +7240,7 @@
       "typeCodex": "ChatGPT-Anmeldung (persönlich)",
       "typeLocal": "Lokales Modell (persönlich)",
       "typeGateway": "OpenAI-kompatibles Gateway (persönlich)",
-      "spendToday": "Heute ({date}): {total} Tokens, davon {operator} auf dem Schlüssel des Betreibers.",
+      "spendToday": "Heute, jeweils am eigenen Kalendertag jedes Kontos: {total} Tokens, davon {operator} auf dem Schlüssel des Betreibers (Konten mit Verbrauch: {accounts}).",
       "statusPaused": "Pausiert",
       "pausedHint": "Nach wiederholten Fehlern für {count} Nutzer pausiert bis {at}. Danach wird er automatisch wieder versucht.",
       "modelNotServed": "Der Endpunkt bietet das Modell {model} nicht mehr an. Wähle in den KI-Einstellungen ein Modell, das er anbietet."

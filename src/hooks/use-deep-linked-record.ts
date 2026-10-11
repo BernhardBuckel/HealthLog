@@ -56,24 +56,52 @@ export function useDeepLinkedRecord<T extends { id: string }>({
   useEffect(() => {
     if (!wanted || !records || handled.current === wanted) return;
     handled.current = wanted;
-    const record = records.find((entry) => entry.id === wanted);
-    if (!record) {
-      if (!resolve || !open) return;
-      void resolve(wanted)
-        .then((found) => {
-          // Still on the page, and still the link it was asked for.
-          if (found && mounted.current && handled.current === wanted) {
-            open(found);
-          }
-        })
-        .catch(() => {
-          // Gone or refused: the page stays as it would without the link.
-        });
-      return;
-    }
-    document
-      .querySelector(`[${anchorAttribute}="${CSS.escape(wanted)}"]`)
-      ?.scrollIntoView({ block: "center" });
-    open?.(record);
+    void openDeepLinked({
+      wanted,
+      records,
+      open,
+      resolve,
+      // Still on the page, and still the link it was asked for.
+      stillWanted: () => mounted.current && handled.current === wanted,
+      scrollTo: (id) =>
+        document
+          .querySelector(`[${anchorAttribute}="${CSS.escape(id)}"]`)
+          ?.scrollIntoView({ block: "center" }),
+    });
   }, [wanted, records, anchorAttribute, open, resolve]);
+}
+
+/**
+ * What a link does once the list has loaded, apart from React: a record the
+ * list holds is scrolled to and opened; one it does not hold (older than the
+ * bounded read, say the newest hundred visits) is read on its own through
+ * `resolve` and opened when it comes back and the link is still wanted.
+ * Resolves to which of the three happened.
+ */
+export async function openDeepLinked<T extends { id: string }>(args: {
+  wanted: string;
+  records: readonly T[];
+  open?: (record: T) => void;
+  resolve?: (id: string) => Promise<T | null>;
+  stillWanted: () => boolean;
+  scrollTo: (id: string) => void;
+}): Promise<"listed" | "resolved" | "none"> {
+  const { wanted, records, open, resolve } = args;
+  const record = records.find((entry) => entry.id === wanted);
+  if (record) {
+    args.scrollTo(wanted);
+    open?.(record);
+    return "listed";
+  }
+  if (!resolve || !open) return "none";
+  let found: T | null;
+  try {
+    found = await resolve(wanted);
+  } catch {
+    // Gone or refused: the page stays as it would without the link.
+    return "none";
+  }
+  if (!found || !args.stillWanted()) return "none";
+  open(found);
+  return "resolved";
 }

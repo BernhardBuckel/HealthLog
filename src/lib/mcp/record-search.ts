@@ -20,7 +20,7 @@
  * uses. The document body itself is never read for a search.
  *
  * Ranking and folding live in `@/lib/search/match`, shared with the in-app
- * search (`GET /api/search`), which reads its record kinds through
+ * search (`POST /api/search`), which reads its record kinds through
  * `loadRecordCandidates` here as well: one matcher, one set of record reads.
  *
  * Module switches. A record kind whose module the account has off (or the
@@ -349,7 +349,7 @@ async function visitCandidates(
   userId: string,
   owner: Owner,
   origin: string,
-  take: number,
+  read: KindRead,
   empty: boolean,
 ): Promise<SearchCandidate[]> {
   const rows = await prisma.encounter.findMany({
@@ -361,66 +361,70 @@ async function visitCandidates(
       ...(empty ? { occurredAt: { lte: new Date() } } : {}),
     },
     orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
-    take,
+    take: probeTake(read),
     include: { practitioner: PRACTITIONER_SELECT },
   });
-  return rows.map((row) => {
-    const practitioner = livePractitioner(row.practitioner);
-    const reason = decryptText(row.reasonEncrypted);
-    const outcome = decryptText(row.outcomeEncrypted);
-    const bodySite = decryptText(row.bodySiteEncrypted);
-    const day = userDayKey(row.occurredAt, owner.timezone);
-    const kindLabel = encounterKindLabel(row.kind, owner.display);
-    const title = reason?.replace(/\s+/g, " ").trim() || null;
-    return {
-      id: `visit:${row.id}`,
-      title: visitTitle({
-        kind: row.kind,
-        day,
-        bodySite: bodySite?.replace(/\s+/g, " ").trim() ?? null,
-        laterality: row.laterality,
-        practitioner: practitioner?.name ?? null,
-        status: row.status,
-      }),
-      url: recordUrl(origin, "visit", row.id),
-      kindOrder: KIND_ORDER.visit,
-      date: row.occurredAt.getTime(),
-      record: true,
-      hit: {
-        kind: "visit",
-        recordId: row.id,
-        title: title ?? kindLabel,
-        context: compact([
-          title ? kindLabel : null,
-          practitioner?.name,
-          sitePhrase(bodySite, row.laterality, owner.display),
-        ]),
-        day,
-        path: recordPath("visit", row.id),
-      },
-      fields: [
-        { text: bodySite ?? "", weight: WEIGHT.primary },
-        { text: reason ?? "", weight: WEIGHT.primary, body: true },
-        { text: practitioner?.name ?? "", weight: WEIGHT.primary },
-        { text: practitioner?.specialty ?? "", weight: WEIGHT.primary },
-        {
-          text: [
-            "visit",
-            enumWords(row.kind),
-            encounterKindLabel(row.kind, "en"),
-            encounterKindLabel(row.kind, owner.locale),
-            ENCOUNTER_KIND_ALIASES[row.kind] ?? "",
-          ].join(" "),
-          weight: WEIGHT.secondary,
+  return mapUntilStopped(
+    withinCap(rows, read),
+    read,
+    (row): SearchCandidate => {
+      const practitioner = livePractitioner(row.practitioner);
+      const reason = decryptText(row.reasonEncrypted);
+      const outcome = decryptText(row.outcomeEncrypted);
+      const bodySite = decryptText(row.bodySiteEncrypted);
+      const day = userDayKey(row.occurredAt, owner.timezone);
+      const kindLabel = encounterKindLabel(row.kind, owner.display);
+      const title = reason?.replace(/\s+/g, " ").trim() || null;
+      return {
+        id: `visit:${row.id}`,
+        title: visitTitle({
+          kind: row.kind,
+          day,
+          bodySite: bodySite?.replace(/\s+/g, " ").trim() ?? null,
+          laterality: row.laterality,
+          practitioner: practitioner?.name ?? null,
+          status: row.status,
+        }),
+        url: recordUrl(origin, "visit", row.id),
+        kindOrder: KIND_ORDER.visit,
+        date: row.occurredAt.getTime(),
+        record: true,
+        hit: {
+          kind: "visit",
+          recordId: row.id,
+          title: title ?? kindLabel,
+          context: compact([
+            title ? kindLabel : null,
+            practitioner?.name,
+            sitePhrase(bodySite, row.laterality, owner.display),
+          ]),
+          day,
+          path: recordPath("visit", row.id),
         },
-        {
-          text: sideTerms(row.laterality, owner.locale) ?? "",
-          weight: WEIGHT.secondary,
-        },
-        { text: outcome ?? "", weight: WEIGHT.secondary, body: true },
-      ],
-    };
-  });
+        fields: [
+          { text: bodySite ?? "", weight: WEIGHT.primary },
+          { text: reason ?? "", weight: WEIGHT.primary, body: true },
+          { text: practitioner?.name ?? "", weight: WEIGHT.primary },
+          { text: practitioner?.specialty ?? "", weight: WEIGHT.primary },
+          {
+            text: [
+              "visit",
+              enumWords(row.kind),
+              encounterKindLabel(row.kind, "en"),
+              encounterKindLabel(row.kind, owner.locale),
+              ENCOUNTER_KIND_ALIASES[row.kind] ?? "",
+            ].join(" "),
+            weight: WEIGHT.secondary,
+          },
+          {
+            text: sideTerms(row.laterality, owner.locale) ?? "",
+            weight: WEIGHT.secondary,
+          },
+          { text: outcome ?? "", weight: WEIGHT.secondary, body: true },
+        ],
+      };
+    },
+  );
 }
 
 /**
@@ -476,58 +480,62 @@ async function conditionCandidates(
   userId: string,
   owner: Owner,
   origin: string,
-  take: number,
+  read: KindRead,
 ): Promise<SearchCandidate[]> {
   const rows = await prisma.illnessEpisode.findMany({
     where: { userId, deletedAt: null },
     orderBy: [{ onsetAt: "desc" }, { id: "asc" }],
-    take,
+    take: probeTake(read),
     select: CONDITION_SELECT,
   });
-  return rows.map((row) => {
-    const bodySite = decryptText(row.bodySiteEncrypted);
-    const day = userDayKey(row.onsetAt, owner.timezone);
-    const site = bodySite?.replace(/\s+/g, " ").trim();
-    return {
-      id: `condition:${row.id}`,
-      title: scrubFenceMarkers(
-        `${row.label}${site ? ` · ${site}` : ""} (${illnessTypeLabel(row.type, "en")}, since ${day})`,
-      ),
-      url: recordUrl(origin, "condition", row.id),
-      kindOrder: KIND_ORDER.condition,
-      date: row.onsetAt.getTime(),
-      record: true,
-      hit: {
-        kind: "condition",
-        recordId: row.id,
-        title: row.label,
-        context: compact([
-          illnessTypeLabel(row.type, owner.display),
-          sitePhrase(bodySite, row.laterality, owner.display),
-        ]),
-        day,
-        path: recordPath("condition", row.id),
-      },
-      fields: [
-        { text: row.label, weight: WEIGHT.primary },
-        { text: bodySite ?? "", weight: WEIGHT.primary },
-        {
-          text: [
-            "condition illness",
-            enumWords(row.type),
-            illnessTypeLabel(row.type, "en"),
-            illnessTypeLabel(row.type, owner.locale),
-            enumWords(row.lifecycle),
-          ].join(" "),
-          weight: WEIGHT.secondary,
+  return mapUntilStopped(
+    withinCap(rows, read),
+    read,
+    (row): SearchCandidate => {
+      const bodySite = decryptText(row.bodySiteEncrypted);
+      const day = userDayKey(row.onsetAt, owner.timezone);
+      const site = bodySite?.replace(/\s+/g, " ").trim();
+      return {
+        id: `condition:${row.id}`,
+        title: scrubFenceMarkers(
+          `${row.label}${site ? ` · ${site}` : ""} (${illnessTypeLabel(row.type, "en")}, since ${day})`,
+        ),
+        url: recordUrl(origin, "condition", row.id),
+        kindOrder: KIND_ORDER.condition,
+        date: row.onsetAt.getTime(),
+        record: true,
+        hit: {
+          kind: "condition",
+          recordId: row.id,
+          title: row.label,
+          context: compact([
+            illnessTypeLabel(row.type, owner.display),
+            sitePhrase(bodySite, row.laterality, owner.display),
+          ]),
+          day,
+          path: recordPath("condition", row.id),
         },
-        {
-          text: sideTerms(row.laterality, owner.locale) ?? "",
-          weight: WEIGHT.secondary,
-        },
-      ],
-    };
-  });
+        fields: [
+          { text: row.label, weight: WEIGHT.primary },
+          { text: bodySite ?? "", weight: WEIGHT.primary },
+          {
+            text: [
+              "condition illness",
+              enumWords(row.type),
+              illnessTypeLabel(row.type, "en"),
+              illnessTypeLabel(row.type, owner.locale),
+              enumWords(row.lifecycle),
+            ].join(" "),
+            weight: WEIGHT.secondary,
+          },
+          {
+            text: sideTerms(row.laterality, owner.locale) ?? "",
+            weight: WEIGHT.secondary,
+          },
+        ],
+      };
+    },
+  );
 }
 
 const DOCUMENT_SELECT = {
@@ -604,18 +612,18 @@ async function documentCandidates(
   userId: string,
   owner: Owner,
   origin: string,
-  take: number,
+  read: KindRead,
   query: string,
   words: readonly string[],
   includeAiDeferred: boolean,
 ): Promise<SearchCandidate[]> {
   const nameTerms = documentNameTerms(query, words);
-  const [rows, content, named] = await Promise.all([
+  const [probed, content, named] = await Promise.all([
     prisma.inboundDocument.findMany({
       where: { userId, deletedAt: null },
       select: DOCUMENT_SELECT,
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      take,
+      take: probeTake(read),
     }),
     words.length > 0
       ? contentMatches(userId, words, includeAiDeferred)
@@ -638,6 +646,9 @@ async function documentCandidates(
         })
       : Promise.resolve([] as Array<{ id: string }>),
   ]);
+  // The cap applies to the newest read; the extra rows below are content and
+  // name hits beyond it, already bounded by their own read.
+  const rows = withinCap(probed, read);
   // A content or name hit on a document older than the newest `take` still
   // counts; the extra read is bounded like the others.
   const seen = new Set(rows.map((r) => r.id));
@@ -654,7 +665,7 @@ async function documentCandidates(
         })
       : [];
 
-  return [...rows, ...extra].map((row) => {
+  return mapUntilStopped([...rows, ...extra], read, (row): SearchCandidate => {
     const dated = row.documentDate ?? row.reportDate;
     const kindLabel = documentKindLabel(row.kind, "en");
     const name = row.title ?? row.filename ?? kindLabel;
@@ -705,73 +716,77 @@ async function vaccinationCandidates(
   userId: string,
   owner: Owner,
   origin: string,
-  take: number,
+  read: KindRead,
 ): Promise<SearchCandidate[]> {
   const rows = await prisma.vaccinationRecord.findMany({
     where: { userId, deletedAt: null },
     orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
-    take,
+    take: probeTake(read),
     select: VACCINATION_SELECT,
   });
-  return rows.map((row) => {
-    const practitioner = livePractitioner(row.practitioner);
-    const entry = resolveVaccineEntry({ antigenSlug: row.antigenSlug });
-    const own = ownVaccine(row);
-    const catalogEn = vaccineCatalogName(row.antigenSlug, "en");
-    const name =
-      row.vaccineName ??
-      catalogEn ??
-      own?.name ??
-      row.antigenSlug ??
-      "Vaccination";
-    const dose = row.doseNumber ? `dose ${row.doseNumber}, ` : "";
-    const day = dateOnly(row.occurredAt);
-    return {
-      id: `vaccination:${row.id}`,
-      title: scrubFenceMarkers(`${name} (${dose}${day})`),
-      url: recordUrl(origin, "vaccination", row.id),
-      kindOrder: KIND_ORDER.vaccination,
-      date: row.occurredAt.getTime(),
-      record: true,
-      hit: {
-        kind: "vaccination",
-        recordId: row.id,
-        title:
-          row.vaccineName ??
-          vaccineCatalogName(row.antigenSlug, owner.display) ??
-          own?.name ??
-          row.antigenSlug ??
-          null,
-        context: compact([practitioner?.name]),
-        day,
-        path: recordPath("vaccination", row.id),
-      },
-      fields: [
-        { text: row.vaccineName ?? "", weight: WEIGHT.primary },
-        {
-          text: [
-            catalogEn ?? "",
-            vaccineCatalogName(row.antigenSlug, owner.locale) ?? "",
-            row.antigenSlug
-              ? enumWords(row.antigenSlug.replace(/-/g, "_"))
-              : "",
-            ...(entry?.synonyms ?? []),
-            own?.name ?? "",
-            ...(own?.components ?? []).map((antigen) =>
-              enumWords(antigen.replace(/-/g, "_")),
-            ),
-          ].join(" "),
-          weight: WEIGHT.primary,
+  return mapUntilStopped(
+    withinCap(rows, read),
+    read,
+    (row): SearchCandidate => {
+      const practitioner = livePractitioner(row.practitioner);
+      const entry = resolveVaccineEntry({ antigenSlug: row.antigenSlug });
+      const own = ownVaccine(row);
+      const catalogEn = vaccineCatalogName(row.antigenSlug, "en");
+      const name =
+        row.vaccineName ??
+        catalogEn ??
+        own?.name ??
+        row.antigenSlug ??
+        "Vaccination";
+      const dose = row.doseNumber ? `dose ${row.doseNumber}, ` : "";
+      const day = dateOnly(row.occurredAt);
+      return {
+        id: `vaccination:${row.id}`,
+        title: scrubFenceMarkers(`${name} (${dose}${day})`),
+        url: recordUrl(origin, "vaccination", row.id),
+        kindOrder: KIND_ORDER.vaccination,
+        date: row.occurredAt.getTime(),
+        record: true,
+        hit: {
+          kind: "vaccination",
+          recordId: row.id,
+          title:
+            row.vaccineName ??
+            vaccineCatalogName(row.antigenSlug, owner.display) ??
+            own?.name ??
+            row.antigenSlug ??
+            null,
+          context: compact([practitioner?.name]),
+          day,
+          path: recordPath("vaccination", row.id),
         },
-        {
-          text: "vaccination vaccine immunization impfung",
-          weight: WEIGHT.secondary,
-        },
-        { text: practitioner?.name ?? "", weight: WEIGHT.secondary },
-        { text: practitioner?.specialty ?? "", weight: WEIGHT.secondary },
-      ],
-    };
-  });
+        fields: [
+          { text: row.vaccineName ?? "", weight: WEIGHT.primary },
+          {
+            text: [
+              catalogEn ?? "",
+              vaccineCatalogName(row.antigenSlug, owner.locale) ?? "",
+              row.antigenSlug
+                ? enumWords(row.antigenSlug.replace(/-/g, "_"))
+                : "",
+              ...(entry?.synonyms ?? []),
+              own?.name ?? "",
+              ...(own?.components ?? []).map((antigen) =>
+                enumWords(antigen.replace(/-/g, "_")),
+              ),
+            ].join(" "),
+            weight: WEIGHT.primary,
+          },
+          {
+            text: "vaccination vaccine immunization impfung",
+            weight: WEIGHT.secondary,
+          },
+          { text: practitioner?.name ?? "", weight: WEIGHT.secondary },
+          { text: practitioner?.specialty ?? "", weight: WEIGHT.secondary },
+        ],
+      };
+    },
+  );
 }
 
 export interface RecordSearchOptions {
@@ -790,6 +805,62 @@ export interface RecordSearchOptions {
   includeAiDeferredText?: boolean;
   /** Newest rows read per kind; defaults to `MAX_ROWS_PER_KIND`. */
   rowsPerKind?: number;
+  /**
+   * Asked before each kind starts and before every row a kind decrypts.
+   * Once it says stop, the kind keeps what it has (its newest rows) and
+   * `onTruncated` is told. The in-app search hands its shared time budget
+   * and the request's abort signal in here.
+   */
+  shouldStop?: () => boolean;
+  /**
+   * Told when a kind did not see all of its rows: it filled its newest
+   * `rowsPerKind` read, or `shouldStop` ended it part-way.
+   */
+  onTruncated?: (kind: RecordKind) => void;
+}
+
+/** How one kind reads: its row cap, and the stop and truncation hooks. */
+interface KindRead {
+  take: number;
+  shouldStop: () => boolean;
+  onTruncated: () => void;
+}
+
+/**
+ * A kind's newest read asks for one row past its cap. The extra row only
+ * answers whether anything older is left: a kind holding exactly `take` rows
+ * was read whole and is not reported cut short.
+ */
+function probeTake(read: KindRead): number {
+  return read.take + 1;
+}
+
+/** The rows within the cap, telling `onTruncated` when the probe row came. */
+function withinCap<Row>(rows: Row[], read: KindRead): Row[] {
+  if (rows.length <= read.take) return rows;
+  read.onTruncated();
+  return rows.slice(0, read.take);
+}
+
+/**
+ * Map a kind's rows newest first until `shouldStop` says stop. The rows are
+ * read already; what this bounds is the decrypting and the building, which is
+ * where a large record spends its time.
+ */
+function mapUntilStopped<Row, Out>(
+  rows: readonly Row[],
+  read: KindRead,
+  build: (row: Row) => Out,
+): Out[] {
+  const out: Out[] = [];
+  for (const row of rows) {
+    if (read.shouldStop()) {
+      read.onTruncated();
+      break;
+    }
+    out.push(build(row));
+  }
+  return out;
 }
 
 /**
@@ -811,26 +882,40 @@ export async function loadRecordCandidates(
     options.kinds ? Promise.resolve(options.kinds) : readableKinds(userId),
     loadOwner(userId, options.displayLocale),
   ]);
+  const shouldStop = options.shouldStop ?? (() => false);
+  const reading = (kind: RecordKind): KindRead | null => {
+    if (!kinds.has(kind)) return null;
+    const onTruncated = () => options.onTruncated?.(kind);
+    if (shouldStop()) {
+      onTruncated();
+      return null;
+    }
+    return { take, shouldStop, onTruncated };
+  };
+  const visit = reading("visit");
+  const condition = reading("condition");
+  const document = reading("document");
+  const vaccination = reading("vaccination");
   const groups = await Promise.all([
-    kinds.has("visit")
-      ? visitCandidates(userId, owner, origin, take, empty)
+    visit
+      ? visitCandidates(userId, owner, origin, visit, empty)
       : Promise.resolve([]),
-    kinds.has("condition")
-      ? conditionCandidates(userId, owner, origin, take)
+    condition
+      ? conditionCandidates(userId, owner, origin, condition)
       : Promise.resolve([]),
-    kinds.has("document")
+    document
       ? documentCandidates(
           userId,
           owner,
           origin,
-          take,
+          document,
           query,
           words,
           options.includeAiDeferredText === true,
         )
       : Promise.resolve([]),
-    kinds.has("vaccination")
-      ? vaccinationCandidates(userId, owner, origin, take)
+    vaccination
+      ? vaccinationCandidates(userId, owner, origin, vaccination)
       : Promise.resolve([]),
   ]);
   return groups.flat();

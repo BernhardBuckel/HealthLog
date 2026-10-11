@@ -100,4 +100,19 @@ describe("POST /api/notifications/action/{token}", () => {
       await getPrismaClient().moodEntry.count({ where: { userId: USER } }),
     ).toBe(2);
   });
+
+  it("refuses the reminder again after its entry was deleted and purged", async () => {
+    const { good, bad } = await tokens("reminder-purged");
+    expect((await call(good)).status).toBe(200);
+
+    // Delete and purge inside the token's lifetime: the row that held the
+    // unique key is gone.
+    await getPrismaClient().moodEntry.deleteMany({ where: { userId: USER } });
+
+    expect((await call(good)).status).toBe(409);
+    expect((await call(bad)).status).toBe(409);
+    expect(
+      await getPrismaClient().moodEntry.count({ where: { userId: USER } }),
+    ).toBe(0);
+  });
 });

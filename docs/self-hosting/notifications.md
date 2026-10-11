@@ -179,6 +179,12 @@ HealthLog publishes to that topic.
    **Server URL** (defaults to `https://ntfy.sh`; point it at your own
    server if you self-host ntfy) and **Topic**, then save.
 
+HealthLog publishes each message as JSON to the server's root URL (the topic
+travels in the body, see ntfy's
+[publish as JSON](https://docs.ntfy.sh/publish/#publish-as-json)), so titles
+and button labels in any language arrive as written. A reverse proxy in front
+of your own ntfy has to pass `POST /` through, not only `POST /<topic>`.
+
 If your ntfy server requires auth, an access token can be attached; the
 server URL is validated at save time and dialled through the egress guard
 (`src/lib/notifications/senders/ntfy.ts`). A self-hosted ntfy on your own
@@ -474,7 +480,8 @@ once per event type, and every channel carries the same target:
 
 How each channel carries it:
 
-- **ntfy**: the `Click` header, so tapping the notification opens the page.
+- **ntfy**: the message's `click` field, so tapping the notification opens
+  the page.
 - **Telegram**: an **Open in HealthLog** button under the message, below any
   action buttons. Telegram only accepts `https` button links on a public
   host, so a plain-HTTP instance gets a text link instead, and an instance
@@ -522,12 +529,30 @@ token is the only credential, so it is built to be harmless on its own:
   answer, so it cannot be moved to another account or another answer;
 - it expires six hours after the reminder was sent;
 - the three answers of one reminder are one use between them: the first
-  tap logs, every later tap on that reminder is refused;
+  tap logs, every later tap on that reminder is refused, and that stays
+  true when the logged entry is deleted and purged from the trash before
+  the six hours are up;
 - the route is rate-limited before it reads the token, refuses when the
   mood module has been turned off, and the token is scrubbed from logs.
 
 The buttons need `APP_URL`, because the ntfy app calls the URL from your
 phone. Your phone has to reach the instance at that address.
+
+What the token cannot protect against is the topic itself. The button URLs,
+token included, travel through your ntfy server inside the message, and the
+message is delivered to everyone subscribed to the topic. For the six hours
+a token is valid, anyone who can read the topic can log that one answer on
+your behalf. On the public `ntfy.sh` the topic name is the only access
+control, so:
+
+- use a long, random topic name and do not share it;
+- better, run your own ntfy server with access control and give HealthLog
+  an access token that may only publish to your topic;
+- to invalidate every quick-answer token at once, rotate
+  `API_TOKEN_HMAC_KEY`. The same key also hashes API tokens and session
+  cookies, so rotating it invalidates every issued API token and signs out
+  every browser session and the iOS app as well (see
+  [getting started](./getting-started.md)).
 
 **Telegram** keeps its own keyboard on the mood reminder: the full 1 to 5
 scale, a note and a "later" button.

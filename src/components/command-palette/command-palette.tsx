@@ -51,7 +51,7 @@ import { useRecordSearch } from "./use-record-search";
  * stays open.
  *
  * After the local results comes "In your records": the server's search over
- * the record (`useRecordSearch`, `GET /api/search`), once the typing pauses.
+ * the record (`useRecordSearch`, `POST /api/search`), once the typing pauses.
  * Its hits are options like any other, after the local ones, so the arrows
  * and Enter work across both; each opens the page that shows the record.
  *

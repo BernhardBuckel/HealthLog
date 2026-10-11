@@ -6832,6 +6832,7 @@
       "nocreds": "Oura n'est pas configuré sur ce serveur. Demandez à votre administrateur d'ajouter les identifiants OAuth Oura.",
       "token": "L'échange de jeton avec Oura a échoué. Veuillez relancer la connexion.",
       "rate_limited": "Trop de tentatives de connexion. Patientez un instant et réessayez.",
+      "issuer": "La réponse de connexion ne provenait pas du serveur d'autorisation d'Oura, la connexion a donc été interrompue par sécurité. Veuillez relancer la connexion. Si cela se reproduit, prévenez votre administrateur.",
       "generic": "Erreur inconnue lors de la connexion. Veuillez relancer la connexion."
     },
     "integrationSetupGuide": "Guide de configuration",
@@ -7239,7 +7240,7 @@
       "typeCodex": "Connexion ChatGPT (personnelle)",
       "typeLocal": "Modèle local (personnel)",
       "typeGateway": "Passerelle compatible OpenAI (personnelle)",
-      "spendToday": "Aujourd'hui ({date}) : {total} jetons, dont {operator} sur la clé de l'opérateur.",
+      "spendToday": "Aujourd'hui, selon le jour civil de chaque compte : {total} jetons, dont {operator} sur la clé de l'opérateur (comptes avec consommation : {accounts}).",
       "statusPaused": "En pause",
       "pausedHint": "En pause après des échecs répétés pour {count} utilisateurs jusqu’au {at}. Il sera ensuite réessayé automatiquement.",
       "modelNotServed": "Le point d’accès ne propose plus le modèle {model}. Choisissez dans les réglages IA un modèle qu’il propose."
