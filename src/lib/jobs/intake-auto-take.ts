@@ -387,6 +387,7 @@ async function autoTakeMedication(
       skipped: true,
       autoMissed: true,
       deletedAt: true,
+      attributionSource: true,
     },
   });
 
@@ -435,6 +436,7 @@ async function autoTakeMedication(
       lastIntakeAt: anchor,
     });
 
+    const expectedSlots = new Set(bands.keys());
     let recordedRolling = false;
     for (const slot of slots) {
       handled.add(slot.at.getTime());
@@ -445,6 +447,9 @@ async function autoTakeMedication(
         slot.at,
         rows,
         isRollingSlot ? null : (bands.get(slot.at.getTime()) ?? null),
+        // Every expected slot around the window: a take sitting on one of
+        // them is that slot's dose, never a nearby take of this one.
+        expectedSlots,
       );
       const written = await applyDecision(prisma, {
         decision,

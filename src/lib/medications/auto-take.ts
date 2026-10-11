@@ -78,6 +78,8 @@ export interface SlotRow {
   skipped: boolean;
   autoMissed: boolean;
   deletedAt: Date | null;
+  /** `USER_PIN` when the person bound the row to its `scheduledFor`. */
+  attributionSource?: "AUTO" | "USER_PIN";
 }
 
 export type SlotDecision =
@@ -96,11 +98,18 @@ export type SlotDecision =
  * `band` is the slot's attribution band when the cadence has one (a take
  * anywhere inside it belongs to this slot); `null` for a rolling slot, whose
  * next occurrence is by definition later than every taken dose.
+ *
+ * Only a take that belongs to no other slot claims this one from inside its
+ * band. A take whose `scheduledFor` is another expected slot (`otherSlots`),
+ * or that the person pinned to an instant other than this slot, is that
+ * slot's dose however close its `takenAt` lies: the morning dose taken in
+ * the evening is still the morning dose, and the evening one stays due.
  */
 export function decideSlot(
   slotAt: Date,
   rows: readonly SlotRow[],
   band: Pick<SlotBand, "earlyStart" | "overdueEnd"> | null,
+  otherSlots: ReadonlySet<number> = new Set(),
 ): SlotDecision {
   const t = slotAt.getTime();
   const onSlot = rows.filter((r) => r.scheduledFor.getTime() === t);
@@ -121,7 +130,8 @@ export function decideSlot(
         !r.skipped &&
         r.takenAt !== null &&
         r.takenAt.getTime() >= from &&
-        r.takenAt.getTime() <= to,
+        r.takenAt.getTime() <= to &&
+        !belongsElsewhere(r, t, otherSlots),
     );
     if (takenNearby) return { kind: "leave", reason: "taken_nearby" };
   }
@@ -129,6 +139,17 @@ export function decideSlot(
     (a, b) => a.id.localeCompare(b.id), // deterministic pick on duplicates
   )[0];
   return pending ? { kind: "convert", rowId: pending.id } : { kind: "create" };
+}
+
+/** True when a row is attributed to a slot other than the one at `slotMs`. */
+function belongsElsewhere(
+  row: SlotRow,
+  slotMs: number,
+  otherSlots: ReadonlySet<number>,
+): boolean {
+  const at = row.scheduledFor.getTime();
+  if (at === slotMs) return false;
+  return row.attributionSource === "USER_PIN" || otherSlots.has(at);
 }
 
 export interface AutoTakeRollingMedication extends WorkerMedicationRow {

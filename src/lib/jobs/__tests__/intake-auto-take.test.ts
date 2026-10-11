@@ -485,6 +485,7 @@ interface FakeRow {
   deletedAt: Date | null;
   source: string;
   syncVersion: number;
+  attributionSource?: "AUTO" | "USER_PIN";
 }
 
 function fakeClient(meds: ReturnType<typeof medication>[], rows: FakeRow[]) {
@@ -890,5 +891,101 @@ describe("runIntakeAutoTakePass — rolling cadence keeps moving", () => {
       nowMs: Date.parse("2026-06-17T07:20:00Z"),
     });
     expect(autoRecordedSlots(rows)).toEqual([display!.at.toISOString()]);
+  });
+});
+
+// ── a take bound to another slot never claims this one ───────────────
+
+describe("runIntakeAutoTakePass — nearby takes of another slot", () => {
+  const twiceDaily = () =>
+    medication({
+      autoMarkTakenSince: new Date("2026-06-10T00:00:00Z"),
+      schedules: [schedule({ timesOfDay: ["08:00", "20:00"] })],
+    });
+  // 2026-06-10 (CEST): 08:00 = 06:00Z, 20:00 = 18:00Z; 19:00 = 17:00Z.
+  const MORNING = new Date("2026-06-10T06:00:00Z");
+  const EVENING = "2026-06-10T18:00:00.000Z";
+  const autoSlots = (rows: FakeRow[]) =>
+    rows.filter((r) => r.autoRecorded).map((r) => r.scheduledFor.toISOString());
+
+  it("the morning dose pinned and taken at 19:00 leaves the evening dose due", async () => {
+    const rows: FakeRow[] = [
+      row({
+        id: "pin",
+        scheduledFor: MORNING,
+        takenAt: new Date("2026-06-10T17:00:00Z"),
+        attributionSource: "USER_PIN",
+        source: "WEB",
+      }),
+    ];
+    await runIntakeAutoTakePass(fakeClient([twiceDaily()], rows), {
+      nowMs: Date.parse("2026-06-10T18:20:00Z"),
+    });
+    expect(autoSlots(rows)).toEqual([EVENING]);
+  });
+
+  it("the same without a pin: a take on the morning slot is the morning's", async () => {
+    const rows: FakeRow[] = [
+      row({
+        id: "late",
+        scheduledFor: MORNING,
+        takenAt: new Date("2026-06-10T17:00:00Z"),
+        source: "WEB",
+      }),
+    ];
+    await runIntakeAutoTakePass(fakeClient([twiceDaily()], rows), {
+      nowMs: Date.parse("2026-06-10T18:20:00Z"),
+    });
+    expect(autoSlots(rows)).toEqual([EVENING]);
+  });
+
+  it("an ad-hoc take at 19:00 still claims the evening dose", async () => {
+    const at19 = new Date("2026-06-10T17:00:00Z");
+    const rows: FakeRow[] = [
+      // The morning dose, taken on time.
+      row({
+        id: "am",
+        scheduledFor: MORNING,
+        takenAt: MORNING,
+        source: "WEB",
+      }),
+      row({ id: "adhoc", scheduledFor: at19, takenAt: at19, source: "WEB" }),
+    ];
+    await runIntakeAutoTakePass(fakeClient([twiceDaily()], rows), {
+      nowMs: Date.parse("2026-06-10T18:20:00Z"),
+    });
+    expect(autoSlots(rows)).toEqual([]);
+  });
+
+  it("decideSlot: a pinned row elsewhere is not nearby, an ad-hoc one is", () => {
+    const band = {
+      earlyStart: new Date("2026-06-10T15:00:00Z"),
+      overdueEnd: new Date("2026-06-10T21:00:00Z"),
+    };
+    const evening = new Date(EVENING);
+    const taken = new Date("2026-06-10T17:00:00Z");
+    const base = {
+      takenAt: taken,
+      skipped: false,
+      autoMissed: false,
+      deletedAt: null,
+    };
+    expect(
+      decideSlot(
+        evening,
+        [
+          {
+            ...base,
+            id: "p",
+            scheduledFor: new Date("2026-06-09T12:00:00Z"),
+            attributionSource: "USER_PIN",
+          },
+        ],
+        band,
+      ),
+    ).toEqual({ kind: "create" });
+    expect(
+      decideSlot(evening, [{ ...base, id: "a", scheduledFor: taken }], band),
+    ).toEqual({ kind: "leave", reason: "taken_nearby" });
   });
 });
