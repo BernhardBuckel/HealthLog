@@ -13,7 +13,7 @@
  *     other account's records" goes red;
  *   - drop the `search:moodNote` surface entry → "a switched-off module
  *     contributes nothing" goes red;
- *   - raise `MAX_SCAN_ROWS_PER_SOURCE` above the seeded count → "stops at the
+ *   - let `scanNewest` read past `MAX_SCAN_ROWS_PER_SOURCE` → "stops at the
  *     scan cap" goes red.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
