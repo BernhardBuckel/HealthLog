@@ -6,6 +6,8 @@
  */
 import type { Pool, PoolClient } from "pg";
 
+import { trackBackgroundTask } from "@/lib/logging/background-tasks";
+
 /**
  * Whether the app may send the libpq `options` startup parameter at all.
  *
@@ -62,8 +64,12 @@ export function timeZoneSessionOptions(): string | undefined {
 export function pinTimeZoneOnConnect(pool: Pool): void {
   if (!sessionOptionsDisabled()) return;
   pool.on("connect", (client: PoolClient) => {
-    client.query(SET_SESSION_TIME_ZONE).catch((err: unknown) => {
-      console.error("[db] Could not pin the session time zone:", err);
-    });
+    trackBackgroundTask(
+      client.query(SET_SESSION_TIME_ZONE).catch((err: unknown) => {
+        // The boot check reports a session that is not in UTC; this names
+        // the cause when the statement itself failed.
+        console.error("[db] Could not pin the session time zone:", err);
+      }),
+    );
   });
 }
