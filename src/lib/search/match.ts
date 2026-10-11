@@ -285,6 +285,18 @@ export function scoreCandidate(
   return { matched, score, phrase };
 }
 
+/** `scoreCandidate` for a raw query. */
+export function scoreForQuery(
+  candidate: Pick<SearchCandidate, "fields" | "contentWords">,
+  query: string,
+): CandidateScore {
+  return scoreCandidate(
+    candidate,
+    queryWords(query),
+    normalizeSearchText(query),
+  );
+}
+
 /** Whether a scored candidate stays in the result at all. */
 export function isHit(score: CandidateScore): boolean {
   return score.matched > 0 || score.phrase;
@@ -355,7 +367,9 @@ function foldWithMap(text: string): {
   from: number[];
   to: number[];
 } {
-  const chars: string[] = [];
+  // One entry per UTF-16 unit of the folded string, so an index `indexOf`
+  // returns can be looked up directly, astral characters included.
+  const units: string[] = [];
   const from: number[] = [];
   const to: number[] = [];
   // Whether the vowel at that position has already taken in its "e".
@@ -367,27 +381,29 @@ function foldWithMap(text: string): {
     if (/\s/u.test(ch)) piece = " ";
     piece = piece.replace(/ß/g, "ss");
     for (const out of piece) {
-      const prev = chars.length - 1;
+      const prev = units.length - 1;
       // "ae", "oe", "ue" fold onto the vowel: the "e" widens the vowel's
       // source range instead of adding a character.
       if (
         out === "e" &&
         prev >= 0 &&
-        /[aou]/.test(chars[prev]) &&
+        /[aou]/.test(units[prev]) &&
         !absorbed[prev]
       ) {
         to[prev] = end;
         absorbed[prev] = true;
         continue;
       }
-      chars.push(out);
-      from.push(index);
-      to.push(end);
-      absorbed.push(false);
+      for (let k = 0; k < out.length; k++) {
+        units.push(out[k]);
+        from.push(index);
+        to.push(end);
+        absorbed.push(false);
+      }
     }
     index = end;
   }
-  return { folded: chars.join(""), from, to };
+  return { folded: units.join(""), from, to };
 }
 
 /**
@@ -397,9 +413,16 @@ function foldWithMap(text: string): {
  * text holds a different word), so a result can match with nothing marked.
  */
 export function markMatches(text: string, query: string): MarkRange[] {
+  // The matcher's words; a query too short for the tokeniser ("Hb") is
+  // found by the phrase rule, so it is marked by its folded self.
+  const tokens = queryWords(query);
   const words = [
-    ...new Set(queryWords(query).map((w) => foldGerman(w))),
-  ].filter(Boolean);
+    ...new Set(
+      (tokens.length > 0 ? tokens : foldForMatch(query).split(" ")).map((w) =>
+        foldGerman(w),
+      ),
+    ),
+  ].filter((w) => w.length >= 2);
   if (words.length === 0 || text.length === 0) return [];
   const { folded, from, to } = foldWithMap(text);
   const ranges: MarkRange[] = [];
