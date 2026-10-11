@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { sendsMedicationReminders } from "@/lib/medications/auto-mark-taken";
 import { apiHandler, requireAuth, requireRecordAuth } from "@/lib/api-handler";
 import { annotate } from "@/lib/logging/context";
 import { auditLog } from "@/lib/auth/audit";
@@ -264,6 +265,8 @@ export const GET = apiHandler(
       categoryLabel,
       ...courseFields,
       nextDueAt: display ? display.at.toISOString() : null,
+      // v1.42.2 — the server's own reminder decision, published resolved.
+      remindersActive: sendsMedicationReminders(medication),
       nextDueOverdue: display?.overdue ?? false,
       // v1.39.4 (#1040) — see `resolveIntakeActionability`.
       ...resolveIntakeActionability(

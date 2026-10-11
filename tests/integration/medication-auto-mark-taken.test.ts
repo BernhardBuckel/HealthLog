@@ -379,3 +379,84 @@ describe("auto-mark-taken pass", () => {
     expect(off).toEqual({ autoMarkTaken: false, autoMarkTakenSince: null });
   });
 });
+
+describe("remindersActive — the published value is the gate", () => {
+  it("equals sendsMedicationReminders() on the list and detail reads, for every combination", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    const { sendsMedicationReminders } =
+      await import("@/lib/medications/auto-mark-taken");
+    at("2026-06-10T10:00:00.000Z");
+
+    const combos: Array<{
+      notificationsEnabled: boolean;
+      autoMarkTaken: boolean;
+      active: boolean;
+      trackIntake: boolean;
+      asNeeded: boolean;
+    }> = [];
+    for (let bits = 0; bits < 32; bits++) {
+      combos.push({
+        notificationsEnabled: (bits & 1) !== 0,
+        autoMarkTaken: (bits & 2) !== 0,
+        active: (bits & 4) !== 0,
+        trackIntake: (bits & 8) !== 0,
+        asNeeded: (bits & 16) !== 0,
+      });
+    }
+    const ids: string[] = [];
+    for (const [i, combo] of combos.entries()) {
+      const med = await prisma.medication.create({
+        data: {
+          userId,
+          name: `Combo ${i}`,
+          dose: "1",
+          ...combo,
+          autoMarkTakenSince: combo.autoMarkTaken ? new Date() : null,
+          ...(!combo.asNeeded && {
+            schedules: {
+              create: {
+                windowStart: "19:00",
+                windowEnd: "19:00",
+                timesOfDay: ["19:00"],
+                rrule: "FREQ=DAILY",
+                scheduleType: "SCHEDULED",
+              },
+            },
+          }),
+        },
+        select: { id: true },
+      });
+      ids.push(med.id);
+    }
+
+    const list = await import("@/app/api/medications/route");
+    const listRes = await (list.GET as Handler)(
+      new NextRequest("http://localhost/api/medications"),
+      { params: Promise.resolve({}) },
+    );
+    expect(listRes.status).toBe(200);
+    const listBody = (await listRes.json()) as {
+      data: Array<{ id: string; remindersActive: boolean }>;
+    };
+    const listed = new Map(
+      listBody.data.map((m) => [m.id, m.remindersActive] as const),
+    );
+
+    const detail = await import("@/app/api/medications/[id]/route");
+    let trueCount = 0;
+    for (const [i, id] of ids.entries()) {
+      const expected = sendsMedicationReminders(combos[i]);
+      if (expected) trueCount++;
+      expect(listed.get(id), `list combo ${i}`).toBe(expected);
+      const res = await (detail.GET as Handler)(
+        new NextRequest(`http://localhost/api/medications/${id}`),
+        { params: Promise.resolve({ id }) },
+      );
+      const body = (await res.json()) as { data: { remindersActive: boolean } };
+      expect(body.data.remindersActive, `detail combo ${i}`).toBe(expected);
+    }
+    // Exactly one combination reminds: on, not auto, active, tracked, scheduled.
+    expect(trueCount).toBe(1);
+  });
+});

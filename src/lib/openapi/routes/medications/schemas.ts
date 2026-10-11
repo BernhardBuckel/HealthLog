@@ -278,6 +278,12 @@ export const medicationResource = z
       ),
     pausedAt: z.iso.datetime({ offset: true }).nullable(),
     snoozedUntil: z.iso.datetime({ offset: true }).nullable(),
+    remindersActive: z
+      .boolean()
+      .optional()
+      .describe(
+        "Present on the READ paths only (list and single GET). v1.42.2 — whether the server sends dose reminders for this medication: true only when `notificationsEnabled` is on, the medication is `active`, its intake is tracked (`trackIntake`), it is not `asNeeded`, and `autoMarkTaken` is off. The same decision gates every server-side reminder send. A client that arms local reminders arms them from this, not from `notificationsEnabled`. Read-only — computed, not stored.",
+      ),
     nextDueAt: z.iso
       .datetime({ offset: true })
       .nullable()
@@ -366,6 +372,11 @@ export const medicationListEntry = medicationResource
     // even though the shared base leaves them optional for the write paths.
     nextDueAt: z.iso.datetime({ offset: true }).nullable(),
     nextDueOverdue: z.boolean(),
+    remindersActive: z
+      .boolean()
+      .describe(
+        "v1.42.2 — whether the server sends dose reminders for this medication: true only when `notificationsEnabled` is on, the medication is `active`, its intake is tracked (`trackIntake`), it is not `asNeeded`, and `autoMarkTaken` is off. The same decision gates every server-side reminder send. A client that arms local reminders arms them from this, not from `notificationsEnabled`. Read-only — computed, not stored.",
+      ),
     courseStatus: z
       .enum(["UPCOMING", "CURRENT", "ENDED"])
       .describe(
@@ -418,6 +429,12 @@ export const medicationListEntry = medicationResource
 
 export const medicationDetailEntry = medicationResource
   .extend({
+    // The single GET always computes it; required here like on the list.
+    remindersActive: z
+      .boolean()
+      .describe(
+        "v1.42.2 — whether the server sends dose reminders for this medication. See the `Medication` component.",
+      ),
     category: medicationCategoryEnum,
     categoryLabel: medicationCategoryLabelField,
     ...medicationCourseFields,
