@@ -10858,6 +10858,7 @@
       "saveError": "Nie udało się zapisać zmiany.",
       "deleteError": "Nie udało się usunąć dokumentu.",
       "download": "Pobierz",
+      "openInNewTab": "Otwórz w nowej karcie",
       "delete": "Usuń",
       "titleLabel": "Tytuł",
       "titlePlaceholder": "Dodaj tytuł",

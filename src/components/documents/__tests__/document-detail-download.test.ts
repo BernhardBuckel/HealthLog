@@ -81,3 +81,41 @@ describe("the detail sheet's original-document transport", () => {
     );
   });
 });
+
+/**
+ * "Open in new tab" hands the browser the types it renders itself, so a long
+ * report gets the browser's zoom and search. It must open the object URL the
+ * sheet already holds (a bare navigation to the route carries no record-session
+ * assertion and is refused once the session has been inside a shared record),
+ * and it must never appear for a type outside the inline serving class.
+ */
+describe("the detail sheet's open-in-new-tab control", () => {
+  const control = SHEET.slice(
+    SHEET.indexOf("function DocumentOpenInTabButton("),
+    SHEET.indexOf("/** Inline preview for Class A documents"),
+  );
+
+  it("exists", () => {
+    expect(control.length).toBeGreaterThan(0);
+    expect(SHEET).toMatch(/<DocumentOpenInTabButton\s/);
+  });
+
+  it("renders only for the inline serving class", () => {
+    expect(SHEET).toMatch(
+      /doc\.servingClass === "inline" \? \(\s*\n\s*<DocumentOpenInTabButton\s+readyUrl=\{inlineSrc\}/,
+    );
+    expect([...SHEET.matchAll(/<DocumentOpenInTabButton\s/g)]).toHaveLength(1);
+  });
+
+  it("opens the fetched object URL, never the route, without an opener", () => {
+    expect(control).toContain('window.open(readyUrl, "_blank", "noopener")');
+    expect(control).not.toContain("/api/documents");
+  });
+
+  it("is disabled until the bytes are in hand, and when they failed", () => {
+    expect(control).toMatch(/disabled=\{readyUrl === null \|\| unavailable\}/);
+    expect(SHEET).toMatch(
+      /<DocumentOpenInTabButton\s+readyUrl=\{inlineSrc\}\s+unavailable=\{inlineFailed\}/,
+    );
+  });
+});

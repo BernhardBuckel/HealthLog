@@ -10858,6 +10858,7 @@
       "saveError": "Die Änderung konnte nicht gespeichert werden.",
       "deleteError": "Das Dokument konnte nicht gelöscht werden.",
       "download": "Herunterladen",
+      "openInNewTab": "In neuem Tab öffnen",
       "delete": "Löschen",
       "titleLabel": "Titel",
       "titlePlaceholder": "Titel hinzufügen",

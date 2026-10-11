@@ -10858,6 +10858,7 @@
       "saveError": "Impossibile salvare la modifica.",
       "deleteError": "Impossibile eliminare il documento.",
       "download": "Scarica",
+      "openInNewTab": "Apri in una nuova scheda",
       "delete": "Elimina",
       "titleLabel": "Titolo",
       "titlePlaceholder": "Aggiungi un titolo",

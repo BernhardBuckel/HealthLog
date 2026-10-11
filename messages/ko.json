@@ -10858,6 +10858,7 @@
       "saveError": "변경 내용을 저장하지 못했어요.",
       "deleteError": "문서를 삭제하지 못했어요.",
       "download": "다운로드",
+      "openInNewTab": "새 탭에서 열기",
       "delete": "삭제",
       "titleLabel": "제목",
       "titlePlaceholder": "제목 입력",
