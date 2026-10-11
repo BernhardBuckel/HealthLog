@@ -342,6 +342,7 @@ export const ERROR_CODE_CATALOGUE: Readonly<Record<string, readonly string[]>> =
       "report-selection.leaves.unknown",
     ],
     route: ["route.retired"],
+    search: ["search.invalid"],
     "share-link": [
       "share-link.document.decryptFailed",
       "share-link.document.notFound",

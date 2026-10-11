@@ -1045,6 +1045,10 @@ const DELEGABLE_ROUTES: Record<string, DelegableEntry> = {
     domain: "record",
     why: "Counts per timeline lane with an in-app link per gap. Counts only, no record content; scoped to the resolved user and module-gated like the timeline.",
   },
+  "app/api/search/route.ts": {
+    domain: "record",
+    why: "One search over the record: hits from every section with an in-app path each. Read-only, scoped to the resolved user, every source narrowed to the record's module switches and to the sections the grant covers, the query never logged.",
+  },
   "app/api/workouts/route.ts": {
     domain: "measurements",
     why: "The record's workout list. Verified to carry no AI-written paragraph: the single-workout route beside it does, and stays refused for exactly that reason.",
@@ -2094,7 +2098,7 @@ const ACTOR_ROUTES: Record<string, string> = {
  * literal (a score's daily course, MANAGE like the derived score itself).
  * 252 -> 254.
  */
-const FROZEN_ENTRY_COUNT = 254;
+const FROZEN_ENTRY_COUNT = 255;
 
 /**
  * The two surfaces that authenticate a Bearer token outside `requireAuth` —

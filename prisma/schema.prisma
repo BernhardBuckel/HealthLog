@@ -2095,6 +2095,12 @@ model Measurement {
   // without this one the purge planned a sequential scan and could not finish
   // inside statement_timeout. Raw SQL only (partial predicate not expressible
   // in Prisma).
+  // `measurements_noted_live_idx` is a partial index over `(user_id,
+  // measured_at DESC, id DESC) WHERE deleted_at IS NULL AND (notes_encrypted
+  // IS NOT NULL OR notes IS NOT NULL)` — see migration 0397 (v1.42.2). The
+  // record search reads the notes on readings newest first; without it a
+  // record of millions of readings with a few notes walks every reading.
+  // Raw SQL only (partial predicate not expressible in Prisma).
   @@map("measurements")
 }
 

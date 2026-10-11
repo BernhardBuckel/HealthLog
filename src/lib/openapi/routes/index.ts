@@ -49,6 +49,7 @@ import { dailyPaths } from "./daily";
 import { cyclePaths } from "./cycle";
 import { dashboardWidgetPaths } from "./dashboard";
 import { dayPaths } from "./day";
+import { searchPaths } from "./search";
 import { biomarkerPaths } from "./biomarkers";
 import { inboundDocumentPaths } from "./documents";
 import { documentSourcePaths } from "./document-sources";
@@ -185,6 +186,7 @@ export const openApiPaths: NonNullable<ZodOpenApiObject["paths"]> = {
   // v1.42 — the day view, the timeline and life events (appended, spread
   // order is load-bearing).
   ...dayPaths,
+  ...searchPaths,
   // The environmental-context overview. Its own module because nothing else
   // owns the surface (appended, spread order is load-bearing).
   //

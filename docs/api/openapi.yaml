@@ -23677,6 +23677,51 @@ paths:
         "404": *a69
         "422": *a4
         "429": *a5
+  /api/search:
+    get:
+      tags:
+        - Records
+      summary: Search the record
+      description: "One search over the record: visits and procedures, conditions, documents (title, file name and indexed
+        text), vaccinations, lab results (analyte names and notes), medications, symptoms, workouts by sport, and the
+        notes on mood entries, readings and illness days. Hits are grouped by kind, the best group first, and each
+        carries the in-app path that opens the record. Matching ignores case and accents and reads German umlauts typed
+        as ae, oe, ue or ss. A source whose module the record has switched off is not read. The search reads each source
+        newest first under a per-source row cap and a time budget; `truncated` says when that cut it short. The query is
+        never logged. Rate limited per acting account (60 a minute). A grant scoped to some sections of the record does
+        not open it, like the timeline."
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+            description: What to look for. Matched without regard to case or accents, and German umlauts may be typed as ae, oe, ue
+              or ss.
+          required: true
+          description: What to look for. Matched without regard to case or accents, and German umlauts may be typed as ae, oe, ue
+            or ss.
+        - in: query
+          name: limit
+          schema:
+            default: 5
+            description: Most hits per group.
+            type: integer
+            minimum: 1
+            maximum: 20
+          description: Most hits per group.
+      responses:
+        "200":
+          description: The hits, grouped by kind.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchEnvelope"
+        "401": *a1
+        "403": *a11
+        "422": *a4
+        "429": *a5
   /api/bugreport:
     post:
       security: []
@@ -34384,15 +34429,15 @@ components:
                 profile.update.emailSecondFactorRequired, profile.update.invalidBody, profile.update.nothingSaved;
                 profile_claim — profile_claim.invalid, profile_claim.oidc_only_unsupported, profile_claim.taken;
                 record_write — record_write.rate_limited; report-selection — report-selection.body.invalid_json,
-                report-selection.body.invalid_shape, report-selection.leaves.unknown; route — route.retired; share-link
-                — share-link.document.decryptFailed, share-link.document.notFound, share-link.document.rateLimited,
-                share-link.documents.invalid, share-link.report.notFound, share-link.report.rateLimited,
-                share-link.selection.forbidden_leaf, share-link.selection.unknown_leaf; sharing —
-                sharing.accept.expired, sharing.accept.not_found, sharing.accept.not_pending, sharing.accept.revoked,
-                sharing.access.denied, sharing.invite.duplicate, sharing.invite.invalid, sharing.invite.invalid_scope,
-                sharing.invite.manage_browser_only, sharing.invite.refused, sharing.invite.self, sharing.not_permitted,
-                sharing.renounce.already_ended, sharing.renounce.not_found, sharing.revoke.already_ended,
-                sharing.revoke.not_found, sharing.session.changed, sharing.switch.invalid,
+                report-selection.body.invalid_shape, report-selection.leaves.unknown; route — route.retired; search —
+                search.invalid; share-link — share-link.document.decryptFailed, share-link.document.notFound,
+                share-link.document.rateLimited, share-link.documents.invalid, share-link.report.notFound,
+                share-link.report.rateLimited, share-link.selection.forbidden_leaf, share-link.selection.unknown_leaf;
+                sharing — sharing.accept.expired, sharing.accept.not_found, sharing.accept.not_pending,
+                sharing.accept.revoked, sharing.access.denied, sharing.invite.duplicate, sharing.invite.invalid,
+                sharing.invite.invalid_scope, sharing.invite.manage_browser_only, sharing.invite.refused,
+                sharing.invite.self, sharing.not_permitted, sharing.renounce.already_ended, sharing.renounce.not_found,
+                sharing.revoke.already_ended, sharing.revoke.not_found, sharing.session.changed, sharing.switch.invalid,
                 sharing.switch.wrong_transport; source-priority — source-priority.body.invalid_json,
                 source-priority.body.invalid_shape; symptoms — symptoms.definition.limitReached,
                 symptoms.definition.notFound, symptoms.episode.notOpen, symptoms.event.notFound, symptoms.invalid;
@@ -82203,6 +82248,137 @@ components:
       required:
         - data
         - error
+      additionalProperties: false
+    SearchEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/SearchResponse"
+        error:
+          type: "null"
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+          additionalProperties: false
+      required:
+        - data
+        - error
+      additionalProperties: false
+    SearchResponse:
+      type: object
+      properties:
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                enum:
+                  - visit
+                  - condition
+                  - document
+                  - vaccination
+                  - lab
+                  - medication
+                  - symptom
+                  - workout
+                  - note
+              hits:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchHit"
+              more:
+                type: boolean
+            required:
+              - kind
+              - hits
+              - more
+            additionalProperties: false
+        truncated:
+          type: boolean
+          description: The search stopped before it had read every entry (a per-kind row cap or the time budget), so older entries
+            may match and are not listed.
+      required:
+        - groups
+        - truncated
+      additionalProperties: false
+    SearchHit:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - visit
+            - condition
+            - document
+            - vaccination
+            - lab
+            - medication
+            - symptom
+            - workout
+            - note
+        title:
+          anyOf:
+            - $ref: "#/components/schemas/SearchMarkedText"
+            - type: "null"
+        context:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchMarkedText"
+        snippet:
+          anyOf:
+            - $ref: "#/components/schemas/SearchMarkedText"
+            - type: "null"
+        day:
+          anyOf:
+            - type: string
+            - type: "null"
+        path:
+          type: string
+          description: In-app path that opens the record, never an API path.
+        source:
+          anyOf:
+            - type: string
+              enum:
+                - mood
+                - measurement
+                - illness
+            - type: "null"
+      required:
+        - id
+        - kind
+        - title
+        - context
+        - snippet
+        - day
+        - path
+        - source
+      additionalProperties: false
+    SearchMarkedText:
+      type: object
+      properties:
+        text:
+          type: string
+        marks:
+          type: array
+          items:
+            type: array
+            prefixItems:
+              - type: integer
+                minimum: -9007199254740991
+                maximum: 9007199254740991
+              - type: integer
+                minimum: -9007199254740991
+                maximum: 9007199254740991
+          description: Half-open [start, end) character ranges of `text` a query word matched.
+      required:
+        - text
+        - marks
       additionalProperties: false
     __schema0:
       anyOf:
