@@ -32,7 +32,12 @@ import { Label } from "@/components/ui/label";
 import { useTranslations } from "@/lib/i18n/context";
 
 import type { OcrReviewRow } from "./ocr-review-types";
-import { readingUnitDiffers, type OcrRowErrors } from "./ocr-review-validation";
+import {
+  readingConversion,
+  readingUnitBlocked,
+  type OcrRowErrors,
+} from "./ocr-review-validation";
+import { useLabNumber } from "./use-lab-format";
 
 /** Below this per-field confidence the field is flagged for a second look. */
 const CONFIDENCE_THRESHOLD = 0.6;
@@ -76,10 +81,13 @@ export function OcrRowEditor({
         message={t(messageKey, params)}
       />
     ) : null;
-  // Stated before Save, not only after a failed attempt: a reading in another
-  // unit than its marker's cannot be written, and the person should see why
-  // the row is unticked (or will not save) while they are still reading it.
-  const unitDiffers = readingUnitDiffers(row);
+  // Stated before Save, not only after a failed attempt. A reading in another
+  // unit than its marker's is either converted (the badge says what Save will
+  // store) or cannot be written (the person should see why the row is unticked,
+  // or will not save, while they are still reading it).
+  const unitBlocked = readingUnitBlocked(row);
+  const conversion = readingConversion(row);
+  const labNumber = useLabNumber();
 
   const isQualitative = row.valueText !== null && row.valueText !== undefined;
   const lowValueConfidence =
@@ -169,13 +177,30 @@ export function OcrRowEditor({
                   {t("labs.ocr.duplicateWarning")}
                 </Badge>
               ) : null}
-              {unitDiffers ? (
+              {unitBlocked ? (
                 <Badge variant="secondary" className="max-w-full">
                   <Ruler aria-hidden />
                   <span className="truncate">
                     {t("labs.ocr.unitDiffersBadge", {
                       markerUnit: row.markerUnit ?? "",
                       unit: (row.unit ?? "").trim(),
+                    })}
+                  </span>
+                </Badge>
+              ) : null}
+              {conversion ? (
+                <Badge
+                  variant="outline"
+                  className="max-w-full"
+                  data-slot="ocr-row-converted-badge"
+                >
+                  <Ruler aria-hidden />
+                  <span className="truncate">
+                    {t("labs.ocr.unitConvertedBadge", {
+                      value: labNumber(conversion.value),
+                      markerUnit: conversion.unit,
+                      statedValue: labNumber(conversion.statedValue),
+                      unit: conversion.statedUnit,
                     })}
                   </span>
                 </Badge>

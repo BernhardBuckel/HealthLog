@@ -7,7 +7,7 @@
  */
 import type { OcrExtractedRowDto } from "@/lib/validations/labs-ocr";
 
-import { readingUnitDiffers } from "./ocr-review-validation";
+import { readingUnitBlocked } from "./ocr-review-validation";
 
 export interface OcrReviewRow {
   /** Stable client key for the list (the analyte+index at seed time). */
@@ -26,9 +26,12 @@ export interface OcrReviewRow {
   biomarkerMatch: "new" | "existing";
   /**
    * The unit the matched marker is tracked in; null for a marker that does not
-   * exist yet. A numeric row whose `unit` differs from it cannot be saved.
+   * exist yet. A numeric row whose `unit` differs from it is converted on
+   * Save when it can be (see `readingConversion`) and cannot be saved when not.
    */
   markerUnit: string | null;
+  /** Which analyte the matched marker is (conversion registry key), or null. */
+  markerAnalyteKey: string | null;
   /** Non-null when the server flagged a likely duplicate of a live reading. */
   duplicateOf: string | null;
   /** Whether the row is selected for saving. Defaults false for duplicates. */
@@ -53,17 +56,21 @@ export function seedReviewRows(
     confidence: row.confidence,
     biomarkerMatch: row.biomarkerMatch,
     markerUnit: row.markerUnit,
+    markerAnalyteKey: row.markerAnalyteKey,
     duplicateOf: row.duplicateOf,
     // A flagged duplicate starts unchecked, and so does a reading in another
-    // unit than its marker's (it carries a badge saying why, and ticking it
-    // marks the unit field until it is fixed); everything else starts
-    // confirmed.
+    // unit than its marker's that cannot be converted (it carries a badge
+    // saying why, and ticking it marks the unit field until it is fixed); a
+    // reading that converts starts confirmed, with a badge saying what Save
+    // will store; everything else starts confirmed.
     confirmed:
       row.duplicateOf === null &&
-      !readingUnitDiffers({
+      !readingUnitBlocked({
+        value: row.value,
         valueText: row.valueText,
         unit: row.unit,
         markerUnit: row.markerUnit,
+        markerAnalyteKey: row.markerAnalyteKey,
       }),
   }));
 }

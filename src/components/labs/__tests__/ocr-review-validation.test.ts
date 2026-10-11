@@ -5,6 +5,8 @@ import { seedReviewRows } from "../ocr-review-types";
 import {
   collectRowErrors,
   planSave,
+  readingConversion,
+  readingUnitBlocked,
   readingUnitDiffers,
   toCommitRow,
   validateReviewRow,
@@ -24,6 +26,7 @@ function row(overrides: Partial<OcrReviewRow> = {}): OcrReviewRow {
     confidence: { analyte: 1, value: 1, unit: 1, range: 1 },
     biomarkerMatch: "existing",
     markerUnit: "mmol/L",
+    markerAnalyteKey: null,
     duplicateOf: null,
     confirmed: true,
     ...overrides,
@@ -200,6 +203,7 @@ describe("a reading in another unit than its marker's", () => {
       confidence: { analyte: 1, value: 1, unit: 1, range: 1 },
       biomarkerMatch: "existing" as const,
       markerUnit,
+      markerAnalyteKey: null,
       duplicateOf: null,
     });
     const [same, other, fresh] = seedReviewRows(
@@ -210,5 +214,87 @@ describe("a reading in another unit than its marker's", () => {
     expect(other.confirmed).toBe(false);
     expect(other.markerUnit).toBe("mg/dL");
     expect(fresh.confirmed).toBe(true);
+  });
+});
+
+describe("a reading in another unit that can be converted", () => {
+  // Glucose stated in mmol/L against a marker kept in mg/dL, and the analyte is
+  // known: Save converts it, so nothing blocks and the row starts selected.
+  const glucose = (overrides: Partial<OcrReviewRow> = {}) =>
+    row({
+      analyte: "Glucose",
+      value: 5.6,
+      unit: "mmol/L",
+      markerUnit: "mg/dL",
+      markerAnalyteKey: "fasting-glucose",
+      ...overrides,
+    });
+
+  it("previews what Save will store, beside what the report stated", () => {
+    const conversion = readingConversion(glucose());
+    expect(conversion).toMatchObject({
+      unit: "mg/dL",
+      statedValue: 5.6,
+      statedUnit: "mmol/L",
+    });
+    expect(conversion!.value).toBeCloseTo(5.6 * 18.0182, 9);
+  });
+
+  it("is not blocked, and not a validation error", () => {
+    expect(readingUnitDiffers(glucose())).toBe(true);
+    expect(readingUnitBlocked(glucose())).toBe(false);
+    expect(validateReviewRow(glucose())).toEqual({});
+  });
+
+  it("sends what the report printed, for the server to convert", () => {
+    const payload = toCommitRow(glucose());
+    expect(payload).toMatchObject({
+      analyte: "Glucose",
+      value: 5.6,
+      unit: "mmol/L",
+    });
+    expect(planSave([glucose()]).kind).toBe("ready");
+  });
+
+  it("starts selected on the review screen", () => {
+    const dto = {
+      analyte: "Glucose",
+      value: 5.6,
+      valueText: null,
+      unit: "mmol/L",
+      referenceLow: null,
+      referenceHigh: null,
+      referenceText: null,
+      takenAt: "2026-06-10",
+      confidence: { analyte: 1, value: 1, unit: 1, range: 1 },
+      biomarkerMatch: "existing" as const,
+      markerUnit: "mg/dL",
+      markerAnalyteKey: "fasting-glucose",
+      duplicateOf: null,
+    };
+    const [converts, blocked] = seedReviewRows(
+      [dto, { ...dto, markerAnalyteKey: null }],
+      null,
+    );
+    expect(converts.confirmed).toBe(true);
+    expect(blocked.confirmed).toBe(false);
+  });
+
+  it("stays blocked when the marker has no known analyte, or the pair is not in the registry", () => {
+    expect(readingUnitBlocked(glucose({ markerAnalyteKey: null }))).toBe(true);
+    expect(readingConversion(glucose({ markerAnalyteKey: null }))).toBeNull();
+    expect(validateReviewRow(glucose({ markerAnalyteKey: null }))).toEqual({
+      unitMismatch: true,
+    });
+    // The analyte is known but the unit is not one it reaches.
+    expect(readingUnitBlocked(glucose({ unit: "%" }))).toBe(true);
+  });
+
+  it("has nothing to preview when the units agree or the row is qualitative", () => {
+    expect(readingConversion(glucose({ unit: "mg/dL" }))).toBeNull();
+    expect(
+      readingConversion(glucose({ value: null, valueText: "negative" })),
+    ).toBeNull();
+    expect(readingConversion(glucose({ value: null }))).toBeNull();
   });
 });

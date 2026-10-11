@@ -28,6 +28,8 @@ import {
   isUnreadableRange,
   parseReferenceRange,
 } from "@/lib/labs/parse-reference-range";
+import { matchAnalyteKey } from "@/lib/labs/analyte-match";
+import { sameLabUnit } from "@/lib/labs/unit-normalise";
 import { annotate } from "@/lib/logging/context";
 import {
   extractedLabsSchema,
@@ -144,8 +146,17 @@ export async function annotateRow(
   // Biomarker match — case-insensitive on the catalog identity, presence-only.
   const existingBiomarker = await prisma.biomarker.findFirst({
     where: { userId, name: { equals: analyte, mode: "insensitive" } },
-    select: { id: true, unit: true },
+    select: { id: true, name: true, unit: true, analyteKey: true },
   });
+  // The analyte the marker is, so the review can say whether a row in another
+  // unit converts. Read only: the key is filled when a reading is written.
+  const markerAnalyteKey = existingBiomarker
+    ? (existingBiomarker.analyteKey ??
+      matchAnalyteKey({
+        name: existingBiomarker.name,
+        unit: existingBiomarker.unit,
+      }))
+    : null;
 
   // Duplicate check: a live lab_results row with the same analyte (fuzzy,
   // case-insensitive), the same calendar day, and the same value/valueText is
@@ -161,7 +172,14 @@ export async function annotateRow(
         analyte: { equals: analyte, mode: "insensitive" },
         takenAt: labReadingDaySearchRange(takenAt),
       },
-      select: { id: true, value: true, valueText: true, takenAt: true },
+      select: {
+        id: true,
+        value: true,
+        valueText: true,
+        sourceValue: true,
+        sourceUnit: true,
+        takenAt: true,
+      },
       take: 100,
     });
     const candidates = rows.filter(
@@ -169,6 +187,20 @@ export async function annotateRow(
     );
     for (const c of candidates) {
       if (row.value !== null && c.value !== null && c.value === row.value) {
+        duplicateOf = c.id;
+        break;
+      }
+      // A reading stored converted holds the number in its marker's unit; what
+      // the report printed is beside it. The same number in the same unit is
+      // the same reading (the commit applies the same rule).
+      if (
+        row.value !== null &&
+        row.unit !== null &&
+        c.sourceValue !== null &&
+        c.sourceValue === row.value &&
+        c.sourceUnit !== null &&
+        sameLabUnit(c.sourceUnit, row.unit)
+      ) {
         duplicateOf = c.id;
         break;
       }
@@ -199,6 +231,7 @@ export async function annotateRow(
     confidence: row.confidence,
     biomarkerMatch: existingBiomarker ? "existing" : "new",
     markerUnit: existingBiomarker?.unit ?? null,
+    markerAnalyteKey,
     duplicateOf,
   };
 }

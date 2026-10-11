@@ -250,6 +250,48 @@ describe("the OCR commit", () => {
     expect(json.data!.skipped.map((s) => s.reason)).toEqual(["duplicate"]);
   });
 
+  it("tells the scan review which analyte the marker is, and flags a re-scan as a duplicate", async () => {
+    const { annotateRow } = await import("@/lib/labs/ocr-extract");
+    const scanned = {
+      analyte: "Glucose",
+      value: 5.0,
+      valueText: null,
+      unit: "mmol/L",
+      referenceLow: null,
+      referenceHigh: null,
+      referenceText: null,
+      takenAt: "2026-06-01",
+      confidence: { analyte: 1, value: 1, unit: 1, range: 1 },
+    };
+    const annotated = await annotateRow(USER, scanned, "2026-06-01", "UTC");
+    expect(annotated).toMatchObject({
+      biomarkerMatch: "existing",
+      markerUnit: "mg/dL",
+      markerAnalyteKey: "fasting-glucose",
+    });
+    // The converted reading from the commit above holds 90.09 mg/dL; the scan
+    // says 5.0 mmol/L, which is what the report printed for it.
+    expect(annotated.duplicateOf).not.toBeNull();
+
+    // A different value is not a duplicate.
+    const other = await annotateRow(
+      USER,
+      { ...scanned, value: 6.5 },
+      "2026-06-01",
+      "UTC",
+    );
+    expect(other.duplicateOf).toBeNull();
+
+    // A marker the registry knows nothing about reports no analyte.
+    const free = await annotateRow(
+      USER,
+      { ...scanned, analyte: "My own marker", unit: "mg/dL" },
+      "2026-06-01",
+      "UTC",
+    );
+    expect(free.markerAnalyteKey).toBeNull();
+  });
+
   it("skips a row whose unit cannot be converted, as before", async () => {
     const { json } = await call<{
       inserted: unknown[];

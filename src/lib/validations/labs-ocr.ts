@@ -131,6 +131,12 @@ export interface OcrExtractedRowDto {
    * so before Save when the scanned unit differs.
    */
   markerUnit: string | null;
+  /**
+   * Which analyte the matched marker is (unit-conversion registry key), or null
+   * when the marker is new or none is known. With `markerUnit` it tells the
+   * review screen whether a row in another unit can be converted on Save.
+   */
+  markerAnalyteKey: string | null;
   duplicateOf: string | null;
 }
 

@@ -9522,6 +9522,7 @@
     },
     "noteLoadFailed": "Impossibile caricare la nota; resterà invariata al salvataggio.",
     "showingLatestOf": "Visualizzazione degli ultimi {shown} risultati su {total}",
+    "convertedFrom": "convertito da {value} {unit}",
     "ocr": {
       "scanButton": "Scansiona un referto",
       "addScan": "Scansiona un documento",
@@ -9568,6 +9569,7 @@
       "errorUnit": "Inserisci un'unità.",
       "errorUnitMismatch": "Questo marcatore è registrato in {markerUnit}. Cambia l’unità se il referto è stato letto male, oppure deseleziona questo valore.",
       "unitDiffersBadge": "Registrato in {markerUnit}; questo referto indica {unit}",
+      "unitConvertedBadge": "Verrà salvato come {value} {markerUnit}, convertito da {statedValue} {unit}",
       "savedPartialUnitToast": "{count} risultati salvati. Non salvati perché l’unità è diversa da quella del marcatore: {analytes}",
       "savedNothingUnitToast": "Nulla salvato: l’unità è diversa da quella del marcatore per {analytes}",
       "saveFailed": "Impossibile salvare i valori. Riprova.",

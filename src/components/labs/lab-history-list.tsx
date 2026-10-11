@@ -30,6 +30,7 @@ import { useTableSort } from "@/hooks/use-table-sort";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api/api-fetch";
 import { localizedApiError } from "@/lib/api/localized-error";
 import { formatLabReading } from "@/lib/labs/format-value";
+import { LabConvertedNote } from "./lab-converted-note";
 import { resolveNoteForUpdate } from "@/lib/labs/note-update";
 import { useTranslations } from "@/lib/i18n/context";
 import { queryKeys } from "@/lib/query-keys";
@@ -381,6 +382,10 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
             <div className="min-w-0 flex-1 space-y-2">
               <div className="font-semibold tabular-nums">
                 {formatLabReading(r, labNumber)}
+                <LabConvertedNote
+                  reading={r}
+                  className="text-muted-foreground ml-2 text-xs font-normal"
+                />
               </div>
               <LabReferenceRangeBar
                 value={r.value}
@@ -453,6 +458,10 @@ export function LabHistoryList({ readings }: { readings: LabResultDto[] }) {
                 <TableCell className="font-semibold tabular-nums">
                   <div className="space-y-2">
                     <span>{formatLabReading(r, labNumber)}</span>
+                    <LabConvertedNote
+                      reading={r}
+                      className="text-muted-foreground block text-xs font-normal"
+                    />
                     <LabReferenceRangeBar
                       value={r.value}
                       referenceLow={r.referenceLow}

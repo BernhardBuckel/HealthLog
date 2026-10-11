@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api/api-fetch";
 import { formatReferenceRange } from "@/lib/labs/reference-range";
 import { formatLabReading } from "@/lib/labs/format-value";
+import { LabConvertedNote } from "./lab-converted-note";
 import { useTranslations } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
@@ -299,6 +300,7 @@ export function LabList({
                       {formatLabReading(group.latest, labNumber)}
                     </span>
                     <span>{labDate(group.latest.takenAt)}</span>
+                    <LabConvertedNote reading={group.latest} />
                   </div>
                 </div>
               );
@@ -429,6 +431,7 @@ export function LabList({
                     <span className="text-xs">
                       {labDate(group.latest.takenAt)}
                     </span>
+                    <LabConvertedNote reading={group.latest} />
                     {group.readings.length > 1 ? (
                       <span className="text-xs">
                         {t("labs.readingsCount", {

@@ -9522,6 +9522,7 @@
     },
     "noteLoadFailed": "Note could not be loaded; it will be kept unchanged when you save.",
     "showingLatestOf": "Showing the latest {shown} of {total} readings",
+    "convertedFrom": "converted from {value} {unit}",
     "ocr": {
       "scanButton": "Scan a report",
       "addScan": "Scan a document",
@@ -9568,6 +9569,7 @@
       "errorUnit": "Add a unit.",
       "errorUnitMismatch": "This marker is tracked in {markerUnit}. Change the unit if the report was misread, or deselect this reading.",
       "unitDiffersBadge": "Tracked in {markerUnit}; this report says {unit}",
+      "unitConvertedBadge": "Saved as {value} {markerUnit}, converted from {statedValue} {unit}",
       "savedPartialUnitToast": "{count} lab results saved. Not saved, because the unit differs from the marker's: {analytes}",
       "savedNothingUnitToast": "Nothing saved: the unit differs from the marker's for {analytes}",
       "saveFailed": "Couldn't save the readings. Please try again.",

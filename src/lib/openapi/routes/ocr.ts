@@ -75,7 +75,11 @@ const extractedRow = z
     biomarkerMatch: z.enum(["new", "existing"]),
     markerUnit: z.string().nullable().meta({
       description:
-        "The unit the matched marker is tracked in, or null when the marker does not exist yet (it will adopt this row's unit). A row whose `unit` differs from it cannot be committed: the commit skips it with `reason: unit_mismatch`, and the review screen marks it before Save.",
+        "The unit the matched marker is tracked in, or null when the marker does not exist yet (it will adopt this row's unit). A row whose `unit` differs from it is converted on commit when the marker's analyte is known and the pair is in the unit-conversion registry; otherwise the commit skips it with `reason: unit_mismatch`, and the review screen marks it before Save.",
+    }),
+    markerAnalyteKey: z.string().nullable().meta({
+      description:
+        "The analyte the matched marker is (the unit-conversion registry's key, e.g. `fasting-glucose`), or null when the marker does not exist yet or its name matches none. With `markerUnit` it tells a client whether a row in another unit can be converted on commit.",
     }),
     duplicateOf: z.string().nullable(),
   })

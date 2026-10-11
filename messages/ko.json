@@ -9522,6 +9522,7 @@
     },
     "noteLoadFailed": "메모를 불러오지 못했어요. 저장해도 메모는 그대로 유지돼요.",
     "showingLatestOf": "측정값 {total}개 중 최근 {shown}개를 보여주고 있어요",
+    "convertedFrom": "{value} {unit}에서 변환됨",
     "ocr": {
       "scanButton": "결과지 스캔",
       "addScan": "문서 스캔",
@@ -9568,6 +9569,7 @@
       "errorUnit": "단위를 입력하세요.",
       "errorUnitMismatch": "이 지표는 {markerUnit} 단위로 기록됩니다. 결과지를 잘못 읽었다면 단위를 바꾸거나 이 값의 선택을 해제하세요.",
       "unitDiffersBadge": "{markerUnit} 단위로 기록 중; 이 결과지는 {unit}",
+      "unitConvertedBadge": "{value} {markerUnit}(으)로 저장됩니다. {statedValue} {unit}에서 변환됨",
       "savedPartialUnitToast": "검사 결과 {count}개를 저장했습니다. 단위가 지표와 달라 저장하지 않은 항목: {analytes}",
       "savedNothingUnitToast": "저장된 항목이 없습니다: {analytes}의 단위가 지표와 다릅니다",
       "saveFailed": "측정값을 저장하지 못했어요. 다시 시도해 주세요.",

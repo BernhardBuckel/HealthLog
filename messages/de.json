@@ -9522,6 +9522,7 @@
     },
     "noteLoadFailed": "Notiz konnte nicht geladen werden; sie bleibt beim Speichern unverändert.",
     "showingLatestOf": "Die neuesten {shown} von {total} Messwerten werden angezeigt",
+    "convertedFrom": "umgerechnet aus {value} {unit}",
     "ocr": {
       "scanButton": "Befund scannen",
       "addScan": "Dokument scannen",
@@ -9568,6 +9569,7 @@
       "errorUnit": "Bitte eine Einheit angeben.",
       "errorUnitMismatch": "Dieser Marker wird in {markerUnit} geführt. Ändere die Einheit, falls der Befund falsch gelesen wurde, oder wähle den Wert ab.",
       "unitDiffersBadge": "Geführt in {markerUnit}; dieser Befund nennt {unit}",
+      "unitConvertedBadge": "Wird als {value} {markerUnit} gespeichert, umgerechnet aus {statedValue} {unit}",
       "savedPartialUnitToast": "{count} Laborwerte gespeichert. Nicht gespeichert, weil die Einheit von der des Markers abweicht: {analytes}",
       "savedNothingUnitToast": "Nichts gespeichert: Die Einheit weicht bei {analytes} von der des Markers ab",
       "saveFailed": "Werte konnten nicht gespeichert werden. Bitte erneut versuchen.",

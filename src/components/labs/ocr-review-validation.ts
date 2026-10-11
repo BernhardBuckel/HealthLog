@@ -7,6 +7,7 @@
  * build the payload: it returns null exactly when `validateReviewRow` reports
  * at least one field.
  */
+import { convertLabValue } from "@/lib/labs/unit-conversion/convert";
 import { sameLabUnit } from "@/lib/labs/unit-normalise";
 
 import type { OcrReviewRow } from "./ocr-review-types";
@@ -46,6 +47,60 @@ export function readingUnitDiffers(row: {
   return !sameLabUnit(stated, row.markerUnit);
 }
 
+/**
+ * What Save will store for a numeric row whose unit differs from its marker's
+ * and can be converted: the value in the marker's unit, beside what the report
+ * stated. Null when the units agree, the row is qualitative, or the pair has no
+ * conversion. The commit does the same conversion on the server; this only lets
+ * the screen say so before Save.
+ */
+export function readingConversion(row: {
+  value: number | null | undefined;
+  valueText: string | null | undefined;
+  unit: string | null | undefined;
+  markerUnit: string | null | undefined;
+  markerAnalyteKey: string | null | undefined;
+}): {
+  value: number;
+  unit: string;
+  statedValue: number;
+  statedUnit: string;
+} | null {
+  if (!readingUnitDiffers(row)) return null;
+  if (row.value === null || row.value === undefined) return null;
+  if (!Number.isFinite(row.value)) return null;
+  const statedUnit = (row.unit ?? "").trim();
+  const converted = convertLabValue({
+    analyteKey: row.markerAnalyteKey,
+    value: row.value,
+    from: statedUnit,
+    to: row.markerUnit as string,
+  });
+  if (!converted.ok) return null;
+  return {
+    value: converted.value,
+    unit: row.markerUnit as string,
+    statedValue: row.value,
+    statedUnit,
+  };
+}
+
+/**
+ * A numeric reading in another unit than its marker's that cannot be
+ * converted: the one case that still cannot be saved. A row with no number yet
+ * has nothing to convert, so it is blocked here as well as on `value`.
+ */
+export function readingUnitBlocked(row: {
+  value: number | null | undefined;
+  valueText: string | null | undefined;
+  unit: string | null | undefined;
+  markerUnit: string | null | undefined;
+  markerAnalyteKey: string | null | undefined;
+}): boolean {
+  if (!readingUnitDiffers(row)) return false;
+  return readingConversion(row) === null;
+}
+
 export function validateReviewRow(row: OcrReviewRow): OcrRowErrors {
   const errors: OcrRowErrors = {};
   if (!row.analyte.trim()) errors.analyte = true;
@@ -56,7 +111,7 @@ export function validateReviewRow(row: OcrReviewRow): OcrRowErrors {
   } else {
     if (row.value === null || !Number.isFinite(row.value)) errors.value = true;
     if (!(row.unit ?? "").trim()) errors.unit = true;
-    if (readingUnitDiffers(row)) errors.unitMismatch = true;
+    if (readingUnitBlocked(row)) errors.unitMismatch = true;
   }
   return errors;
 }
@@ -80,7 +135,7 @@ export function toCommitRow(row: OcrReviewRow): OcrCommitRowInput | null {
   if (row.value === null || !Number.isFinite(row.value)) return null;
   const unit = (row.unit ?? "").trim();
   if (!unit) return null;
-  if (readingUnitDiffers(row)) return null;
+  if (readingUnitBlocked(row)) return null;
   return {
     analyte,
     value: row.value,

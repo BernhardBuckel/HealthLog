@@ -29,6 +29,9 @@ function reading(over: Partial<LabResultDto>): LabResultDto {
     value: 80,
     valueText: null,
     unit: "ng/mL",
+    converted: false,
+    sourceValue: null,
+    sourceUnit: null,
     referenceLow: 30,
     referenceHigh: 400,
     catalogReferenceLow: 30,
@@ -164,5 +167,22 @@ describe("<LabList> columns", () => {
         expect(classes).toContain(c);
       }
     });
+  });
+
+  it("notes where a converted reading came from, and only for that reading", () => {
+    const html = renderList([
+      reading({
+        id: "c",
+        biomarkerId: "b1",
+        analyte: "Glucose",
+        unit: "mg/dL",
+        converted: true,
+        sourceValue: 5.6,
+        sourceUnit: "mmol/L",
+      }),
+      reading({ id: "d", biomarkerId: "b2", analyte: "Ferritin" }),
+    ]);
+    expect(count(html, 'data-slot="lab-converted-note"')).toBe(1);
+    expect(html).toContain("converted from 5.6 mmol/L");
   });
 });

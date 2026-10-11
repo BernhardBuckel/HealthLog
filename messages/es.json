@@ -9522,6 +9522,7 @@
     },
     "noteLoadFailed": "No se pudo cargar la nota; se mantendrá sin cambios al guardar.",
     "showingLatestOf": "Mostrando los {shown} resultados más recientes de {total}",
+    "convertedFrom": "convertido desde {value} {unit}",
     "ocr": {
       "scanButton": "Escanear un informe",
       "addScan": "Escanear un documento",
@@ -9568,6 +9569,7 @@
       "errorUnit": "Añade una unidad.",
       "errorUnitMismatch": "Este marcador se registra en {markerUnit}. Cambia la unidad si el informe se leyó mal o deselecciona este valor.",
       "unitDiffersBadge": "Registrado en {markerUnit}; este informe indica {unit}",
+      "unitConvertedBadge": "Se guardará como {value} {markerUnit}, convertido desde {statedValue} {unit}",
       "savedPartialUnitToast": "{count} resultados guardados. No guardados porque la unidad difiere de la del marcador: {analytes}",
       "savedNothingUnitToast": "No se guardó nada: la unidad difiere de la del marcador en {analytes}",
       "saveFailed": "No se pudieron guardar los valores. Inténtalo de nuevo.",

@@ -19,6 +19,7 @@ const baseRow: OcrReviewRow = {
   confidence: { analyte: 1, value: 1, unit: 1, range: 1 },
   biomarkerMatch: "existing",
   markerUnit: "mmol/L",
+  markerAnalyteKey: null,
   duplicateOf: null,
   confirmed: true,
 };
@@ -153,5 +154,44 @@ describe("<OcrRowEditor> unit differs from the marker's", () => {
   it("speaks German too", () => {
     const html = render(undefined, "de", mismatched);
     expect(html).toContain("Geführt in mmol/L; dieser Befund nennt mg/dL");
+  });
+});
+
+describe("<OcrRowEditor> unit differs but converts", () => {
+  const converts: OcrReviewRow = {
+    ...baseRow,
+    analyte: "Glucose",
+    value: 5.6,
+    takenAt: "2026-06-10",
+    unit: "mmol/L",
+    markerUnit: "mg/dL",
+    markerAnalyteKey: "fasting-glucose",
+  };
+
+  it("says what Save will store and what the report stated, not that it is blocked", () => {
+    const html = render(undefined, "en", converts);
+    expect(html).toContain('data-slot="ocr-row-converted-badge"');
+    expect(html).toContain("Saved as 100.9 mg/dL, converted from 5.6 mmol/L");
+    expect(html).not.toContain("Tracked in");
+    expect(html).not.toContain('aria-invalid="true"');
+  });
+
+  it("speaks German too", () => {
+    const html = render(undefined, "de", converts);
+    expect(html).toContain("umgerechnet aus 5,6 mmol/L");
+  });
+
+  it("shows nothing when the units agree", () => {
+    const html = render(undefined, "en", { ...converts, unit: "mg/dL" });
+    expect(html).not.toContain("ocr-row-converted-badge");
+  });
+
+  it("still says it is blocked when the analyte is not known", () => {
+    const html = render(undefined, "en", {
+      ...converts,
+      markerAnalyteKey: null,
+    });
+    expect(html).toContain("Tracked in mg/dL; this report says mmol/L");
+    expect(html).not.toContain("ocr-row-converted-badge");
   });
 });
