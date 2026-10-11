@@ -717,6 +717,18 @@ function DaySheet({
           event.preventDefault();
           returnFocus();
         }}
+        onEscapeKeyDown={(event) => {
+          // A dialog opened from inside the day (the date's calendar) is
+          // portaled out of the panel. For a moment after it opens, until
+          // Radix has re-rendered both layers, the panel still holds the
+          // Escape listener: an Escape aimed at the calendar then closed the
+          // whole day. Escape from inside another dialog is never the day's.
+          const owner =
+            event.target instanceof Element
+              ? event.target.closest('[role="dialog"]')
+              : null;
+          if (owner && owner !== panelRef.current) event.preventDefault();
+        }}
         className={cn(
           // Quicker than the primitive's 500 ms, which read as lag on a
           // layer opened from a tap; no slide at all under reduced motion.
