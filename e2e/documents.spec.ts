@@ -232,6 +232,45 @@ test.describe("document vault", () => {
     await expect(sheet.locator("iframe")).toBeVisible({ timeout: 5_000 });
   });
 
+  test("a PDF opens in a new browser tab from the fetched bytes", async ({
+    page,
+  }) => {
+    // Headless Chromium has no PDF viewer and turns a PDF tab into a
+    // download, so the tab itself is not observable here. Record what the
+    // control hands to `window.open` instead, and read the bytes behind it.
+    await page.addInitScript(() => {
+      const calls: unknown[][] = [];
+      (window as unknown as { __opened: unknown[][] }).__opened = calls;
+      window.open = (...args: unknown[]) => {
+        calls.push(args);
+        return null;
+      };
+    });
+    await page.goto(`/documents?episode=${KNIE_EPISODE_ID}&view=compact&q=MRT`);
+    await openButton(page, "MRT Knie").click();
+    const sheet = page.getByRole("dialog", { name: "MRT Knie" });
+    await expect(sheet.locator("iframe")).toBeVisible({ timeout: 5_000 });
+    const open = sheet.locator('[data-slot="document-open-in-tab"]');
+    // Enabled once the preview's bytes are in hand.
+    await expect(open).toBeEnabled();
+    if (process.env.E2E_SHOT_DIR) {
+      await page.screenshot({
+        path: `${process.env.E2E_SHOT_DIR}/open-in-tab-${test.info().project.name}.png`,
+      });
+    }
+    await open.click();
+    const opened = await page.evaluate(
+      () => (window as unknown as { __opened: string[][] }).__opened,
+    );
+    // The object URL the preview already shows, not the serve route: a bare
+    // navigation would carry no record-session assertion.
+    const previewSrc = await sheet.locator("iframe").getAttribute("src");
+    expect(previewSrc).toMatch(/^blob:/);
+    expect(opened).toEqual([[previewSrc, "_blank", "noopener"]]);
+    // The sheet stays where it was.
+    await expect(sheet).toBeVisible();
+  });
+
   test("doctor flow B: the condition filter reaches the MRT report", async ({
     page,
   }) => {
