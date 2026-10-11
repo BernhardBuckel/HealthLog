@@ -19,11 +19,20 @@ import { TODAY, fullTimeline, readiness } from "./timeline-fixture";
 
 let search = new URLSearchParams();
 let dataFrom: string | null = "2019-01-01";
+/** A young record: everything sits inside the default three months. */
+let young = false;
 const asked: TimelineZoom[] = [];
 
 /** Everything for `all`; any other window holds nothing. */
 function answer(zoom: TimelineZoom, from: string | null, to: string | null) {
   const full = fullTimeline();
+  if (young) {
+    return {
+      ...full,
+      zoom,
+      range: { from: from ?? "2026-08-01", to: to ?? TODAY, dataFrom },
+    };
+  }
   if (zoom === "all" && dataFrom !== null) return { ...full, zoom };
   const empty: TimelineResponse = {
     ...full,
@@ -101,6 +110,7 @@ beforeAll(async () => {
 beforeEach(() => {
   search = new URLSearchParams();
   dataFrom = "2019-01-01";
+  young = false;
   asked.length = 0;
 });
 
@@ -138,6 +148,25 @@ describe("the timeline's default window", () => {
     expect(html).toContain('data-slot="timeline-window-empty"');
     expect(html).toContain('data-slot="timeline-show-everything"');
     expect(html).not.toContain('data-slot="timeline-desktop"');
+  });
+
+  it("a young record opens on three months clamped to its first entry", () => {
+    young = true;
+    dataFrom = "2026-09-01";
+    const html = render();
+    expect(asked).not.toContain("all");
+    expect(html).toMatch(
+      /data-slot="timeline-desktop"[^>]*data-zoom="quarter"/,
+    );
+    expect(html).toMatch(/data-window-from="2026-09-01"/);
+    expect(html).toMatch(/data-window-to="2026-10-31"/);
+  });
+
+  it("an older record with entries in the three months opens on them", () => {
+    young = true;
+    const html = render();
+    expect(asked).not.toContain("all");
+    expect(html).toMatch(/data-window-from="2026-08-01"/);
   });
 
   it("an empty record keeps the plain empty state", () => {

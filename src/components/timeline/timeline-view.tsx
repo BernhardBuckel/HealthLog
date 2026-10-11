@@ -73,6 +73,7 @@ import {
   DEFAULT_ZOOM,
   hasDataBeforeWindow,
   parseTimelineUrl,
+  resolveDefaultWindow,
   timelineSearch,
   type TimelineRange,
 } from "./timeline-url";
@@ -248,16 +249,25 @@ export function TimelineView() {
     values,
     !opensOnAll,
   );
-  if (
-    !opensOnAll &&
+  // Without a zoom the window adapts to the record (`resolveDefaultWindow`):
+  // decided from the three months' answer, before anything is drawn, so the
+  // page never draws one window and then jumps to another.
+  const defaultWindow =
     urlState.zoom === null &&
-    !asked.isPlaceholderData &&
+    !opensOnAll &&
+    askedWindow &&
     asked.data &&
-    timelineIsEmpty(asked.data) &&
-    hasDataBeforeWindow(asked.data.range.dataFrom, askedWindow)
-  ) {
-    setOpensOnAll(true);
-  }
+    !asked.isPlaceholderData
+      ? resolveDefaultWindow({
+          dataFrom: asked.data.range.dataFrom,
+          window: askedWindow,
+          windowHasData: !timelineIsEmpty(asked.data),
+          today,
+        })
+      : null;
+  if (defaultWindow?.zoom === "all") setOpensOnAll(true);
+  const youngFrom =
+    defaultWindow?.zoom === "quarter" ? defaultWindow.from : null;
   const everything = useTimeline("all", null, null, values, opensOnAll);
   const zoom: TimelineZoom = opensOnAll ? "all" : askedZoom;
   const requestWindow = opensOnAll ? null : askedWindow;
@@ -334,7 +344,7 @@ export function TimelineView() {
         ? t("timeline.readiness.lanes.mood")
         : t(MEASUREMENT_TYPE_LABEL_KEYS[key as MeasurementType] ?? key);
 
-  const window_ = data
+  const shownWindow = data
     ? windowFor(
         zoom,
         today,
@@ -342,6 +352,11 @@ export function TimelineView() {
         zoom === "all" || zoom === "range" ? data.range : null,
       )
     : null;
+  // A young record's three months start at its first entry.
+  const window_ =
+    shownWindow && youngFrom && youngFrom > shownWindow.from
+      ? { from: youngFrom, to: shownWindow.to }
+      : shownWindow;
   // A new range starts as the chosen one, or as what is on screen, up to
   // today.
   const rangeDraft = clampRange(

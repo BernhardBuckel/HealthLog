@@ -77,6 +77,47 @@ export function parseTimelineUrl(
 /** The zoom the page opens on when the URL names none. */
 export const DEFAULT_ZOOM: TimelineZoom = "quarter";
 
+/** The shortest default window over a young record, in days to today. */
+export const YOUNG_RECORD_MIN_DAYS = 28;
+
+/**
+ * What the page opens on when the URL names no zoom, decided from the
+ * default three months' answer (`window`, whether it holds anything, and
+ * the record's first entry):
+ *
+ *   - a record that starts inside the three months opens on three months
+ *     clamped to its first entry, at least four weeks up to today, so a
+ *     few days of data neither hide in a sliver nor stretch thin
+ *     (`from` set);
+ *   - an older record with entries in the three months opens on them
+ *     (`from` null);
+ *   - an older record with none there opens on everything;
+ *   - an empty record: null, the plain empty state.
+ */
+export type DefaultWindow =
+  { zoom: "quarter"; from: string | null } | { zoom: "all" } | null;
+
+export function resolveDefaultWindow(input: {
+  dataFrom: string | null;
+  window: { from: string; to: string };
+  windowHasData: boolean;
+  today: string;
+}): DefaultWindow {
+  const { dataFrom, window, today } = input;
+  if (dataFrom === null) return null;
+  if (dataFrom >= window.from) {
+    const minimum = dayKey(dayNumber(today) - (YOUNG_RECORD_MIN_DAYS - 1));
+    const start = dataFrom < minimum ? dataFrom : minimum;
+    return {
+      zoom: "quarter",
+      from: start > window.from ? start : null,
+    };
+  }
+  return input.windowHasData
+    ? { zoom: "quarter", from: null }
+    : { zoom: "all" };
+}
+
 /**
  * True when a window shows nothing while the record has entries from before
  * it: the page then offers everything instead of a dead end. `dataFrom` is

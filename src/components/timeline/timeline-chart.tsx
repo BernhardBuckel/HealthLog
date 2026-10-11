@@ -230,6 +230,8 @@ export function TimelineChart({
         onKeyDown={handleKey}
         data-slot="timeline-chart"
         data-width={width}
+        data-window-from={window.from}
+        data-window-to={window.to}
         className="focus-visible:ring-ring/50 relative rounded-lg outline-none focus-visible:ring-2"
       >
         <p id="timeline-chart-help" className="sr-only">

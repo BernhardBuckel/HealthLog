@@ -108,6 +108,28 @@ test("only old data opens on everything, and an empty window offers it", async (
   await setTimelineModule(page, false);
 });
 
+test("a young record opens on three months starting at its first entry", async ({
+  page,
+}) => {
+  await setTimelineModuleOn(page);
+  // The record starts ten days ago: the window spans the four-week minimum.
+  const day = (offset: number) => {
+    const [y, m, d] = TODAY.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + offset)).toISOString().slice(0, 10);
+  };
+  await mockTimeline(page, "full", TODAY, { dataFrom: day(-10) });
+  await page.goto("/timeline");
+  await expect(
+    page.locator('[data-slot="timeline-zoom"] [data-value="quarter"]'),
+  ).toHaveAttribute("aria-checked", "true", { timeout: 20_000 });
+  await expect(page.locator('[data-slot="timeline-chart"]')).toHaveAttribute(
+    "data-window-from",
+    day(-27),
+  );
+  // The next test starts from the module switched off.
+  await setTimelineModule(page, false);
+});
+
 test("switching it on opens the readiness inventory, which leads to the timeline", async ({
   page,
 }) => {
