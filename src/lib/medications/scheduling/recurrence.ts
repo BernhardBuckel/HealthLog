@@ -594,6 +594,25 @@ export function advanceRollingOccurrence(
 }
 
 /**
+ * The intake instant that makes `occurrence` the next rolling dose: the
+ * schedule's time on the local day N days earlier. Fed back as
+ * `lastIntakeAt`, the engine then yields exactly `occurrence`, which lets a
+ * caller that stepped a rolling cadence forward (past slots it will never
+ * record) hand the stepped position to every consumer of the engine.
+ */
+export function rollingIntakeAnchorFor(
+  schedule: CanonicalSchedule,
+  occurrence: Occurrence,
+  ctx: RecurrenceContext,
+): Date | null {
+  const n = schedule.rollingIntervalDays;
+  if (n === null || n <= 0) return null;
+  const time = schedule.timesOfDay[0] ?? schedule.windowStart;
+  const day = addCivilDays(civilDayOfInstant(occurrence.at, ctx.timeZone), -n);
+  return applyTimeOfDayToCivilDay(day, time, ctx.timeZone);
+}
+
+/**
  * v1.13.x compliance — RETROSPECTIVE rolling expansion.
  *
  * `expandRolling` is forward-only by contract (the projector + reminder

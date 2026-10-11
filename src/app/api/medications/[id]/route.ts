@@ -32,6 +32,7 @@ import {
   toRevisionPayloadEntry,
 } from "@/lib/medications/scheduling/schedule-eras";
 import type { Prisma } from "@/generated/prisma/client";
+import { loadAutoTakeRollingAnchors } from "@/lib/medications/auto-take";
 import {
   computeDisplayDue,
   OVERDUE_LOOKBACK_MS,
@@ -179,6 +180,16 @@ export const GET = apiHandler(
     // v1.39.1 (#1033) — intake tracking off: nothing is due from the
     // stored rows, and no runway derives from them.
     const liveSchedules = dueSchedules(medication);
+    const userTz = user.timezone || DEFAULT_TIMEZONE;
+    // v1.42.2 — under auto-take a rolling cadence stands where the job will
+    // record next (see `auto-take.ts`).
+    const engineLastIntakeAt = await loadAutoTakeRollingAnchors(prisma, {
+      userId: user.id,
+      medicationIds: medication.autoMarkTaken ? [id] : [],
+      now,
+      userTz,
+      lastIntakeAt: () => lastIntake?.takenAt ?? null,
+    });
     const display = computeDisplayDue({
       medication: {
         id: medication.id,
@@ -189,8 +200,8 @@ export const GET = apiHandler(
       },
       schedules: liveSchedules,
       now,
-      userTz: user.timezone || DEFAULT_TIMEZONE,
-      lastIntakeAt: lastIntake?.takenAt ?? null,
+      userTz,
+      lastIntakeAt: engineLastIntakeAt(id),
       resolvedSlots: resolvedRows.map(toResolvedSlotMark),
       eraStart: latestRevision?.validUntil ?? null,
     });

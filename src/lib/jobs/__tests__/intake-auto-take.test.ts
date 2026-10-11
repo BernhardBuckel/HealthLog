@@ -49,6 +49,8 @@ import {
   runIntakeAutoTakePass,
 } from "../intake-auto-take";
 import { autoTakeOwnedFrom } from "../intake-auto-skip";
+import { autoTakeRollingAnchor } from "@/lib/medications/auto-take";
+import { computeDisplayDue } from "@/lib/medications/scheduling/next-due";
 
 const TZ = "Europe/Berlin";
 
@@ -708,5 +710,185 @@ describe("runIntakeAutoTakePass — over a fake client", () => {
         .map((r) => r.scheduledFor.toISOString())
         .sort(),
     ).toEqual(["2026-06-03T07:00:00.000Z", "2026-06-05T07:00:00.000Z"]);
+  });
+});
+
+// ── a rolling cadence under auto-take never stalls ────────────────────
+
+describe("runIntakeAutoTakePass — rolling cadence keeps moving", () => {
+  const weekly = () =>
+    schedule({ rollingIntervalDays: 7, timesOfDay: ["09:00"] });
+  const autoRecordedSlots = (rows: FakeRow[]) =>
+    rows
+      .filter((r) => r.autoRecorded && r.deletedAt === null)
+      .map((r) => r.scheduledFor.toISOString())
+      .sort();
+
+  it("a first dose before the floor is passed over, the next one recorded", async () => {
+    // Created at 12:00 CEST, after that day's 09:00 slot, no start date:
+    // the first rolling dose lies before the floor.
+    const med = medication({
+      createdAt: new Date("2026-06-10T10:00:00Z"),
+      autoMarkTakenSince: new Date("2026-06-10T10:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [];
+    const client = fakeClient([med], rows);
+
+    const early = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-12T08:00:00Z"),
+    });
+    expect(early.recordedCount).toBe(0);
+
+    const due = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-17T07:20:00Z"),
+    });
+    expect(due.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-17T07:00:00.000Z"]);
+  });
+
+  it("switched on while the weekly dose is overdue: the overdue dose stays, the cadence moves on", async () => {
+    const med = medication({
+      autoMarkTakenSince: new Date("2026-06-10T12:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [
+      row({
+        id: "t0",
+        scheduledFor: new Date("2026-06-01T07:00:00Z"),
+        takenAt: new Date("2026-06-01T07:00:00Z"),
+        source: "WEB",
+      }),
+    ];
+    const client = fakeClient([med], rows);
+    const result = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-15T08:00:00Z"),
+    });
+    // 06-08 lies before the switch-on and is never backfilled.
+    expect(result.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-15T07:00:00.000Z"]);
+  });
+
+  it("a skipped rolling auto dose counts as handled: the next one is recorded", async () => {
+    const med = medication({
+      autoMarkTakenSince: new Date("2026-06-01T00:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [
+      row({
+        id: "t0",
+        scheduledFor: new Date("2026-06-01T07:00:00Z"),
+        takenAt: new Date("2026-06-01T07:00:00Z"),
+        source: "WEB",
+      }),
+      row({
+        id: "s1",
+        scheduledFor: new Date("2026-06-08T07:00:00Z"),
+        skipped: true,
+        source: "WEB",
+      }),
+    ];
+    const client = fakeClient([med], rows);
+    const result = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-15T08:00:00Z"),
+    });
+    expect(result.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-15T07:00:00.000Z"]);
+    expect(rows.find((r) => r.id === "s1")).toMatchObject({
+      skipped: true,
+      takenAt: null,
+    });
+  });
+
+  it("a removed rolling auto dose stays removed and the next one is recorded", async () => {
+    const med = medication({
+      autoMarkTakenSince: new Date("2026-06-01T00:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [
+      row({
+        id: "t0",
+        scheduledFor: new Date("2026-06-01T07:00:00Z"),
+        takenAt: new Date("2026-06-01T07:00:00Z"),
+        source: "WEB",
+      }),
+      row({
+        id: "gone",
+        scheduledFor: new Date("2026-06-08T07:00:00Z"),
+        takenAt: new Date("2026-06-08T07:00:00Z"),
+        autoRecorded: true,
+        deletedAt: new Date("2026-06-08T09:00:00Z"),
+      }),
+    ];
+    const client = fakeClient([med], rows);
+    const result = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-15T08:00:00Z"),
+    });
+    expect(result.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-15T07:00:00.000Z"]);
+    expect(
+      rows.filter(
+        (r) => r.scheduledFor.toISOString() === "2026-06-08T07:00:00.000Z",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("a worker down for more than a week catches up on the rhythm, not the stale slot", async () => {
+    const med = medication({
+      autoMarkTakenSince: new Date("2026-05-01T00:00:00Z"),
+      schedules: [weekly()],
+    });
+    const rows: FakeRow[] = [
+      row({
+        id: "t0",
+        scheduledFor: new Date("2026-05-25T07:00:00Z"),
+        takenAt: new Date("2026-05-25T07:00:00Z"),
+        source: "WEB",
+      }),
+    ];
+    const client = fakeClient([med], rows);
+    // Ten days after the 06-01 dose fell due: it is outside the catch-up
+    // window, 06-08 is inside it.
+    const result = await runIntakeAutoTakePass(client, {
+      nowMs: Date.parse("2026-06-11T08:00:00Z"),
+    });
+    expect(result.recordedCount).toBe(1);
+    expect(autoRecordedSlots(rows)).toEqual(["2026-06-08T07:00:00.000Z"]);
+  });
+
+  it("the card's next due is the slot the job records", async () => {
+    const med = medication({
+      createdAt: new Date("2026-06-10T10:00:00Z"),
+      autoMarkTakenSince: new Date("2026-06-10T10:00:00Z"),
+      schedules: [weekly()],
+    });
+    const now = new Date("2026-06-12T08:00:00Z");
+    const anchor = autoTakeRollingAnchor({
+      medication: med,
+      userTz: TZ,
+      floor: autoTakeFloor({
+        autoMarkTakenSince: med.autoMarkTakenSince!,
+        createdAt: med.createdAt,
+        now,
+      }),
+      now,
+      lastIntakeAt: null,
+      rows: [],
+    });
+    const display = computeDisplayDue({
+      medication: med,
+      schedules: med.schedules,
+      now,
+      userTz: TZ,
+      lastIntakeAt: anchor,
+      resolvedSlots: [],
+    });
+    expect(display?.at.toISOString()).toBe("2026-06-17T07:00:00.000Z");
+
+    const rows: FakeRow[] = [];
+    await runIntakeAutoTakePass(fakeClient([med], rows), {
+      nowMs: Date.parse("2026-06-17T07:20:00Z"),
+    });
+    expect(autoRecordedSlots(rows)).toEqual([display!.at.toISOString()]);
   });
 });

@@ -380,6 +380,92 @@ describe("auto-mark-taken pass", () => {
   });
 });
 
+describe("rolling cadence under auto-take", () => {
+  it("never stalls on a removed dose, and the card shows the slot the pass records", async () => {
+    const prisma = getPrismaClient();
+    const userId = await makeUser();
+    // Weekly at 09:00 local. Last taken Mon 06-01; the 06-08 dose the pass
+    // recorded was removed by the person (not taken that week).
+    const medication = await prisma.medication.create({
+      data: {
+        userId,
+        name: "Weekly injection",
+        dose: "1 pen",
+        createdAt: new Date("2026-05-01T00:00:00.000Z"),
+        autoMarkTaken: true,
+        autoMarkTakenSince: new Date("2026-05-01T00:00:00.000Z"),
+        schedules: {
+          create: {
+            windowStart: "09:00",
+            windowEnd: "09:00",
+            timesOfDay: ["09:00"],
+            rollingIntervalDays: 7,
+            scheduleType: "SCHEDULED",
+          },
+        },
+      },
+      select: { id: true },
+    });
+    await prisma.medicationIntakeEvent.createMany({
+      data: [
+        {
+          userId,
+          medicationId: medication.id,
+          scheduledFor: new Date("2026-06-01T07:00:00.000Z"),
+          takenAt: new Date("2026-06-01T07:00:00.000Z"),
+          source: "WEB",
+        },
+        {
+          userId,
+          medicationId: medication.id,
+          scheduledFor: new Date("2026-06-08T07:00:00.000Z"),
+          takenAt: new Date("2026-06-08T07:00:00.000Z"),
+          autoRecorded: true,
+          source: "REMINDER",
+          deletedAt: new Date("2026-06-08T12:00:00.000Z"),
+        },
+      ],
+    });
+
+    const detail = await import("@/app/api/medications/[id]/route");
+    const list = await import("@/app/api/medications/route");
+    const nextDue = async () => {
+      const res = await (detail.GET as Handler)(
+        new NextRequest(`http://localhost/api/medications/${medication.id}`),
+        { params: Promise.resolve({ id: medication.id }) },
+      );
+      const listRes = await (list.GET as Handler)(
+        new NextRequest("http://localhost/api/medications"),
+        { params: Promise.resolve({}) },
+      );
+      const listed = (
+        (await listRes.json()) as {
+          data: Array<{ id: string; nextDueAt: string | null }>;
+        }
+      ).data.find((m) => m.id === medication.id);
+      const own = ((await res.json()) as { data: { nextDueAt: string | null } })
+        .data.nextDueAt;
+      expect(listed?.nextDueAt).toBe(own);
+      return own;
+    };
+
+    at("2026-06-10T08:00:00.000Z");
+    expect(await nextDue()).toBe("2026-06-15T07:00:00.000Z");
+
+    at("2026-06-15T07:20:00.000Z");
+    const result = await runIntakeAutoTakePass(prisma, {
+      nowMs: Date.now(),
+    });
+    expect(result.recordedCount).toBe(1);
+    const recorded = (await liveRows(medication.id)).filter(
+      (r) => r.autoRecorded,
+    );
+    expect(recorded.map((r) => r.scheduledFor.toISOString())).toEqual([
+      "2026-06-15T07:00:00.000Z",
+    ]);
+  });
+});
+
 describe("remindersActive — the published value is the gate", () => {
   it("equals sendsMedicationReminders() on the list and detail reads, for every combination", async () => {
     const prisma = getPrismaClient();
