@@ -33,6 +33,7 @@ import { withIdempotency } from "@/lib/idempotency";
 import { enqueueReminderSatisfy } from "@/lib/jobs/reminder-satisfy";
 import { emitDataArrival } from "@/lib/arrivals/emit-shared";
 import { resolveOrMintBiomarker } from "@/lib/labs/biomarker-store";
+import { readingInMarkerUnit } from "@/lib/labs/reading-conversion";
 import { sameLabUnit } from "@/lib/labs/unit-normalise";
 import { parseReferenceRange } from "@/lib/labs/parse-reference-range";
 import { serialiseLabResult } from "@/lib/labs/serialise";
@@ -75,12 +76,31 @@ async function isDuplicate(
       analyte: { equals: row.analyte.trim(), mode: "insensitive" },
       takenAt: labReadingDaySearchRange(day),
     },
-    select: { value: true, valueText: true, takenAt: true },
+    select: {
+      value: true,
+      valueText: true,
+      sourceValue: true,
+      sourceUnit: true,
+      takenAt: true,
+    },
     take: 100,
   });
   const candidates = rows.filter((c) => labReadingDay(c.takenAt, tz) === day);
   for (const c of candidates) {
     if (row.value !== undefined && c.value !== null && c.value === row.value) {
+      return true;
+    }
+    // A reading stored converted holds the value in the marker's unit, so the
+    // same scan committed again no longer equals it. What the report printed is
+    // kept beside it: the same number in the same unit is the same reading.
+    if (
+      row.value !== undefined &&
+      row.unit !== undefined &&
+      c.sourceValue !== null &&
+      c.sourceValue === row.value &&
+      c.sourceUnit !== null &&
+      sameLabUnit(c.sourceUnit, row.unit)
+    ) {
       return true;
     }
     if (
@@ -179,19 +199,40 @@ async function commitOcrRows(request: NextRequest) {
       panel: row.panel ?? null,
     });
 
-    // The marker's unit is the one the reading is stored under, so a row that
-    // states another unit cannot be written: the number would be kept under a
-    // unit it is not in. The review screen marks such a row before Save; this
-    // is the backstop for a client that did not, and for a marker whose unit
-    // changed between the scan and the commit. A freshly minted marker adopted
-    // this row's unit, so it cannot disagree.
-    if (
-      !isQualitative &&
-      row.unit !== undefined &&
-      !sameLabUnit(row.unit, biomarker.unit)
-    ) {
-      skipped.push({ analyte: row.analyte.trim(), reason: "unit_mismatch" });
-      continue;
+    // The marker's unit is the one the reading is stored under. A row that
+    // states another unit is converted when the marker's analyte is known and
+    // the registry has the pair, with what the report printed kept beside it;
+    // otherwise it cannot be written: the number would be kept under a unit it
+    // is not in. The review screen marks such a row before Save; this is the
+    // backstop for a client that did not, and for a marker whose unit changed
+    // between the scan and the commit. A freshly minted marker adopted this
+    // row's unit, so it cannot disagree.
+    let storedValue = row.value ?? null;
+    let storedSourceLow = isQualitative ? null : sourceLow;
+    let storedSourceHigh = isQualitative ? null : sourceHigh;
+    let convertedFrom: { sourceValue: number; sourceUnit: string } | null =
+      null;
+    if (!isQualitative && row.value !== undefined) {
+      const reading = await readingInMarkerUnit(prisma, {
+        marker: biomarker,
+        value: row.value,
+        unit: row.unit,
+        sourceReferenceLow: storedSourceLow,
+        sourceReferenceHigh: storedSourceHigh,
+      });
+      if (!reading.ok) {
+        skipped.push({ analyte: row.analyte.trim(), reason: "unit_mismatch" });
+        continue;
+      }
+      storedValue = reading.value;
+      storedSourceLow = reading.sourceReferenceLow;
+      storedSourceHigh = reading.sourceReferenceHigh;
+      if (reading.converted) {
+        convertedFrom = {
+          sourceValue: reading.sourceValue,
+          sourceUnit: reading.sourceUnit,
+        };
+      }
     }
 
     // Field-by-field — never spread the parsed row. The row stamps the resolved
@@ -202,13 +243,15 @@ async function commitOcrRows(request: NextRequest) {
         biomarkerId: biomarker.id,
         panel: biomarker.panel,
         analyte: biomarker.name,
-        value: row.value ?? null,
+        value: storedValue,
         valueText: row.valueText ?? null,
         unit: biomarker.unit,
+        sourceValue: convertedFrom?.sourceValue ?? null,
+        sourceUnit: convertedFrom?.sourceUnit ?? null,
         referenceLow: biomarker.lowerBound,
         referenceHigh: biomarker.upperBound,
-        sourceReferenceLow: isQualitative ? null : sourceLow,
-        sourceReferenceHigh: isQualitative ? null : sourceHigh,
+        sourceReferenceLow: storedSourceLow,
+        sourceReferenceHigh: storedSourceHigh,
         sourceReferenceText: isQualitative ? null : sourceText,
         takenAt: row.takenAt,
         source: "OCR",

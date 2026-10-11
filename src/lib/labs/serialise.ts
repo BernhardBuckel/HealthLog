@@ -53,6 +53,8 @@ export interface ResolvedBiomarker {
   lowerBound: number | null;
   upperBound: number | null;
   panel: string | null;
+  /** Which analyte the marker is (unit-conversion registry key), if known. */
+  analyteKey?: string | null;
 }
 
 /** The lab-result row shape the resolver reads (Prisma row subset). */
@@ -74,6 +76,12 @@ export interface LabRow {
   takenAt: Date;
   source: string;
   biomarkerId: string | null;
+  /**
+   * When the reading was converted into the marker's unit: the value and unit
+   * as the report printed them. Both null for a reading stored as stated.
+   */
+  sourceValue?: number | null;
+  sourceUnit?: string | null;
   noteEncrypted: Uint8Array | null;
   createdAt: Date;
   updatedAt: Date;
@@ -179,6 +187,7 @@ export function serialiseLabResult(
   biomarker?: ResolvedBiomarker | null,
 ) {
   const resolved = resolveLabFields(row, biomarker);
+  const conversion = conversionFields(row);
   return {
     id: row.id,
     biomarkerId: row.biomarkerId,
@@ -187,6 +196,9 @@ export function serialiseLabResult(
     value: row.value,
     valueText: row.valueText,
     unit: resolved.unit,
+    converted: conversion.converted,
+    sourceValue: conversion.sourceValue,
+    sourceUnit: conversion.sourceUnit,
     referenceLow: resolved.referenceLow,
     referenceHigh: resolved.referenceHigh,
     catalogReferenceLow: resolved.catalogReferenceLow,
@@ -211,6 +223,20 @@ export function serialiseLabResult(
 }
 
 /**
+ * Whether the stored number is a conversion, and what the report printed. A
+ * reading stored as stated reports `converted: false` and two nulls.
+ */
+function conversionFields(row: Pick<LabRow, "sourceValue" | "sourceUnit">) {
+  const sourceValue = row.sourceValue ?? null;
+  const sourceUnit = row.sourceUnit ?? null;
+  return {
+    converted: sourceValue !== null && sourceUnit !== null,
+    sourceValue,
+    sourceUnit,
+  };
+}
+
+/**
  * Serialise a lab row to the detail DTO — same as the list DTO but carries the
  * decrypted `note` instead of the `hasNote` flag.
  */
@@ -220,6 +246,7 @@ export function serialiseLabResultDetail(
   note: string | null,
 ) {
   const resolved = resolveLabFields(row, biomarker);
+  const conversion = conversionFields(row);
   return {
     id: row.id,
     biomarkerId: row.biomarkerId,
@@ -228,6 +255,9 @@ export function serialiseLabResultDetail(
     value: row.value,
     valueText: row.valueText,
     unit: resolved.unit,
+    converted: conversion.converted,
+    sourceValue: conversion.sourceValue,
+    sourceUnit: conversion.sourceUnit,
     referenceLow: resolved.referenceLow,
     referenceHigh: resolved.referenceHigh,
     catalogReferenceLow: resolved.catalogReferenceLow,

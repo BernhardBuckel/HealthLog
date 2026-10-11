@@ -115,6 +115,9 @@ const committedRow = z
     value: z.number().nullable(),
     valueText: z.string().nullable(),
     unit: z.string(),
+    converted: z.boolean(),
+    sourceValue: z.number().nullable(),
+    sourceUnit: z.string().nullable(),
     referenceLow: z.number().nullable(),
     referenceHigh: z.number().nullable(),
     catalogReferenceLow: z.number().nullable(),
@@ -134,7 +137,7 @@ const committedRow = z
   .meta({
     id: "OcrCommittedLabResult",
     description:
-      "A written reading. Its reference window resolves exactly as it does on `/api/labs` — see `LabResult`.",
+      "A written reading. Its reference window resolves exactly as it does on `/api/labs` — see `LabResult`. `converted`, `sourceValue` and `sourceUnit` say when the row's unit was converted into its marker's and what the report printed.",
   });
 
 const commitResponse = z
@@ -145,7 +148,7 @@ const commitResponse = z
         analyte: z.string(),
         reason: z.enum(["duplicate", "unit_mismatch"]).meta({
           description:
-            "`duplicate`: the row matched a live reading at commit time. `unit_mismatch`: the row states a unit other than the one its marker is tracked in, so it was not written.",
+            "`duplicate`: the row matched a live reading at commit time. `unit_mismatch`: the row states a unit other than the one its marker is tracked in and the pair cannot be converted, so it was not written. A pair that can be converted is written in the marker's unit and reported with `converted: true`.",
         }),
       }),
     ),

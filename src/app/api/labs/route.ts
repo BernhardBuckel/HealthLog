@@ -18,7 +18,7 @@ import { withIdempotency } from "@/lib/idempotency";
 import { enqueueReminderSatisfy } from "@/lib/jobs/reminder-satisfy";
 import { emitDataArrival } from "@/lib/arrivals/emit-shared";
 import { resolveOrMintBiomarker } from "@/lib/labs/biomarker-store";
-import { sameLabUnit } from "@/lib/labs/unit-normalise";
+import { readingInMarkerUnit } from "@/lib/labs/reading-conversion";
 import {
   type ResolvedBiomarker,
   serialiseLabResult,
@@ -232,6 +232,7 @@ async function postLabResult(request: NextRequest) {
         lowerBound: true,
         upperBound: true,
         panel: true,
+        analyteKey: true,
       },
     });
     if (!found) {
@@ -253,30 +254,56 @@ async function postLabResult(request: NextRequest) {
     });
   }
 
-  // The marker's unit is the one every reading is stored under, so a reading
-  // that states another unit cannot be written: the number would be kept and
-  // the label swapped, and nothing downstream could tell. Compared only when a
-  // unit was actually sent: on the `biomarkerId` path it may be omitted, and
-  // then the marker's unit is the stated one. A freshly minted marker adopted
-  // the reading's own unit, so it cannot disagree with it.
-  if (
-    !isQualitative &&
-    unit !== undefined &&
-    !sameLabUnit(unit, biomarker.unit)
-  ) {
-    annotate({
-      action: { name: "labs.create.unit-mismatch" },
-      meta: { biomarkerId: biomarker.id },
+  // The marker's unit is the one every reading is stored under. A reading that
+  // states another unit is converted when the marker's analyte is known and the
+  // registry has the pair (the value, and the report's own window with it, with
+  // what the report printed kept beside it); otherwise it cannot be written:
+  // the number would be kept and the label swapped, and nothing downstream
+  // could tell. Compared only when a unit was actually sent: on the
+  // `biomarkerId` path it may be omitted, and then the marker's unit is the
+  // stated one. A freshly minted marker adopted the reading's own unit, so it
+  // cannot disagree with it.
+  let storedValue = value ?? null;
+  let storedSourceLow = isQualitative ? null : (sourceReferenceLow ?? null);
+  let storedSourceHigh = isQualitative ? null : (sourceReferenceHigh ?? null);
+  let convertedFrom: { sourceValue: number; sourceUnit: string } | null = null;
+  if (!isQualitative && value !== undefined) {
+    const reading = await readingInMarkerUnit(prisma, {
+      marker: biomarker,
+      value,
+      unit,
+      sourceReferenceLow: storedSourceLow,
+      sourceReferenceHigh: storedSourceHigh,
     });
-    return apiError(
-      `The reading is in ${unit}, but ${biomarker.name} is tracked in ${biomarker.unit}.`,
-      422,
-      {
-        errorCode: "labs.unit.mismatch",
-        markerUnit: biomarker.unit,
-        readingUnit: unit,
-      },
-    );
+    if (!reading.ok) {
+      annotate({
+        action: { name: "labs.create.unit-mismatch" },
+        meta: { biomarkerId: biomarker.id, reason: reading.reason },
+      });
+      return apiError(
+        `The reading is in ${unit}, but ${biomarker.name} is tracked in ${biomarker.unit}.`,
+        422,
+        {
+          errorCode: "labs.unit.mismatch",
+          markerUnit: biomarker.unit,
+          readingUnit: unit,
+          reason: reading.reason,
+        },
+      );
+    }
+    storedValue = reading.value;
+    storedSourceLow = reading.sourceReferenceLow;
+    storedSourceHigh = reading.sourceReferenceHigh;
+    if (reading.converted) {
+      convertedFrom = {
+        sourceValue: reading.sourceValue,
+        sourceUnit: reading.sourceUnit,
+      };
+      annotate({
+        action: { name: "labs.create.unit-converted" },
+        meta: { biomarkerId: biomarker.id },
+      });
+    }
   }
 
   // Field-by-field assignment — never spread `parsed.data`. The row stamps the
@@ -290,17 +317,20 @@ async function postLabResult(request: NextRequest) {
       panel: biomarker.panel,
       analyte: biomarker.name,
       // Exactly one of value / valueText is set (the Zod XOR refine).
-      value: value ?? null,
+      value: storedValue,
       valueText: valueText ?? null,
       unit: biomarker.unit,
+      // What the report printed, when the value above is a conversion of it.
+      sourceValue: convertedFrom?.sourceValue ?? null,
+      sourceUnit: convertedFrom?.sourceUnit ?? null,
       referenceLow: biomarker.lowerBound,
       referenceHigh: biomarker.upperBound,
       // The window this reading's own report printed, kept beside the catalog
       // stamp rather than folded into it: it governs THIS reading's verdict,
       // and the catalog band stays the net for every reading without one. A
       // qualitative reading has no window to record.
-      sourceReferenceLow: isQualitative ? null : (sourceReferenceLow ?? null),
-      sourceReferenceHigh: isQualitative ? null : (sourceReferenceHigh ?? null),
+      sourceReferenceLow: storedSourceLow,
+      sourceReferenceHigh: storedSourceHigh,
       sourceReferenceText: isQualitative ? null : (sourceReferenceText ?? null),
       takenAt,
       // v1.25 (iOS #36) — provenance: the on-device-OCR path posts

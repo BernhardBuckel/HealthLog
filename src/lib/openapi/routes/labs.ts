@@ -70,6 +70,9 @@ const labResultRow = z
     value: z.number().nullable(),
     valueText: z.string().nullable(),
     unit: z.string(),
+    converted: z.boolean(),
+    sourceValue: z.number().nullable(),
+    sourceUnit: z.string().nullable(),
     referenceLow: z.number().nullable(),
     referenceHigh: z.number().nullable(),
     catalogReferenceLow: z.number().nullable(),
@@ -89,7 +92,7 @@ const labResultRow = z
   .meta({
     id: "LabResult",
     description:
-      "A stored lab result. Exactly one of `value` (numeric) or `valueText` (qualitative, e.g. \"negativ\") is non-null; `rangeStatus` is always `unknown` for a qualitative row (no number to classify). `biomarkerId` links the user-scoped catalog marker (null for legacy free-text rows); when linked, `analyte` / `unit` are RESOLVED server-side from the Biomarker.\n\nThree reference windows ride on the row and the server says which one applies. `referenceLow` / `referenceHigh` are the window IN FORCE and the one `rangeStatus` was computed from — read these to render the range and you are correct without doing any resolution of your own. `sourceReferenceLow` / `sourceReferenceHigh` / `sourceReferenceText` are the range this reading's own report printed (the text verbatim, kept even when no numbers could be read out of it). `catalogReferenceLow` / `catalogReferenceHigh` are the Biomarker band. `referenceOrigin` names the winner and `referenceDivergesFromCatalog` is true when the report's window and the catalog band state different limits — a surface showing only one of the two is showing a partial answer. The client renders these values and never recomputes the range. The encrypted note is never echoed in list rows; `hasNote` flags its presence and the single-resource GET returns the decrypted `note`.",
+      "A stored lab result. Exactly one of `value` (numeric) or `valueText` (qualitative, e.g. \"negativ\") is non-null; `rangeStatus` is always `unknown` for a qualitative row (no number to classify). `biomarkerId` links the user-scoped catalog marker (null for legacy free-text rows); when linked, `analyte` / `unit` are RESOLVED server-side from the Biomarker.\n\nThree reference windows ride on the row and the server says which one applies. `referenceLow` / `referenceHigh` are the window IN FORCE and the one `rangeStatus` was computed from — read these to render the range and you are correct without doing any resolution of your own. `sourceReferenceLow` / `sourceReferenceHigh` / `sourceReferenceText` are the range this reading's own report printed (the text verbatim, kept even when no numbers could be read out of it). `catalogReferenceLow` / `catalogReferenceHigh` are the Biomarker band. `referenceOrigin` names the winner and `referenceDivergesFromCatalog` is true when the report's window and the catalog band state different limits — a surface showing only one of the two is showing a partial answer. The client renders these values and never recomputes the range. `converted` is true when the stored `value` was converted into the marker's `unit` from another unit; `sourceValue` and `sourceUnit` are then what the report printed (full precision, round for display), and the report's own window was converted with it. A reading stored as stated has `converted: false` and two nulls. The encrypted note is never echoed in list rows; `hasNote` flags its presence and the single-resource GET returns the decrypted `note`.",
   });
 
 const labResultDetail = labResultRow
@@ -164,7 +167,7 @@ export const labsPaths: NonNullable<ZodOpenApiObject["paths"]> = {
         ...stdResponses,
         "422": {
           description:
-            "Nothing was written. `meta.errorCode` = `labs.create.invalid` when the body failed validation (every issue under `details.issues`), or `labs.unit.mismatch` when a numeric reading states a `unit` other than the one its marker is tracked in (`meta.markerUnit`, `meta.readingUnit`). A unit is compared only when one is sent; with a `biomarkerId` it may be omitted and the marker's unit is then the stated one. Spelling is forgiven (`mmol/l`, `ug/L` for `µg/L`); a different unit is refused, never relabelled.",
+            "Nothing was written. `meta.errorCode` = `labs.create.invalid` when the body failed validation (every issue under `details.issues`), or `labs.unit.mismatch` when a numeric reading states a `unit` other than the one its marker is tracked in AND the pair cannot be converted (`meta.markerUnit`, `meta.readingUnit`, `meta.reason` = `unknown_analyte` | `unknown_unit` | `not_finite`). A unit is compared only when one is sent; with a `biomarkerId` it may be omitted and the marker's unit is then the stated one. Spelling is forgiven (`mmol/l`, `ug/L` for `µg/L`); a different unit is converted when the marker's analyte is known and the pair is in the unit-conversion registry (the 201 response then carries `converted: true`), and refused otherwise, never relabelled.",
           content: { "application/json": { schema: errorEnvelope } },
         },
         ...recordWriteRateLimitResponse,

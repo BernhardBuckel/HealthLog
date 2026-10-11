@@ -192,7 +192,15 @@ export const PUT = apiHandler(
     const data: Record<string, unknown> = {};
     if (d.panel !== undefined) data.panel = d.panel;
     if (d.analyte !== undefined) data.analyte = d.analyte;
-    if (d.value !== undefined) data.value = d.value;
+    if (d.value !== undefined) {
+      data.value = d.value;
+      // A number the person typed is no longer the conversion of what the
+      // report printed, so the "converted from" record would now be wrong.
+      if (existing.sourceValue !== null || existing.sourceUnit !== null) {
+        data.sourceValue = null;
+        data.sourceUnit = null;
+      }
+    }
     // v1.18.9 — qualitative edit. A row stays single-typed: editing `value` on a
     // qualitative row (or `valueText` on a numeric row) crosses the row's type
     // and is rejected below. An edit of the matching field updates in place.

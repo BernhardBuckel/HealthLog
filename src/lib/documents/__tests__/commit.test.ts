@@ -44,22 +44,25 @@ beforeEach(() => {
 
 describe("commitApprovedFact — OBSERVATION unit integrity", () => {
   it("rejects a numeric observation whose stated unit differs from an existing marker's unit", async () => {
+    // A pair the registry has no conversion for: ferritin in pmol/L against a
+    // marker stored in ng/mL (protein molecular weights vary by source).
     vi.mocked(decryptFactData).mockReturnValue({
-      label: "Glucose",
-      value: 6.1,
-      unit: "mmol/L",
+      label: "Ferritin",
+      value: 450,
+      unit: "pmol/L",
       referenceLow: null,
       referenceHigh: null,
       effectiveDate: "2025-01-01",
     } as never);
-    // Existing marker stored in mg/dL — the resolver returns it as-is.
+    // Existing marker stored in ng/mL — the resolver returns it as-is.
     vi.mocked(resolveOrMintBiomarker).mockResolvedValue({
       id: "bm-1",
-      name: "Glucose",
-      unit: "mg/dL",
-      lowerBound: 70,
-      upperBound: 100,
+      name: "Ferritin",
+      unit: "ng/mL",
+      lowerBound: 30,
+      upperBound: 400,
       panel: null,
+      analyteKey: null,
     });
 
     await expect(
@@ -69,6 +72,69 @@ describe("commitApprovedFact — OBSERVATION unit integrity", () => {
       commitApprovedFact("user-1", observationFact()),
     ).rejects.toBeInstanceOf(FactCommitError);
     expect(prisma.labResult.create).not.toHaveBeenCalled();
+  });
+
+  it("converts a unit the marker's analyte can reach, keeping what the document stated", async () => {
+    vi.mocked(decryptFactData).mockReturnValue({
+      label: "Glucose",
+      value: 6.1,
+      unit: "mmol/L",
+      referenceLow: 3.9,
+      referenceHigh: 5.6,
+      effectiveDate: "2025-01-01",
+    } as never);
+    vi.mocked(resolveOrMintBiomarker).mockResolvedValue({
+      id: "bm-1",
+      name: "Glucose",
+      unit: "mg/dL",
+      lowerBound: 70,
+      upperBound: 100,
+      panel: null,
+      analyteKey: "fasting-glucose",
+    });
+    vi.mocked(prisma.labResult.create).mockResolvedValue({
+      id: "lr-conv",
+    } as never);
+
+    const ref = await commitApprovedFact("user-1", observationFact());
+    expect(ref).toEqual({ recordType: "labResult", recordId: "lr-conv" });
+    const data = vi.mocked(prisma.labResult.create).mock.calls[0]![0].data;
+    expect(data.value).toBeCloseTo(6.1 * 18.0182, 9);
+    expect(data.unit).toBe("mg/dL");
+    expect(data.sourceValue).toBe(6.1);
+    expect(data.sourceUnit).toBe("mmol/L");
+    // The report's own window moved with the value.
+    expect(data.sourceReferenceLow).toBeCloseTo(3.9 * 18.0182, 9);
+    expect(data.sourceReferenceHigh).toBeCloseTo(5.6 * 18.0182, 9);
+  });
+
+  it("stores a reading in the marker's own unit without a conversion record", async () => {
+    vi.mocked(decryptFactData).mockReturnValue({
+      label: "Glucose",
+      value: 95,
+      unit: "mg/dL",
+      referenceLow: null,
+      referenceHigh: null,
+      effectiveDate: "2025-01-01",
+    } as never);
+    vi.mocked(resolveOrMintBiomarker).mockResolvedValue({
+      id: "bm-1",
+      name: "Glucose",
+      unit: "mg/dL",
+      lowerBound: null,
+      upperBound: null,
+      panel: null,
+      analyteKey: "fasting-glucose",
+    });
+    vi.mocked(prisma.labResult.create).mockResolvedValue({
+      id: "lr-same",
+    } as never);
+
+    await commitApprovedFact("user-1", observationFact());
+    const data = vi.mocked(prisma.labResult.create).mock.calls[0]![0].data;
+    expect(data.value).toBe(95);
+    expect(data.sourceValue).toBeNull();
+    expect(data.sourceUnit).toBeNull();
   });
 
   it("commits when the stated unit is the marker's unit spelled another way", async () => {
@@ -87,6 +153,7 @@ describe("commitApprovedFact — OBSERVATION unit integrity", () => {
       lowerBound: 70,
       upperBound: 100,
       panel: null,
+      analyteKey: null,
     });
     vi.mocked(prisma.labResult.create).mockResolvedValue({
       id: "lr-1",
@@ -124,6 +191,7 @@ describe("commitApprovedFact — OBSERVATION unit integrity", () => {
       lowerBound: null,
       upperBound: null,
       panel: null,
+      analyteKey: null,
     });
     vi.mocked(prisma.labResult.create).mockResolvedValue({
       id: "lr-2",

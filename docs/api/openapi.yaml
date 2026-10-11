@@ -14905,11 +14905,14 @@ paths:
         "403": *a11
         "409": *a7
         "422":
-          description: Nothing was written. `meta.errorCode` = `labs.create.invalid` when the body failed validation (every issue
+          description: "Nothing was written. `meta.errorCode` = `labs.create.invalid` when the body failed validation (every issue
             under `details.issues`), or `labs.unit.mismatch` when a numeric reading states a `unit` other than the one
-            its marker is tracked in (`meta.markerUnit`, `meta.readingUnit`). A unit is compared only when one is sent;
-            with a `biomarkerId` it may be omitted and the marker's unit is then the stated one. Spelling is forgiven
-            (`mmol/l`, `ug/L` for `µg/L`); a different unit is refused, never relabelled.
+            its marker is tracked in AND the pair cannot be converted (`meta.markerUnit`, `meta.readingUnit`,
+            `meta.reason` = `unknown_analyte` | `unknown_unit` | `not_finite`). A unit is compared only when one is
+            sent; with a `biomarkerId` it may be omitted and the marker's unit is then the stated one. Spelling is
+            forgiven (`mmol/l`, `ug/L` for `µg/L`); a different unit is converted when the marker's analyte is known and
+            the pair is in the unit-conversion registry (the 201 response then carries `converted: true`), and refused
+            otherwise, never relabelled."
           content:
             application/json:
               schema:
@@ -67394,6 +67397,16 @@ components:
             - type: "null"
         unit:
           type: string
+        converted:
+          type: boolean
+        sourceValue:
+          anyOf:
+            - type: number
+            - type: "null"
+        sourceUnit:
+          anyOf:
+            - type: string
+            - type: "null"
         referenceLow:
           anyOf:
             - type: number
@@ -67446,6 +67459,9 @@ components:
         - value
         - valueText
         - unit
+        - converted
+        - sourceValue
+        - sourceUnit
         - referenceLow
         - referenceHigh
         - catalogReferenceLow
@@ -67476,8 +67492,11 @@ components:
         numbers could be read out of it). `catalogReferenceLow` / `catalogReferenceHigh` are the Biomarker band.
         `referenceOrigin` names the winner and `referenceDivergesFromCatalog` is true when the report's window and the
         catalog band state different limits — a surface showing only one of the two is showing a partial answer. The
-        client renders these values and never recomputes the range. The encrypted note is never echoed in list rows;
-        `hasNote` flags its presence and the single-resource GET returns the decrypted `note`.
+        client renders these values and never recomputes the range. `converted` is true when the stored `value` was
+        converted into the marker's `unit` from another unit; `sourceValue` and `sourceUnit` are then what the report
+        printed (full precision, round for display), and the report's own window was converted with it. A reading stored
+        as stated has `converted: false` and two nulls. The encrypted note is never echoed in list rows; `hasNote` flags
+        its presence and the single-resource GET returns the decrypted `note`.
     LabReferenceRangeOrigin:
       type: string
       enum:
@@ -67556,6 +67575,16 @@ components:
             - type: "null"
         unit:
           type: string
+        converted:
+          type: boolean
+        sourceValue:
+          anyOf:
+            - type: number
+            - type: "null"
+        sourceUnit:
+          anyOf:
+            - type: string
+            - type: "null"
         referenceLow:
           anyOf:
             - type: number
@@ -67610,6 +67639,9 @@ components:
         - value
         - valueText
         - unit
+        - converted
+        - sourceValue
+        - sourceUnit
         - referenceLow
         - referenceHigh
         - catalogReferenceLow
@@ -67820,7 +67852,8 @@ components:
                   - duplicate
                   - unit_mismatch
                 description: "`duplicate`: the row matched a live reading at commit time. `unit_mismatch`: the row states a unit other
-                  than the one its marker is tracked in, so it was not written."
+                  than the one its marker is tracked in and the pair cannot be converted, so it was not written. A pair
+                  that can be converted is written in the marker's unit and reported with `converted: true`."
             required:
               - analyte
               - reason
@@ -67867,6 +67900,16 @@ components:
             - type: "null"
         unit:
           type: string
+        converted:
+          type: boolean
+        sourceValue:
+          anyOf:
+            - type: number
+            - type: "null"
+        sourceUnit:
+          anyOf:
+            - type: string
+            - type: "null"
         referenceLow:
           anyOf:
             - type: number
@@ -67928,6 +67971,9 @@ components:
         - value
         - valueText
         - unit
+        - converted
+        - sourceValue
+        - sourceUnit
         - referenceLow
         - referenceHigh
         - catalogReferenceLow
@@ -67945,6 +67991,8 @@ components:
         - updatedAt
       additionalProperties: false
       description: A written reading. Its reference window resolves exactly as it does on `/api/labs` — see `LabResult`.
+        `converted`, `sourceValue` and `sourceUnit` say when the row's unit was converted into its marker's and what the
+        report printed.
     AiRunEnvelope:
       type: object
       properties:

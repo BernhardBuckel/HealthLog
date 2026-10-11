@@ -38,6 +38,7 @@ describe("resolveOrMintBiomarker", () => {
       lowerBound: null,
       upperBound: 100,
       panel: "lipids",
+      analyteKey: null,
     });
 
     const out = await resolveOrMintBiomarker("u1", {
@@ -65,6 +66,7 @@ describe("resolveOrMintBiomarker", () => {
       lowerBound: null,
       upperBound: 116,
       panel: "lipids",
+      analyteKey: null,
     });
 
     const out = await resolveOrMintBiomarker("u1", baseInput);
@@ -90,6 +92,7 @@ describe("resolveOrMintBiomarker", () => {
       lowerBound: 30,
       upperBound: 400,
       panel: null,
+      analyteKey: null,
     });
 
     await resolveOrMintBiomarker("u1", {

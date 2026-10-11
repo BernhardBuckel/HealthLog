@@ -28,7 +28,7 @@ import { invalidateUserHealthScore } from "@/lib/cache/invalidate";
 import { emitDataArrival } from "@/lib/arrivals/emit-shared";
 import { decryptFactData } from "@/lib/documents/store";
 import { resolveOrMintBiomarker } from "@/lib/labs/biomarker-store";
-import { sameLabUnit } from "@/lib/labs/unit-normalise";
+import { readingInMarkerUnit } from "@/lib/labs/reading-conversion";
 import {
   isUnreadableRange,
   parseReferenceRange,
@@ -128,21 +128,44 @@ async function commitObservation(
     referenceHigh: isQualitative ? null : sourceHigh,
     panel: null,
   });
-  // Fail closed on a unit mismatch against an EXISTING marker. A freshly
-  // minted marker adopts the document's unit, so this only bites when the
-  // stated unit disagrees with the catalog's authoritative one (e.g. a
-  // document states "6.1 mmol/L" against a marker stored in mg/dL). Writing
-  // the stated number under the catalog's unit would corrupt the reading AND
-  // break the "transcribe verbatim" contract — so reject the fact and let the
-  // user reconcile on the review screen, exactly like the `unitRequired` gate.
+  // A unit that differs from an EXISTING marker's is converted when the
+  // marker's analyte is known and the registry has the pair (a document states
+  // "6.1 mmol/L" against a marker stored in mg/dL), keeping what the document
+  // stated beside the stored number. Otherwise it fails closed: writing the
+  // stated number under the catalog's unit would corrupt the reading AND break
+  // the "transcribe verbatim" contract — so reject the fact and let the user
+  // reconcile on the review screen, exactly like the `unitRequired` gate. A
+  // freshly minted marker adopts the document's unit, so it cannot disagree.
   // Spelling is compared through the shared normaliser, the same one the
   // manual and scan paths use: `ug/L` is `µg/L`, but `MIU/L` is not `mIU/L`.
+  let storedValue: number | null = isQualitative
+    ? null
+    : (data.value as number);
+  let storedSourceLow = isQualitative ? null : sourceLow;
+  let storedSourceHigh = isQualitative ? null : sourceHigh;
+  let convertedFrom: { sourceValue: number; sourceUnit: string } | null = null;
   if (!isQualitative) {
-    if (!sameLabUnit(data.unit as string, biomarker.unit)) {
+    const reading = await readingInMarkerUnit(prisma, {
+      marker: biomarker,
+      value: data.value as number,
+      unit: data.unit as string,
+      sourceReferenceLow: storedSourceLow,
+      sourceReferenceHigh: storedSourceHigh,
+    });
+    if (!reading.ok) {
       throw new FactCommitError(
         "observation.unitMismatch",
         `The stated unit (${(data.unit as string).trim()}) does not match the saved unit for ${biomarker.name} (${biomarker.unit || "none"}). Reconcile the unit before saving.`,
       );
+    }
+    storedValue = reading.value;
+    storedSourceLow = reading.sourceReferenceLow;
+    storedSourceHigh = reading.sourceReferenceHigh;
+    if (reading.converted) {
+      convertedFrom = {
+        sourceValue: reading.sourceValue,
+        sourceUnit: reading.sourceUnit,
+      };
     }
   }
   const created = await prisma.labResult.create({
@@ -151,15 +174,17 @@ async function commitObservation(
       biomarkerId: biomarker.id,
       panel: biomarker.panel,
       analyte: biomarker.name,
-      value: isQualitative ? null : (data.value as number),
+      value: storedValue,
       valueText: isQualitative ? data.valueText : null,
       unit: biomarker.unit,
+      sourceValue: convertedFrom?.sourceValue ?? null,
+      sourceUnit: convertedFrom?.sourceUnit ?? null,
       referenceLow: biomarker.lowerBound,
       referenceHigh: biomarker.upperBound,
       // The report's own window for THIS reading. A qualitative result has no
       // window to record.
-      sourceReferenceLow: isQualitative ? null : sourceLow,
-      sourceReferenceHigh: isQualitative ? null : sourceHigh,
+      sourceReferenceLow: storedSourceLow,
+      sourceReferenceHigh: storedSourceHigh,
       sourceReferenceText: isQualitative ? null : sourceText,
       takenAt: statedDateOrNow(data.effectiveDate),
       source: "DOCUMENT",

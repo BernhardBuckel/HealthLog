@@ -16,6 +16,14 @@ export interface LabResultDto {
   valueText: string | null;
   unit: string;
   /**
+   * True when the stored number was converted into the marker's unit from
+   * another one; `sourceValue` and `sourceUnit` are then what the report
+   * printed. A reading stored as stated has `converted: false` and two nulls.
+   */
+  converted: boolean;
+  sourceValue: number | null;
+  sourceUnit: string | null;
+  /**
    * The window this reading is judged against and the one `rangeStatus` was
    * computed from: the range its own report printed when it carries one, the
    * catalog band otherwise. Render these and the range shown always matches

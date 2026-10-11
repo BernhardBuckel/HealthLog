@@ -65,6 +65,7 @@ export interface MintedBiomarker {
   lowerBound: number | null;
   upperBound: number | null;
   panel: string | null;
+  analyteKey: string | null;
 }
 
 /**
@@ -102,6 +103,7 @@ export async function resolveOrMintBiomarker(
     lowerBound: true,
     upperBound: true,
     panel: true,
+    analyteKey: true,
   } as const;
 
   // Case-insensitive match on the catalog identity. Postgres is the store;
