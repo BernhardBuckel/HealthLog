@@ -12587,8 +12587,8 @@
   },
   "palette": {
     "title": "Cerca",
-    "description": "Trova una pagina, un’impostazione, un modulo o un’azione.",
-    "placeholder": "Cerca pagine, impostazioni, moduli…",
+    "description": "Trova una pagina, un’impostazione, un modulo, un’azione o una voce dei tuoi dati.",
+    "placeholder": "Cerca pagine, impostazioni, i tuoi dati…",
     "results": "Risultati",
     "noResults": "Nessun risultato per «{query}».",
     "moduleOn": "Attivo",
@@ -12602,7 +12602,8 @@
       "insights": "Insights",
       "settings": "Impostazioni",
       "modules": "Moduli",
-      "actions": "Azioni"
+      "actions": "Azioni",
+      "records": "Nei tuoi dati"
     },
     "actions": {
       "capture": "Nuova voce",
@@ -12610,6 +12611,28 @@
       "backup": "Crea un backup",
       "today": "Apri oggi",
       "shortcuts": "Mostra scorciatoie da tastiera"
+    },
+    "records": {
+      "loading": "Ricerca nei tuoi dati…",
+      "empty": "Niente nei tuoi dati per «{query}».",
+      "error": "Non è stato possibile cercare nei tuoi dati. Riprova tra un momento.",
+      "truncated": "Sono state cercate solo le voci più recenti.",
+      "kind": {
+        "visit": "Visita",
+        "condition": "Malattia",
+        "document": "Documento",
+        "vaccination": "Vaccinazione",
+        "lab": "Esame di laboratorio",
+        "medication": "Farmaco",
+        "symptom": "Sintomo",
+        "workout": "Allenamento",
+        "note": "Nota"
+      },
+      "source": {
+        "mood": "Nota sull’umore",
+        "measurement": "Nota su una misurazione",
+        "illness": "Diario di malattia"
+      }
     }
   },
   "shortcuts": {

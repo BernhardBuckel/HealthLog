@@ -12587,8 +12587,8 @@
   },
   "palette": {
     "title": "Recherche",
-    "description": "Trouver une page, un réglage, un module ou une action.",
-    "placeholder": "Rechercher des pages, réglages, modules…",
+    "description": "Trouver une page, un réglage, un module, une action ou une entrée de votre dossier.",
+    "placeholder": "Rechercher des pages, réglages, votre dossier…",
     "results": "Résultats",
     "noResults": "Aucun résultat pour « {query} ».",
     "moduleOn": "Activé",
@@ -12602,7 +12602,8 @@
       "insights": "Insights",
       "settings": "Paramètres",
       "modules": "Modules",
-      "actions": "Actions"
+      "actions": "Actions",
+      "records": "Dans votre dossier"
     },
     "actions": {
       "capture": "Nouvelle saisie",
@@ -12610,6 +12611,28 @@
       "backup": "Créer une sauvegarde",
       "today": "Ouvrir aujourd’hui",
       "shortcuts": "Afficher les raccourcis clavier"
+    },
+    "records": {
+      "loading": "Recherche dans votre dossier…",
+      "empty": "Rien dans votre dossier pour « {query} ».",
+      "error": "Votre dossier n’a pas pu être parcouru. Réessayez dans un instant.",
+      "truncated": "Seules les entrées les plus récentes ont été parcourues.",
+      "kind": {
+        "visit": "Consultation",
+        "condition": "Maladie",
+        "document": "Document",
+        "vaccination": "Vaccination",
+        "lab": "Résultat d’analyse",
+        "medication": "Médicament",
+        "symptom": "Symptôme",
+        "workout": "Entraînement",
+        "note": "Note"
+      },
+      "source": {
+        "mood": "Note d’humeur",
+        "measurement": "Note sur une mesure",
+        "illness": "Journal de maladie"
+      }
     }
   },
   "shortcuts": {

@@ -43,6 +43,7 @@ import { recordSettingsKeys } from "./record-settings";
 import { profileKeys } from "./profile";
 import { settingsKeys } from "./settings";
 import { timelineKeys } from "./timeline";
+import { searchKeys } from "./search";
 import { sharingKeys } from "./sharing";
 import { vaccinationKeys } from "./vaccinations";
 import { workoutKeys } from "./workouts";
@@ -80,6 +81,7 @@ export const queryKeys = {
   ...aiRunKeys,
   ...dayKeys,
   ...timelineKeys,
+  ...searchKeys,
 };
 
 export { recordSettingsKeys } from "./record-settings";

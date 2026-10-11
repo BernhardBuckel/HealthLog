@@ -19,12 +19,9 @@
  * on whole words of its text through the blind token index the vault search
  * uses. The document body itself is never read for a search.
  *
- * Ranking. Every query word scores the best field it hits (a title, label,
- * site, reason or practitioner counts more than a kind word or a side, which
- * counts more than a note or an indexed-text hit). Results order by how many
- * query words they matched, then by score, then by a fixed kind order, then
- * newest first, then by id: the same query over the same record always
- * returns the same list, which is what the offset cursor relies on.
+ * Ranking and folding live in `@/lib/search/match`, shared with the in-app
+ * search (`GET /api/search`), which reads its record kinds through
+ * `loadRecordCandidates` here as well: one matcher, one set of record reads.
  *
  * Module switches. A record kind whose module the account has off (or the
  * operator switched off) is not read at all: no row, no link, no count.
@@ -55,9 +52,7 @@ import {
   decryptIndexText,
   decryptVerbatimText,
   hashQueryTokens,
-  tokenise,
 } from "@/lib/documents/content-index";
-import { expandQueryTokens } from "@/lib/documents/search-synonyms";
 import { normalizeSearchText } from "@/lib/encounters/procedures";
 import { encounterKindLabel } from "@/lib/encounters/kind-label";
 import { getServerTranslator } from "@/lib/i18n/server-translator";
@@ -71,15 +66,18 @@ import {
   customLookupOf,
   resolveVaccineEntry,
 } from "@/lib/vaccinations/resolve-vaccine-entry";
+import {
+  MAX_QUERY_WORDS,
+  MIN_SUBSTRING_WORD,
+  WEIGHT,
+  queryWords,
+  type SearchCandidate,
+} from "@/lib/search/match";
 
 // ── Bounds ───────────────────────────────────────────────────────────
 
 /** Rows one search decrypts and matches, per record kind. */
 export const MAX_ROWS_PER_KIND = 500;
-/** Query words that take part in matching; the rest are ignored. */
-export const MAX_QUERY_WORDS = 8;
-/** Record results one search can return in total, across the four kinds. */
-export const MAX_RECORD_RESULTS = 50;
 /** Newest records per kind listed when the query is empty. */
 export const EMPTY_QUERY_PER_KIND = 10;
 /** Characters of indexed document text one `fetch` returns. */
@@ -125,251 +123,8 @@ async function readableKinds(userId: string): Promise<Set<RecordKind>> {
   return out;
 }
 
-// ── Matching and ranking (pure) ──────────────────────────────────────
-
-/** Field weights: what a query word hitting that field is worth. */
-export const WEIGHT = { primary: 3, secondary: 2, tertiary: 1 } as const;
-
-export interface SearchField {
-  text: string;
-  weight: number;
-}
-
-export interface SearchCandidate {
-  id: string;
-  title: string;
-  url: string;
-  /** Tie-break order between kinds; lower sorts first. */
-  kindOrder: number;
-  /** Epoch ms of the record's own date, newest first on a tie. */
-  date: number | null;
-  fields: SearchField[];
-  /** Query words the blind content index matched (documents only). */
-  contentWords?: ReadonlySet<string>;
-  /** True for the four record kinds; bounds `MAX_RECORD_RESULTS`. */
-  record?: boolean;
-}
-
-/**
- * Words the index tokeniser keeps but a search box does not need. The
- * tokeniser's own list already drops the common function words.
- */
-const QUERY_STOPWORDS: ReadonlySet<string> = new Set([
-  "mein",
-  "meine",
-  "meinen",
-  "meinem",
-  "meiner",
-  "mine",
-  "our",
-  "all",
-  "any",
-  "some",
-  "last",
-  "latest",
-  "recent",
-  "letzte",
-  "letzten",
-  "letzter",
-  "letztes",
-  "show",
-  "find",
-  "list",
-  "get",
-]);
-
-/**
- * Body parts, German and English, for matching a body site or a label. A site
- * is typed in the owner's language and the question often arrives in the
- * assistant's, so "knee" has to find "Knie". Search-time only and local to
- * this module; the document vault's synonym list is left as it is. Same
- * normal form as the tokeniser: lower case, accents stripped.
- */
-const BODY_PART_GROUPS: ReadonlyArray<ReadonlyArray<string>> = [
-  ["knee", "knees", "knie", "kniegelenk"],
-  ["shoulder", "shoulders", "schulter", "schultergelenk"],
-  ["hip", "hips", "hufte", "huftgelenk"],
-  ["ankle", "sprunggelenk", "knochel"],
-  ["foot", "feet", "fuss"],
-  ["hand", "hands", "hande"],
-  ["wrist", "handgelenk"],
-  ["elbow", "ellbogen", "ellenbogen"],
-  ["back", "rucken", "wirbelsaule", "spine"],
-  ["neck", "nacken", "hals"],
-  ["head", "kopf"],
-  ["eye", "eyes", "auge", "augen"],
-  ["ear", "ears", "ohr", "ohren"],
-  ["tooth", "teeth", "zahn", "zahne"],
-  ["heart", "herz"],
-  ["lung", "lungs", "lunge"],
-  ["stomach", "magen"],
-  ["bowel", "colon", "darm"],
-  ["skin", "haut"],
-  ["arm", "arms", "arme"],
-  ["leg", "legs", "bein", "beine"],
-  ["finger", "fingers"],
-  ["toe", "toes", "zeh", "zehe", "zehen"],
-  ["breast", "brust"],
-  ["thyroid", "schilddruse"],
-];
-
-const BODY_PART_BY_WORD: ReadonlyMap<string, ReadonlyArray<string>> = (() => {
-  const map = new Map<string, string[]>();
-  for (const group of BODY_PART_GROUPS) {
-    for (const word of group) map.set(word, [...group]);
-  }
-  return map;
-})();
-
-/** A query word's alternatives: the vault's synonyms plus body parts. */
-function synonymsOf(word: string): string[] {
-  const out = new Set([
-    ...expandQueryTokens([word]),
-    ...(BODY_PART_BY_WORD.get(word) ?? []),
-  ]);
-  out.delete(word);
-  return [...out];
-}
-
-/**
- * The words of a query that take part in matching: folded, split, short and
- * filler words dropped, deduplicated, capped.
- */
-export function queryWords(query: string): string[] {
-  return tokenise(normalizeSearchText(query))
-    .filter((word) => !QUERY_STOPWORDS.has(word))
-    .slice(0, MAX_QUERY_WORDS);
-}
-
-interface PreparedField {
-  folded: string;
-  tokens: ReadonlySet<string>;
-  weight: number;
-}
-
-function prepareField(field: SearchField): PreparedField {
-  const folded = normalizeSearchText(field.text);
-  return {
-    folded,
-    tokens: new Set(folded.split(/[^\p{L}\p{N}]+/u).filter(Boolean)),
-    weight: field.weight,
-  };
-}
-
-export interface CandidateScore {
-  /** Query words that hit anything. */
-  matched: number;
-  /** Sum of each matched word's best field weight, plus the phrase bonus. */
-  score: number;
-  /** The whole query appears as typed inside one field. */
-  phrase: boolean;
-}
-
-/** Bonus for the whole query appearing inside one field. */
-const PHRASE_BONUS = 5;
-
-/**
- * Score one candidate against the query.
- *
- * A word hits a field when the field contains it (so "knee" finds "Knee
- * replacement") or when one of its curated synonyms is a whole word of the
- * field (so "Zucker" finds "glucose"). Synonyms match whole words only: they
- * are wider than the word the person typed, and a substring match on them
- * would find "rate" inside "moderate".
- */
-/** Query words shorter than this match whole words or word starts only. */
-export const MIN_SUBSTRING_WORD = 4;
-
-/**
- * Whether a query word hits a field by its own spelling. A word of four
- * letters or more may sit anywhere ("knee" in "kneecap"); a shorter one has
- * to start a word, so "arm" finds "Arm" and "Armpit" but not "Darm" or "warm".
- */
-function hitsField(field: PreparedField, word: string): boolean {
-  if (word.length >= MIN_SUBSTRING_WORD) return field.folded.includes(word);
-  for (const token of field.tokens) if (token.startsWith(word)) return true;
-  return false;
-}
-
-export function scoreCandidate(
-  candidate: Pick<SearchCandidate, "fields" | "contentWords">,
-  words: readonly string[],
-  foldedQuery: string,
-): CandidateScore {
-  const fields = candidate.fields
-    .filter((f) => f.text.trim().length > 0)
-    .map(prepareField);
-  let matched = 0;
-  let score = 0;
-  for (const word of words) {
-    const synonyms = synonymsOf(word);
-    let best = 0;
-    for (const field of fields) {
-      if (field.weight <= best) continue;
-      if (hitsField(field, word) || synonyms.some((s) => field.tokens.has(s))) {
-        best = field.weight;
-      }
-    }
-    if (best < WEIGHT.tertiary && candidate.contentWords?.has(word)) {
-      best = WEIGHT.tertiary;
-    }
-    if (best > 0) {
-      matched += 1;
-      score += best;
-    }
-  }
-  const phrase =
-    foldedQuery.length > 0 &&
-    fields.some((field) =>
-      foldedQuery.includes(" ")
-        ? field.folded.includes(foldedQuery)
-        : hitsField(field, foldedQuery),
-    );
-  if (phrase) score += PHRASE_BONUS;
-  return { matched, score, phrase };
-}
-
-/**
- * Filter and order candidates for one query. Pure and deterministic.
- *
- * An empty query keeps every candidate. Otherwise a candidate stays when a
- * query word hit it or the whole query appears in one of its fields (the
- * substring match the older search kinds were built on, kept so a short
- * query like "hr" still finds what it found before).
- */
-export function rankCandidates(
-  candidates: readonly SearchCandidate[],
-  query: string,
-): SearchCandidate[] {
-  const foldedQuery = normalizeSearchText(query);
-  const words = queryWords(query);
-  const scored = candidates.flatMap((candidate) => {
-    if (!foldedQuery) {
-      return [{ candidate, matched: 0, score: 0 }];
-    }
-    const s = scoreCandidate(candidate, words, foldedQuery);
-    if (s.matched === 0 && !s.phrase) return [];
-    return [{ candidate, matched: s.matched, score: s.score }];
-  });
-  scored.sort(
-    (a, b) =>
-      b.matched - a.matched ||
-      b.score - a.score ||
-      a.candidate.kindOrder - b.candidate.kindOrder ||
-      (b.candidate.date ?? 0) - (a.candidate.date ?? 0) ||
-      (a.candidate.id < b.candidate.id
-        ? -1
-        : a.candidate.id > b.candidate.id
-          ? 1
-          : 0),
-  );
-  let records = 0;
-  return scored.flatMap(({ candidate }) => {
-    if (!candidate.record) return [candidate];
-    records += 1;
-    return records <= MAX_RECORD_RESULTS ? [candidate] : [];
-  });
-}
+// ── Matching and ranking ─────────────────────────────────────────────
+// Shared with the in-app search; see `@/lib/search/match`.
 
 // ── Labels ───────────────────────────────────────────────────────────
 
@@ -500,17 +255,49 @@ const KIND_ORDER: Record<RecordKind, number> = {
 interface Owner {
   locale: Locale;
   timezone: string;
+  /** The language of the in-app display data (`SearchCandidate.hit`). */
+  display: Locale;
 }
 
-async function loadOwner(userId: string): Promise<Owner> {
+async function loadOwner(userId: string, display?: Locale): Promise<Owner> {
   const row = await prisma.user.findUnique({
     where: { id: userId },
     select: { locale: true, timezone: true },
   });
+  const locale = resolveLocale(row?.locale);
   return {
-    locale: resolveLocale(row?.locale),
+    locale,
     timezone: row?.timezone ?? DEFAULT_TIMEZONE,
+    display: display ?? locale,
   };
+}
+
+/** The in-app path of one record: `recordUrl` without an origin. */
+export function recordPath(kind: RecordKind, id: string): string {
+  return recordUrl("", kind, id);
+}
+
+/** "left Knee" in the display language, or the site alone. */
+function sitePhrase(
+  site: string | null,
+  laterality: Laterality | null,
+  display: Locale,
+): string | null {
+  if (!site) return null;
+  if (!laterality) return site;
+  const key =
+    laterality === "LEFT"
+      ? "encounters.laterality.left"
+      : laterality === "RIGHT"
+        ? "encounters.laterality.right"
+        : "encounters.laterality.both";
+  return `${site} (${getServerTranslator(display).t(key)})`;
+}
+
+function compact(values: ReadonlyArray<string | null | undefined>): string[] {
+  return values
+    .map((v) => v?.replace(/\s+/g, " ").trim() ?? "")
+    .filter((v) => v.length > 0);
 }
 
 function visitTitle(args: {
@@ -583,6 +370,8 @@ async function visitCandidates(
     const outcome = decryptText(row.outcomeEncrypted);
     const bodySite = decryptText(row.bodySiteEncrypted);
     const day = userDayKey(row.occurredAt, owner.timezone);
+    const kindLabel = encounterKindLabel(row.kind, owner.display);
+    const title = reason?.replace(/\s+/g, " ").trim() || null;
     return {
       id: `visit:${row.id}`,
       title: visitTitle({
@@ -597,9 +386,21 @@ async function visitCandidates(
       kindOrder: KIND_ORDER.visit,
       date: row.occurredAt.getTime(),
       record: true,
+      hit: {
+        kind: "visit",
+        recordId: row.id,
+        title: title ?? kindLabel,
+        context: compact([
+          title ? kindLabel : null,
+          practitioner?.name,
+          sitePhrase(bodySite, row.laterality, owner.display),
+        ]),
+        day,
+        path: recordPath("visit", row.id),
+      },
       fields: [
         { text: bodySite ?? "", weight: WEIGHT.primary },
-        { text: reason ?? "", weight: WEIGHT.primary },
+        { text: reason ?? "", weight: WEIGHT.primary, body: true },
         { text: practitioner?.name ?? "", weight: WEIGHT.primary },
         { text: practitioner?.specialty ?? "", weight: WEIGHT.primary },
         {
@@ -616,7 +417,7 @@ async function visitCandidates(
           text: sideTerms(row.laterality, owner.locale) ?? "",
           weight: WEIGHT.secondary,
         },
-        { text: outcome ?? "", weight: WEIGHT.secondary },
+        { text: outcome ?? "", weight: WEIGHT.secondary, body: true },
       ],
     };
   });
@@ -696,6 +497,17 @@ async function conditionCandidates(
       kindOrder: KIND_ORDER.condition,
       date: row.onsetAt.getTime(),
       record: true,
+      hit: {
+        kind: "condition",
+        recordId: row.id,
+        title: row.label,
+        context: compact([
+          illnessTypeLabel(row.type, owner.display),
+          sitePhrase(bodySite, row.laterality, owner.display),
+        ]),
+        day,
+        path: recordPath("condition", row.id),
+      },
       fields: [
         { text: row.label, weight: WEIGHT.primary },
         { text: bodySite ?? "", weight: WEIGHT.primary },
@@ -736,6 +548,7 @@ const DOCUMENT_SELECT = {
 async function contentMatches(
   userId: string,
   words: readonly string[],
+  includeAiDeferred: boolean,
 ): Promise<Map<string, Set<string>>> {
   const byDocument = new Map<string, Set<string>>();
   await Promise.all(
@@ -747,8 +560,12 @@ async function contentMatches(
           userId,
           searchTokens: { hasSome: hashes },
           // A document held back from AI reading is not searched by its
-          // text over this wire either; its title and kind still are.
-          document: { deletedAt: null, aiReadDeferred: false },
+          // text over MCP either; its title and kind still are. The person's
+          // own in-app search is not an AI surface and reads it.
+          document: {
+            deletedAt: null,
+            ...(includeAiDeferred ? {} : { aiReadDeferred: false }),
+          },
         },
         select: { documentId: true },
         take: MAX_ROWS_PER_KIND,
@@ -790,6 +607,7 @@ async function documentCandidates(
   take: number,
   query: string,
   words: readonly string[],
+  includeAiDeferred: boolean,
 ): Promise<SearchCandidate[]> {
   const nameTerms = documentNameTerms(query, words);
   const [rows, content, named] = await Promise.all([
@@ -800,7 +618,7 @@ async function documentCandidates(
       take,
     }),
     words.length > 0
-      ? contentMatches(userId, words)
+      ? contentMatches(userId, words, includeAiDeferred)
       : Promise.resolve(new Map<string, Set<string>>()),
     // Title and file name are plaintext columns, so an older document is
     // found by them in SQL, the way the vault list finds it.
@@ -849,6 +667,22 @@ async function documentCandidates(
       kindOrder: KIND_ORDER.document,
       date: (dated ?? row.createdAt).getTime(),
       record: true,
+      hit: {
+        kind: "document",
+        recordId: row.id,
+        title:
+          row.title ??
+          row.filename ??
+          documentKindLabel(row.kind, owner.display),
+        context: compact([
+          documentKindLabel(row.kind, owner.display),
+          row.title ? row.filename : null,
+        ]),
+        day: dated
+          ? dateOnly(dated)
+          : userDayKey(row.createdAt, owner.timezone),
+        path: recordPath("document", row.id),
+      },
       contentWords: content.get(row.id),
       fields: [
         { text: row.title ?? "", weight: WEIGHT.primary },
@@ -899,6 +733,19 @@ async function vaccinationCandidates(
       kindOrder: KIND_ORDER.vaccination,
       date: row.occurredAt.getTime(),
       record: true,
+      hit: {
+        kind: "vaccination",
+        recordId: row.id,
+        title:
+          row.vaccineName ??
+          vaccineCatalogName(row.antigenSlug, owner.display) ??
+          own?.name ??
+          row.antigenSlug ??
+          null,
+        context: compact([practitioner?.name]),
+        day,
+        path: recordPath("vaccination", row.id),
+      },
       fields: [
         { text: row.vaccineName ?? "", weight: WEIGHT.primary },
         {
@@ -927,29 +774,60 @@ async function vaccinationCandidates(
   });
 }
 
+export interface RecordSearchOptions {
+  /**
+   * The kinds to read. Defaults to the account's module switches; the in-app
+   * search passes its own set, narrowed by the module map and by the
+   * sections a delegate's grant covers.
+   */
+  kinds?: ReadonlySet<RecordKind>;
+  /** The language of `SearchCandidate.hit`; defaults to the owner's. */
+  displayLocale?: Locale;
+  /**
+   * Match a document's indexed text even when it was held back from AI
+   * reading. Only the person's own in-app search sets it; MCP never does.
+   */
+  includeAiDeferredText?: boolean;
+  /** Newest rows read per kind; defaults to `MAX_ROWS_PER_KIND`. */
+  rowsPerKind?: number;
+}
+
 /**
  * Every record candidate this account can see for one query. Unranked; the
- * caller ranks them together with the older search kinds.
+ * caller ranks them together with its other kinds.
  */
 export async function loadRecordCandidates(
   userId: string,
   query: string,
   origin: string,
+  options: RecordSearchOptions = {},
 ): Promise<SearchCandidate[]> {
   const words = queryWords(query);
   const empty = normalizeSearchText(query).length === 0;
-  const take = empty ? EMPTY_QUERY_PER_KIND : MAX_ROWS_PER_KIND;
+  const take = empty
+    ? EMPTY_QUERY_PER_KIND
+    : (options.rowsPerKind ?? MAX_ROWS_PER_KIND);
   const [kinds, owner] = await Promise.all([
-    readableKinds(userId),
-    loadOwner(userId),
+    options.kinds ? Promise.resolve(options.kinds) : readableKinds(userId),
+    loadOwner(userId, options.displayLocale),
   ]);
   const groups = await Promise.all([
-    visitCandidates(userId, owner, origin, take, empty),
+    kinds.has("visit")
+      ? visitCandidates(userId, owner, origin, take, empty)
+      : Promise.resolve([]),
     kinds.has("condition")
       ? conditionCandidates(userId, owner, origin, take)
       : Promise.resolve([]),
     kinds.has("document")
-      ? documentCandidates(userId, owner, origin, take, query, words)
+      ? documentCandidates(
+          userId,
+          owner,
+          origin,
+          take,
+          query,
+          words,
+          options.includeAiDeferredText === true,
+        )
       : Promise.resolve([]),
     kinds.has("vaccination")
       ? vaccinationCandidates(userId, owner, origin, take)

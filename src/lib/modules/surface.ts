@@ -52,6 +52,8 @@ import type { ModuleKey } from "@/lib/modules/registry";
  *    day loader blanks a section whose owner is off, and the views drop it.
  *  - `timeline-lane`: a lane of the timeline, by its `TimelineLaneKey`; the
  *    readiness inventory leaves it out the same way.
+ *  - `search`: a source the in-app record search reads, by its
+ *    `SearchSourceKey`. A source whose owner is off is not read at all.
  */
 export const SURFACE_KINDS = [
   "nav",
@@ -68,6 +70,7 @@ export const SURFACE_KINDS = [
   "score-ring",
   "day-section",
   "timeline-lane",
+  "search",
 ] as const;
 
 export type SurfaceKind = (typeof SURFACE_KINDS)[number];
@@ -247,6 +250,21 @@ const STATIC_SURFACE_MODULE = {
   "timeline-lane:labs": "labs",
   "timeline-lane:documents": "inboundDocuments",
   "timeline-lane:cycle": "cycle",
+
+  // ── Record search sources (v1.42.2) ──
+  // Visits are core. Notes on readings follow the owner of the reading's
+  // type and are filtered item by item, like the timeline's `life` lane.
+  "search:condition": "illness",
+  "search:document": "inboundDocuments",
+  "search:vaccination": "vaccinations",
+  "search:labAnalyte": "labs",
+  "search:labNote": "labs",
+  "search:medication": "medications",
+  "search:symptom": "illness",
+  "search:symptomNote": "illness",
+  "search:workout": "workouts",
+  "search:moodNote": "mood",
+  "search:illnessNote": "illness",
 } as const satisfies Record<string, ModuleKey>;
 
 /** A surface id the map declares literally. */

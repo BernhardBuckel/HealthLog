@@ -90,10 +90,12 @@ import {
   fetchRecord,
   isRecordKind,
   loadRecordCandidates,
+} from "@/lib/mcp/record-search";
+import {
   rankCandidates,
   WEIGHT as SEARCH_WEIGHT,
   type SearchCandidate,
-} from "@/lib/mcp/record-search";
+} from "@/lib/search/match";
 import type { McpAuthContext } from "./auth";
 import { dueSchedules } from "@/lib/medications/intake-tracking";
 import { liveEraStartsByMedication } from "@/lib/medications/scheduling/live-era";

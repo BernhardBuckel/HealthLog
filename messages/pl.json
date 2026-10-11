@@ -12587,8 +12587,8 @@
   },
   "palette": {
     "title": "Szukaj",
-    "description": "Znajdź stronę, ustawienie, moduł lub akcję.",
-    "placeholder": "Szukaj stron, ustawień, modułów…",
+    "description": "Znajdź stronę, ustawienie, moduł, akcję lub wpis w swoich danych.",
+    "placeholder": "Szukaj stron, ustawień, swoich wpisów…",
     "results": "Wyniki",
     "noResults": "Brak wyników dla „{query}”.",
     "moduleOn": "Wł.",
@@ -12602,7 +12602,8 @@
       "insights": "Insights",
       "settings": "Ustawienia",
       "modules": "Moduły",
-      "actions": "Akcje"
+      "actions": "Akcje",
+      "records": "W twoich wpisach"
     },
     "actions": {
       "capture": "Nowy wpis",
@@ -12610,6 +12611,28 @@
       "backup": "Utwórz kopię zapasową",
       "today": "Otwórz dzisiaj",
       "shortcuts": "Pokaż skróty klawiszowe"
+    },
+    "records": {
+      "loading": "Przeszukiwanie twoich wpisów…",
+      "empty": "Brak wyników w twoich wpisach dla „{query}”.",
+      "error": "Nie udało się przeszukać twoich wpisów. Spróbuj ponownie za chwilę.",
+      "truncated": "Przeszukano tylko najnowsze wpisy.",
+      "kind": {
+        "visit": "Wizyta",
+        "condition": "Choroba",
+        "document": "Dokument",
+        "vaccination": "Szczepienie",
+        "lab": "Wynik badania",
+        "medication": "Lek",
+        "symptom": "Objaw",
+        "workout": "Trening",
+        "note": "Notatka"
+      },
+      "source": {
+        "mood": "Notatka o nastroju",
+        "measurement": "Notatka do pomiaru",
+        "illness": "Dziennik choroby"
+      }
     }
   },
   "shortcuts": {
