@@ -111,7 +111,10 @@ beforeEach(() => {
 describe("POST /api/search", () => {
   it("admits the whole record only, at read", async () => {
     await handler(request("q=schulter"));
-    expect(mocks.requireRecordAuth).toHaveBeenCalledWith("read", "record");
+    // A POST that only reads, declared as such.
+    expect(mocks.requireRecordAuth).toHaveBeenCalledWith("read", "record", {
+      readOverPost: true,
+    });
   });
 
   it("propagates a refused admission without searching", async () => {

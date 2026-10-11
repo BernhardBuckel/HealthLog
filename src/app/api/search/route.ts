@@ -56,7 +56,11 @@ function displayLocale(value: string | null | undefined): Locale {
 }
 
 export const POST = apiHandler(async (request: NextRequest) => {
-  const { user, actor, grantId } = await requireRecordAuth("read", "record");
+  // A POST that only reads: the query rides the body to stay out of URLs, and
+  // a read grant on the whole record is what it needs, as it was over GET.
+  const { user, actor, grantId } = await requireRecordAuth("read", "record", {
+    readOverPost: true,
+  });
 
   const rl = await checkRateLimit(
     `search:${actor.id}`,

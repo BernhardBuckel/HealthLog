@@ -889,6 +889,19 @@ export interface RecordAuthOptions {
    * else.
    */
   readonly scope?: string;
+  /**
+   * v1.42.2 — this route answers a POST without changing anything: the body
+   * carries a query that must not stand in a URL (the record search, whose
+   * text is health data a proxy's access log would otherwise keep). Under a
+   * route declaring `"read"`, a POST is then read at the grant's read level
+   * instead of being escalated to a write.
+   *
+   * Like `scope`, naming it is a WIDENING and is frozen by
+   * `read-over-post-guard.test.ts`, so it lands in a reviewed diff. It does
+   * nothing for any other method, and nothing for a route declaring a need
+   * above `"read"`.
+   */
+  readonly readOverPost?: true;
 }
 
 /**
@@ -980,8 +993,11 @@ export async function requireRecordAuth(
   }
 
   const method = (getEvent()?.getHttpMethod() ?? "").toUpperCase();
+  const readsOnly =
+    READ_HTTP_METHODS.has(method) ||
+    (options?.readOverPost === true && method === "POST");
   const effectiveNeed: GrantNeed =
-    need !== "read" || !READ_HTTP_METHODS.has(method) ? escalate(need) : "read";
+    need !== "read" || !readsOnly ? escalate(need) : "read";
 
   return resolveSwitchedRecord(auth, carrier, (grant) => {
     if (!grantAllows(grant, effectiveNeed)) return "insufficient_access";
